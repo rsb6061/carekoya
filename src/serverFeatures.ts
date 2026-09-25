@@ -1,4 +1,4 @@
-import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, interviewConfirmedEmail } from './email';
+import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
@@ -47,7 +47,7 @@ function startsLabel(startsAt:string,timeZone:string){
 }
 function icsStamp(date:Date){return date.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z')}
 function icsEscape(value:string){return value.replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n')}
-function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;startsAt:string;duration:number}){
+function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;caregiverEmail:string;employerEmail:string;startsAt:string;duration:number}){
   const start=new Date(input.startsAt);
   const end=new Date(start.getTime()+input.duration*60000);
   return [
@@ -55,7 +55,10 @@ function interviewIcs(input:{uid:string;title:string;company:string;caregiver:st
     'BEGIN:VEVENT',`UID:${icsEscape(input.uid)}@carejoys.com`,`DTSTAMP:${icsStamp(new Date())}`,`DTSTART:${icsStamp(start)}`,`DTEND:${icsStamp(end)}`,
     `SUMMARY:${icsEscape('CareJoys interview — '+input.title)}`,
     `DESCRIPTION:${icsEscape('Interview between '+input.company+' and '+input.caregiver+'. Employer will provide meeting format or location.')}`,
-    'END:VEVENT','END:VCALENDAR'
+    `ORGANIZER;CN=${icsEscape(input.company)}:mailto:${icsEscape(input.employerEmail)}`,
+    `ATTENDEE;CN=${icsEscape(input.caregiver)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${icsEscape(input.caregiverEmail)}`,
+    `ATTENDEE;CN=${icsEscape(input.company)};ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:${icsEscape(input.employerEmail)}`,
+    'STATUS:CONFIRMED','SEQUENCE:0','END:VEVENT','END:VCALENDAR'
   ].join('\r\n');
 }
 
@@ -136,13 +139,13 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv){
   await env.DB.prepare('UPDATE employer_leads SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(record.employer_id).run();
   return json({ok:true},{
     status:200,
-    headers:{'Set-Cookie':`cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`}
+    headers:{'Set-Cookie':`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`}
   });
 }
 
 export async function employerSession(request:Request,env:FeatureEnv){
   if(!env.DB)return null;
-  const token=cookie(request,'cj_session');
+  const token=cookie(request,'__Host-cj_session')||cookie(request,'cj_session');
   if(!token)return null;
   const hash=await sha256Hex(token);
   const row=await env.DB.prepare("SELECT e.id,e.company_name,e.contact_name,e.email,e.phone,e.zip,e.roles_needed,e.status,s.id AS session_id FROM employer_sessions s JOIN employer_leads e ON e.id=s.employer_id WHERE s.session_hash=? AND datetime(s.expires_at)>datetime('now') AND e.status!='disabled' LIMIT 1").bind(hash).first<Record<string,unknown>>();
@@ -161,13 +164,13 @@ export async function sessionResponse(request:Request,env:FeatureEnv){
 
 export async function logoutEmployer(request:Request,env:FeatureEnv){
   if(env.DB){
-    const token=cookie(request,'cj_session');
+    const token=cookie(request,'__Host-cj_session')||cookie(request,'cj_session');
     if(token){
       const hash=await sha256Hex(token);
       await env.DB.prepare('DELETE FROM employer_sessions WHERE session_hash=?').bind(hash).run();
     }
   }
-  return json({ok:true},{headers:{'Set-Cookie':'cj_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'}});
+  return json({ok:true},{headers:{'Set-Cookie':'__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'}});
 }
 
 export async function employerOwnsWorkspace(request:Request,env:FeatureEnv,workspaceId:string){
@@ -204,7 +207,8 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
     });
     try{
       const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
-      await env.DB.prepare("UPDATE candidate_pipeline SET stage='contacted',contacted_at=CURRENT_TIMESTAMP,response_token_hash=?,response_sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(hash,row.pipeline_id).run();
+      const responseExpiresAt=new Date(Date.now()+14*86400000).toISOString();
+      await env.DB.prepare("UPDATE candidate_pipeline SET stage='contacted',contacted_at=CURRENT_TIMESTAMP,response_token_hash=?,response_sent_at=CURRENT_TIMESTAMP,response_expires_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(hash,responseExpiresAt,row.pipeline_id).run();
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?)")
         .bind(crypto.randomUUID(),row.caregiver_id,openingId,result.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
       sent++;
@@ -249,13 +253,14 @@ async function responseRecord(env:FeatureEnv,token:string){
   const hash=await sha256Hex(token);
   return env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.stage,cp.response_value,cp.interview_booked_at,cp.opening_id,
     c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email,c.work_status,
+    cp.employer_notified_interest_at,
     o.title,o.role,o.city,o.state,o.zip,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,
     e.id AS employer_id,e.company_name,e.contact_name,e.email AS employer_email
     FROM candidate_pipeline cp
     JOIN caregivers c ON c.id=cp.caregiver_id
     JOIN openings o ON o.id=cp.opening_id
     JOIN employer_leads e ON e.id=o.employer_id
-    WHERE cp.response_token_hash=? LIMIT 1`).bind(hash).first<Record<string,unknown>>();
+    WHERE cp.response_token_hash=? AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now')) LIMIT 1`).bind(hash).first<Record<string,unknown>>();
 }
 
 export async function getCandidateResponse(url:URL,env:FeatureEnv){
@@ -284,6 +289,25 @@ export async function submitCandidateResponse(request:Request,env:FeatureEnv){
     await env.DB.prepare("UPDATE caregivers SET work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.caregiver_id).run();
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,'actively_looking','job_interest',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),row.caregiver_id).run();
+    if(env.EMAIL&&!row.employer_notified_interest_at&&emailValid(clean(row.employer_email,320))){
+      const slotCount=await env.DB.prepare("SELECT COUNT(*) AS count FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now')").bind(row.opening_id).first<{count:number}>();
+      const caregiverName=publicName(row.first_name,row.last_name,row.display_name);
+      const location=[clean(row.city,120),clean(row.state,80),clean(row.zip,20)].filter(Boolean).join(', ');
+      const notice=employerCandidateInterestedEmail({
+        recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',
+        caregiverName,
+        title:clean(row.title,200),
+        location,
+        appLink:'https://carejoys.com/app',
+        hasInterviewSlots:asNumber(slotCount?.count)>0
+      });
+      try{
+        const sent=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
+        await env.DB.prepare("UPDATE candidate_pipeline SET employer_notified_interest_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
+        await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','employer_interest_notice',?,?)")
+          .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,sent.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
+      }catch{}
+    }
   }else{
     await env.DB.prepare("UPDATE candidate_pipeline SET stage='rejected',response_value='not_interested',response_at=CURRENT_TIMESTAMP,responded_at=CURRENT_TIMESTAMP,rejected_reason='caregiver_not_interested',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
   }
@@ -307,7 +331,7 @@ export async function bookCandidateInterview(request:Request,env:FeatureEnv){
 
   const caregiverName=publicName(row.first_name,row.last_name,row.display_name);
   const label=startsLabel(clean(slot.starts_at,80),clean(slot.timezone,80));
-  const ics=interviewIcs({uid:String(row.pipeline_id),title:clean(row.title,200),company:clean(row.company_name,200),caregiver:caregiverName,startsAt:clean(slot.starts_at,80),duration:asNumber(slot.duration_minutes)||30});
+  const ics=interviewIcs({uid:String(row.pipeline_id),title:clean(row.title,200),company:clean(row.company_name,200),caregiver:caregiverName,caregiverEmail:clean(row.email,320),employerEmail:clean(row.employer_email,320),startsAt:clean(slot.starts_at,80),duration:asNumber(slot.duration_minutes)||30});
   const attachment={content:new TextEncoder().encode(ics),filename:'carejoys-interview.ics',type:'text/calendar; charset=utf-8; method=REQUEST',disposition:'attachment' as const};
   const caregiverEmail=interviewConfirmedEmail({recipientName:clean(row.first_name,100)||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
   const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
