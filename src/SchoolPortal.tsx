@@ -81,21 +81,50 @@ export function SchoolAuth(){
 export function SchoolDashboard(){
   const [data,setData]=useState<any>(null);
   const [error,setError]=useState('');
-  const [copied,setCopied]=useState(false);
-  useEffect(()=>{
-    api<any>('/api/school/dashboard').then(setData).catch(e=>setError(e instanceof Error?e.message:'Sign in required'));
-  },[]);
-  async function logout(){await api('/api/school/logout',{method:'POST'});window.location.href='/'}
-  async function copy(){
-    if(data?.school?.referralUrl){await navigator.clipboard.writeText(data.school.referralUrl);setCopied(true);setTimeout(()=>setCopied(false),1800)}
+  const [copied,setCopied]=useState('');
+  const [cohortOpen,setCohortOpen]=useState(false);
+  const [savingCohort,setSavingCohort]=useState(false);
+  const [message,setMessage]=useState('');
+
+  async function load(){
+    try{setData(await api<any>('/api/school/dashboard'));setError('')}
+    catch(e){setError(e instanceof Error?e.message:'Sign in required')}
   }
+  useEffect(()=>{void load()},[]);
+  async function logout(){await api('/api/school/logout',{method:'POST'});window.location.href='/'}
+  async function copy(url:string,key:string){
+    if(!url)return;
+    await navigator.clipboard.writeText(url);
+    setCopied(key);
+    setTimeout(()=>setCopied(''),1800);
+  }
+  async function createCohort(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();setSavingCohort(true);setMessage('');
+    const fd=new FormData(e.currentTarget);
+    try{
+      await api('/api/school/cohorts',{method:'POST',body:JSON.stringify({
+        name:String(fd.get('name')||''),
+        expectedGraduationDate:String(fd.get('expectedGraduationDate')||''),
+        expectedGraduates:Number(fd.get('expectedGraduates')||0)||null
+      })});
+      setMessage('Cohort created. Its referral link is ready to share.');
+      setCohortOpen(false);
+      await load();
+    }catch(e){setMessage(e instanceof Error?e.message:'Could not create cohort')}
+    finally{setSavingCohort(false)}
+  }
+
   if(error)return <div className="app-empty"><div className="app-wrap"><div className="beta-hero app-empty-card"><div className="modal-kicker">School dashboard</div><h1>Sign in required.</h1><p>{error}</p></div></div></div>;
   if(!data)return <div className="loading-screen">Loading CareJoys…</div>;
-  const s=data.stats||{},school=data.school||{};
+  const s=data.stats||{},school=data.school||{},cohorts=data.cohorts||[];
+
   return <div>
     <header className="app-header"><div className="app-wrap header-inner"><a className="brand" href="/">CareJoys</a><nav className="app-nav"><button className="nav-button" onClick={logout}>Sign out</button></nav></div></header>
     <main className="app-wrap app-content">
-      <section className="page-head"><div className="modal-kicker">Training program placement dashboard</div><h1>{school.name}</h1><p>{[school.providerType,school.city,school.state].filter(Boolean).join(' · ')}</p></section>
+      <section className="page-head page-head-row">
+        <div><div className="modal-kicker">Training program placement dashboard</div><h1>{school.name}</h1><p>{[school.providerType,school.city,school.state].filter(Boolean).join(' · ')}</p></div>
+        <div className="header-action"><button className="button" onClick={()=>setCohortOpen(true)}>+ New cohort</button></div>
+      </section>
 
       <div className="school-stats">
         <div className="settings-card"><strong>{s.signups||0}</strong><span>Graduate signups</span></div>
@@ -105,13 +134,40 @@ export function SchoolDashboard(){
         <div className="settings-card"><strong>{s.hires||0}</strong><span>Hires</span></div>
       </div>
 
-      <section className="section-block"><div className="section-heading"><h2>Your graduate referral link</h2><p>Share this with current students and graduates. CareJoys attributes downstream placement activity back to your program.</p></div>
-        <div className="settings-card referral-box"><code>{school.referralUrl}</code><button className="button" onClick={copy}>{copied?'Copied':'Copy link'}</button></div>
+      {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
+
+      <section className="section-block"><div className="section-heading"><h2>Program referral link</h2><p>Use this for general referrals. CareJoys attributes downstream placement activity back to your program.</p></div>
+        <div className="settings-card referral-box"><code>{school.referralUrl}</code><button className="button" onClick={()=>copy(school.referralUrl,'program')}>{copied==='program'?'Copied':'Copy link'}</button></div>
+      </section>
+
+      <section className="section-block">
+        <div className="section-heading"><h2>Cohorts</h2><p>Create a separate link for each graduating class so you can see which cohorts generate interviews and hires.</p></div>
+        {cohorts.length===0?<div className="empty"><strong>No cohorts yet.</strong><div>Create one for your next graduating class.</div></div>:
+        <div className="job-list">{cohorts.map((cohort:any,i:number)=><article className={'job-card '+['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][i%4]} key={cohort.id}>
+          <div className="job-card-main">
+            <div className="job-card-title-row"><h3>{cohort.name}</h3></div>
+            <div className="job-meta">{[cohort.expectedGraduationDate?('Graduation '+cohort.expectedGraduationDate):'',cohort.expectedGraduates?cohort.expectedGraduates+' expected graduates':''].filter(Boolean).join(' · ')}</div>
+            <div className="job-badges"><span className="badge">{cohort.signups||0} signups</span><span className="badge">{cohort.interested||0} interested</span><span className="badge">{cohort.interviews||0} interviews</span><span className="status applied">{cohort.hires||0} hires</span></div>
+            <div className="referral-inline"><code>{cohort.referralUrl}</code></div>
+          </div>
+          <div className="job-card-side"><button className="button secondary" onClick={()=>copy(cohort.referralUrl,cohort.id)}>{copied===cohort.id?'Copied':'Copy link'}</button></div>
+        </article>)}</div>}
       </section>
 
       <section className="section-block"><div className="section-heading"><h2>How attribution works</h2><p>CareJoys tracks each referred caregiver from profile creation through interested employer, booked interview, and recorded hire.</p></div>
-        <div className="pipeline-legend"><span>Program referral</span><b>→</b><span>Caregiver profile</span><b>→</b><span>Employer interest</span><b>→</b><span>Interview</span><b>→</b><span>Hire</span></div>
+        <div className="pipeline-legend"><span>Program / cohort</span><b>→</b><span>Caregiver profile</span><b>→</b><span>Employer interest</span><b>→</b><span>Interview</span><b>→</b><span>Hire</span></div>
       </section>
+
+      {cohortOpen&&<div className="modal-backdrop" onMouseDown={()=>setCohortOpen(false)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>
+        <button className="modal-close" onClick={()=>setCohortOpen(false)}>×</button>
+        <div className="modal-kicker">New graduating cohort</div><h2>Create a trackable referral link.</h2>
+        <p className="modal-intro">Use one cohort per class or graduation period. The link will attribute signups, interviews, and hires to that group.</p>
+        <form className="intake-form" onSubmit={createCohort}>
+          <label>Cohort name<input name="name" required placeholder="Spring 2027 CNA class" /></label>
+          <div className="form-grid"><label>Expected graduation<input type="date" name="expectedGraduationDate" /></label><label>Expected graduates<input type="number" min="1" max="1000" name="expectedGraduates" /></label></div>
+          <button className="button submit-button" disabled={savingCohort}>{savingCohort?'Creating…':'Create cohort link'}</button>
+        </form>
+      </div></div>}
     </main>
   </div>;
 }
