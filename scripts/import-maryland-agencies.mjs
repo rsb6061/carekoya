@@ -48,7 +48,7 @@ function rowsFor(input){
     const services=input.type==='rsa'?clean(row['Home Health Care Services']):'';
     const legalName=input.type==='hha'?clean(row['Legal Name']):'';
     const relevance=classify(input.type,services);
-    const sourceKey='license:'+normalize(license);
+    const sourceKey=['license:'+normalize(license),'org:'+normalize(name),'address:'+normalize(row['Street Address']),'city:'+normalize(row['City'])].join('|');
     return {
       id:idFor(input.source,sourceKey),
       source:input.source,sourceKey,
