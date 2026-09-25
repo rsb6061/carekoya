@@ -38,3 +38,10 @@
 .response-actions .btn{min-width:150px}
 .activation-success h2{font-family:var(--display);font-size:34px;font-weight:400;letter-spacing:-.03em;margin:8px 0 10px}
 @media(max-width:620px){.opportunity-summary>div{grid-template-columns:1fr}.response-actions .btn{width:100%}}
+
+
+.candidate-preview-list{display:grid;gap:10px;margin:22px 0}
+.candidate-preview{display:flex;flex-direction:column;gap:4px;background:#f6f3ff;border:1px solid var(--lavender);border-radius:18px;padding:15px 17px}
+.candidate-preview strong{font-size:16px}.candidate-preview span{font-size:14px;line-height:1.5;color:var(--muted)}
+.agency-source-note{display:flex;flex-direction:column;gap:4px;background:#fffdf9;border:1px solid var(--lavender);border-radius:18px;padding:15px 17px;margin:20px 0}
+.agency-source-note span{font-size:13px;color:var(--muted)}
