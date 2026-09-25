@@ -39,13 +39,17 @@ jobs:
 
       - name: Onboard carejoys.com to Email Sending
         run: |
-          RESPONSE=$(curl --silent --show-error --fail-with-body \
+          RESPONSE=$(curl --silent --show-error \
             -X POST \
             "https://api.cloudflare.com/client/v4/zones/${{ steps.zone.outputs.zone_id }}/email/sending/subdomains" \
             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             -H "Content-Type: application/json" \
             --data '{"name":"carejoys.com"}')
           echo "$RESPONSE" | jq '{success,result:{name:.result.name,enabled:.result.enabled,dkim_selector:.result.dkim_selector,return_path_domain:.result.return_path_domain},errors}'
+          SUCCESS=$(echo "$RESPONSE" | jq -r '.success // false')
+          if [ "$SUCCESS" != "true" ]; then
+            exit 1
+          fi
 
       - name: Verify Email Sending domain
         run: |
