@@ -126,3 +126,29 @@ export function cloudflareEmailTest() {
     text:'CareJoys email is live. This message was sent directly from the CareJoys Cloudflare Worker using Cloudflare Email Service.'
   };
 }
+
+
+export function agencyCandidateTeaserEmail(input:{
+  contactName:string;
+  agencyName:string;
+  candidateCount:number;
+  previews:Array<{role:string;area:string;experience:string;freshness:string}>;
+  claimLink:string;
+}) {
+  const rows=input.previews.slice(0,3).map(p=>`
+    <div style="background:#f6f3ff;border:1px solid #d8d2ff;border-radius:16px;padding:13px 15px;margin:9px 0">
+      <div style="font-weight:700;color:#1b153c">${esc(p.role||'Caregiver')}</div>
+      <div style="font-size:14px;line-height:1.5;color:#6e6882">${[p.area,p.experience,p.freshness].filter(Boolean).map(esc).join(' · ')}</div>
+    </div>`).join('');
+  return {
+    subject:`CareJoys found ${input.candidateCount} caregiver match${input.candidateCount===1?'':'es'} for ${input.agencyName}`,
+    html:shell(`Caregiver matches near ${input.agencyName}`,`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.contactName||'there')},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">CareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to your agency based on location, caregiver role, and your Maryland provider profile.</p>
+      ${rows}
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">These previews are intentionally de-identified. Claim your agency to review the matching profiles, confirm what you hire for, and contact interested caregivers through CareJoys.</p>
+      <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Review caregiver matches</a></p>
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">Your first 5 interested caregiver candidates are free during the CareJoys pilot.</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your Maryland provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free during the CareJoys pilot.\n\nCareJoys · carejoys.com`
+  };
+}
