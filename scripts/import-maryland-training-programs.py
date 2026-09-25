@@ -109,6 +109,8 @@ def extract(pdf_path):
             if addr: address_parts.append(addr)
 
         name=clean(" ".join(dict.fromkeys(name_parts)))
+        name=re.sub(r"\s+Freestandi(?:ng)?\b"," ",name,flags=re.I)
+        name=clean(name)
         provider_blob=clean(" ".join(provider_parts))
         address_blob=clean(" ".join(address_parts))
         full_window=clean(" ".join(window))
@@ -138,8 +140,10 @@ def extract(pdf_path):
         renewal=date_values[1] if len(date_values)>1 else ""
         trailing=clean(tail[dates[1].end():]) if len(dates)>1 else ""
 
-        # Address/city may straddle the provider/address columns, so parse location from the whole window.
-        city,state,zip_code=parse_city_state_zip(full_window)
+        # Prefer the address column for geography; fall back to the whole row only when needed.
+        city,state,zip_code=parse_city_state_zip(address_blob)
+        if not zip_code:
+            city,state,zip_code=parse_city_state_zip(full_window)
         address=address_blob or full_window
         key=key_for(name,address,program_type)
         if key in seen: continue
