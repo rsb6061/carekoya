@@ -50,7 +50,22 @@ jobs:
             /tmp/maryland-training-programs.sql
 
       - name: Import training programs
-        run: npx wrangler d1 execute DB --remote --file=/tmp/maryland-training-programs.sql
+        run: |
+          mkdir -p /tmp/training-sql-chunks
+          python - <<'PY'
+          from pathlib import Path
+          sql=Path('/tmp/maryland-training-programs.sql').read_text()
+          statements=[s.strip()+';' for s in sql.split(';') if s.strip()]
+          batch=40
+          out=Path('/tmp/training-sql-chunks')
+          for i in range(0,len(statements),batch):
+              (out/f'chunk-{i//batch:03d}.sql').write_text('\n'.join(statements[i:i+batch]))
+          print(f'Wrote {(len(statements)+batch-1)//batch} chunks for {len(statements)} statements')
+          PY
+          for file in /tmp/training-sql-chunks/chunk-*.sql; do
+            echo "Importing $file"
+            npx wrangler d1 execute DB --remote --file="$file"
+          done
 
       - name: Deactivate stale program referral links
         run: |
