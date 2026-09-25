@@ -1,3 +1,4 @@
+import { caregiverActivationEmail, cloudflareEmailTest, type EmailBinding } from './email';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -16,16 +17,6 @@ interface EmailSendResult {
   permanent_bounces?: string[];
   suppressed_recipients?: string[];
   message_id?: string;
-}
-interface EmailBinding {
-  send(message: {
-    from: string;
-    to: string | string[];
-    subject: string;
-    html?: string;
-    text?: string;
-    replyTo?: string;
-  }): Promise<EmailSendResult>;
 }
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
