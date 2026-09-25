@@ -4,8 +4,10 @@ import './workspace.css';
 
 type Opening={
   id:string;title:string;role:string;city?:string;state?:string;zip?:string;
-  pay_min?:number;pay_max?:number;shift_preferences?:string;status?:string;
+  pay_min?:number;pay_max?:number;shift_preferences?:string;status?:string;source?:string;agency_organization_id?:string;
 };
+type AgencyMatch={caregiverId:string;name:string;city?:string;state?:string;role?:string;certifications?:string;yearsExperience?:number;desiredWage?:string;shifts?:string;fitScore:number;freshness?:string};
+type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]};
 type Candidate={
   id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
   certifications?:string;specialties?:string;yearsExperience?:number;desiredWage?:string;
@@ -64,7 +66,8 @@ export function EmployerWorkspace(){
   const [openings,setOpenings]=useState<Opening[]>([]);
   const [pipeline,setPipeline]=useState<PipelineRow[]>([]);
   const [candidates,setCandidates]=useState<Candidate[]>([]);
-  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'>('openings');
+  const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'>('openings');
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [filters,setFilters]=useState({role:'',zip:'',state:'',freshness:'all'});
@@ -84,6 +87,9 @@ export function EmployerWorkspace(){
       const data=await api<any>('/api/workspace');
       setWorkspace(data.workspace);setOpenings(data.openings||[]);
       const p=await api<any>('/api/pipeline');setPipeline(p.pipeline||[]);
+      const network=await api<AgencyNetwork>('/api/agency/network');
+      setAgencyNetwork(network);
+      if(network.agency&&!workspace)setTab('hiring');
     }catch(e){
       if(e instanceof Error&&e.message==='Sign in required')setSession(null);
       else setMessage(e instanceof Error?e.message:'Could not load workspace');
@@ -133,6 +139,28 @@ export function EmployerWorkspace(){
       setSlotsFor(null);setSlotInputs([{startsAt:'',durationMinutes:30}]);
     }catch(error){setMessage(error instanceof Error?error.message:'Could not save interview times')}
   }
+  async function saveHiringProfile(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    const fd=new FormData(e.currentTarget);
+    const data={
+      hiringStatus:String(fd.get('hiringStatus')||'unknown'),
+      roles:String(fd.get('roles')||''),
+      shifts:String(fd.get('shifts')||''),
+      payMin:Number(fd.get('payMin')||0)||null,
+      payMax:Number(fd.get('payMax')||0)||null,
+      serviceRadiusMiles:Number(fd.get('serviceRadiusMiles')||0)||null,
+      serviceAreas:String(fd.get('serviceAreas')||''),
+      transportationRequired:fd.get('transportationRequired')==='on',
+      requirements:String(fd.get('requirements')||'')
+    };
+    setMessage('Saving your hiring profile and refreshing matches…');
+    try{
+      await api('/api/agency/hiring-profile',{method:'POST',body:JSON.stringify(data)});
+      setMessage('Hiring profile confirmed. CareJoys is now continuously matching your agency to caregivers.');
+      await refreshWorkspace();
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not save hiring profile')}
+  }
+
   async function logout(){
     await api('/api/auth/logout',{method:'POST'});setSession(null);setWorkspace(null);setOpenings([]);setPipeline([]);
   }
@@ -147,6 +175,7 @@ export function EmployerWorkspace(){
     <header className="app-header"><div className="app-wrap header-inner">
       <a className="brand" href="/app">CareJoys</a>
       <nav className="app-nav">
+        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring profile</button>}
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>setTab('openings')}>Openings</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')}>Talent network</button>
         <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>setTab('pipeline')}>Pipeline</button>
@@ -162,11 +191,50 @@ export function EmployerWorkspace(){
       <div className="pipeline-legend"><span>Matched</span><b>→</b><span>Contacted</span><b>→</b><span>Interested</span><b>→</b><span>Interview booked</span><b>→</b><span>Hired</span></div>
       {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
 
+      {tab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
+        <div className="section-heading"><h2>Always-on hiring profile</h2><p>Confirm this once. CareJoys continuously scores the caregiver network against it; specific openings remain optional for urgent needs.</p></div>
+        <div className="agency-profile-grid">
+          <div className="settings-card agency-profile-card">
+            <div className="modal-kicker">Licensed provider</div>
+            <h3>{agencyNetwork.agency.name}</h3>
+            <div className="job-meta">{[agencyNetwork.agency.city,agencyNetwork.agency.state,agencyNetwork.agency.providerTypes].filter(Boolean).join(' · ')}</div>
+            <div className="job-badges">
+              <span className="badge">{agencyNetwork.agency.currentHiringSignal==='hiring_detected'?'Careers page shows hiring':agencyNetwork.agency.currentHiringSignal||'Hiring unknown'}</span>
+              {agencyNetwork.agency.website&&<a className="text-link" href={agencyNetwork.agency.website} target="_blank">Website ↗</a>}
+              {agencyNetwork.agency.careersUrl&&<a className="text-link" href={agencyNetwork.agency.careersUrl} target="_blank">Careers ↗</a>}
+            </div>
+            <p className="field-note">State licensing data and website hiring signals are labeled as inferred until you confirm them here.</p>
+          </div>
+          <form className="settings-card intake-form" onSubmit={saveHiringProfile} key={agencyNetwork.hiringProfile?.updated_at||'profile'}>
+            <div className="form-grid">
+              <label>Hiring status<select name="hiringStatus" defaultValue={agencyNetwork.hiringProfile?.hiring_status||'unknown'}><option value="always_hiring">Always hiring good caregivers</option><option value="hiring">Hiring now</option><option value="not_hiring">Not hiring right now</option><option value="unknown">Not sure</option></select></label>
+              <label>Roles<input name="roles" defaultValue={agencyNetwork.hiringProfile?.roles||agencyNetwork.agency.inferredRoles||''} placeholder="CNA, HHA, PCA, Caregiver" /></label>
+            </div>
+            <div className="form-grid"><label>Min pay / hr<input name="payMin" type="number" defaultValue={agencyNetwork.hiringProfile?.pay_min||''} /></label><label>Max pay / hr<input name="payMax" type="number" defaultValue={agencyNetwork.hiringProfile?.pay_max||''} /></label></div>
+            <div className="form-grid"><label>Shifts<input name="shifts" defaultValue={agencyNetwork.hiringProfile?.shifts||''} placeholder="Days, nights, weekends" /></label><label>Service radius<input name="serviceRadiusMiles" type="number" defaultValue={agencyNetwork.hiringProfile?.service_radius_miles||''} placeholder="25" /></label></div>
+            <label>Service areas<input name="serviceAreas" defaultValue={agencyNetwork.hiringProfile?.service_areas||[agencyNetwork.agency.city,agencyNetwork.agency.state].filter(Boolean).join(', ')} placeholder="Baltimore County, Towson, Timonium…" /></label>
+            <label>Requirements<textarea name="requirements" rows={3} defaultValue={agencyNetwork.hiringProfile?.requirements||''} placeholder="Credentials, experience, schedule, client requirements…" /></label>
+            <label className="check-row"><input type="checkbox" name="transportationRequired" defaultChecked={!!agencyNetwork.hiringProfile?.transportation_required} /><span>Reliable transportation required</span></label>
+            <button className="button">Confirm hiring profile</button>
+          </form>
+        </div>
+
+        <div className="section-heading agency-match-head"><h2>Continuous matches</h2><p>{agencyNetwork.matches.length} caregivers currently score against this hiring profile. Confirmed availability ranks above older unconfirmed profiles.</p></div>
+        {agencyNetwork.matches.length===0?<div className="empty"><strong>No local matches yet.</strong><div>CareJoys will keep this profile active and surface new caregivers as the network grows.</div></div>:
+        <div className="job-list">{agencyNetwork.matches.slice(0,20).map((m,i)=><article className={'job-card '+cardTone(i)} key={m.caregiverId}>
+          <div className="job-card-main"><div className="job-card-title-row"><h3>{m.name}</h3></div>
+          <div className="job-meta">{[m.role,m.city,m.state].filter(Boolean).join(' · ')}</div>
+          <div className="job-badges"><span className="badge">{m.fitScore}% fit</span><span className="status">{m.freshness}</span>{m.desiredWage&&<span className="badge">{m.desiredWage}</span>}</div>
+          {m.certifications&&<div className="job-card-cue">{m.certifications}</div>}</div>
+        </article>)}</div>}
+        <div className="agency-next-action"><p>To contact these matches, confirm the hiring profile above. CareJoys creates an always-on recruiting pipeline that uses the same Interested → Interview booked flow as a specific opening.</p></div>
+      </section>}
+
       {tab==='openings'&&<section className="section-block"><div className="section-heading"><h2>Openings</h2><p>Create a role, match the network, add interview times, then contact the strongest candidates.</p></div>
       {openings.length===0?<div className="empty"><strong>No openings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>setShowOpening(true)}>Create opening</button></div></div>:
       <div className="job-list">{openings.map((o,i)=><article key={o.id} className={'job-card '+cardTone(i)}>
         <div className="job-card-main"><div className="job-card-title-row"><h3>{o.title}</h3></div><div className="job-meta">{[o.role,o.city,o.state,o.zip].filter(Boolean).join(' · ')}</div>
-        <div className="job-badges">{o.shift_preferences&&<span className="badge">{o.shift_preferences}</span>}{(o.pay_min||o.pay_max)&&<span className="badge">{'$'+(o.pay_min||'—')+'–$'+(o.pay_max||'—')+'/hr'}</span>}<span className="status">{o.status||'open'}</span></div></div>
+        <div className="job-badges">{o.shift_preferences&&<span className="badge">{o.shift_preferences}</span>}{(o.pay_min||o.pay_max)&&<span className="badge">{'$'+(o.pay_min||'—')+'–$'+(o.pay_max||'—')+'/hr'}</span>}<span className="status">{o.source==='agency_profile'?'Always-on profile':(o.status||'open')}</span></div></div>
         <div className="job-card-side opening-actions"><button className="job-card-action" onClick={()=>runMatch(o.id)}>Find matches</button><button className="button secondary" onClick={()=>setSlotsFor(o)}>Interview times</button><button className="button secondary" onClick={()=>contact(o.id)}>Contact top 5</button></div>
       </article>)}</div>}</section>}
 
