@@ -118,7 +118,7 @@ async function handleHealth(env: Env) {
     const caregiverCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM caregivers").first<{count:number}>();
     const employerCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM employer_leads").first<{count:number}>();
     const schoolCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM school_leads").first<{count:number}>();
-    return json({ ok:true, service:"carejoys", build:"legacy-migration-v1", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0)}, timestamp:new Date().toISOString() });
+    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0)}, timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
   }
@@ -245,50 +245,6 @@ async function updatePipeline(workspaceId:string,pipelineId:string,request:Reque
   return json({ok:true});
 }
 
-async function importLegacy(request:Request,env:Env){
-  if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
-  const existing=await env.DB.prepare("SELECT COUNT(*) AS count FROM caregivers").first<{count:number}>();
-  if(Number(existing?.count||0)!==0) return json({ok:false,error:"Legacy bootstrap is already closed"},{status:409});
-  const data=await readJson(request);
-  if(clean(data?.migration,80)!=="carekoya-legacy-47") return json({ok:false,error:"Invalid migration payload"},{status:400});
-  const profiles=Array.isArray(data?.profiles)?data!.profiles as Record<string,unknown>[]:[];
-  if(profiles.length!==47) return json({ok:false,error:"Expected exactly 47 legacy profiles"},{status:400});
-  let imported=0, skipped=0;
-  for(const p of profiles){
-    const legacyId=clean(p.id,120);
-    const display=clean(p.displayName,160)||"Caregiver";
-    if(!legacyId){skipped++;continue;}
-    const parts=display.split(/\s+/).filter(Boolean);
-    const first=parts[0]||"Caregiver";
-    const last=parts.length>1?parts.slice(1).join(" "):"";
-    const certs=Array.isArray(p.certifications)?(p.certifications as unknown[]).map(x=>clean(x,100)).filter(Boolean):[];
-    const specialties=Array.isArray(p.specialties)?(p.specialties as unknown[]).map(x=>clean(x,120)).filter(Boolean):[];
-    const languages=Array.isArray(p.languages)?(p.languages as unknown[]).map(x=>clean(x,80)).filter(Boolean):[];
-    const availability=Array.isArray(p.availabilityTypes)?(p.availabilityTypes as unknown[]).map(x=>clean(x,80)).filter(Boolean):[];
-    const certText=certs.join(" ").toLowerCase();
-    const role=certText.includes("cna")?"CNA":certText.includes("home health aide")?"HHA":certText.includes("personal care aide")?"PCA":"Caregiver";
-    await env.DB.prepare(`INSERT INTO caregivers
-      (id,legacy_floot_id,first_name,last_name,display_name,email,phone,city,state,zip,role,certifications,specialties,languages,bio,years_experience,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,willing_to_drive,profile_photo_url,source,source_detail,work_status,last_confirmed_at,sms_consent,is_active,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'Floot CareKoya profile','unknown',NULL,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-      ON CONFLICT(legacy_floot_id) DO UPDATE SET
-        display_name=excluded.display_name,email=excluded.email,phone=excluded.phone,city=excluded.city,state=excluded.state,zip=excluded.zip,
-        role=excluded.role,certifications=excluded.certifications,specialties=excluded.specialties,languages=excluded.languages,bio=excluded.bio,
-        years_experience=excluded.years_experience,hourly_rate_min=excluded.hourly_rate_min,hourly_rate_max=excluded.hourly_rate_max,
-        shift_preferences=excluded.shift_preferences,travel_distance_miles=excluded.travel_distance_miles,willing_to_drive=excluded.willing_to_drive,
-        profile_photo_url=excluded.profile_photo_url,updated_at=CURRENT_TIMESTAMP`)
-      .bind(
-        crypto.randomUUID(),legacyId,first,last,display,clean(p.email,320).toLowerCase()||null,clean(p.phone,40)||null,
-        clean(p.city,120)||null,clean(p.state,80)||null,clean(p.zip,20)||null,role,
-        JSON.stringify(certs),JSON.stringify(specialties),JSON.stringify(languages),clean(p.bio,2000)||null,
-        Number(p.yearsExperience||0)||null,Number(p.hourlyRateMin||0)||null,Number(p.hourlyRateMax||0)||null,
-        availability.join(", ")||null,Number(p.travelDistanceMiles||0)||null,p.willingToDrive===true?1:0,clean(p.profilePhotoUrl,1000)||null,
-        "legacy_carekoya"
-      ).run();
-    imported++;
-  }
-  return json({ok:true,imported,skipped});
-}
-
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -297,8 +253,6 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);
-    if(request.method==="GET"&&url.pathname==="/api/internal/bootstrap-legacy-47") return json({ok:true,ready:true});
-    if(request.method==="POST"&&url.pathname==="/api/internal/bootstrap-legacy-47") return importLegacy(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m) return getWorkspace(m[1],env);
