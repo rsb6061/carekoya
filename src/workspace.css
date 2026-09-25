@@ -90,3 +90,6 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .referral-box{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .referral-box code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;color:var(--ink)}
 @media(max-width:860px){.school-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.referral-box{align-items:stretch;flex-direction:column}}
+
+.referral-inline{margin-top:12px;max-width:100%;overflow:auto}
+.referral-inline code{display:block;font-size:12px;line-height:1.5;color:var(--muted);background:#fffdf9;border:1px solid var(--lavender);border-radius:12px;padding:9px 11px;white-space:nowrap}
