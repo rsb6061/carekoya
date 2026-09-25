@@ -392,7 +392,6 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/school/auth/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifySchoolMagic(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/school/dashboard") return schoolDashboard(request,env);
     if(request.method==="POST"&&url.pathname==="/api/school/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return schoolLogout(request,env); }
-    if(request.method==="POST"&&url.pathname==="/api/internal/school-outreach") return schoolOutreachAdmin(request,env);
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
