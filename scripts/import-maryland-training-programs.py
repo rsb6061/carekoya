@@ -155,7 +155,10 @@ def main():
     for r in active: providers[r["provider_type"]]=providers.get(r["provider_type"],0)+1
     print(json.dumps({"sourceUpdated":updated,"parsedRows":len(records),"activePrograms":len(active),"activeProviderTypes":providers},sort_keys=True))
 
-    statements=[f"UPDATE training_programs SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE source={esc(SOURCE)};"]
+    statements=[
+        "UPDATE school_referral_codes SET status='inactive',updated_at=CURRENT_TIMESTAMP WHERE training_program_id IN (SELECT id FROM training_programs WHERE source='maryland_mbon_natp');",
+        f"UPDATE training_programs SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE source={esc(SOURCE)};"
+    ]
     for r in records:
         statements.append(f"""INSERT INTO training_programs (
           id,source,source_key,program_name,provider_type,address,city,state,zip,current_status,program_type,
