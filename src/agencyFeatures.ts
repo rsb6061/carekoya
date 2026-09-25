@@ -151,7 +151,7 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
       FROM caregivers c
       CROSS JOIN agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
-      WHERE c.id=? AND c.is_active=1 AND upper(coalesce(c.state,''))='MD' AND ao.is_active=1
+      WHERE c.id=? AND c.is_active=1 AND (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)) AND ao.is_active=1
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
@@ -176,7 +176,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
           WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
           WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
           WHEN lower(coalesce(ao.state,''))=lower(coalesce(c.state,'')) AND ao.state!='' THEN 15
-          WHEN upper(coalesce(c.state,''))='MD' THEN 10
+          WHEN (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)) THEN 10
           ELSE 0 END AS geography_score,
         CASE
           WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
@@ -192,7 +192,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       CROSS JOIN caregivers c
       WHERE ao.is_active=1 AND c.is_active=1
         AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
-        AND upper(coalesce(c.state,''))='MD'
+        AND (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219))
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(PARTITION BY caregiver_id ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
