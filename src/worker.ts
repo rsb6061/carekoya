@@ -20,6 +20,7 @@ interface Env {
   EMAIL?: EmailBinding;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  SCHOOL_OUTREACH_KEY?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -369,6 +370,14 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
+async function schoolOutreachAdmin(request:Request,env:Env){
+  const key=request.headers.get("x-carejoys-school-key")||"";
+  if(!env.SCHOOL_OUTREACH_KEY||key!==env.SCHOOL_OUTREACH_KEY)return json({ok:false,error:"Unauthorized"},{status:401});
+  const data=await readJson(request);
+  const limit=Math.max(1,Math.min(5,Number(data?.limit||3)||3));
+  return json({ok:true,...await sendSchoolOutreachBatch(env,limit)});
+}
+
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -388,6 +397,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/school/auth/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifySchoolMagic(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/school/dashboard") return schoolDashboard(request,env);
     if(request.method==="POST"&&url.pathname==="/api/school/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return schoolLogout(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/internal/school-outreach") return schoolOutreachAdmin(request,env);
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
