@@ -169,6 +169,20 @@ async function handleEmployer(request: Request, env: Env) {
   await sendEmployerMagicLink(env,id);
   return json({ok:true,checkEmail:true,email},{status:201});
 }
+async function getPublicTrainingProgram(slug:string,env:Env){
+  if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+  const row=await env.DB.prepare(`SELECT tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.program_type,tp.current_status,src.slug
+    FROM school_referral_codes src
+    JOIN training_programs tp ON tp.id=src.training_program_id
+    WHERE src.slug=? AND src.status='active' AND tp.is_active=1
+    LIMIT 1`).bind(slug).first<Record<string,unknown>>();
+  if(!row)return json({ok:false,error:"Training program not found"},{status:404});
+  return json({ok:true,program:{
+    name:row.program_name,providerType:row.provider_type,city:row.city,state:row.state,zip:row.zip,
+    programType:row.program_type,slug:row.slug
+  }});
+}
+
 async function handleCaregiver(request: Request, env: Env) {
   if (!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
@@ -365,6 +379,8 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
+    let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
+    if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
       if(!(await employerSession(request,env))) return json({ok:false,error:"Sign in required"},{status:401});
       return searchCandidates(url,env);
