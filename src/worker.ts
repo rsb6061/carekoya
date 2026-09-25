@@ -1,7 +1,7 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { listPublicTrainingPrograms, publicSchoolProgram, requestSchoolAccess, verifySchoolMagic, schoolDashboard, schoolLogout } from './schoolFeatures';
+import { listPublicTrainingPrograms, publicSchoolProgram, requestSchoolAccess, verifySchoolMagic, schoolDashboard, schoolLogout, sendSchoolOutreachBatch } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -459,9 +459,8 @@ export default {
         await scoreAgencyMatches(env);
         return;
       }
-      if(event.cron==="23 14 * * *"){
-        await scoreAgencyMatches(env);
-        await sendAgencyTeaserBatch(env,5);
+      if(event.cron==="41 15 * * *"){
+        await sendSchoolOutreachBatch(env,3);
       }
     })());
   }
