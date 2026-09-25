@@ -88,6 +88,9 @@ jobs:
                 AND lower(trim(ao.canonical_name))=lower(trim(training_programs.program_name))
             );"
 
+      - name: Seed verified training program contacts
+        run: npx wrangler d1 execute DB --remote --file=scripts/seed-training-program-contacts.sql
+
       - name: Verify program supply universe
         run: |
           npx wrangler d1 execute DB --remote --command="SELECT provider_type,COUNT(*) AS active_programs FROM training_programs WHERE source='maryland_mbon_natp' AND is_active=1 GROUP BY provider_type ORDER BY active_programs DESC;"
