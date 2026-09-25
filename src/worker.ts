@@ -138,8 +138,11 @@ async function handleHealth(env: Env) {
     const schoolCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM school_leads").first<{count:number}>();
     const agencyCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agencies WHERE is_active=1").first<{count:number}>();
     const matchableAgencyCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agencies WHERE is_active=1 AND caregiver_match_eligible=1").first<{count:number}>();
-    const agencyOrgCount = await env.DB.prepare("SELECT COUNT(DISTINCT organization_key) AS count FROM agencies WHERE is_active=1").first<{count:number}>();
-    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0)}, timestamp:new Date().toISOString() });
+    const agencyOrgCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1").first<{count:number}>();
+    const agencyMatchCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches").first<{count:number}>();
+    const agencyDomainCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND primary_domain IS NOT NULL AND primary_domain!=''").first<{count:number}>();
+    const enrichedAgencyCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND last_enriched_at IS NOT NULL").first<{count:number}>();
+    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0)}, timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
   }
