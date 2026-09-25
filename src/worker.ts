@@ -333,12 +333,11 @@ async function sendActivationEmail(env:Env, caregiver:Record<string,unknown>){
 
   try{
     const result=await env.EMAIL.send({
-      from:"CareJoys <hello@carejoys.com>",
+      from:"CareJoys <updates@carejoys.com>",
       to:email,
       subject:body.subject,
       html:body.html,
-      text:body.text,
-      replyTo:"hello@carejoys.com"
+      text:body.text
     });
     const delivered=(result.delivered||[]).includes(email);
     const queued=(result.queued||[]).includes(email);
@@ -373,7 +372,7 @@ async function activationEmailAdmin(request:Request,env:Env){
     const body=cloudflareEmailTest();
     try{
       const result=await env.EMAIL.send({
-        from:"CareJoys <hello@carejoys.com>",
+        from:"CareJoys <updates@carejoys.com>",
         to:testEmail,
         subject:body.subject,
         html:body.html,
