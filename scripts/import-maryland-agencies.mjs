@@ -74,7 +74,7 @@ for(const {input,records} of groups){
   console.log(input.type.toUpperCase(), 'rows=',records.length,'emails=',emails,'caregiver_match_eligible=',eligible);
 }
 
-const statements=['PRAGMA foreign_keys = ON;','BEGIN TRANSACTION;'];
+const statements=['PRAGMA foreign_keys = ON;'];
 for(const {input} of groups){
   statements.push(`UPDATE agencies SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE source=${sql(input.source)};`);
 }
@@ -98,7 +98,6 @@ for(const {records} of groups){
       caregiver_match_eligible=excluded.caregiver_match_eligible,source_as_of_date=excluded.source_as_of_date;`);
   }
 }
-statements.push('COMMIT;');
 fs.writeFileSync(outputPath,statements.join('\n'));
 console.log('TOTAL rows=',groups.reduce((n,g)=>n+g.records.length,0));
 console.log('SQL written=',outputPath);
