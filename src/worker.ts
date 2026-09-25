@@ -19,6 +19,18 @@ interface Env {
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
 }
+function sameOriginWrite(request:Request){
+  const origin=request.headers.get("origin");
+  if(!origin)return true;
+  try{
+    const host=new URL(origin).hostname.toLowerCase();
+    return host==="carejoys.com"||host==="www.carejoys.com"||host.endsWith(".workers.dev")||host==="localhost"||host==="127.0.0.1";
+  }catch{return false}
+}
+function rejectCrossSiteWrite(request:Request){
+  return sameOriginWrite(request)?null:json({ok:false,error:"Cross-site request blocked"},{status:403});
+}
+
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
     ...init,
@@ -334,7 +346,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
     if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env);
     if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/auth/logout") return logoutEmployer(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEmployer(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
@@ -346,10 +358,60 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
-    if(request.method==="POST"&&url.pathname==="/api/respond") return submitCandidateResponse(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/respond/interview") return bookCandidateInterview(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/respond"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return submitCandidateResponse(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/respond/interview"){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      return bookCandidateInterview(request,env);
+    }
 
-    let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
+    // Canonical employer APIs are session-scoped. Workspace IDs never need to be supplied by the browser.
+    if(request.method==="GET"&&url.pathname==="/api/workspace"){
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return getWorkspace(String(employer.id),env);
+    }
+    if(request.method==="POST"&&url.pathname==="/api/openings"){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return createOpening(String(employer.id),request,env);
+    }
+    let m=url.pathname.match(/^\/api\/openings\/([^/]+)\/match$/);
+    if(request.method==="POST"&&m){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return matchOpening(String(employer.id),m[1],env);
+    }
+    m=url.pathname.match(/^\/api\/openings\/([^/]+)\/contact$/);
+    if(request.method==="POST"&&m){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return contactMatches(request,env,String(employer.id),m[1]);
+    }
+    m=url.pathname.match(/^\/api\/openings\/([^/]+)\/interview-slots$/);
+    if((request.method==="GET"||request.method==="POST")&&m){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return interviewSlots(request,env,String(employer.id),m[1]);
+    }
+    if(request.method==="GET"&&url.pathname==="/api/pipeline"){
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return getPipeline(String(employer.id),url,env);
+    }
+    m=url.pathname.match(/^\/api\/pipeline\/([^/]+)$/);
+    if(request.method==="PATCH"&&m){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return updatePipeline(String(employer.id),m[1],request,env);
+    }
+
+    // Legacy ID-addressed routes remain temporarily for old clients, but are still ownership-checked.
+    m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m){
       if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
       return getWorkspace(m[1],env);
