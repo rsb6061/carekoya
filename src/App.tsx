@@ -1,4 +1,7 @@
-import { ArrowRight, Check, GraduationCap, MapPin, Search, MessageSquareText, CalendarCheck2, ShieldCheck, UsersRound, Sparkles } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { ArrowRight, Check, GraduationCap, MapPin, Search, MessageSquareText, CalendarCheck2, ShieldCheck, UsersRound, Sparkles, X } from 'lucide-react';
+
+type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
 const candidates = [
   { initials:'JM', role:'CNA', location:'Baltimore, MD', freshness:'Confirmed today', shift:'Days + weekends', radius:'12 mi' },
@@ -15,12 +18,99 @@ const features = [
   [UsersRound,'Longitudinal workforce graph','A caregiver can return whenever they change jobs, shifts, credentials, pay expectations, or location.']
 ] as const;
 
+async function submitJson(path: string, data: Record<string, unknown>) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  const body = await response.json() as { ok?: boolean; error?: string };
+  if (!response.ok) throw new Error(body.error || 'Something went wrong');
+  return body;
+}
+
+function IntakeModal({ kind, onClose }: { kind: Exclude<FormKind, null>, onClose: () => void }) {
+  const [status, setStatus] = useState<'idle'|'saving'|'success'|'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  const titles = {
+    employer: ['Find caregivers', 'Tell us what you are hiring for. We will use this to build your initial recruiting pipeline.'],
+    caregiver: ['Join the CareJoys network', 'Create a lightweight work profile so local care employers can find you when you are looking.'],
+    school: ['Partner with CareJoys', 'Help graduates get discovered by local care employers and track placement outcomes.']
+  } as const;
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus('saving');
+    setMessage('');
+    const fd = new FormData(event.currentTarget);
+    const data = Object.fromEntries(fd.entries()) as Record<string, unknown>;
+    if (kind === 'caregiver') data.smsConsent = fd.get('smsConsent') === 'on';
+
+    try {
+      await submitJson(
+        kind === 'employer' ? '/api/employers' : kind === 'caregiver' ? '/api/caregivers' : '/api/schools',
+        data
+      );
+      setStatus('success');
+    } catch (error) {
+      setStatus('error');
+      setMessage(error instanceof Error ? error.message : 'Something went wrong');
+    }
+  }
+
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal" onMouseDown={e => e.stopPropagation()}>
+      <button className="modal-close" onClick={onClose} aria-label="Close"><X size={20}/></button>
+      {status === 'success' ? <div className="success-state">
+        <div className="success-icon"><Check size={24}/></div>
+        <h2>You're in.</h2>
+        <p>We received your information. CareJoys will use it to start the right next step for you.</p>
+        <button className="button dark big" onClick={onClose}>Done</button>
+      </div> : <>
+        <div className="eyebrow muted">{kind === 'employer' ? 'For employers' : kind === 'caregiver' ? 'For caregivers' : 'For training programs'}</div>
+        <h2>{titles[kind][0]}</h2>
+        <p className="modal-intro">{titles[kind][1]}</p>
+        <form className="intake-form" onSubmit={handleSubmit}>
+          {kind === 'employer' && <>
+            <label>Company name<input name="companyName" required /></label>
+            <label>Your name<input name="contactName" required /></label>
+            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
+            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required /></label><label>Roles needed<input name="rolesNeeded" placeholder="CNA, HHA, caregiver" /></label></div>
+            <label>What are you hiring for?<textarea name="hiringNotes" rows={4} placeholder="Shift, pay range, number of openings, must-have requirements..." /></label>
+          </>}
+          {kind === 'caregiver' && <>
+            <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
+            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Mobile phone<input name="phone" required /></label></div>
+            <div className="form-grid"><label>ZIP code<input name="zip" inputMode="numeric" required /></label><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>Other</option></select></label></div>
+            <div className="form-grid"><label>Preferred shifts<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Desired hourly pay<input name="desiredWage" placeholder="$20–24/hr" /></label></div>
+            <label>Transportation<select name="transportation" defaultValue=""><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
+            <label className="check-row"><input type="checkbox" name="smsConsent" /> <span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
+          </>}
+          {kind === 'school' && <>
+            <label>School / program name<input name="organizationName" required /></label>
+            <label>Your name<input name="contactName" required /></label>
+            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
+            <div className="form-grid"><label>City<input name="city" /></label><label>State<input name="state" /></label></div>
+            <div className="form-grid"><label>Programs<input name="programTypes" placeholder="CNA, HHA..." /></label><label>Graduates per year<input name="graduatingCount" inputMode="numeric" /></label></div>
+            <label>Notes<textarea name="notes" rows={4} placeholder="Cohort timing, placement process, employer partners..." /></label>
+          </>}
+          {status === 'error' && <div className="form-error">{message}</div>}
+          <button className="button primary big submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Start recruiting' : kind === 'caregiver' ? 'Join CareJoys' : 'Request partnership'}</button>
+        </form>
+      </>}
+    </div>
+  </div>;
+}
+
 export function App() {
+  const [form, setForm] = useState<FormKind>(null);
+
   return <div>
     <header className="header">
       <a className="brand" href="#"><span>C</span>CareJoys</a>
       <nav><a href="#how">How it works</a><a href="#network">Talent network</a><a href="#schools">For schools</a></nav>
-      <a className="button dark" href="mailto:hello@carejoys.com?subject=CareJoys employer access">Find caregivers</a>
+      <button className="button dark header-button" onClick={() => setForm('employer')}>Find caregivers</button>
     </header>
 
     <main>
@@ -29,8 +119,8 @@ export function App() {
         <h1>Caregivers ready to work.<br/>Interviews ready for you.</h1>
         <p>CareJoys helps home-care and senior-care employers find CNAs, HHAs, and caregivers nearby, confirm who is actually looking, screen fit, and turn matches into interviews.</p>
         <div className="actions">
-          <a className="button primary big" href="mailto:hello@carejoys.com?subject=Find caregivers">Find caregivers <ArrowRight size={18}/></a>
-          <a className="button light big" href="mailto:hello@carejoys.com?subject=Join CareJoys caregiver network">Join the network</a>
+          <button className="button primary big" onClick={() => setForm('employer')}>Find caregivers <ArrowRight size={18}/></button>
+          <button className="button light big" onClick={() => setForm('caregiver')}>Join the network</button>
         </div>
         <div className="trust">
           <span><Check size={15}/> Recent availability</span>
@@ -52,7 +142,7 @@ export function App() {
               <div className="avatar">{c.initials}</div>
               <div><strong>{c.role}</strong><span><MapPin size={12}/>{c.location}</span></div>
               <div><em>● {c.freshness}</em><span>{c.shift} · {c.radius}</span></div>
-              <button>Invite</button>
+              <button type="button">Invite</button>
             </div>)}
           </div>
         </div>
@@ -69,7 +159,7 @@ export function App() {
       </section>
 
       <section className="school" id="schools">
-        <div><div className="eyebrow">For training programs</div><h2>Turn graduation day into a hiring pipeline.</h2><p>Give CNA, HHA, and direct-care training programs a free way to invite graduating cohorts, help students become visible to local employers, and track placement outcomes.</p><a className="button dark big" href="mailto:hello@carejoys.com?subject=CareJoys school partnership">Partner with CareJoys <ArrowRight size={18}/></a></div>
+        <div><div className="eyebrow">For training programs</div><h2>Turn graduation day into a hiring pipeline.</h2><p>Give CNA, HHA, and direct-care training programs a free way to invite graduating cohorts, help students become visible to local employers, and track placement outcomes.</p><button className="button dark big" onClick={() => setForm('school')}>Partner with CareJoys <ArrowRight size={18}/></button></div>
         <div className="cohort"><div className="toolbar"><div><small>SPRING COHORT</small><strong>Example CNA Program</strong></div><GraduationCap/></div><div className="cohort-metrics"><div><b>63</b><span>students</span></div><div><b>51</b><span>profiles</span></div><div><b>32</b><span>interviewing</span></div><div><b>—</b><span>placement</span></div></div></div>
       </section>
 
@@ -81,9 +171,11 @@ export function App() {
         </div>
       </section>
 
-      <section className="cta"><div><div className="eyebrow">Care workforce infrastructure</div><h2>Your next caregiver may already be looking.</h2></div><a className="button cream big" href="mailto:hello@carejoys.com?subject=CareJoys employer access">Start recruiting <ArrowRight size={18}/></a></section>
+      <section className="cta"><div><div className="eyebrow">Care workforce infrastructure</div><h2>Your next caregiver may already be looking.</h2></div><button className="button cream big" onClick={() => setForm('employer')}>Start recruiting <ArrowRight size={18}/></button></section>
     </main>
 
     <footer><a className="brand" href="#"><span>C</span>CareJoys</a><p>Built for the direct-care workforce.</p><p>© 2026 CareJoys</p></footer>
+
+    {form && <IntakeModal kind={form} onClose={() => setForm(null)} />}
   </div>
 }
