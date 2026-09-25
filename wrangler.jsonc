@@ -3,6 +3,16 @@
   "name": "carekoya",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-09-25",
+  "routes": [
+    {
+      "pattern": "carejoys.com",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.carejoys.com",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
