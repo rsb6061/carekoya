@@ -49,23 +49,39 @@ jobs:
             /tmp/maryland-training-programs.pdf \
             /tmp/maryland-training-programs.sql
 
-      - name: Import training programs
+      - name: Import training programs through D1 API
+        env:
+          D1_DATABASE_ID: bad7e436-d8af-4c90-b365-54411349c662
         run: |
-          mkdir -p /tmp/training-sql-chunks
           python - <<'PY'
+          import json, os, urllib.request, urllib.error
           from pathlib import Path
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          database=os.environ['D1_DATABASE_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          url=f'https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{database}/query'
           sql=Path('/tmp/maryland-training-programs.sql').read_text()
-          statements=[s.strip()+';' for s in sql.split(';') if s.strip()]
-          batch=40
-          out=Path('/tmp/training-sql-chunks')
-          for i in range(0,len(statements),batch):
-              (out/f'chunk-{i//batch:03d}.sql').write_text('\n'.join(statements[i:i+batch]))
-          print(f'Wrote {(len(statements)+batch-1)//batch} chunks for {len(statements)} statements')
+          statements=[s.strip() for s in sql.split(';') if s.strip()]
+          print(f'Executing {len(statements)} D1 statements')
+
+          for i,statement in enumerate(statements,1):
+              payload=json.dumps({'sql':statement}).encode()
+              req=urllib.request.Request(url,data=payload,method='POST',headers={
+                  'Authorization':f'Bearer {token}',
+                  'Content-Type':'application/json'
+              })
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as res:
+                      body=json.loads(res.read())
+              except urllib.error.HTTPError as e:
+                  detail=e.read().decode(errors='replace')
+                  raise SystemExit(f'D1 HTTP failure at statement {i}: {detail[:2000]}')
+              if not body.get('success'):
+                  raise SystemExit(f'D1 query failure at statement {i}: {json.dumps(body.get("errors",[]))[:2000]}')
+              if i % 50 == 0 or i == len(statements):
+                  print(f'Executed {i}/{len(statements)}')
           PY
-          for file in /tmp/training-sql-chunks/chunk-*.sql; do
-            echo "Importing $file"
-            npx wrangler d1 execute DB --remote --file="$file"
-          done
 
       - name: Deactivate stale program referral links
         run: |
