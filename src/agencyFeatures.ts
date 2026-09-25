@@ -127,6 +127,46 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
   return {processed:(rows.results||[]).length,enriched};
 }
 
+export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:string){
+  if(!env.DB)return {scored:0};
+  const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 LIMIT 1").bind(caregiverId).first<Row>();
+  if(!caregiver||clean(caregiver.state,20).toUpperCase()!=='MD')return {scored:0};
+  await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=?").bind(caregiverId).run();
+  const result=await env.DB.prepare(`WITH scored AS (
+      SELECT ao.id AS organization_id,c.id AS caregiver_id,
+        CASE
+          WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
+          WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
+          WHEN lower(coalesce(ao.state,''))=lower(coalesce(c.state,'')) AND ao.state!='' THEN 15
+          ELSE 10 END AS geography_score,
+        CASE
+          WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
+          WHEN lower(coalesce(hp.roles,'')) LIKE '%caregiver%' THEN 12
+          ELSE 5 END AS role_score,
+        CASE
+          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
+          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8
+          ELSE 0 END AS freshness_score,
+        CASE WHEN ao.caregiver_relevance_score>=90 THEN 15 WHEN ao.caregiver_relevance_score>=70 THEN 10 ELSE 5 END AS provider_score
+      FROM caregivers c
+      CROSS JOIN agency_organizations ao
+      LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
+      WHERE c.id=? AND c.is_active=1 AND upper(coalesce(c.state,''))='MD' AND ao.is_active=1
+    ), ranked AS (
+      SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
+        ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
+      FROM scored WHERE geography_score>0
+    )
+    INSERT INTO agency_org_candidate_matches
+      (id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
+    SELECT organization_id||':'||caregiver_id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,
+      json_object('geography',geography_score,'role',role_score,'freshness',freshness_score,'provider',provider_score),
+      'matched',CURRENT_TIMESTAMP
+    FROM ranked WHERE rn<=75`).bind(caregiverId).run();
+  const row=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=?").bind(caregiverId).first<{count:number}>();
+  return {scored:asNum(row?.count)};
+}
+
 export async function scoreAgencyMatches(env:FeatureEnv){
   if(!env.DB)return {scored:0};
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches").run();
