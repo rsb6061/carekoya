@@ -81,9 +81,9 @@ export function EmployerWorkspace(){
     if(!employerId)return;
     setLoading(true);
     try{
-      const data=await api<any>('/api/workspace/'+employerId);
+      const data=await api<any>('/api/workspace');
       setWorkspace(data.workspace);setOpenings(data.openings||[]);
-      const p=await api<any>('/api/workspace/'+employerId+'/pipeline');setPipeline(p.pipeline||[]);
+      const p=await api<any>('/api/pipeline');setPipeline(p.pipeline||[]);
     }catch(e){
       if(e instanceof Error&&e.message==='Sign in required')setSession(null);
       else setMessage(e instanceof Error?e.message:'Could not load workspace');
@@ -102,33 +102,33 @@ export function EmployerWorkspace(){
     e.preventDefault();if(!session)return;
     const fd=new FormData(e.currentTarget);const data=Object.fromEntries(fd.entries()) as any;
     data.transportationRequired=fd.get('transportationRequired')==='on';
-    await api('/api/workspace/'+session.id+'/openings',{method:'POST',body:JSON.stringify(data)});
+    await api('/api/openings',{method:'POST',body:JSON.stringify(data)});
     setShowOpening(false);setMessage('Opening created.');await refreshWorkspace();
   }
   async function runMatch(openingId:string){
     if(!session)return;setMessage('Matching caregivers…');
-    const result=await api<any>('/api/workspace/'+session.id+'/openings/'+openingId+'/match',{method:'POST'});
+    const result=await api<any>('/api/openings/'+openingId+'/match',{method:'POST'});
     setMessage((result.matched||0)+' caregivers matched. Review them in Pipeline, then contact the strongest matches.');
     await refreshWorkspace();setTab('pipeline');
   }
   async function contact(openingId:string){
     if(!session)return;setMessage('Contacting top matches…');
     try{
-      const result=await api<any>('/api/workspace/'+session.id+'/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({limit:5})});
+      const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({limit:5})});
       setMessage(result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.');
       await refreshWorkspace();setTab('pipeline');
     }catch(error){setMessage(error instanceof Error?error.message:'Could not contact matches')}
   }
   async function moveStage(id:string,stage:string){
     if(!session)return;
-    await api('/api/workspace/'+session.id+'/pipeline/'+id,{method:'PATCH',body:JSON.stringify({stage})});await refreshWorkspace();
+    await api('/api/pipeline/'+id,{method:'PATCH',body:JSON.stringify({stage})});await refreshWorkspace();
   }
   async function saveSlots(e:FormEvent){
     e.preventDefault();if(!session||!slotsFor)return;
     const timezone=Intl.DateTimeFormat().resolvedOptions().timeZone||'America/New_York';
     const slots=slotInputs.filter(s=>s.startsAt).map(s=>({startsAt:new Date(s.startsAt).toISOString(),durationMinutes:s.durationMinutes,timezone}));
     try{
-      const result=await api<any>('/api/workspace/'+session.id+'/openings/'+slotsFor.id+'/interview-slots',{method:'POST',body:JSON.stringify({slots})});
+      const result=await api<any>('/api/openings/'+slotsFor.id+'/interview-slots',{method:'POST',body:JSON.stringify({slots})});
       setMessage(result.added+' interview time'+(result.added===1?'':'s')+' added. Interested caregivers can book these directly.');
       setSlotsFor(null);setSlotInputs([{startsAt:'',durationMinutes:30}]);
     }catch(error){setMessage(error instanceof Error?error.message:'Could not save interview times')}
