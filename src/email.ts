@@ -39,7 +39,7 @@ export function caregiverActivationEmail(firstName: string, link: string) {
         <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>We have not marked you as actively looking.</strong> If you want to be considered for caregiver jobs, confirm and refresh your profile here:</p>
         <p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Confirm my availability</a></p>
         <p style="font-size:14px;line-height:1.6;color:#6e6882">You can also tell us you are not looking right now. If you take no action, your profile stays unavailable to employers.</p>
-        <p style="font-size:13px;line-height:1.6;color:#8a849b;margin-top:28px">CareJoys · carejoys.com · Questions? Reply to this email or contact hello@carejoys.com</p>
+        <p style="font-size:13px;line-height:1.6;color:#8a849b;margin-top:28px">CareJoys · carejoys.com</p>
       </div>
     </div>`,
     text: `Hi ${firstName || 'there'},
