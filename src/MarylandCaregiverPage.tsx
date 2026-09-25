@@ -10,12 +10,19 @@ async function submit(data:Record<string,unknown>){
 }
 
 export function MarylandCaregiverPage(){
+  const referralSlug=window.location.pathname.startsWith('/join/')?decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1]||''):'';
+  const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
   const [status,setStatus]=useState<'idle'|'saving'|'success'|'error'>('idle');
   const [message,setMessage]=useState('');
   const [turnstileToken,setTurnstileToken]=useState('');
 
   useEffect(()=>{
     document.title='Caregiver Jobs in Maryland | CareJoys';
+    if(referralSlug){
+      fetch('/api/public/training-program/'+encodeURIComponent(referralSlug)).then(r=>r.json()).then((data:any)=>{
+        if(data?.program){setProgram(data.program);document.title='CareJoys for '+data.program.name;}
+      }).catch(()=>{});
+    }
     const existing=document.querySelector('meta[name="description"]');
     if(existing)existing.setAttribute('content','Join CareJoys free and get matched with Maryland care employers looking for CNAs, GNAs, HHAs, PCAs, and caregivers.');
   },[]);
@@ -26,6 +33,7 @@ export function MarylandCaregiverPage(){
     const data=Object.fromEntries(fd.entries()) as Record<string,unknown>;
     data.smsConsent=fd.get('smsConsent')==='on';
     data.turnstileToken=turnstileToken;
+    if(referralSlug)data.referralSlug=referralSlug;
     try{await submit(data);setStatus('success')}
     catch(error){setMessage(error instanceof Error?error.message:'Could not join CareJoys');setStatus('error')}
   }
@@ -35,9 +43,9 @@ export function MarylandCaregiverPage(){
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
-          <div className="modal-kicker">Maryland caregivers</div>
-          <h1>One profile. Local care employers can find you.</h1>
-          <p>Join CareJoys free as a CNA, GNA, HHA, PCA, or caregiver. Tell us where you can work, the shifts you want, and your pay preference. CareJoys uses that profile to connect you with relevant care employers.</p>
+          <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
+          <h1>{program?'Free job-matching network for your graduates.':'One profile. Local care employers can find you.'}</h1>
+          <p>{program?`CareJoys partners with training programs like ${program.name} to help graduates get discovered by relevant Maryland care employers. Create one profile and choose which opportunities interest you.`:'Join CareJoys free as a CNA, GNA, HHA, PCA, or caregiver. Tell us where you can work, the shifts you want, and your pay preference. CareJoys uses that profile to connect you with relevant care employers.'}</p>
           <div className="caregiver-proof">
             <div><strong>Free for caregivers</strong><span>No application fees or subscription.</span></div>
             <div><strong>Your availability stays current</strong><span>Confirm when you are looking; mark not looking any time.</span></div>
@@ -52,7 +60,7 @@ export function MarylandCaregiverPage(){
             <p>We’ll use your profile to identify relevant Maryland care employers. When there is a match, CareJoys can ask whether you are interested before moving you forward.</p>
             <a className="btn" href="/">Done</a>
           </div>:<>
-            <div className="modal-kicker">Create your caregiver profile</div>
+            <div className="modal-kicker">{program?`Referred by ${program.name}`:'Create your caregiver profile'}</div>
             <h2>Tell us what you’re looking for.</h2>
             <form className="intake-form" onSubmit={onSubmit}>
               <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
