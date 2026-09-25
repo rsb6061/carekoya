@@ -1,0 +1,65 @@
+name: Run Agency Pilot Maintenance
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/run-agency-pilot.trigger
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Set one-time agency maintenance key
+        run: |
+          KEY=$(openssl rand -hex 32)
+          echo "::add-mask::$KEY"
+          echo "AGENCY_MAINT_KEY=$KEY" >> "$GITHUB_ENV"
+          printf '%s' "$KEY" | npx wrangler secret put AGENCY_MAINT_KEY
+
+      - name: Wait for secret deployment
+        run: sleep 8
+
+      - name: Enrich first agency cohort
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST https://carejoys.com/api/internal/agency-maintenance \
+            -H "content-type: application/json" \
+            -H "x-carejoys-agency-key: $AGENCY_MAINT_KEY" \
+            --data '{"mode":"enrich","limit":30}' | tee /tmp/enrich.json | jq
+
+      - name: Re-score Maryland caregiver routing
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST https://carejoys.com/api/internal/agency-maintenance \
+            -H "content-type: application/json" \
+            -H "x-carejoys-agency-key: $AGENCY_MAINT_KEY" \
+            --data '{"mode":"score"}' | tee /tmp/score.json | jq
+
+      - name: Send first five agency teasers
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -X POST https://carejoys.com/api/internal/agency-maintenance \
+            -H "content-type: application/json" \
+            -H "x-carejoys-agency-key: $AGENCY_MAINT_KEY" \
+            --data '{"mode":"teaser","limit":5}' | tee /tmp/teaser.json | jq
+          test "$(jq -r '.failed // 0' /tmp/teaser.json)" = "0"
+
+      - name: Verify production health
+        run: curl --fail-with-body --silent --show-error https://carejoys.com/api/health | jq
+
+      - name: Delete one-time maintenance key
+        if: always()
+        run: npx wrangler secret delete AGENCY_MAINT_KEY || true
