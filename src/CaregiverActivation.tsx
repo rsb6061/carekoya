@@ -78,12 +78,12 @@ export function CaregiverActivation(){
     <main className="activation-card">
       <div className="activation-kicker">Welcome back, {first}</div>
       <h1>Are you looking for caregiver work right now?</h1>
-      <p className="activation-intro">You previously created a caregiver profile on CareKoya. CareJoys is the new caregiver network. We have <strong>not</strong> marked you as actively looking until you confirm here.</p>
+      <p className="activation-intro">You previously created a caregiver profile on CareKoya. CareJoys is the new caregiver network. Your profile may be discoverable to care employers, but your availability is currently shown as <strong>unconfirmed</strong> until you update it here.</p>
 
       <form className="activation-form" onSubmit={submit}>
         <div className="status-choices">
           <button type="button" className={workStatus==='actively_looking'?'status-choice selected':''} onClick={()=>setWorkStatus('actively_looking')}>
-            <strong>Yes, I’m looking</strong><span>Show my refreshed profile to relevant employers.</span>
+            <strong>Yes, I’m looking</strong><span>Refresh my profile and mark my availability as confirmed for relevant employers.</span>
           </button>
           <button type="button" className={workStatus==='maybe_later'?'status-choice selected':''} onClick={()=>setWorkStatus('maybe_later')}>
             <strong>Maybe later</strong><span>Keep my profile, but don’t show me as available.</span>
@@ -116,7 +116,7 @@ export function CaregiverActivation(){
 
         {error&&<div className="notice">{error}</div>}
         <button className="btn activation-submit" disabled={status==='saving'}>{status==='saving'?'Saving…':workStatus==='actively_looking'?'Confirm I’m looking':'Save my status'}</button>
-        <p className="activation-fineprint">Your old profile stays unavailable to employers until you choose “Yes, I’m looking” and submit this form.</p>
+        <p className="activation-fineprint">If you choose “Maybe later” or “Not looking,” we remove your profile from employer search. If you choose “Yes,” your profile stays visible and receives a fresh availability confirmation.</p>
       </form>
     </main>
   </div>;
