@@ -1,7 +1,7 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { listPublicTrainingPrograms, publicSchoolProgram, requestSchoolAccess, verifySchoolMagic, schoolDashboard, schoolLogout, sendSchoolOutreachBatch } from './schoolFeatures';
+import { listPublicTrainingPrograms, publicSchoolProgram, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout, sendSchoolOutreachBatch } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -205,10 +205,21 @@ async function handleCaregiver(request: Request, env: Env) {
   await env.DB.prepare("UPDATE caregivers SET state='MD',updated_at=CURRENT_TIMESTAMP WHERE id=? AND CAST(substr(zip,1,3) AS INTEGER) BETWEEN 206 AND 219").bind(id).run();
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
-    const referral=await env.DB.prepare("SELECT id FROM school_referral_codes WHERE slug=? AND status='active' LIMIT 1").bind(referralSlug).first<{id:string}>();
-    if(referral){
+    let referral=await env.DB.prepare(`SELECT src.id AS referral_id,src.training_program_id,NULL AS cohort_id
+      FROM school_referral_codes src
+      WHERE src.slug=? AND src.status='active' LIMIT 1`).bind(referralSlug).first<{referral_id:string;training_program_id:string;cohort_id:string|null}>();
+    if(!referral){
+      referral=await env.DB.prepare(`SELECT src.id AS referral_id,co.training_program_id,co.id AS cohort_id
+        FROM training_program_cohorts co
+        LEFT JOIN school_referral_codes src ON src.training_program_id=co.training_program_id AND src.status='active'
+        WHERE co.referral_code=? AND co.status='active'
+        ORDER BY src.created_at LIMIT 1`).bind(referralSlug).first<{referral_id:string;training_program_id:string;cohort_id:string|null}>();
+    }
+    if(referral?.referral_id){
       await env.DB.prepare("INSERT OR IGNORE INTO caregiver_referrals(id,caregiver_id,school_referral_code_id,source) VALUES (?,?,?,'school_referral')")
-        .bind(crypto.randomUUID(),id,referral.id).run();
+        .bind(crypto.randomUUID(),id,referral.referral_id).run();
+      await env.DB.prepare("UPDATE caregivers SET source_training_program_id=?,source_training_cohort_id=?,source_referral_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(referral.training_program_id,referral.cohort_id||null,referralSlug,id).run();
     }
   }
   await scoreCaregiverAgainstAgencies(env,id);
@@ -392,6 +403,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/school/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestSchoolAccess(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/school/auth/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifySchoolMagic(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/school/dashboard") return schoolDashboard(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/school/cohorts"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return createSchoolCohort(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/school/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return schoolLogout(request,env); }
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
