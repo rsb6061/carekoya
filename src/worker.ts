@@ -1,5 +1,6 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
+import { enrichAgencyBatch, scoreAgencyMatches, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -362,6 +363,10 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
     if(request.method==="POST"&&url.pathname==="/api/respond"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return submitCandidateResponse(request,env); }
+    if(request.method==="GET"&&url.pathname==="/api/agency/teaser") return getAgencyTeaser(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
+    if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
     if(request.method==="GET"&&url.pathname==="/api/workspace"){
@@ -411,5 +416,12 @@ export default {
 
     if(url.pathname.startsWith("/api/")) return json({ok:false,error:"Not found"},{status:404});
     return env.ASSETS.fetch(request);
+  },
+  async scheduled(_event:unknown,env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+    ctx.waitUntil((async()=>{
+      await enrichAgencyBatch(env,30);
+      await scoreAgencyMatches(env);
+      await sendAgencyTeaserBatch(env,5);
+    })());
   }
 };
