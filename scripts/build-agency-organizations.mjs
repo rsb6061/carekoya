@@ -46,7 +46,7 @@ for(const g of groups.values()){
   const relevance=Math.max(...rs.map(r=>Number(r.caregiver_relevance_score||0)),0);
   sql.push(`INSERT INTO agency_organizations
     (id,organization_key,canonical_name,primary_domain,primary_email,primary_phone,primary_contact_name,city,state,zip,provider_types,license_count,caregiver_relevance_score,is_active,updated_at)
-    VALUES (${esc(g.id)},${esc(g.key)},${esc(name)},${esc(primaryDomain)},${esc(primaryEmail)},${esc(pick('phone'))},${esc(pick('contact_name'))},${esc(pick('city'))},${esc(pick('state')||'MD')},${esc(providerTypes)},${rs.length},1,CURRENT_TIMESTAMP)
+    VALUES (${esc(g.id)},${esc(g.key)},${esc(name)},${esc(primaryDomain)},${esc(primaryEmail)},${esc(pick('phone'))},${esc(pick('contact_name'))},${esc(pick('city'))},${esc(pick('state')||'MD')},${esc(pick('zip'))},${esc(providerTypes)},${rs.length},${relevance},1,CURRENT_TIMESTAMP)
     ON CONFLICT(organization_key) DO UPDATE SET canonical_name=excluded.canonical_name,primary_domain=excluded.primary_domain,
       primary_email=excluded.primary_email,primary_phone=excluded.primary_phone,primary_contact_name=excluded.primary_contact_name,
       city=excluded.city,state=excluded.state,zip=excluded.zip,provider_types=excluded.provider_types,license_count=excluded.license_count,caregiver_relevance_score=excluded.caregiver_relevance_score,is_active=1,updated_at=CURRENT_TIMESTAMP;`);
