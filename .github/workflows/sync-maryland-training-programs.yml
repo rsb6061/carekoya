@@ -29,7 +29,8 @@ jobs:
           python-version: '3.12'
 
       - run: npm install
-      - run: python -m pip install --disable-pip-version-check pdfplumber
+      - name: Install PDF text tools
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Apply CareJoys migrations
         run: npm run db:migrations:apply
