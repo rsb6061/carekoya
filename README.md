@@ -28,8 +28,10 @@ The long-term asset is a persistent caregiver workforce graph: location, role, c
 Cloudflare Workers Builds should use:
 
 - Build command: `npm run build`
-- Deploy command: `npx wrangler deploy`
+- Deploy command: `npm run deploy`
 - Production branch: `main`
+
+The deploy script builds the Vite app, applies D1 migrations, then runs Wrangler deploy.
 
 The Worker config is committed as `wrangler.jsonc`.
 
