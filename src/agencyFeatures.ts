@@ -272,7 +272,39 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv){
       clean(data?.serviceAreas,500),data?.transportationRequired===true?1:0,clean(data?.requirements,1500)).run();
   await env.DB.prepare("UPDATE agency_organizations SET current_hiring_signal=?,hiring_signal_source='employer_confirmed',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(status,org.id).run();
   await scoreAgencyMatches(env);
-  return json({ok:true});
+
+  const orgRow=await env.DB.prepare("SELECT canonical_name,city,state,zip FROM agency_organizations WHERE id=?").bind(org.id).first<Row>();
+  let opening=await env.DB.prepare("SELECT id FROM openings WHERE employer_id=? AND agency_organization_id=? AND source='agency_profile' ORDER BY created_at DESC LIMIT 1").bind(employer.id,org.id).first<{id:string}>();
+  const roleList=roles.split(',').map(x=>x.trim()).filter(Boolean);
+  const openingRole=roleList[0]||'Caregiver';
+  const openingTitle=(roleList.length?roleList.join(' / '):'Caregiver')+' hiring';
+  if(!opening){
+    const openingId=crypto.randomUUID();
+    await env.DB.prepare(`INSERT INTO openings
+      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source,agency_organization_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'agency_profile',?)`)
+      .bind(openingId,employer.id,openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',org.id).run();
+    opening={id:openingId};
+  }else{
+    await env.DB.prepare(`UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,transportation_required=?,requirements=?,
+      status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',opening.id).run();
+  }
+
+  if(status!=='not_hiring'){
+    const matches=await env.DB.prepare("SELECT caregiver_id,fit_score,match_reason FROM agency_org_candidate_matches WHERE organization_id=? ORDER BY fit_score DESC LIMIT 50").bind(org.id).all<Row>();
+    for(const match of matches.results||[]){
+      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
+        VALUES (?,?,?,'matched',?,?,'agency_profile_match')
+        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
+          match_reason=excluded.match_reason,match_score=excluded.match_score,
+          updated_at=CURRENT_TIMESTAMP`)
+        .bind(crypto.randomUUID(),opening.id,match.caregiver_id,match.match_reason,match.fit_score).run();
+    }
+  }
+  return json({ok:true,openingId:opening.id});
 }
 
 export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
