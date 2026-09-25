@@ -3,14 +3,15 @@
   "name": "carekoya",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-09-25",
+  "workers_dev": true,
   "routes": [
     {
-      "pattern": "carejoys.com",
-      "custom_domain": true
+      "pattern": "carejoys.com/*",
+      "zone_name": "carejoys.com"
     },
     {
-      "pattern": "www.carejoys.com",
-      "custom_domain": true
+      "pattern": "www.carejoys.com/*",
+      "zone_name": "carejoys.com"
     }
   ],
   "assets": {
