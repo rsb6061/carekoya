@@ -34,7 +34,7 @@
       "name": "EMAIL",
       "remote": true,
       "allowed_sender_addresses": [
-        "hello@carejoys.com"
+        "updates@carejoys.com"
       ]
     }
   ]
