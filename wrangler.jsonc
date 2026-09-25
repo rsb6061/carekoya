@@ -18,13 +18,24 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": [
+      "/api/*"
+    ]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "carejoys",
       "database_id": "bad7e436-d8af-4c90-b365-54411349c662"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true,
+      "allowed_sender_addresses": [
+        "hello@carejoys.com"
+      ]
     }
   ]
 }
