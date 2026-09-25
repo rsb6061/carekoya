@@ -1,11 +1,15 @@
 name: CI
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+concurrency:
+  group: carekoya-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
