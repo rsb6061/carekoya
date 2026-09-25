@@ -49,10 +49,14 @@ function IntakeModal({ kind, onClose }: { kind: Exclude<FormKind, null>, onClose
     if (kind === 'caregiver') data.smsConsent = fd.get('smsConsent') === 'on';
 
     try {
-      await submitJson(
+      const result = await submitJson(
         kind === 'employer' ? '/api/employers' : kind === 'caregiver' ? '/api/caregivers' : '/api/schools',
         data
       );
+      if (kind === 'employer' && result.workspaceId) {
+        window.location.href = result.workspaceUrl || '/app?workspace=' + result.workspaceId;
+        return;
+      }
       setStatus('success');
     } catch (error) {
       setStatus('error');
