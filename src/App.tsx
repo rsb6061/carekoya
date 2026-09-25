@@ -25,7 +25,7 @@ async function submitJson(path: string, data: Record<string, unknown>) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(data)
   });
-  const body = await response.json() as { ok?: boolean; error?: string };
+  const body = await response.json() as { ok?: boolean; error?: string; workspaceId?: string; workspaceUrl?: string };
   if (!response.ok) throw new Error(body.error || 'Something went wrong');
   return body;
 }
