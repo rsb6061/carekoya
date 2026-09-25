@@ -36,6 +36,26 @@ async function programBySlug(env:FeatureEnv,slug:string){
     LIMIT 1`).bind(slug).first<Row>();
 }
 
+export async function listPublicTrainingPrograms(url:URL,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const providerType=clean(url.searchParams.get('providerType'),120);
+  const city=clean(url.searchParams.get('city'),120);
+  let rows=(await env.DB.prepare(`SELECT tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.program_type,tp.renewal_due,
+      tp.website,src.slug
+    FROM training_programs tp
+    JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    WHERE tp.is_active=1 AND tp.source='maryland_mbon_natp'
+    ORDER BY tp.provider_type,tp.city,tp.program_name LIMIT 300`).all<Row>()).results||[];
+  if(providerType)rows=rows.filter(r=>clean(r.provider_type,120).toLowerCase()===providerType.toLowerCase());
+  if(city)rows=rows.filter(r=>clean(r.city,120).toLowerCase()===city.toLowerCase());
+  return json({ok:true,total:rows.length,programs:rows.map(r=>({
+    name:r.program_name,providerType:r.provider_type,city:r.city,state:r.state,zip:r.zip,programType:r.program_type,
+    renewalDue:r.renewal_due,website:r.website||null,slug:r.slug,
+    referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(r.slug||'')),
+    programUrl:'https://carejoys.com/school/'+encodeURIComponent(String(r.slug||''))
+  }))});
+}
+
 export async function publicSchoolProgram(slug:string,env:FeatureEnv){
   const p=await programBySlug(env,slug);
   if(!p)return json({ok:false,error:'Training program not found'},{status:404});
