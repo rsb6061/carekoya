@@ -316,7 +316,8 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
-    if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);\n    if(request.method==="POST"&&url.pathname==="/api/internal/bootstrap-legacy-47") return importLegacyCohort(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/internal/bootstrap-legacy-47") return importLegacyCohort(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m) return getWorkspace(m[1],env);
