@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { ArrowRight, Check, GraduationCap, MapPin, Search, MessageSquareText, CalendarCheck2, ShieldCheck, UsersRound, Sparkles, X } from 'lucide-react';
+import { EmployerWorkspace } from './EmployerWorkspace';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -104,6 +105,7 @@ function IntakeModal({ kind, onClose }: { kind: Exclude<FormKind, null>, onClose
 }
 
 export function App() {
+  if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
   const [form, setForm] = useState<FormKind>(null);
 
   return <div>
