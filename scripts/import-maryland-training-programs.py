@@ -112,13 +112,10 @@ def extract(pdf_path):
         provider_blob=clean(" ".join(provider_parts))
         address_blob=clean(" ".join(address_parts))
         full_window=clean(" ".join(window))
-        provider=detect_provider(provider_blob+" "+full_window)
+        provider=detect_provider(provider_blob) or detect_provider(full_window)
         if not provider:
             continue
 
-        # Remove provider text if PDF geometry caused it to leak into the program name.
-        name=re.sub(r"\b"+re.escape(provider)+r"\b.*$","",name,flags=re.I).strip()
-        name=strip_partial_provider(name,provider)
         if not name:
             # Fallback: use anchor prefix before provider/status.
             prefix=clean(anchor_line[:sm.start()])
