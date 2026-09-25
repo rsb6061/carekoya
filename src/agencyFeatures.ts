@@ -313,12 +313,13 @@ export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
       COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o
     JOIN agency_org_candidate_matches m ON m.organization_id=o.id
+    JOIN caregivers c ON c.id=m.caregiver_id
     WHERE o.is_active=1 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND (o.teaser_last_sent_at IS NULL OR datetime(o.teaser_last_sent_at)<datetime('now','-30 days'))
       AND NOT EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND datetime(t.expires_at)>datetime('now'))
     GROUP BY o.id
-    HAVING COUNT(m.id)>=1
+    HAVING SUM(CASE WHEN c.work_status='actively_looking' THEN 1 ELSE 0 END)>=1 OR COUNT(m.id)>=2
     ORDER BY MAX(m.fit_score) DESC,COUNT(m.id) DESC
     LIMIT ?`).bind(limit).all<Row>();
   let sent=0,failed=0;
