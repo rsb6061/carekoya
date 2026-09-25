@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import './workspace.css';
 import { ArrowLeft, BriefcaseBusiness, Check, ChevronRight, CircleDot, Search, Sparkles, UsersRound } from 'lucide-react';
 
 type Opening = {
