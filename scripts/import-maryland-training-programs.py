@@ -43,60 +43,109 @@ def referral_slug(program,city,key):
         base=(base+"-"+slugify(city))[:82].strip("-")
     return base+"-"+key[:6]
 
-def normalize_row(row):
-    cells=[clean(x) for x in row]
-    if len(cells)<9:
-        cells += [""]*(9-len(cells))
-    return cells[:9]
+PROVIDER_TYPES=[
+    "Developmental Disabilities Administration",
+    "Freestanding Program",
+    "Dialysis Facility",
+    "Nursing Home",
+    "High School",
+    "Hospital",
+    "EMT to CNA",
+    "College",
+]
 
-def is_header(row):
-    text=" ".join(row).lower()
-    return "program provider" in text and "type of provider" in text
+STATUS_RE=re.compile(r"\\b(Withdrawn Approval|Approved|Closed)\\b",re.I)
+DATE_RE=re.compile(r"\\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Janauary|Seprember)(?:\\s+\\d{1,2},)?\\s+\\d{4}\\b",re.I)
+
+def parse_record(lines,source_updated):
+    if not lines:
+        return None
+    joined=clean(" ".join(lines))
+    m=STATUS_RE.search(joined)
+    if not m:
+        return None
+    before=clean(joined[:m.start()])
+    status=clean(m.group(1))
+    after=clean(joined[m.end():])
+
+    dates=list(DATE_RE.finditer(after))
+    first_date=dates[0].start() if dates else len(after)
+    program_type=clean(after[:first_date])
+    if "nursing assistant" not in program_type.lower():
+        return None
+
+    date_values=[clean(x.group(0)) for x in dates]
+    last_approved=date_values[0] if len(date_values)>0 else ""
+    renewal=date_values[1] if len(date_values)>1 else ""
+    terminal=date_values[2] if len(date_values)>2 else ""
+
+    provider_type=""
+    provider_pos=-1
+    for provider in PROVIDER_TYPES:
+        pos=before.lower().rfind(provider.lower())
+        if pos>provider_pos:
+            provider_pos=pos
+            provider_type=provider
+    if provider_pos<0:
+        return None
+
+    program=clean(before[:provider_pos])
+    address=clean(before[provider_pos+len(provider_type):])
+    if not program or not address:
+        return None
+
+    city,state,zip_code=parse_city_state_zip(address)
+    key=row_key(program,address,program_type)
+    active=(status.lower()=="approved" and "only training program" not in program_type.lower() and "-dt" not in program_type.lower())
+    return {
+        "id":program_id(key),"source_key":key,"program_name":program,
+        "provider_type":provider_type,"address":address,"city":city,"state":state,"zip":zip_code,
+        "current_status":status,"program_type":program_type,"date_last_approved":last_approved,
+        "renewal_due":renewal,
+        "date_closed":terminal if status.lower()=="closed" else "",
+        "date_withdrawn":terminal if status.lower().startswith("withdrawn") else "",
+        "source_updated_at":source_updated,"is_active":1 if active else 0,
+        "referral_slug":referral_slug(program,city,key),
+    }
 
 def extract_rows(pdf_path):
     records=[]
     source_updated=""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            text=page.extract_text() or ""
-            m=re.search(r"Last Updated\s+(\d{1,2}/\d{1,2}/\d{4})",text,re.I)
-            if m: source_updated=m.group(1)
+            text=page.extract_text(x_tolerance=2,y_tolerance=3) or ""
+            m=re.search(r"Last Updated\\s+(\\d{1,2}/\\d{1,2}/\\d{4})",text,re.I)
+            if m:
+                source_updated=m.group(1)
 
-            tables=page.extract_tables({
-                "vertical_strategy":"lines",
-                "horizontal_strategy":"lines",
-                "intersection_tolerance":6,
-                "snap_tolerance":4,
-                "join_tolerance":4,
-            }) or []
-            if not tables:
-                tables=page.extract_tables() or []
+            buffer=[]
+            for raw_line in text.splitlines():
+                line=clean(raw_line)
+                if not line:
+                    continue
+                low=line.lower()
+                if "program provider" in low and "type of provider" in low:
+                    continue
+                if low.startswith("approved nursing assistant training programs"):
+                    continue
+                if low.startswith("certified medicine aide programs"):
+                    continue
+                if low.startswith("certified nursing assistant training programs"):
+                    continue
+                if low.startswith("closed training programs"):
+                    continue
+                if low.startswith("cna-only training programs"):
+                    continue
+                if low.startswith("last updated"):
+                    continue
 
-            for table in tables:
-                for raw in table:
-                    if not raw: continue
-                    row=normalize_row(raw)
-                    if is_header(row): continue
-                    if not row[0] or row[0].upper().startswith("APPROVED NURSING ASSISTANT"): continue
-                    # Expected columns:
-                    # Program Provider, Type of Provider, Address, Current Status,
-                    # Type of Program, Date Last Approved, Renewal Due, Date Closed, Date Withdrawn.
-                    program,provider,address,status,ptype,last_approved,renewal,closed,withdrawn=row
-                    if not status and not ptype: continue
-                    if status.lower() not in {"approved","closed","withdrawn"}: continue
-                    key=row_key(program,address,ptype)
-                    city,state,zip_code=parse_city_state_zip(address)
-                    relevant=("nursing assistant" in ptype.lower() and "-dt" not in ptype.lower())
-                    active=(status.lower()=="approved" and relevant)
-                    records.append({
-                        "id":program_id(key),"source_key":key,"program_name":program,
-                        "provider_type":provider,"address":address,"city":city,"state":state,"zip":zip_code,
-                        "current_status":status,"program_type":ptype,"date_last_approved":last_approved,
-                        "renewal_due":renewal,"date_closed":closed,"date_withdrawn":withdrawn,
-                        "source_updated_at":source_updated,"is_active":1 if active else 0,
-                        "referral_slug":referral_slug(program,city,key),
-                    })
-    # Deduplicate exact source rows.
+                buffer.append(line)
+                if STATUS_RE.search(line):
+                    rec=parse_record(buffer,source_updated)
+                    if rec:
+                        records.append(rec)
+                    buffer=[]
+
     unique={}
     for r in records:
         unique[r["source_key"]]=r
