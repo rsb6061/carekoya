@@ -317,14 +317,14 @@ async function internalActivationEnroll(request:Request,env:Env){
   if(!legacyId||!["enroll","sent"].includes(action)) return json({ok:false,error:"Invalid activation request"},{status:400});
   const legacyHash=await sha256Hex(legacyId);
   if(!LEGACY_ACTIVATION_IDS.has(legacyHash)) return json({ok:false,error:"Legacy cohort mismatch"},{status:403});
-  const caregiver=await env.DB.prepare("SELECT id,email FROM caregivers WHERE legacy_floot_id=? AND source='legacy_carekoya' LIMIT 1").bind(legacyId).first<Record<string,unknown>>();
+  const caregiver=await env.DB.prepare("SELECT id,email,activation_sent_at FROM caregivers WHERE legacy_floot_id=? AND source='legacy_carekoya' LIMIT 1").bind(legacyId).first<Record<string,unknown>>();
   if(!caregiver) return json({ok:false,error:"Legacy caregiver not found"},{status:404});
   if(action==="enroll"){
     const token=clean(data?.token,200);
     if(token.length<32) return json({ok:false,error:"Activation token is invalid"},{status:400});
     const tokenHash=await sha256Hex(token);
     await env.DB.prepare("UPDATE caregivers SET activation_token_hash=?,activation_opened_at=NULL,activation_completed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(tokenHash,caregiver.id).run();
-    return json({ok:true,email:!!caregiver.email});
+    return json({ok:true,email:!!caregiver.email,alreadySent:!!caregiver.activation_sent_at});
   }
   await env.DB.prepare("UPDATE caregivers SET activation_sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(caregiver.id).run();
   return json({ok:true});
