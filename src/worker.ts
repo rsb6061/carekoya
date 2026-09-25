@@ -1,4 +1,5 @@
-import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, interviewConfirmedEmail } from './email';
+import { type EmailBinding } from './email';
+import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -128,22 +129,33 @@ async function handleHealth(env: Env) {
   }
 }
 async function handleEmployer(request: Request, env: Env) {
-  if (!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
+  if (!env.DB || !env.EMAIL) return json({ok:false,error:"CareJoys sign-in email is not configured"},{status:503});
   const data=await readJson(request);
   if (rejectBot(data)) return json({ok:true},{status:201});
+  const guard=await publicFormGuard(request,env,"employer_signup",data,8,60);
+  if(guard) return guard;
   const error=requireFields(data,["companyName","contactName","email","zip"]);
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
-  const id=crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
-    .bind(id,clean(data!.companyName,200),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.zip,20),clean(data!.rolesNeeded,500),clean(data!.hiringNotes,1500)).run();
-  return json({ok:true,id,workspaceId:id,workspaceUrl:`/app?workspace=${id}`},{status:201});
+  const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
+  const id=existing?.id||crypto.randomUUID();
+  if(existing){
+    await env.DB.prepare("UPDATE employer_leads SET company_name=?,contact_name=?,phone=?,zip=?,roles_needed=?,hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(clean(data!.companyName,200),clean(data!.contactName,200),clean(data!.phone,40),clean(data!.zip,20),clean(data!.rolesNeeded,500),clean(data!.hiringNotes,1500),id).run();
+  }else{
+    await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
+      .bind(id,clean(data!.companyName,200),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.zip,20),clean(data!.rolesNeeded,500),clean(data!.hiringNotes,1500)).run();
+  }
+  await sendEmployerMagicLink(env,id);
+  return json({ok:true,checkEmail:true,email},{status:201});
 }
 async function handleCaregiver(request: Request, env: Env) {
   if (!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
   if(rejectBot(data)) return json({ok:true},{status:201});
+  const guard=await publicFormGuard(request,env,"caregiver_signup",data,10,60);
+  if(guard) return guard;
   const error=requireFields(data,["firstName","lastName","email","phone","zip","role"]);
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
@@ -158,6 +170,8 @@ async function handleSchool(request: Request, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
   if(rejectBot(data)) return json({ok:true},{status:201});
+  const guard=await publicFormGuard(request,env,"school_signup",data,8,60);
+  if(guard) return guard;
   const error=requireFields(data,["organizationName","contactName","email"]);
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
@@ -316,24 +330,54 @@ export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
     if(url.pathname==="/api/health") return handleHealth(env);
+    if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/logout") return logoutEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
-    if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/candidates"){
+      if(!(await employerSession(request,env))) return json({ok:false,error:"Sign in required"},{status:401});
+      return searchCandidates(url,env);
+    }
     if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/respond") return submitCandidateResponse(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/respond/interview") return bookCandidateInterview(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
-    if(request.method==="GET"&&m) return getWorkspace(m[1],env);
+    if(request.method==="GET"&&m){
+      if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
+      return getWorkspace(m[1],env);
+    }
     m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/openings$/);
-    if(request.method==="POST"&&m) return createOpening(m[1],request,env);
+    if(request.method==="POST"&&m){
+      if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
+      return createOpening(m[1],request,env);
+    }
     m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/openings\/([^/]+)\/match$/);
-    if(request.method==="POST"&&m) return matchOpening(m[1],m[2],env);
+    if(request.method==="POST"&&m){
+      if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
+      return matchOpening(m[1],m[2],env);
+    }
+    m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/openings\/([^/]+)\/contact$/);
+    if(request.method==="POST"&&m) return contactMatches(request,env,m[1],m[2]);
+    m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/openings\/([^/]+)\/interview-slots$/);
+    if((request.method==="GET"||request.method==="POST")&&m) return interviewSlots(request,env,m[1],m[2]);
     m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/pipeline$/);
-    if(request.method==="GET"&&m) return getPipeline(m[1],url,env);
+    if(request.method==="GET"&&m){
+      if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
+      return getPipeline(m[1],url,env);
+    }
     m=url.pathname.match(/^\/api\/workspace\/([^/]+)\/pipeline\/([^/]+)$/);
-    if(request.method==="PATCH"&&m) return updatePipeline(m[1],m[2],request,env);
+    if(request.method==="PATCH"&&m){
+      if(!(await employerOwnsWorkspace(request,env,m[1]))) return json({ok:false,error:"Sign in required"},{status:401});
+      return updatePipeline(m[1],m[2],request,env);
+    }
 
     if(url.pathname.startsWith("/api/")) return json({ok:false,error:"Not found"},{status:404});
     return env.ASSETS.fetch(request);
