@@ -1,4 +1,4 @@
-import { caregiverActivationEmail, cloudflareEmailTest, type EmailBinding } from './email';
+import { type EmailBinding } from './email';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
