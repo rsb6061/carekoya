@@ -417,11 +417,17 @@ export default {
     if(url.pathname.startsWith("/api/")) return json({ok:false,error:"Not found"},{status:404});
     return env.ASSETS.fetch(request);
   },
-  async scheduled(_event:unknown,env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+  async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     ctx.waitUntil((async()=>{
-      await enrichAgencyBatch(env,30);
-      await scoreAgencyMatches(env);
-      await sendAgencyTeaserBatch(env,5);
+      if(event.cron==="17 * * * *"){
+        await enrichAgencyBatch(env,30);
+        await scoreAgencyMatches(env);
+        return;
+      }
+      if(event.cron==="23 14 * * *"){
+        await scoreAgencyMatches(env);
+        await sendAgencyTeaserBatch(env,5);
+      }
     })());
   }
 };
