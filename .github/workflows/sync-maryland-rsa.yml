@@ -93,7 +93,7 @@ jobs:
             WHERE ao.is_active=1
               AND c.is_active=1
               AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
-              AND upper(coalesce(c.state,''))='MD'
+              AND (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219))
           ), ranked AS (
             SELECT *,
               geography_score+role_score+freshness_score+provider_score AS fit_score,
