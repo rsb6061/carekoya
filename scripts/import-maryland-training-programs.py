@@ -1,6 +1,5 @@
 import argparse, hashlib, json, re, subprocess, sys
 from pathlib import Path
-import pdfplumber
 
 SOURCE="maryland_mbon_natp"
 SOURCE_URL="https://mbon.maryland.gov/Documents/approved-cna-training-programs-grid.pdf"
