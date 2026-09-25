@@ -66,3 +66,43 @@ UPDATE training_programs SET
   contact_checked_at=CURRENT_TIMESTAMP,
   updated_at=CURRENT_TIMESTAMP
 WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'elh nursing solutions%';
+
+
+UPDATE training_programs SET
+  website='https://www.jirehhcinstitute.com/',
+  email='info@jirehhcinstitute.com',
+  phone='240-730-4816',
+  contact_source_url='https://www.jirehhcinstitute.com/contact',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'jireh healthcare institute%';
+
+UPDATE training_programs SET
+  website='https://www.bethelhcinstitute.com/',
+  email='bethelhealthcare@aol.com',
+  phone='301-559-0200',
+  contact_source_url='https://www.bethelhcinstitute.com/healthcare-training-contact-us',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'bethel healthcare institute%';
+
+UPDATE training_programs SET
+  website='https://cambridgegna.com/',
+  email='info@cambridgegna.com',
+  phone=CASE
+    WHEN lower(program_name) LIKE '%gaithersburg%' THEN '301-990-8311'
+    WHEN lower(program_name) LIKE '%hyattsville%' THEN '301-853-9100'
+    ELSE phone END,
+  contact_source_url='https://cambridgegna.com/contact-us/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'cambridge nursing assistant academy%';
+
+UPDATE training_programs SET
+  website='https://www.dominionahs.com/',
+  email='dominionacademy@hotmail.com',
+  phone='240-770-7774',
+  contact_source_url='https://www.dominionahs.com/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'dominion academy%';
