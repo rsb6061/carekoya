@@ -28,11 +28,25 @@ def parse_city_state_zip(text):
     if not matches: return "","MD",""
     m=matches[-1]
     city=clean(m.group(1))
-    # City is the tail immediately before state; strip obvious address/unit tokens if they leaked in.
     city=re.split(r"\b(?:Suite|Ste\.?|Room|Rm\.?|Floor|P\.O\. Box|PO Box|#\s*\w+)\b",city,flags=re.I)[-1].strip(" ,.")
+    # PDF extraction can leak the provider column into the city text.
+    for provider in PROVIDERS:
+        idx=city.lower().rfind(provider.lower())
+        if idx>=0: city=clean(city[idx+len(provider):])
     words=city.split()
     if len(words)>4: city=" ".join(words[-4:])
     return city,"MD",m.group(2)
+
+def strip_partial_provider(name,provider):
+    value=clean(name)
+    p=provider.lower()
+    low=value.lower()
+    if low.endswith(p): return clean(value[:-len(provider)])
+    for cut in range(len(provider)-1,5,-1):
+        prefix=provider[:cut].rstrip()
+        if prefix and low.endswith(prefix.lower()):
+            return clean(value[:-len(prefix)])
+    return value
 
 def detect_provider(window_text):
     lower=window_text.lower()
@@ -104,6 +118,7 @@ def extract(pdf_path):
 
         # Remove provider text if PDF geometry caused it to leak into the program name.
         name=re.sub(r"\b"+re.escape(provider)+r"\b.*$","",name,flags=re.I).strip()
+        name=strip_partial_provider(name,provider)
         if not name:
             # Fallback: use anchor prefix before provider/status.
             prefix=clean(anchor_line[:sm.start()])
