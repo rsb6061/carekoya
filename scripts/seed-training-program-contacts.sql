@@ -106,3 +106,58 @@ UPDATE training_programs SET
   contact_checked_at=CURRENT_TIMESTAMP,
   updated_at=CURRENT_TIMESTAMP
 WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'dominion academy%';
+
+
+UPDATE training_programs SET
+  website='https://amc-careerinstitute.com/',
+  email='info@amc-careerinstitute.com',
+  phone='240-413-9916',
+  contact_source_url='https://amc-careerinstitute.com/contact-us/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'amc career institute%';
+
+UPDATE training_programs SET
+  website='https://gandhihealthcare.com/',
+  email='Gandhihealthcareer@gmail.com',
+  phone='443-352-8030',
+  contact_source_url='https://gandhihealthcare.com/contact-gandhi-health-care/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'gandhi health care%';
+
+UPDATE training_programs SET
+  website='https://knowledgefirstinstitute.com/',
+  email='info@knowledgefirstinstitute.com',
+  phone='301-933-7474',
+  contact_source_url='https://knowledgefirstinstitute.com/admission/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'knowledge first institute%';
+
+UPDATE training_programs SET
+  website='https://www.heritagecare.org/',
+  email='info@heritagecare.org',
+  phone='301-237-6677',
+  contact_source_url='https://www.heritagecare.org/copy-of-contact-us',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'heritage care inc.%';
+
+UPDATE training_programs SET
+  website='https://www.psona.net/',
+  email='menda41@aol.com',
+  phone='301-434-8636',
+  contact_source_url='https://www.psona.net/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'perpetual school of nursing assistant%';
+
+UPDATE training_programs SET
+  website='https://demasacademyllc.com/',
+  email='info@demasacademyllc.com',
+  phone='301-213-1812',
+  contact_source_url='https://demasacademyllc.com/',
+  contact_checked_at=CURRENT_TIMESTAMP,
+  updated_at=CURRENT_TIMESTAMP
+WHERE source='maryland_mbon_natp' AND lower(program_name) LIKE 'dema''s academy%';
