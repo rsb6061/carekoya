@@ -1,0 +1,24 @@
+name: Cleanup Activation Sender
+
+on:
+  push:
+    paths:
+      - scripts/cleanup-activation-sender.trigger
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Delete one-time activation send secret
+        run: npx wrangler secret delete ACTIVATION_SEND_KEY
