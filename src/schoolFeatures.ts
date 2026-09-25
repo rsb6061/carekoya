@@ -29,10 +29,18 @@ function websiteDomain(url:string){
 
 async function programBySlug(env:FeatureEnv,slug:string){
   if(!env.DB)return null;
-  return env.DB.prepare(`SELECT tp.*,src.slug AS referral_slug
+  const direct=await env.DB.prepare(`SELECT tp.*,src.slug AS referral_slug,NULL AS cohort_id,NULL AS cohort_name
     FROM school_referral_codes src
     JOIN training_programs tp ON tp.id=src.training_program_id
     WHERE src.slug=? AND src.status='active' AND tp.is_active=1
+    LIMIT 1`).bind(slug).first<Row>();
+  if(direct)return direct;
+  return env.DB.prepare(`SELECT tp.*,src.slug AS referral_slug,co.id AS cohort_id,co.name AS cohort_name
+    FROM training_program_cohorts co
+    JOIN training_programs tp ON tp.id=co.training_program_id
+    LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    WHERE co.referral_code=? AND co.status='active' AND tp.is_active=1
+    ORDER BY src.created_at
     LIMIT 1`).bind(slug).first<Row>();
 }
 
@@ -62,8 +70,8 @@ export async function publicSchoolProgram(slug:string,env:FeatureEnv){
   return json({ok:true,program:{
     name:p.program_name,providerType:p.provider_type,address:p.address,city:p.city,state:p.state,zip:p.zip,
     programType:p.program_type,currentStatus:p.current_status,dateLastApproved:p.date_last_approved,renewalDue:p.renewal_due,
-    website:p.website||null,claimed:!!p.claimed_school_lead_id,
-    referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(p.referral_slug||''))
+    website:p.website||null,claimed:!!p.claimed_school_lead_id,cohortName:p.cohort_name||null,
+    referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(p.cohort_id?slug:(p.referral_slug||'')))
   }});
 }
 
@@ -175,6 +183,17 @@ export async function schoolDashboard(request:Request,env:FeatureEnv){
     LEFT JOIN caregivers c ON c.id=cr.caregiver_id
     LEFT JOIN candidate_pipeline cp ON cp.caregiver_id=cr.caregiver_id
     WHERE src.training_program_id=?`).bind(programId).first<Row>();
+  const cohortRows=await env.DB.prepare(`SELECT co.id,co.name,co.referral_code,co.expected_graduation_date,co.expected_graduates,co.status,
+      COUNT(DISTINCT c.id) AS signups,
+      COUNT(DISTINCT CASE WHEN cp.stage IN ('interested','interview','hired') THEN c.id END) AS interested,
+      COUNT(DISTINCT CASE WHEN cp.stage IN ('interview','hired') OR cp.interview_at IS NOT NULL THEN c.id END) AS interviews,
+      COUNT(DISTINCT CASE WHEN cp.stage='hired' OR cp.hired_at IS NOT NULL THEN c.id END) AS hires
+    FROM training_program_cohorts co
+    LEFT JOIN caregivers c ON c.source_training_cohort_id=co.id
+    LEFT JOIN candidate_pipeline cp ON cp.caregiver_id=c.id
+    WHERE co.training_program_id=?
+    GROUP BY co.id
+    ORDER BY co.created_at DESC`).bind(programId).all<Row>();
   return json({ok:true,school:{
     name:session.program_name,providerType:session.provider_type,city:session.city,state:session.state,zip:session.zip,
     contactName:session.contact_name,email:session.email,
@@ -182,7 +201,34 @@ export async function schoolDashboard(request:Request,env:FeatureEnv){
   },stats:{
     signups:Number(stats?.signups||0),activeProfiles:Number(stats?.active_profiles||0),interested:Number(stats?.interested||0),
     interviews:Number(stats?.interviews||0),hires:Number(stats?.hires||0)
-  }});
+  },cohorts:(cohortRows.results||[]).map(r=>({
+    id:r.id,name:r.name,status:r.status,expectedGraduationDate:r.expected_graduation_date,expectedGraduates:r.expected_graduates,
+    referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(r.referral_code||'')),
+    signups:Number(r.signups||0),interested:Number(r.interested||0),interviews:Number(r.interviews||0),hires:Number(r.hires||0)
+  }))});
+}
+
+export async function createSchoolCohort(request:Request,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const session=await schoolSession(request,env);
+  if(!session)return json({ok:false,error:'Sign in required'},{status:401});
+  const data=await request.json().catch(()=>null) as Row|null;
+  const name=clean(data?.name,140);
+  if(!name)return json({ok:false,error:'Cohort name is required'},{status:400});
+  const expectedGraduationDate=clean(data?.expectedGraduationDate,30)||null;
+  const expectedGraduates=Math.max(0,Math.min(1000,Number(data?.expectedGraduates||0)||0))||null;
+  const programId=clean(session.training_program_id,100);
+  const base=(name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,42)||'cohort');
+  const referralCode=(base+'-'+crypto.randomUUID().slice(0,8)).slice(0,64);
+  const id=crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO training_program_cohorts
+    (id,training_program_id,name,referral_code,expected_graduation_date,expected_graduates,status)
+    VALUES (?,?,?,?,?,?,'active')`)
+    .bind(id,programId,name,referralCode,expectedGraduationDate,expectedGraduates).run();
+  return json({ok:true,cohort:{
+    id,name,referralCode,expectedGraduationDate,expectedGraduates,
+    referralUrl:'https://carejoys.com/join/'+encodeURIComponent(referralCode)
+  }},{status:201});
 }
 
 export async function schoolLogout(request:Request,env:FeatureEnv){
