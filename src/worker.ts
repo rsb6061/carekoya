@@ -170,7 +170,7 @@ async function searchCandidates(url: URL, env: Env) {
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
-  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source FROM caregivers WHERE is_active=1 ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
+  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source FROM caregivers WHERE is_active=1 AND work_status!='not_looking' AND work_status!='maybe_later' ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
   let rows=result.results||[];
   if(role) rows=rows.filter(c=>[clean(c.role),clean(c.certifications),clean(c.specialties)].join(" ").toLowerCase().includes(role));
   if(zip) rows=rows.filter(c=>clean(c.zip)===zip);
@@ -209,7 +209,7 @@ async function matchOpening(workspaceId:string,openingId:string,env:Env) {
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const opening=await env.DB!.prepare("SELECT * FROM openings WHERE id=? AND employer_id=?").bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening) return json({ok:false,error:"Opening not found"},{status:404});
-  const result=await env.DB!.prepare("SELECT * FROM caregivers WHERE is_active=1").all<Record<string,unknown>>();
+  const result=await env.DB!.prepare("SELECT * FROM caregivers WHERE is_active=1 AND work_status!='not_looking' AND work_status!='maybe_later'").all<Record<string,unknown>>();
   const scored=(result.results||[]).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
   for(const item of scored){
     const pipelineId=crypto.randomUUID();
@@ -246,6 +246,90 @@ async function updatePipeline(workspaceId:string,pipelineId:string,request:Reque
 }
 
 
+const LEGACY_ACTIVATION_IDS = new Set(["58fb02afdfde360d6ab46c080fcaec79caffe4e9282ec6ed01bec24d6a20c8c7","8a9946be195d729821e9c2b322f1471065ae1609f668025ac7f22834438af65b","888d047f0fa19841cc98436413d6398ae58f4a64864a381672158d832f520f87","ee1af7de10753c9de9efb73995635b45637b66efea310679e5b9b0562471da5c","f8afaedd8965814f1ef15a5411b48e161201fb84afa5de4175494e9db0067ebe","f1c4d6a9b6a6aa4a4e5c6648483ded4549e04ee9452cdbc6a522b4b8c5049aa5","a98932595b0ca3aa1ff25931a6235ff63a7f45c41ea6b758bd77ba0e713c6d00","c587d7ead803e60f3c03c4dbb5d510f8bac6c6239fe63af48ad292b15ce06ba5","a2e18b3e0340a5ccbe3f267fe5e388e7d2995044b2ff6eb757a57c0fa2dfe2e4","cbff1169169994aa320992ccf3da83953fd7fdf620f9730a5c40b3fe6b623d2d","5896fd4c821279cae3b6943fb5f3b6c16ed3c816a536d32a8256c89f5d385dd1","a4b77bca4460e49f47202164814b309fbfee914ac1d2909b10dd3f91a1fa7d01","6552a8cd6db1bc144604d6688e6592bfeb610e1d3c28174db1e1be55ab6d4364","388404de9d47982d70dfb2e6e1a44055dfd3de37a48ddb7d9c25b71cfd6e944d","b6fee489e7772407c9f21aaa805a0c354eca00558001a231ac0d1af11bbfc910","98b2d6d25a5d5f73a50cfdda4900629b7f6bcea7c5a32f236f8370570dd01b86","64dbd70b42c9c30e8be5bc5642f8afb9e09d5e1bcdb60e66ccd06cf86d85eb5d","1612edc013af08e75a0407f6f10523c08dd6737b23a71f80f1d7c2e4d7d5ce58","83aa10c6c1c900490f97db2bec9fda4f95add2407f7b3e0eccc02db07bb45144","318378113b9efec3561a8e1f2f4fe58bbcab302e852b6ef1e77ba09654b3ba27","864c0241060dc6db5cae115fed49ffd0648586a741c47d75e91ecc20747ae064","21b49149c7bde58634ce731024b43d3cc5101e244616488564f883efebea6c0b","cd4521ca3f1a09c7e3cc41e042b3f881dda6fdb12ac2102f58c8d42ab1bb835d","2ef5df89850c02105f4a31993d710a92f1f4c31e440bdfc6471737483f3f3566","71c7e7b38ee55ba14b8e606cd4688aeb93af3ebfd526c3a1e22a1e9f423599c8","0b5091173f94b8c892bafa43fcd253faf1a4986099db2e90226308b734738fce","94330ec40a0234b9999244dfe8c7af46833696a8559b1d0a2a3307f8a2e00462","abc16b8a4baaf9baf4c189fad8032f8c8f1e29ee8594bd6c5df0410f1dac4596","8609c3f28418e135c2bc7647255120222d3128378ed3a197bca429dd71fdef4b","eda4422e6d5b7c808ada9545af91452070c42f59ceaddd9d473f1e4b04e066ea","e58628c92ec5454415e6b7ff2feba1ac248190a3df2a68970368525966c5c5f0","0881bf140300bcaab48ea68de2f40796e24e4b3e1ba3774e1612038103e77bde","f668f5b419fc549da355538410903f059fa8cd9ed821c664a2349765914bc213","46518c7bd8efe458416f90f964e0dd656c176f99c5bf8461662c031e23762cb1","416ac60c3386b3b00679e2fcdbe2a285a6e6f237a2c5dc311c524730e61b3506","7495675be4b59e4250a04d89804af3d35933742b38f2379d780ab78aa65c6501","05e3a7963a2822d5aa543803b3cc77109df47b977068b90a79c7a7fc0f560059","746b63665380a73b2a650875f1a164cb0dddd83b082fab6dc8f8d6fa21c837ce","642ed1ee3ac2bb1f0c2bbb09d15425d91a8c4cab88fbd4846449d5a3d20964a7","58068078213ef586981ca8d11bbd3d55566058368c9a0db9aa7422eeeb1dac75","2ef965534909bbc9bdbe4cc7d3c05258e5205636f554dc277e6b76f74df68ad1","548a8987d4bd9bf0f7014b3af30b952bbeaee8f19ccd03557869f67765d1c767","535e5267f4dbd2f8fe5670129aa87f63b6c1fc937a05c353094ebdbcf8447e5d","696fa9c02e78ac097dbdea3ddfab430722002a3dd1f0a22faafe20a3722fbc20","6eedbe77827a30f617994f9d3c3249a99e327749e0f0a3839ed8c820fcaac37a","b54b04a6d7292f3b77f86d7d0a3e7b892bb8b31df460059812773680589bf59f","8ad1431b55528fae6037db8aa528b852a4ee4263e2eb40dcdd67efdf31d93195"]);
+
+
+async function sha256Hex(value:string){
+  const bytes=new TextEncoder().encode(value);
+  const hash=await crypto.subtle.digest("SHA-256",bytes);
+  return Array.from(new Uint8Array(hash)).map((b)=>b.toString(16).padStart(2,"0")).join("");
+}
+
+async function activationStats(env:Env){
+  if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
+  const row=await env.DB.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN email IS NOT NULL AND email != '' THEN 1 ELSE 0 END) AS with_email, SUM(CASE WHEN phone IS NOT NULL AND phone != '' THEN 1 ELSE 0 END) AS with_phone, SUM(CASE WHEN activation_sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent, SUM(CASE WHEN activation_opened_at IS NOT NULL THEN 1 ELSE 0 END) AS opened, SUM(CASE WHEN activation_completed_at IS NOT NULL THEN 1 ELSE 0 END) AS completed, SUM(CASE WHEN work_status='actively_looking' THEN 1 ELSE 0 END) AS actively_looking, SUM(CASE WHEN work_status='not_looking' THEN 1 ELSE 0 END) AS not_looking, SUM(CASE WHEN work_status='maybe_later' THEN 1 ELSE 0 END) AS maybe_later FROM caregivers WHERE source='legacy_carekoya'").first<Record<string,unknown>>();
+  return json({ok:true,stats:{
+    total:Number(row?.total||0),withEmail:Number(row?.with_email||0),withPhone:Number(row?.with_phone||0),
+    sent:Number(row?.sent||0),opened:Number(row?.opened||0),completed:Number(row?.completed||0),
+    activelyLooking:Number(row?.actively_looking||0),notLooking:Number(row?.not_looking||0),maybeLater:Number(row?.maybe_later||0)
+  }});
+}
+
+async function getActivation(url:URL,env:Env){
+  if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
+  const token=clean(url.searchParams.get("token"),200);
+  if(!token) return json({ok:false,error:"Activation link is missing"},{status:400});
+  const tokenHash=await sha256Hex(token);
+  const caregiver=await env.DB.prepare("SELECT id,first_name,display_name,city,state,zip,role,shift_preferences,desired_wage,travel_distance_miles,transportation,willing_to_drive,work_status FROM caregivers WHERE activation_token_hash=? AND source='legacy_carekoya' LIMIT 1").bind(tokenHash).first<Record<string,unknown>>();
+  if(!caregiver) return json({ok:false,error:"This activation link is invalid or has already been used"},{status:404});
+  await env.DB.prepare("UPDATE caregivers SET activation_opened_at=COALESCE(activation_opened_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(caregiver.id).run();
+  return json({ok:true,caregiver:{
+    firstName:caregiver.first_name||clean(caregiver.display_name).split(/\s+/)[0]||"there",
+    city:caregiver.city,state:caregiver.state,zip:caregiver.zip,role:caregiver.role,
+    shifts:caregiver.shift_preferences,desiredWage:caregiver.desired_wage,
+    travelMiles:caregiver.travel_distance_miles,transportation:caregiver.transportation,
+    willingToDrive:!!caregiver.willing_to_drive,workStatus:caregiver.work_status
+  }});
+}
+
+async function completeActivation(request:Request,env:Env){
+  if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
+  const data=await readJson(request);
+  const token=clean(data?.token,200);
+  const workStatus=clean(data?.workStatus,40);
+  const allowed=["actively_looking","not_looking","maybe_later"];
+  if(!token||!allowed.includes(workStatus)) return json({ok:false,error:"Choose your current work status"},{status:400});
+  const tokenHash=await sha256Hex(token);
+  const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE activation_token_hash=? AND source='legacy_carekoya' LIMIT 1").bind(tokenHash).first<{id:string}>();
+  if(!caregiver) return json({ok:false,error:"This activation link is invalid or has already been used"},{status:404});
+  const role=clean(data?.role,80)||"Caregiver";
+  const city=clean(data?.city,120)||null;
+  const state=clean(data?.state,80)||null;
+  const zip=clean(data?.zip,20)||null;
+  const shifts=clean(data?.shifts,500)||null;
+  const desiredWage=clean(data?.desiredWage,80)||null;
+  const transportation=clean(data?.transportation,80)||null;
+  const travelMiles=Number(data?.travelMiles||0)||null;
+  const smsConsent=data?.smsConsent===true?1:0;
+  const active=workStatus==="actively_looking"?1:0;
+  await env.DB.prepare("UPDATE caregivers SET role=?,city=?,state=?,zip=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status=?,last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=?,sms_consent_at=?,activation_completed_at=CURRENT_TIMESTAMP,activation_token_hash=NULL,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(role,city,state,zip,shifts,desiredWage,transportation,travelMiles,workStatus,smsConsent,smsConsent?new Date().toISOString():null,active,caregiver.id).run();
+  await env.DB.prepare("INSERT INTO availability_events (id,caregiver_id,status,shift_preferences,desired_wage,travel_distance_miles,source,confirmed_at) VALUES (?,?,?,?,?,?,'caregiver_reactivation',CURRENT_TIMESTAMP)")
+    .bind(crypto.randomUUID(),caregiver.id,workStatus,shifts,desiredWage,travelMiles).run();
+  return json({ok:true,status:workStatus});
+}
+
+async function internalActivationEnroll(request:Request,env:Env){
+  if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
+  const data=await readJson(request);
+  const legacyId=clean(data?.legacyId,120);
+  const action=clean(data?.action,30);
+  if(!legacyId||!["enroll","sent"].includes(action)) return json({ok:false,error:"Invalid activation request"},{status:400});
+  const legacyHash=await sha256Hex(legacyId);
+  if(!LEGACY_ACTIVATION_IDS.has(legacyHash)) return json({ok:false,error:"Legacy cohort mismatch"},{status:403});
+  const caregiver=await env.DB.prepare("SELECT id,email FROM caregivers WHERE legacy_floot_id=? AND source='legacy_carekoya' LIMIT 1").bind(legacyId).first<Record<string,unknown>>();
+  if(!caregiver) return json({ok:false,error:"Legacy caregiver not found"},{status:404});
+  if(action==="enroll"){
+    const token=clean(data?.token,200);
+    if(token.length<32) return json({ok:false,error:"Activation token is invalid"},{status:400});
+    const tokenHash=await sha256Hex(token);
+    await env.DB.prepare("UPDATE caregivers SET activation_token_hash=?,activation_opened_at=NULL,activation_completed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(tokenHash,caregiver.id).run();
+    return json({ok:true,email:!!caregiver.email});
+  }
+  await env.DB.prepare("UPDATE caregivers SET activation_sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(caregiver.id).run();
+  return json({ok:true});
+}
+
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -254,6 +338,10 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
+    if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/internal/activation-enroll") return internalActivationEnroll(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m) return getWorkspace(m[1],env);
