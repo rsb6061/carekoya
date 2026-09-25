@@ -191,7 +191,7 @@ def main():
             rid="src_"+hashlib.sha256(("referral|"+r["id"]).encode()).hexdigest()[:24]
             statements.append(f"""INSERT INTO school_referral_codes(id,training_program_id,slug,status,updated_at)
               VALUES ({esc(rid)},{esc(r['id'])},{esc(r['referral_slug'])},'active',CURRENT_TIMESTAMP)
-              ON CONFLICT(slug) DO UPDATE SET training_program_id=excluded.training_program_id,status='active',updated_at=CURRENT_TIMESTAMP;""")
+              ON CONFLICT(id) DO UPDATE SET training_program_id=excluded.training_program_id,slug=excluded.slug,status='active',updated_at=CURRENT_TIMESTAMP;""")
     Path(args.output).write_text("\n".join(statements))
     print("SQL written",args.output)
 
