@@ -1,14 +1,16 @@
-# CareKoya
+# CareJoys
 
-CareKoya is a caregiver workforce network for home-care and senior-care employers.
+CareJoys is a caregiver workforce network for home-care and senior-care employers.
 
 > **Caregivers ready to work. Interviews ready for you.**
 
-This repository is the canonical source for the post-Floot rebuild.
+Canonical product domain: **https://carejoys.com**
+
+This repository is the canonical source for the post-Floot rebuild. The repository slug and current Cloudflare Worker service may still use the legacy internal name `carekoya`; that is intentional for now so existing Git integration and domain routing are not disrupted.
 
 ## Product thesis
 
-Most recruiting products optimize for applicant volume. CareKoya is designed around a harder question: **who is reachable, qualified enough for this opening, and interested now?**
+Most recruiting products optimize for applicant volume. CareJoys is designed around a harder question: **who is reachable, qualified enough for this opening, and interested now?**
 
 The long-term asset is a persistent caregiver workforce graph: location, role, credentials, shift preferences, wage expectations, commute radius, availability freshness, response history, interview outcomes, and later retention.
 
@@ -19,11 +21,17 @@ The long-term asset is a persistent caregiver workforce graph: location, role, c
 - School / new-graduate acquisition channel
 - Freshness-driven candidate model
 - GitHub CI
-- Vite + React static build, ready for Cloudflare
+- Vite + React + Cloudflare Worker
 
-## Next infrastructure step
+## Deployment
 
-Connect this repository to Cloudflare Workers/Pages for automatic deploys from `main`. The application backend and caregiver-data migration will be added after the Cloudflare project/database is provisioned.
+Cloudflare Workers Builds should use:
+
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
+- Production branch: `main`
+
+The Worker config is committed as `wrangler.jsonc`.
 
 ## Floot migration rule
 
