@@ -1,0 +1,49 @@
+name: Sync Maryland RSAs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/sync-maryland-rsa.trigger
+  schedule:
+    - cron: '23 10 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+      - run: npm install xlsx --no-save
+
+      - name: Apply agency schema
+        run: npm run db:migrations:apply
+
+      - name: Download official Maryland RSA directory
+        run: |
+          curl --fail-with-body --location --retry 4 --retry-delay 2 \
+            -A "Mozilla/5.0 CareJoys/1.0" \
+            "https://health.maryland.gov/ohcq/docs/Provider-Listings/Excel/Residential-Service-Agencies-EXCEL.xlsx" \
+            -o /tmp/maryland-rsa.xlsx
+          test -s /tmp/maryland-rsa.xlsx
+
+      - name: Parse directory and build D1 upsert
+        run: node scripts/import-maryland-rsa.mjs /tmp/maryland-rsa.xlsx /tmp/maryland-rsa.sql
+
+      - name: Import agencies into CareJoys
+        run: npx wrangler d1 execute DB --remote --file=/tmp/maryland-rsa.sql
+
+      - name: Verify Maryland agency universe
+        run: |
+          npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_maryland_rsas FROM agencies WHERE source='maryland_ohcq_rsa' AND is_active=1;"
+          npx wrangler d1 execute DB --remote --command="SELECT city, COUNT(*) AS agencies FROM agencies WHERE source='maryland_ohcq_rsa' AND is_active=1 GROUP BY city ORDER BY agencies DESC LIMIT 15;"
