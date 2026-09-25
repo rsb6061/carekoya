@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "deploy": "npm run build && wrangler deploy"
+    "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "deploy": "npm run build && npm run db:migrations:apply && wrangler deploy"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.4",
