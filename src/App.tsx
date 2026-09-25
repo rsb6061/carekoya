@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { EmployerWorkspace } from './EmployerWorkspace';
+import { CaregiverActivation } from './CaregiverActivation';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -108,6 +109,7 @@ function IntakeModal({
 }
 
 export function App() {
+  if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
 
   const [form, setForm] = useState<FormKind>(null);
