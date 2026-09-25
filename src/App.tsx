@@ -6,6 +6,8 @@ import { CandidateResponse } from './CandidateResponse';
 import { TurnstileField } from './TurnstileField';
 import { LegalPage } from './LegalPage';
 import { AgencyClaim } from './AgencyClaim';
+import { MarylandCaregiverPage } from './MarylandCaregiverPage';
+import { SchoolProgramPage, SchoolAuth, SchoolDashboard } from './SchoolPortal';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -121,6 +123,10 @@ export function App() {
   if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
   if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
   if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
+  if (window.location.pathname.startsWith('/caregiver-jobs/maryland') || window.location.pathname.startsWith('/join/')) return <MarylandCaregiverPage />;
+  if (window.location.pathname.startsWith('/school-auth')) return <SchoolAuth />;
+  if (window.location.pathname.startsWith('/school-dashboard')) return <SchoolDashboard />;
+  if (window.location.pathname.startsWith('/school/')) return <SchoolProgramPage />;
   if (window.location.pathname.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
   if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
