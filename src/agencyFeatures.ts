@@ -152,7 +152,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       CROSS JOIN caregivers c
       WHERE ao.is_active=1 AND c.is_active=1
         AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
-        AND (lower(coalesce(ao.state,''))=lower(coalesce(c.state,'')) OR upper(coalesce(c.state,''))='MD')
+        AND upper(coalesce(c.state,''))='MD'
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(PARTITION BY caregiver_id ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
