@@ -1,4 +1,4 @@
-import { type EmailBinding } from './email';
+import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, interviewConfirmedEmail } from './email';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -11,17 +11,12 @@ interface D1PreparedStatement {
   first<T = Record<string, unknown>>(): Promise<T | null>;
 }
 interface D1Database { prepare(query: string): D1PreparedStatement; }
-interface EmailSendResult {
-  delivered?: string[];
-  queued?: string[];
-  permanent_bounces?: string[];
-  suppressed_recipients?: string[];
-  message_id?: string;
-}
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB?: D1Database;
   EMAIL?: EmailBinding;
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET_KEY?: string;
 }
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
