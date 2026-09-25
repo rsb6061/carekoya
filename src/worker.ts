@@ -390,6 +390,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/internal/school-outreach") return schoolOutreachAdmin(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
     let schoolProgram=url.pathname.match(/^\/api\/school\/program\/([^/]+)$/);
     if(request.method==="GET"&&schoolProgram) return publicSchoolProgram(decodeURIComponent(schoolProgram[1]),env);
