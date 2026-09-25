@@ -63,3 +63,12 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
  .job-card{border-radius:22px;padding:18px}.job-card-side{align-items:stretch}.job-card-action{width:100%}.talent-filters{grid-template-columns:1fr}.pipeline-select{width:100%}
  .app-empty-card{margin-top:8vh}
 }
+
+.auth-form{display:grid;gap:14px;margin-top:24px;max-width:520px}
+.auth-form input{height:50px;border:1px solid var(--lavender);border-radius:16px;padding:0 14px;background:#fffdf9;color:var(--ink);font:inherit}
+.pipeline-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 28px;color:var(--muted);font-size:13px}
+.pipeline-legend span{display:inline-flex;background:#fffdf9;border:1px solid var(--lavender);border-radius:999px;padding:6px 10px;color:var(--ink)}
+.pipeline-legend b{font-weight:500;color:#918aa3}
+.opening-actions{align-items:stretch;min-width:158px}
+.opening-actions .button,.opening-actions .job-card-action{width:100%;white-space:nowrap}
+@media(max-width:760px){.pipeline-legend{gap:5px}.opening-actions{width:100%;min-width:0}}
