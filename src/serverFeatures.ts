@@ -205,7 +205,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
     try{
       const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
       await env.DB.prepare("UPDATE candidate_pipeline SET stage='contacted',contacted_at=CURRENT_TIMESTAMP,response_token_hash=?,response_sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(hash,row.pipeline_id).run();
-      await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?,?)")
+      await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?)")
         .bind(crypto.randomUUID(),row.caregiver_id,openingId,result.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
       sent++;
     }catch(error){
