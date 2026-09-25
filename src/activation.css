@@ -29,3 +29,12 @@
   .activation-card h1{font-size:38px}
   .activation-nav{margin-bottom:18px}
 }
+
+.opportunity-summary{display:grid;gap:10px;margin:20px 0 26px}
+.opportunity-summary>div{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:12px 14px;background:#f6f3ff;border:1px solid var(--lavender);border-radius:16px}
+.opportunity-summary strong{font-size:13px}
+.opportunity-summary span{font-size:14px;color:var(--muted);line-height:1.5}
+.response-actions{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}
+.response-actions .btn{min-width:150px}
+.activation-success h2{font-family:var(--display);font-size:34px;font-weight:400;letter-spacing:-.03em;margin:8px 0 10px}
+@media(max-width:620px){.opportunity-summary>div{grid-template-columns:1fr}.response-actions .btn{width:100%}}
