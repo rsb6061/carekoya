@@ -93,6 +93,29 @@ jobs:
             WHERE source='maryland_mbon_natp' AND is_active=0
           );"
 
+      - name: Normalize training program cities from Maryland ZIPs
+        run: |
+          npx wrangler d1 execute DB --remote --command="
+          UPDATE training_programs
+          SET city=(
+            SELECT a.city
+            FROM agencies a
+            WHERE a.is_active=1
+              AND a.zip=training_programs.zip
+              AND a.city IS NOT NULL AND a.city!=''
+            GROUP BY a.city
+            ORDER BY COUNT(*) DESC,a.city
+            LIMIT 1
+          ),
+          updated_at=CURRENT_TIMESTAMP
+          WHERE source='maryland_mbon_natp'
+            AND zip IS NOT NULL AND zip!=''
+            AND EXISTS (
+              SELECT 1 FROM agencies a
+              WHERE a.is_active=1 AND a.zip=training_programs.zip
+                AND a.city IS NOT NULL AND a.city!=''
+            );"
+
       - name: Seed website and email from matching agency records
         run: |
           npx wrangler d1 execute DB --remote --command="
