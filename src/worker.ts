@@ -179,7 +179,7 @@ async function searchCandidates(url: URL, env: Env) {
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
-  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source FROM caregivers WHERE is_active=1 AND work_status='actively_looking' ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
+  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown')) ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
   let rows=result.results||[];
   if(role) rows=rows.filter(c=>[clean(c.role),clean(c.certifications),clean(c.specialties)].join(" ").toLowerCase().includes(role));
   if(zip) rows=rows.filter(c=>clean(c.zip)===zip);
@@ -218,7 +218,7 @@ async function matchOpening(workspaceId:string,openingId:string,env:Env) {
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const opening=await env.DB!.prepare("SELECT * FROM openings WHERE id=? AND employer_id=?").bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening) return json({ok:false,error:"Opening not found"},{status:404});
-  const result=await env.DB!.prepare("SELECT * FROM caregivers WHERE is_active=1 AND work_status='actively_looking'").all<Record<string,unknown>>();
+  const result=await env.DB!.prepare("SELECT * FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown'))").all<Record<string,unknown>>();
   const scored=(result.results||[]).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
   for(const item of scored){
     const pipelineId=crypto.randomUUID();
