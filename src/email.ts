@@ -152,3 +152,32 @@ export function agencyCandidateTeaserEmail(input:{
     text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your Maryland provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free during the CareJoys pilot.\n\nCareJoys · carejoys.com`
   };
 }
+
+
+export function schoolPlacementInviteEmail(input:{
+  contactName:string;
+  programName:string;
+  claimLink:string;
+}) {
+  return {
+    subject:`Free placement network for ${input.programName} graduates`,
+    html:shell('Free placement network for your CNA/GNA graduates',`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.contactName||'there')},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">CareJoys is building a free Maryland placement network for nursing-assistant graduates. Students create one caregiver profile and can be connected with relevant local care employers based on role, location, shifts, and availability.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>There is no charge to the training program or graduate.</strong></p>
+      <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Set up ${esc(input.programName)}</a></p>
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">Each program gets a unique graduate referral link plus placement attribution from signup through employer interest, interview, and hire.</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys is building a free Maryland placement network for nursing-assistant graduates. Students create one caregiver profile and can be connected with relevant local care employers. There is no charge to the training program or graduate.\n\nSet up ${input.programName}:\n${input.claimLink}\n\nEach program gets a unique graduate referral link plus placement attribution from signup through interview and hire.\n\nCareJoys · carejoys.com`
+  };
+}
+
+export function schoolMagicLinkEmail(input:{contactName:string;programName:string;link:string}) {
+  return {
+    subject:'Your CareJoys school sign-in link',
+    html:shell('Open your CareJoys placement dashboard',`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.contactName||'there')},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Use this secure one-time link to open the CareJoys dashboard for <strong>${esc(input.programName)}</strong>. It expires in 15 minutes.</p>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Open placement dashboard</a></p>`),
+    text:`Hi ${input.contactName||'there'},\n\nUse this secure one-time link to open the CareJoys placement dashboard for ${input.programName}. It expires in 15 minutes:\n\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
