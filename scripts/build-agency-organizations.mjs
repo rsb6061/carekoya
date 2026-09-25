@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 const OUT=process.argv[2]||'/tmp/agency-organizations.sql';
-const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','--remote','--json','--command',sql],{encoding:'utf8'}));
+const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','--remote','--json','--command',sql],{encoding:'utf8',maxBuffer:50*1024*1024}));
 const rows=((run("SELECT id,name,legal_name,email,phone,contact_name,city,state,zip,provider_type,organization_key,caregiver_match_eligible,caregiver_relevance_score FROM agencies WHERE is_active=1 AND source LIKE 'maryland_ohcq_%' ORDER BY name;")[0]||{}).results)||[];
 
 const free=new Set(['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','comcast.net','verizon.net','msn.com','live.com']);
