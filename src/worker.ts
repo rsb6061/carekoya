@@ -19,6 +19,7 @@ interface Env {
   EMAIL?: EmailBinding;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  AGENCY_MAINT_KEY?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -345,6 +346,17 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
+async function agencyMaintenance(request:Request,env:Env){
+  const key=request.headers.get("x-carejoys-agency-key")||"";
+  if(!env.AGENCY_MAINT_KEY||key!==env.AGENCY_MAINT_KEY)return json({ok:false,error:"Unauthorized"},{status:401});
+  const data=await readJson(request);
+  const mode=clean(data?.mode,30);
+  if(mode==="enrich")return json({ok:true,...await enrichAgencyBatch(env,Math.max(1,Math.min(100,Number(data?.limit||30))))});
+  if(mode==="score")return json({ok:true,...await scoreAgencyMatches(env)});
+  if(mode==="teaser")return json({ok:true,...await sendAgencyTeaserBatch(env,Math.max(1,Math.min(10,Number(data?.limit||5))))});
+  return json({ok:false,error:"Invalid maintenance mode"},{status:400});
+}
+
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -370,6 +382,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/internal/agency-maintenance") return agencyMaintenance(request,env);
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
     if(request.method==="GET"&&url.pathname==="/api/workspace"){
