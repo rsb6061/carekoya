@@ -1,0 +1,94 @@
+name: Sync Maryland Training Programs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/sync-maryland-training-programs.trigger
+  schedule:
+    - cron: '7 11 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: npm install
+      - run: python -m pip install --disable-pip-version-check pdfplumber
+
+      - name: Apply CareJoys migrations
+        run: npm run db:migrations:apply
+
+      - name: Download Maryland Board of Nursing directory
+        run: |
+          curl --fail-with-body --location --retry 4 --retry-delay 2 \
+            -A "Mozilla/5.0 CareJoys/1.0" \
+            "https://mbon.maryland.gov/Documents/approved-cna-training-programs-grid.pdf" \
+            -o /tmp/maryland-training-programs.pdf
+          test -s /tmp/maryland-training-programs.pdf
+
+      - name: Parse approved nursing assistant programs
+        run: |
+          python scripts/import-maryland-training-programs.py \
+            /tmp/maryland-training-programs.pdf \
+            /tmp/maryland-training-programs.sql
+
+      - name: Import training programs
+        run: npx wrangler d1 execute DB --remote --file=/tmp/maryland-training-programs.sql
+
+      - name: Seed website and email from matching agency records
+        run: |
+          npx wrangler d1 execute DB --remote --command="
+          UPDATE training_programs
+          SET website=(
+                SELECT ao.primary_website
+                FROM agency_organizations ao
+                WHERE ao.is_active=1
+                  AND lower(trim(ao.canonical_name))=lower(trim(training_programs.program_name))
+                  AND ao.primary_website IS NOT NULL
+                LIMIT 1
+              ),
+              email=(
+                SELECT ao.primary_email
+                FROM agency_organizations ao
+                WHERE ao.is_active=1
+                  AND lower(trim(ao.canonical_name))=lower(trim(training_programs.program_name))
+                  AND ao.primary_email IS NOT NULL
+                LIMIT 1
+              ),
+              phone=(
+                SELECT ao.primary_phone
+                FROM agency_organizations ao
+                WHERE ao.is_active=1
+                  AND lower(trim(ao.canonical_name))=lower(trim(training_programs.program_name))
+                  AND ao.primary_phone IS NOT NULL
+                LIMIT 1
+              ),
+              updated_at=CURRENT_TIMESTAMP
+          WHERE source='maryland_mbon_natp'
+            AND EXISTS (
+              SELECT 1 FROM agency_organizations ao
+              WHERE ao.is_active=1
+                AND lower(trim(ao.canonical_name))=lower(trim(training_programs.program_name))
+            );"
+
+      - name: Verify program supply universe
+        run: |
+          npx wrangler d1 execute DB --remote --command="SELECT provider_type,COUNT(*) AS active_programs FROM training_programs WHERE source='maryland_mbon_natp' AND is_active=1 GROUP BY provider_type ORDER BY active_programs DESC;"
+          npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_programs,COUNT(DISTINCT city) AS cities,SUM(CASE WHEN website IS NOT NULL AND website!='' THEN 1 ELSE 0 END) AS with_website,SUM(CASE WHEN email IS NOT NULL AND email!='' THEN 1 ELSE 0 END) AS with_email FROM training_programs WHERE source='maryland_mbon_natp' AND is_active=1;"
+          npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_referral_links FROM school_referral_codes WHERE status='active';"
