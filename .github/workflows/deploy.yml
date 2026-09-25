@@ -30,11 +30,14 @@ jobs:
           npm run db:migrations:apply
           npx wrangler deploy
 
-      - name: Smoke test Worker and database
+      - name: Smoke test production domain and database
         run: |
-          echo "Worker health:"
-          curl --fail-with-body --retry 5 --retry-delay 2             https://carekoya.platesurf-dev-2026.workers.dev/api/health
+          echo "Production health:"
+          curl --fail-with-body --retry 5 --retry-delay 2             https://carejoys.com/api/health
           echo
-          echo "Custom domain health (non-blocking):"
-          curl --fail-with-body --retry 2 --retry-delay 2             https://carejoys.com/api/health || true
+          echo "WWW health:"
+          curl --fail-with-body --retry 5 --retry-delay 2             https://www.carejoys.com/api/health
+          echo
+          echo "workers.dev fallback (non-blocking):"
+          curl --fail-with-body --retry 2 --retry-delay 2             https://carekoya.platesurf-dev-2026.workers.dev/api/health || true
           echo
