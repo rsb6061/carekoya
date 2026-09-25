@@ -8,6 +8,7 @@ import { LegalPage } from './LegalPage';
 import { AgencyClaim } from './AgencyClaim';
 import { MarylandCaregiverPage } from './MarylandCaregiverPage';
 import { SchoolProgramPage, SchoolAuth, SchoolDashboard } from './SchoolPortal';
+import { MarylandSchoolsPage } from './MarylandSchoolsPage';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -124,6 +125,7 @@ export function App() {
   if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
   if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
   if (window.location.pathname.startsWith('/caregiver-jobs/maryland') || window.location.pathname.startsWith('/join/')) return <MarylandCaregiverPage />;
+  if (window.location.pathname.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
   if (window.location.pathname.startsWith('/school-auth')) return <SchoolAuth />;
   if (window.location.pathname.startsWith('/school-dashboard')) return <SchoolDashboard />;
   if (window.location.pathname.startsWith('/school/')) return <SchoolProgramPage />;
@@ -229,7 +231,7 @@ export function App() {
           <div className="jobs">
             <div className="job">
               <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA, HHA, and direct-care programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
-              <button className="btn secondary" onClick={() => setForm('school')}>Partner with CareJoys</button>
+              <div className="school-home-actions"><a className="btn secondary" href="/schools/maryland">Find your Maryland program</a><button className="btn secondary" onClick={() => setForm('school')}>Partner with CareJoys</button></div>
             </div>
           </div>
         </div>
