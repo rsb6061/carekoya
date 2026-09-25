@@ -22,7 +22,6 @@ interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB?: D1Database;
   EMAIL?: EmailBinding;
-  ACTIVATION_SEND_KEY?: string;
 }
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -318,84 +317,6 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
-async function sendActivationEmail(env:Env, caregiver:Record<string,unknown>){
-  if(!env.DB||!env.EMAIL) throw new Error("Cloudflare Email Service is not configured");
-  const email=clean(caregiver.email,320).toLowerCase();
-  if(!emailLooksValid(email)) throw new Error("Caregiver does not have a valid email");
-  const firstName=clean(caregiver.first_name,120)||clean(caregiver.display_name,160).split(/\s+/)[0]||"there";
-  const token=crypto.randomUUID()+"-"+crypto.randomUUID();
-  const tokenHash=await sha256Hex(token);
-  const link="https://carejoys.com/activate?token="+encodeURIComponent(token);
-  const body=caregiverActivationEmail(firstName,link);
-
-  await env.DB.prepare("UPDATE caregivers SET activation_token_hash=?,activation_delivery_status='sending',activation_delivery_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-    .bind(tokenHash,caregiver.id).run();
-
-  try{
-    const result=await env.EMAIL.send({
-      from:"CareJoys <updates@carejoys.com>",
-      to:email,
-      subject:body.subject,
-      html:body.html,
-      text:body.text
-    });
-    const delivered=(result.delivered||[]).includes(email);
-    const queued=(result.queued||[]).includes(email);
-    const bounced=(result.permanent_bounces||[]).includes(email);
-    const suppressed=(result.suppressed_recipients||[]).includes(email);
-    const status=delivered?"delivered":queued?"queued":bounced?"bounced":suppressed?"suppressed":"sent";
-    await env.DB.prepare("UPDATE caregivers SET activation_sent_at=CURRENT_TIMESTAMP,activation_message_id=?,activation_delivery_status=?,activation_delivery_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(result.message_id||null,status,caregiver.id).run();
-    return {ok:true,status,messageId:result.message_id||null};
-  }catch(error){
-    const message=error instanceof Error?error.message:"Email send failed";
-    await env.DB.prepare("UPDATE caregivers SET activation_token_hash=NULL,activation_delivery_status='failed',activation_delivery_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(message.slice(0,500),caregiver.id).run();
-    return {ok:false,status:"failed",error:message};
-  }
-}
-
-function activationAdminAuthorized(request:Request,env:Env){
-  const provided=request.headers.get("x-carejoys-activation-key")||"";
-  return !!env.ACTIVATION_SEND_KEY && provided.length>20 && provided===env.ACTIVATION_SEND_KEY;
-}
-
-async function activationEmailAdmin(request:Request,env:Env){
-  if(!activationAdminAuthorized(request,env)) return json({ok:false,error:"Unauthorized"},{status:401});
-  if(!env.DB||!env.EMAIL) return json({ok:false,error:"Cloudflare Email Service is not configured"},{status:503});
-  const data=await readJson(request);
-  const mode=clean(data?.mode,20)||"batch";
-
-  if(mode==="test"){
-    const testEmail=clean(data?.email,320).toLowerCase();
-    if(!emailLooksValid(testEmail)) return json({ok:false,error:"A valid test email is required"},{status:400});
-    const body=cloudflareEmailTest();
-    try{
-      const result=await env.EMAIL.send({
-        from:"CareJoys <updates@carejoys.com>",
-        to:testEmail,
-        subject:body.subject,
-        html:body.html,
-        text:body.text,
-        replyTo:"hello@carejoys.com"
-      });
-      return json({ok:true,result});
-    }catch(error){
-      return json({ok:false,error:error instanceof Error?error.message:"Test email failed"},{status:502});
-    }
-  }
-
-  const limit=Math.max(1,Math.min(50,Number(data?.limit||5)||5));
-  const rows=await env.DB.prepare("SELECT id,first_name,display_name,email FROM caregivers WHERE source='legacy_carekoya' AND work_status='unknown' AND email IS NOT NULL AND email!='' AND activation_sent_at IS NULL AND (activation_delivery_status IS NULL OR activation_delivery_status!='sending') ORDER BY created_at ASC LIMIT ?")
-    .bind(limit).all<Record<string,unknown>>();
-  const results:Array<Record<string,unknown>>=[];
-  for(const caregiver of rows.results||[]){
-    const result=await sendActivationEmail(env,caregiver);
-    results.push({id:caregiver.id,...result});
-  }
-  return json({ok:true,attempted:results.length,sent:results.filter(r=>r.ok===true).length,failed:results.filter(r=>r.ok!==true).length,results});
-}
-
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -407,7 +328,6 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/internal/activation-email") return activationEmailAdmin(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m) return getWorkspace(m[1],env);
