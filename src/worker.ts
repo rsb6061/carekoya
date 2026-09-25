@@ -20,7 +20,6 @@ interface Env {
   EMAIL?: EmailBinding;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
-  SCHOOL_OUTREACH_KEY?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -370,14 +369,6 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
-async function schoolOutreachAdmin(request:Request,env:Env){
-  const key=request.headers.get("x-carejoys-school-key")||"";
-  if(!env.SCHOOL_OUTREACH_KEY||key!==env.SCHOOL_OUTREACH_KEY)return json({ok:false,error:"Unauthorized"},{status:401});
-  const data=await readJson(request);
-  const limit=Math.max(1,Math.min(5,Number(data?.limit||3)||3));
-  return json({ok:true,...await sendSchoolOutreachBatch(env,limit)});
-}
-
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
@@ -390,7 +381,6 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/internal/school-outreach") return schoolOutreachAdmin(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
     let schoolProgram=url.pathname.match(/^\/api\/school\/program\/([^/]+)$/);
     if(request.method==="GET"&&schoolProgram) return publicSchoolProgram(decodeURIComponent(schoolProgram[1]),env);
