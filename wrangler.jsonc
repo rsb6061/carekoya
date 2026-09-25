@@ -37,5 +37,10 @@
         "updates@carejoys.com"
       ]
     }
-  ]
+  ],
+  "triggers": {
+    "crons": [
+      "17 * * * *"
+    ]
+  }
 }
