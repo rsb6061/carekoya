@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 
 const args = Object.fromEntries(process.argv.slice(2).map((v,i,a)=>v.startsWith('--')?[v.slice(2),a[i+1]]:null).filter(Boolean));
 const outputPath=args.output;
