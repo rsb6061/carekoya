@@ -10,9 +10,28 @@ interface D1PreparedStatement {
   first<T = Record<string, unknown>>(): Promise<T | null>;
 }
 interface D1Database { prepare(query: string): D1PreparedStatement; }
+interface EmailSendResult {
+  delivered?: string[];
+  queued?: string[];
+  permanent_bounces?: string[];
+  suppressed_recipients?: string[];
+  message_id?: string;
+}
+interface EmailBinding {
+  send(message: {
+    from: string;
+    to: string | string[];
+    subject: string;
+    html?: string;
+    text?: string;
+    replyTo?: string;
+  }): Promise<EmailSendResult>;
+}
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB?: D1Database;
+  EMAIL?: EmailBinding;
+  ACTIVATION_SEND_KEY?: string;
 }
 function json(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
