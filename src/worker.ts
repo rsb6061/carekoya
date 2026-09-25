@@ -206,6 +206,7 @@ async function handleCaregiver(request: Request, env: Env) {
         .bind(crypto.randomUUID(),id,referral.id).run();
     }
   }
+  await scoreCaregiverAgainstAgencies(env,id);
   return json({ok:true,id},{status:201});
 }
 async function handleSchool(request: Request, env: Env) {
