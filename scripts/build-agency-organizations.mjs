@@ -4,7 +4,7 @@ import fs from 'node:fs';
 
 const OUT=process.argv[2]||'/tmp/agency-organizations.sql';
 const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','--remote','--json','--command',sql],{encoding:'utf8'}));
-const rows=((run("SELECT id,name,legal_name,email,phone,contact_name,city,state,provider_type,organization_key,caregiver_match_eligible FROM agencies WHERE is_active=1 AND source LIKE 'maryland_ohcq_%' ORDER BY name;")[0]||{}).results)||[];
+const rows=((run("SELECT id,name,legal_name,email,phone,contact_name,city,state,zip,provider_type,organization_key,caregiver_match_eligible,caregiver_relevance_score FROM agencies WHERE is_active=1 AND source LIKE 'maryland_ohcq_%' ORDER BY name;")[0]||{}).results)||[];
 
 const free=new Set(['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','comcast.net','verizon.net','msn.com','live.com']);
 const clean=v=>String(v||'').trim();
@@ -43,12 +43,13 @@ for(const g of groups.values()){
   const primaryDomain=[...g.domains][0]||'';
   const primaryEmail=rs.map(r=>clean(r.email).toLowerCase()).find(e=>e&&(!primaryDomain||e.endsWith('@'+primaryDomain)))||pick('email').toLowerCase();
   const providerTypes=[...g.types].sort().join(', ');
+  const relevance=Math.max(...rs.map(r=>Number(r.caregiver_relevance_score||0)),0);
   sql.push(`INSERT INTO agency_organizations
-    (id,organization_key,canonical_name,primary_domain,primary_email,primary_phone,primary_contact_name,city,state,provider_types,license_count,is_active,updated_at)
+    (id,organization_key,canonical_name,primary_domain,primary_email,primary_phone,primary_contact_name,city,state,zip,provider_types,license_count,caregiver_relevance_score,is_active,updated_at)
     VALUES (${esc(g.id)},${esc(g.key)},${esc(name)},${esc(primaryDomain)},${esc(primaryEmail)},${esc(pick('phone'))},${esc(pick('contact_name'))},${esc(pick('city'))},${esc(pick('state')||'MD')},${esc(providerTypes)},${rs.length},1,CURRENT_TIMESTAMP)
     ON CONFLICT(organization_key) DO UPDATE SET canonical_name=excluded.canonical_name,primary_domain=excluded.primary_domain,
       primary_email=excluded.primary_email,primary_phone=excluded.primary_phone,primary_contact_name=excluded.primary_contact_name,
-      city=excluded.city,state=excluded.state,provider_types=excluded.provider_types,license_count=excluded.license_count,is_active=1,updated_at=CURRENT_TIMESTAMP;`);
+      city=excluded.city,state=excluded.state,zip=excluded.zip,provider_types=excluded.provider_types,license_count=excluded.license_count,caregiver_relevance_score=excluded.caregiver_relevance_score,is_active=1,updated_at=CURRENT_TIMESTAMP;`);
   for(const r of rs)sql.push(`UPDATE agencies SET organization_id=${esc(g.id)},organization_key=${esc(g.key)},updated_at=CURRENT_TIMESTAMP WHERE id=${esc(r.id)};`);
   const roles=new Set();
   if(providerTypes.includes('Home Health Agency'))roles.add('HHA');
