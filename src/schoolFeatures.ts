@@ -1,4 +1,4 @@
-import { schoolMagicLinkEmail, type EmailBinding } from './email';
+import { schoolMagicLinkEmail, schoolPlacementInviteEmail, type EmailBinding } from './email';
 import { publicFormGuard, type FeatureEnv } from './serverFeatures';
 
 type Row=Record<string,unknown>;
@@ -194,4 +194,55 @@ export async function schoolLogout(request:Request,env:FeatureEnv){
     }
   }
   return json({ok:true},{headers:{'Set-Cookie':'__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0'}});
+}
+
+
+export async function sendSchoolOutreachBatch(env:FeatureEnv,limit=3){
+  if(!env.DB||!env.EMAIL)return {attempted:0,sent:0,failed:0};
+  const rows=await env.DB.prepare(`SELECT tp.id,tp.program_name,tp.email,tp.claimed_school_lead_id,src.slug
+    FROM training_programs tp
+    JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    WHERE tp.is_active=1
+      AND tp.source='maryland_mbon_natp'
+      AND tp.email IS NOT NULL AND tp.email!=''
+      AND tp.claimed_school_lead_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM training_program_outreach o
+        WHERE o.training_program_id=tp.id AND o.event_type='school_intro'
+      )
+    ORDER BY
+      CASE WHEN tp.provider_type='Freestanding Program' THEN 0
+           WHEN tp.provider_type='College' THEN 1
+           WHEN tp.provider_type='High School' THEN 2
+           ELSE 3 END,
+      tp.updated_at DESC
+    LIMIT ?`).bind(Math.max(1,Math.min(10,limit))).all<Row>();
+  let sent=0,failed=0;
+  for(const row of rows.results||[]){
+    const email=clean(row.email,320).toLowerCase();
+    if(!emailValid(email)){failed++;continue}
+    const claimLink='https://carejoys.com/school/'+encodeURIComponent(clean(row.slug,120));
+    const body=schoolPlacementInviteEmail({
+      contactName:'there',
+      programName:clean(row.program_name,200),
+      claimLink
+    });
+    try{
+      const result=await env.EMAIL.send({
+        from:'CareJoys <updates@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text
+      });
+      await env.DB.prepare(`INSERT INTO training_program_outreach
+        (id,training_program_id,event_type,channel,recipient,provider_message_id,payload)
+        VALUES (?,?,'school_intro','email',?,?,?)`)
+        .bind(crypto.randomUUID(),row.id,email,result.messageId||null,JSON.stringify({claimLink})).run();
+      sent++;
+    }catch(error){
+      await env.DB.prepare(`INSERT INTO training_program_outreach
+        (id,training_program_id,event_type,channel,recipient,payload)
+        VALUES (?,?,'school_intro_failed','email',?,?)`)
+        .bind(crypto.randomUUID(),row.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
+      failed++;
+    }
+  }
+  return {attempted:(rows.results||[]).length,sent,failed};
 }
