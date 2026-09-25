@@ -1,4 +1,4 @@
-import argparse, hashlib, json, re, sqlite3, sys
+import argparse, hashlib, json, re, subprocess, sys
 from pathlib import Path
 import pdfplumber
 
@@ -110,45 +110,49 @@ def parse_record(lines,source_updated):
 
 def extract_rows(pdf_path):
     records=[]
-    source_updated=""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text=page.extract_text(x_tolerance=2,y_tolerance=3) or ""
-            m=re.search(r"Last Updated\\s+(\\d{1,2}/\\d{1,2}/\\d{4})",text,re.I)
-            if m:
-                source_updated=m.group(1)
+    proc=subprocess.run(
+        ["pdftotext","-layout","-nopgbrk",str(pdf_path),"-"],
+        check=True,capture_output=True,text=True
+    )
+    text=proc.stdout
+    updated_match=re.search(r"Last Updated\\s+(\\d{1,2}/\\d{1,2}/\\d{4})",text,re.I)
+    source_updated=updated_match.group(1) if updated_match else ""
 
+    buffer=[]
+    for raw_line in text.splitlines():
+        line=clean(raw_line.replace("\\x0c"," "))
+        if not line:
+            continue
+        low=line.lower()
+        if "program provider" in low and "type of provider" in low:
+            continue
+        if low.startswith("approved nursing assistant training programs"):
+            continue
+        if low.startswith("certified medicine aide programs"):
+            continue
+        if low.startswith("certified nursing assistant training programs"):
+            continue
+        if low.startswith("closed training programs"):
+            continue
+        if low.startswith("cna-only training programs"):
+            continue
+        if low.startswith("last updated"):
+            continue
+
+        buffer.append(line)
+        if STATUS_RE.search(line):
+            rec=parse_record(buffer,source_updated)
+            if rec:
+                records.append(rec)
             buffer=[]
-            for raw_line in text.splitlines():
-                line=clean(raw_line)
-                if not line:
-                    continue
-                low=line.lower()
-                if "program provider" in low and "type of provider" in low:
-                    continue
-                if low.startswith("approved nursing assistant training programs"):
-                    continue
-                if low.startswith("certified medicine aide programs"):
-                    continue
-                if low.startswith("certified nursing assistant training programs"):
-                    continue
-                if low.startswith("closed training programs"):
-                    continue
-                if low.startswith("cna-only training programs"):
-                    continue
-                if low.startswith("last updated"):
-                    continue
-
-                buffer.append(line)
-                if STATUS_RE.search(line):
-                    rec=parse_record(buffer,source_updated)
-                    if rec:
-                        records.append(rec)
-                    buffer=[]
 
     unique={}
     for r in records:
         unique[r["source_key"]]=r
+    if not unique:
+        print("PDF text sample:", file=sys.stderr)
+        for line in text.splitlines()[:80]:
+            print(repr(line), file=sys.stderr)
     return list(unique.values()),source_updated
 
 def main():
