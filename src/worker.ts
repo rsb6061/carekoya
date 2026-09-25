@@ -183,6 +183,14 @@ async function handleCaregiver(request: Request, env: Env) {
   const smsConsent=data!.smsConsent===true?1:0;
   await env.DB.prepare("INSERT INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)")
     .bind(id,clean(data!.firstName,120),clean(data!.lastName,120),`${clean(data!.firstName,120)} ${clean(data!.lastName,120)}`.trim(),email,clean(data!.phone,40),clean(data!.zip,20),clean(data!.role,80),clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsConsent?new Date().toISOString():null).run();
+  const referralSlug=clean(data!.referralSlug,120);
+  if(referralSlug){
+    const referral=await env.DB.prepare("SELECT id FROM school_referral_codes WHERE slug=? AND status='active' LIMIT 1").bind(referralSlug).first<{id:string}>();
+    if(referral){
+      await env.DB.prepare("INSERT OR IGNORE INTO caregiver_referrals(id,caregiver_id,school_referral_code_id,source) VALUES (?,?,?,'school_referral')")
+        .bind(crypto.randomUUID(),id,referral.id).run();
+    }
+  }
   return json({ok:true,id},{status:201});
 }
 async function handleSchool(request: Request, env: Env) {
