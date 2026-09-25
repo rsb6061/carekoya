@@ -245,17 +245,14 @@ async function updatePipeline(workspaceId:string,pipelineId:string,request:Reque
   return json({ok:true});
 }
 
-async function sha256Hex(value:string){
-  const bytes=new TextEncoder().encode(value);
-  const hash=await crypto.subtle.digest("SHA-256",bytes);
-  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
 async function importLegacy(request:Request,env:Env){
   if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
-  const key=request.headers.get("x-import-key")||"";
-  if(await sha256Hex(key)!=="1d2e13235406c418cd783df19089baec62ea9f1a1a3dbd922564e94f0b39486a") return json({ok:false,error:"Unauthorized"},{status:401});
+  const existing=await env.DB.prepare("SELECT COUNT(*) AS count FROM caregivers").first<{count:number}>();
+  if(Number(existing?.count||0)!==0) return json({ok:false,error:"Legacy bootstrap is already closed"},{status:409});
   const data=await readJson(request);
+  if(clean(data?.migration,80)!=="carekoya-legacy-47") return json({ok:false,error:"Invalid migration payload"},{status:400});
   const profiles=Array.isArray(data?.profiles)?data!.profiles as Record<string,unknown>[]:[];
+  if(profiles.length!==47) return json({ok:false,error:"Expected exactly 47 legacy profiles"},{status:400});
   let imported=0, skipped=0;
   for(const p of profiles){
     const legacyId=clean(p.id,120);
@@ -300,8 +297,8 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/candidates") return searchCandidates(url,env);
-    if(request.method==="GET"&&url.pathname==="/api/internal/import-legacy") return json({ok:true,ready:true});
-    if(request.method==="POST"&&url.pathname==="/api/internal/import-legacy") return importLegacy(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/internal/bootstrap-legacy-47") return json({ok:true,ready:true});
+    if(request.method==="POST"&&url.pathname==="/api/internal/bootstrap-legacy-47") return importLegacy(request,env);
 
     let m=url.pathname.match(/^\/api\/workspace\/([^/]+)$/);
     if(request.method==="GET"&&m) return getWorkspace(m[1],env);
