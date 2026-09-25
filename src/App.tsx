@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { EmployerWorkspace } from './EmployerWorkspace';
 import { CaregiverActivation } from './CaregiverActivation';
+import { EmployerAuth } from './EmployerAuth';
+import { CandidateResponse } from './CandidateResponse';
+import { TurnstileField } from './TurnstileField';
+import { LegalPage } from './LegalPage';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -33,6 +37,7 @@ function IntakeModal({
 }) {
   const [status, setStatus] = useState<'idle'|'saving'|'success'|'error'>('idle');
   const [message, setMessage] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   const titles = {
     employer: ['Find caregivers', 'Tell us what you are hiring for. We will use this to build your initial recruiting pipeline.'],
@@ -47,15 +52,15 @@ function IntakeModal({
     const fd = new FormData(event.currentTarget);
     const data = Object.fromEntries(fd.entries()) as Record<string, unknown>;
     if (kind === 'caregiver') data.smsConsent = fd.get('smsConsent') === 'on';
+    data.turnstileToken = turnstileToken;
 
     try {
       const result = await submitJson(
         kind === 'employer' ? '/api/employers' : kind === 'caregiver' ? '/api/caregivers' : '/api/schools',
         data
       );
-      if (kind === 'employer' && result.workspaceId) {
-        window.location.href = result.workspaceUrl || '/app?workspace=' + result.workspaceId;
-        return;
+      if (kind === 'employer') {
+        setMessage('Check your email for a secure sign-in link to your CareJoys recruiting workspace.');
       }
       setStatus('success');
     } catch (error) {
@@ -69,8 +74,8 @@ function IntakeModal({
       <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
       {status === 'success' ? <div className="modal-success">
         <div className="success-mark">✓</div>
-        <h2>You're in.</h2>
-        <p>We received your information. CareJoys will use it to start the right next step for you.</p>
+        <h2>{kind === 'employer' ? 'Check your email.' : "You're in."}</h2>
+        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.') : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
         <button className="btn" onClick={onClose}>Done</button>
       </div> : <>
         <div className="modal-kicker">{kind === 'employer' ? 'For employers' : kind === 'caregiver' ? 'For caregivers' : 'For training programs'}</div>
@@ -90,6 +95,7 @@ function IntakeModal({
             <div className="form-grid"><label>ZIP code<input name="zip" inputMode="numeric" required /></label><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>Other</option></select></label></div>
             <div className="form-grid"><label>Preferred shifts<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Desired hourly pay<input name="desiredWage" placeholder="$20–24/hr" /></label></div>
             <label>Transportation<select name="transportation" defaultValue=""><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
+            <div className="legal-consent">By joining CareJoys, you understand that your caregiver work profile may be shown to participating care employers for recruiting. Your current availability is labeled separately, and you can mark yourself not looking to leave employer search. See our <a href="/privacy-policy" target="_blank">Privacy Policy</a> and <a href="/terms-of-service" target="_blank">Terms</a>.</div>
             <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
           </>}
           {kind === 'school' && <>
@@ -100,6 +106,7 @@ function IntakeModal({
             <div className="form-grid"><label>Programs<input name="programTypes" placeholder="CNA, HHA..." /></label><label>Graduates per year<input name="graduatingCount" inputMode="numeric" /></label></div>
             <label>Notes<textarea name="notes" rows={4} placeholder="Cohort timing, placement process, employer partners..." /></label>
           </>}
+          <TurnstileField onToken={setTurnstileToken} />
           {status === 'error' && <div className="notice">{message}</div>}
           <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Start recruiting' : kind === 'caregiver' ? 'Join CareJoys' : 'Request partnership'}</button>
         </form>
@@ -110,6 +117,10 @@ function IntakeModal({
 
 export function App() {
   if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
+  if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
+  if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
+  if (window.location.pathname.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
+  if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
 
   const [form, setForm] = useState<FormKind>(null);
@@ -221,8 +232,8 @@ export function App() {
           <h2>Measure hires, not database size.</h2>
           <div className="jobs">
             <div className="job">
-              <div><h3>Availability is a live signal</h3><div className="meta">Imported or older profiles are not labeled active until the caregiver reconfirms. Freshness is visible instead of implied.</div></div>
-              <span className="pill">Availability unconfirmed until refreshed</span>
+              <div><h3>Availability is a live signal</h3><div className="meta">Older caregiver profiles can remain discoverable, but their availability is clearly labeled unconfirmed until they refresh it. Recent confirmations rank higher.</div></div>
+              <span className="pill">Freshness shown explicitly</span>
             </div>
             <div className="job">
               <div><h3>Every recruiting interaction improves the network</h3><div className="meta">Responses, preferences, interviews, and hires create a longitudinal workforce record rather than a one-time lead.</div></div>
@@ -234,7 +245,7 @@ export function App() {
     </main>
 
     <footer className="footer">
-      <div className="wrap">CareJoys · Caregivers ready to work. Interviews ready for you. · <a href="#caregivers">For caregivers</a> · <a href="#schools">For schools</a></div>
+      <div className="wrap">CareJoys · Caregivers ready to work. Interviews ready for you. · <a href="#caregivers">For caregivers</a> · <a href="#schools">For schools</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
     </footer>
 
     {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
