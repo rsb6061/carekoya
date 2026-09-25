@@ -287,7 +287,7 @@ async function importLegacyCohort(request:Request,env:Env){
 
     await env.DB.prepare(`INSERT INTO caregivers
       (id,legacy_floot_id,first_name,last_name,display_name,email,phone,city,state,zip,role,certifications,specialties,languages,bio,years_experience,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,willing_to_drive,profile_photo_url,source,source_detail,work_status,last_confirmed_at,sms_consent,is_active,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'unknown',NULL,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'unknown',NULL,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
       ON CONFLICT(legacy_floot_id) DO UPDATE SET
         display_name=excluded.display_name,email=excluded.email,phone=excluded.phone,city=excluded.city,state=excluded.state,zip=excluded.zip,
         role=excluded.role,certifications=excluded.certifications,specialties=excluded.specialties,languages=excluded.languages,bio=excluded.bio,
