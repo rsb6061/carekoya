@@ -5,6 +5,7 @@ import { EmployerAuth } from './EmployerAuth';
 import { CandidateResponse } from './CandidateResponse';
 import { TurnstileField } from './TurnstileField';
 import { LegalPage } from './LegalPage';
+import { AgencyClaim } from './AgencyClaim';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -119,6 +120,7 @@ export function App() {
   if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
   if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
   if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
+  if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
   if (window.location.pathname.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
   if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
