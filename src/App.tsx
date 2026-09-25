@@ -40,7 +40,7 @@ function IntakeModal({
   const [turnstileToken, setTurnstileToken] = useState('');
 
   const titles = {
-    employer: ['Find caregivers', 'Tell us what you are hiring for. We will use this to build your initial recruiting pipeline.'],
+    employer: ['Find caregivers', 'Tell us what you are hiring for. CareJoys will match the network and help confirm who is interested. Your first 5 interested caregiver candidates are free during the pilot.'],
     caregiver: ['Join the CareJoys network', 'Create a simple work profile so local care employers can find you when you are looking.'],
     school: ['Partner with CareJoys', 'Help graduates get discovered by local care employers and track placement outcomes.']
   } as const;
@@ -176,8 +176,8 @@ export function App() {
       <section className="section source-section">
         <div className="wrap">
           <div className="source-strip">
-            <div className="source-strip-title">A fresher caregiver network</div>
-            <div className="meta">CareJoys is built around current availability, location, shift preferences, and response—not a pile of old resumes.</div>
+            <div className="source-strip-title">First 5 interested candidates free</div>
+            <div className="meta">Pilot CareJoys on one real caregiver opening. We match the network, contact candidates, confirm interest, and help turn responses into booked interviews.</div>
           </div>
         </div>
       </section>
