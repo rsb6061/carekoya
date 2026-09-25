@@ -93,6 +93,34 @@ jobs:
             WHERE source='maryland_mbon_natp' AND is_active=0
           );"
 
+      - name: Collapse duplicate program referral links
+        run: |
+          npx wrangler d1 execute DB --remote --command="
+          WITH ranked AS (
+            SELECT src.id,
+              ROW_NUMBER() OVER (
+                PARTITION BY lower(trim(tp.program_name)),coalesce(tp.zip,'')
+                ORDER BY
+                  CASE WHEN EXISTS (
+                    SELECT 1 FROM training_program_outreach o
+                    WHERE o.training_program_id=tp.id AND o.event_type='school_intro'
+                  ) THEN 0 ELSE 1 END,
+                  CASE
+                    WHEN lower(tp.program_type) LIKE '%certified/geriatric%' THEN 0
+                    WHEN lower(tp.program_type) LIKE '%certified nursing assistant training program%' THEN 1
+                    WHEN lower(tp.program_type) LIKE '%cna-only%' THEN 2
+                    ELSE 3
+                  END,
+                  src.created_at
+              ) AS rn
+            FROM school_referral_codes src
+            JOIN training_programs tp ON tp.id=src.training_program_id
+            WHERE src.status='active' AND tp.is_active=1 AND tp.source='maryland_mbon_natp'
+          )
+          UPDATE school_referral_codes
+          SET status='inactive',updated_at=CURRENT_TIMESTAMP
+          WHERE id IN (SELECT id FROM ranked WHERE rn>1);"
+
       - name: Normalize training program cities from Maryland ZIPs
         run: |
           npx wrangler d1 execute DB --remote --command="
