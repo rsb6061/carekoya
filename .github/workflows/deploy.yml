@@ -40,7 +40,8 @@ jobs:
           echo
           echo "Auth boundary smoke tests:"
           test "$(curl -s -o /tmp/candidates.json -w '%{http_code}' https://carejoys.com/api/candidates)" = "401"
-          test "$(curl -s -o /tmp/workspace.json -w '%{http_code}' https://carejoys.com/api/workspace/not-a-real-workspace)" = "401"
+          test "$(curl -s -o /tmp/workspace.json -w '%{http_code}' https://carejoys.com/api/workspace)" = "401"
+          test "$(curl -s -o /tmp/pipeline.json -w '%{http_code}' https://carejoys.com/api/pipeline)" = "401"
           echo "Legal routes:"
           curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
           curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null
