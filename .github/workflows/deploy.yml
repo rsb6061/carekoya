@@ -45,6 +45,11 @@ jobs:
           echo "Legal routes:"
           curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
           curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null
+          echo "Maryland supply routes:"
+          curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland >/dev/null
+          curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
+          PROGRAMS=$(curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/training-programs)
+          test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
           echo "Public config:"
           curl --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config
           echo
