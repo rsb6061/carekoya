@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
+import { ProfilePhotoStep } from './ProfilePhotoStep';
 import './styles.css';
 
 async function submit(data:Record<string,unknown>){
@@ -14,7 +15,7 @@ export function MarylandCaregiverPage(){
   const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
   const [status,setStatus]=useState<'idle'|'saving'|'success'|'error'>('idle');
   const [message,setMessage]=useState('');
-  const [matchResult,setMatchResult]=useState<{matchedOrganizations?:number;matchedOpenings?:number;existing?:boolean}|null>(null);
+  const [matchResult,setMatchResult]=useState<{id?:string;matchedOrganizations?:number;matchedOpenings?:number;existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null}|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
 
   useEffect(()=>{
@@ -58,9 +59,10 @@ export function MarylandCaregiverPage(){
         <div className="campaign-form-card">
           {status==='success'?<div className="modal-success">
             <div className="success-mark">✓</div>
-            <h2>{matchResult?.existing?'Your CareJoys profile is updated.':'You’re in the CareJoys network.'}</h2>
-            <p>We found <strong>{matchResult?.matchedOrganizations||0} relevant care organizations</strong>{typeof matchResult?.matchedOpenings==='number'?<> and <strong>{matchResult.matchedOpenings} current opening{matchResult.matchedOpenings===1?'':'s'}</strong></>:null} based on your profile. CareJoys will use your current availability and preferences when employers are hiring.</p>
-            <div className="hero-actions"><a className="btn" href="/caregiver-resume">Add or improve your resume</a><a className="text-link" href="/">Done</a></div>
+            <h2>{matchResult?.existing?'Your CareJoys profile is updated.':'Your CareJoys profile is live.'}</h2>
+            <p>We found <strong>{matchResult?.matchedOrganizations||0} relevant care organizations</strong>{typeof matchResult?.matchedOpenings==='number'?<> and <strong>{matchResult.matchedOpenings} current opening{matchResult.matchedOpenings===1?'':'s'}</strong></>:null} based on your profile.</p>
+            {matchResult?.id&&matchResult?.profilePhotoToken&&<ProfilePhotoStep caregiverId={matchResult.id} token={matchResult.profilePhotoToken} existingPhotoUrl={matchResult.profilePhotoUrl}/>}
+            <div className="caregiver-next-steps"><strong>Optional: make your profile stronger</strong><p>Add a resume so CareJoys can capture experience, certifications, and caregiver skills automatically.</p><div className="hero-actions"><a className="btn secondary" href="/caregiver-resume">Add resume</a><a className="text-link" href="/">Done</a></div></div>
           </div>:<>
             <div className="modal-kicker">{program?`Referred by ${program.name}`:'Create your caregiver profile'}</div>
             <h2>Tell us what fits.</h2>
@@ -73,7 +75,7 @@ export function MarylandCaregiverPage(){
               <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
               <TurnstileField onToken={setTurnstileToken}/>
               {status==='error'&&<div className="notice">{message}</div>}
-              <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Joining…':'Join CareJoys free'}</button>
+              <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding jobs…':'Find jobs'}</button>
             </form>
           </>}
         </div>
