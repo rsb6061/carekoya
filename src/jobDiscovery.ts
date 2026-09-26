@@ -343,6 +343,20 @@ function careerPageLinks(base:string,html:string){
   }
   return out;
 }
+async function probeCommonCareerPage(base:string){
+  const paths=['/careers','/jobs','/employment','/join-our-team'];
+  for(const path of paths){
+    let url='';
+    try{url=new URL(path,base).toString()}catch{continue}
+    const page=await fetchText(url,5000);
+    if(!page)continue;
+    const text=htmlText(page.text);
+    const hasCareerSignal=/(career|employment|job opportunit|open position|join our team|now hiring|apply (?:now|today))/i.test(text);
+    if(!hasCareerSignal)continue;
+    return page;
+  }
+  return null;
+}
 function providerJobLinks(base:string,html:string,provider:string){
   const out:{url:string;title:string}[]=[];
   const seen=new Set<string>();
@@ -714,6 +728,36 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
         }
       }
     }
+
+    if(jobs.length===0){
+      const probed=await probeCommonCareerPage(page.url);
+      if(probed){
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(probed.url,org.id).run();
+          org.primary_careers_url=probed.url;
+        }
+        jobs.push(...parseJsonLdJobs(probed.text,probed.url));
+        jobs.push(...headingJobsFromCareersPage(probed.url,probed.text,org));
+        const probedLinks=providerJobLinks(probed.url,probed.text,'generic');
+        jobLinksSeen+=probedLinks.length;
+        for(const link of probedLinks.slice(0,10)){
+          const detail=await fetchText(link.url,6500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:probed.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:probed.url});
+          }
+        }
+        for(const dest of downstreamAtsLinks(probed.url,probed.text).slice(0,6)){
+          providers.add(dest.provider);
+          const result=await jobsFromAtsDestination(dest,org,probed.url);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+        }
+      }
+    }
   }
 
   const unique=new Map<string,DiscoveredJob>();
@@ -741,7 +785,7 @@ function exactToken(text:string,value:string){
 }
 export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
   if(!env.DB)return {reviewed:0,recovered:0};
-  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,ao.id AS org_id,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=88 AND (j.publication_reason IS NULL OR j.publication_reason='missing_maryland_evidence') AND upper(COALESCE(ao.state,''))='MD' ORDER BY j.updated_at DESC LIMIT ?";
+  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,ao.id AS org_id,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=88 AND (j.publication_reason IS NULL OR j.publication_reason='missing_maryland_evidence') ORDER BY j.updated_at DESC LIMIT ?";
   const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
   let recovered=0;
   for(const row of rows.results||[]){
@@ -756,6 +800,8 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
     const currentCity=normalizeCity(row.city);
     const orgCity=normalizeCity(row.org_city);
     const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
+    const orgState=normalizeState(row.org_state);
+    if(orgState!=='MD'&&!mdZip(orgZip))continue;
     const evidence=[title,description,clean(row.source_url,1000),clean(row.source_listing_url,1000)].join(' ');
     let reason='';
     let state=currentState;
