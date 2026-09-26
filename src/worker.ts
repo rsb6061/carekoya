@@ -1013,9 +1013,12 @@ export default {
   },
   async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     ctx.waitUntil((async()=>{
+      if(event.cron==="*/5 * * * *"){
+        await discoverAgencyJobsBatch(env,6);
+        return;
+      }
       if(event.cron==="17 * * * *"){
         await enrichAgencyBatch(env,30);
-        await discoverAgencyJobsBatch(env,12);
         await scoreAgencyMatches(env);
         return;
       }
