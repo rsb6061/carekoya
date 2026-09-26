@@ -124,3 +124,44 @@ a{color:inherit;text-decoration:none}
 
 .caregiver-legal-note{font-size:11.5px;line-height:1.55;color:#8a8497;padding:0 24px 28px;max-width:1080px}
 .caregiver-legal-note a{text-decoration:underline;text-underline-offset:2px}
+
+.resume-hero{background:var(--cream);padding:58px 0 72px}
+.resume-hero-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:36px;align-items:center}
+.resume-hero h1{font-family:var(--display);font-size:clamp(50px,5.5vw,74px);line-height:.95;font-weight:400;letter-spacing:-.045em;margin:8px 0 18px}
+.resume-hero p{font-size:18px;line-height:1.55;color:var(--muted);max-width:650px}
+.resume-points{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.resume-points span{font-size:13px;padding:7px 10px;border:1px solid var(--lavender);border-radius:999px;background:rgba(255,255,255,.68);color:#4f4966}
+.resume-upload-card{background:rgba(255,255,255,.88);border:1px solid var(--lavender);border-radius:28px;padding:30px;text-align:center;box-shadow:0 18px 48px rgba(41,32,89,.08)}
+.resume-upload-icon{width:48px;height:48px;border-radius:50%;background:#eeeaff;color:var(--blue);display:grid;place-items:center;font-size:24px;font-weight:700;margin:0 auto 14px}
+.resume-upload-card h2{font-family:var(--display);font-size:34px;font-weight:400;letter-spacing:-.03em;margin:0 0 10px}
+.resume-upload-card p{font-size:15px;line-height:1.55;color:var(--muted);margin:0 auto 20px;max-width:430px}
+.resume-file-button{position:relative;overflow:hidden}
+.resume-file-button input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.text-button{border:0;background:transparent;color:var(--ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer;margin:14px auto 0;display:block}
+.resume-profile-wrap{max-width:900px}
+.section-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:22px}
+.section-heading h2{margin-bottom:0}
+.resume-file-meta{font-size:13px;color:var(--muted);max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resume-detected{border:1px solid var(--lavender);background:#f6f3ff;border-radius:22px;padding:18px 20px;margin-bottom:18px}
+.resume-profile-form{display:grid;gap:16px;background:rgba(255,255,255,.8);border:1px solid var(--lavender);border-radius:26px;padding:26px}
+.resume-profile-form label{display:grid;gap:7px;font-size:15px;font-weight:550}
+.resume-profile-form input,.resume-profile-form select{width:100%;border:1px solid var(--lavender);border-radius:16px;padding:11px 12px;background:#fff;color:var(--ink);outline:none}
+.resume-profile-form input:focus,.resume-profile-form select:focus{border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
+.resume-privacy{font-size:11.5px;line-height:1.5;color:#8a8497}
+.resume-privacy a{text-decoration:underline;text-underline-offset:2px}
+.resume-example{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+.resume-example>div{border:1px solid var(--lavender);border-radius:24px;background:rgba(255,255,255,.78);padding:22px}
+.resume-example strong{display:block;margin-bottom:8px}
+.resume-example p{margin:0;color:var(--muted);line-height:1.65}
+.resume-success-shell{background:var(--cream);min-height:75vh;display:grid;place-items:center;padding:72px 24px}
+.resume-success-card{max-width:760px;text-align:center;background:rgba(255,255,255,.84);border:1px solid var(--lavender);border-radius:30px;padding:44px}
+.resume-success-card h1{font-family:var(--display);font-size:48px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:14px 0}
+.resume-success-card p{font-size:17px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 auto 22px}
+.hero-actions{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap}
+.text-link{text-decoration:underline;text-underline-offset:3px}
+@media(max-width:860px){
+ .resume-hero-grid{grid-template-columns:1fr}
+ .resume-hero{padding:38px 0 54px}
+ .resume-example{grid-template-columns:1fr}
+ .section-heading{align-items:flex-start;flex-direction:column}
+}
