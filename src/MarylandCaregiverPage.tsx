@@ -39,7 +39,7 @@ export function MarylandCaregiverPage(){
   }
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/app">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-recruiting/maryland">For employers</a></nav></div></header>
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
