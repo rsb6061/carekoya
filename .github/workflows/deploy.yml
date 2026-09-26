@@ -78,6 +78,13 @@ jobs:
           echo "Caregiver CTA consistency:"
           HOME_LIVE=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
           if echo "$HOME_LIVE" | grep -q 'Join the network'; then exit 1; fi
+          echo "Caregiver job inventory:"
+          JOBS_JSON=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 'https://carejoys.com/api/public/caregiver-jobs?limit=1')
+          echo "$JOBS_JSON" | jq -e '.ok == true and (.jobs | type == "array")' >/dev/null
+          CAREGIVER_JOBS_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
+          echo "$CAREGIVER_JOBS_HTML" | grep -q 'Current caregiver jobs in Maryland'
+          HEALTH_JOBS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health)
+          echo "$HEALTH_JOBS" | jq -e '.counts.publishedCaregiverJobs >= 0 and .counts.scannedJobSources >= 0' >/dev/null
           echo "SEO discovery routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<urlset'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
