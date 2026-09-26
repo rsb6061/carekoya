@@ -306,6 +306,23 @@ function downstreamAtsLinks(base:string,html:string){
   }
   return out;
 }
+function careerPageLinks(base:string,html:string){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const href=decodeHtml(m[1]);
+    const text=stripHtml(m[2],180);
+    if(!/(career|jobs?|employment|join (our )?team|work with us|opportunit)/i.test(text+' '+href))continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=5)break;
+  }
+  return out;
+}
 function providerJobLinks(base:string,html:string,provider:string){
   const out:{url:string;title:string}[]=[];
   const seen=new Set<string>();
@@ -579,6 +596,40 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
       const result=await jobsFromAtsDestination(dest,org,page.url);
       jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:page.url})));
       jobLinksSeen+=result.linksSeen;
+    }
+
+    if(jobs.length===0){
+      for(const careersUrl of careerPageLinks(page.url,page.text).slice(0,3)){
+        const nestedAts=atsInfo(careersUrl);
+        if(nestedAts){
+          providers.add(nestedAts.provider);
+          const result=await jobsFromAtsDestination({url:careersUrl,provider:nestedAts.provider},org,careersUrl);
+          jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:careersUrl})));
+          jobLinksSeen+=result.linksSeen;
+          continue;
+        }
+        const careersPage=await fetchText(careersUrl,7500);
+        if(!careersPage)continue;
+        jobs.push(...parseJsonLdJobs(careersPage.text,careersPage.url));
+        const careerLinks=providerJobLinks(careersPage.url,careersPage.text,'generic');
+        jobLinksSeen+=careerLinks.length;
+        for(const link of careerLinks.slice(0,10)){
+          const detail=await fetchText(link.url,6500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:careersPage.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:careersPage.url});
+          }
+        }
+        for(const dest of downstreamAtsLinks(careersPage.url,careersPage.text).slice(0,6)){
+          providers.add(dest.provider);
+          const result=await jobsFromAtsDestination(dest,org,careersPage.url);
+          jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:careersPage.url})));
+          jobLinksSeen+=result.linksSeen;
+        }
+      }
     }
   }
 
