@@ -412,7 +412,7 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   args.push(limit);
   const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
   return json({ok:true,jobs:(rows.results||[]).map(r=>({
-    id:r.id,title:r.title,role:r.role,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
+    id:r.id,title:decodeHtml(clean(r.title,220)),role:r.role,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
     employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,sourceUrl:r.source_url,
     datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
   }))});
