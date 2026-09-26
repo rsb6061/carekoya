@@ -191,7 +191,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/about"){
     return seoAsset(request,env,{
       title:"About CareJoys | Maryland Caregiver Recruiting Network",
-      description:"CareJoys connects Maryland care employers, caregivers, and caregiver training programs through current availability, interest confirmation, interviews, and placement outcomes.",
+      description:"CareJoys connects Maryland care employers, caregivers, and training programs through current availability, interest confirmation, interviews, and hires.",
       canonical:"/about",
       snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a Maryland caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
