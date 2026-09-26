@@ -73,6 +73,25 @@ jobs:
           echo "$HOME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/"'
           TRAINING_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
           echo "$TRAINING_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/training-programs/maryland"'
+          echo "$TRAINING_HTML" | grep -q '<title>Maryland CNA &amp; GNA Caregiver Training Programs | CareJoys</title>'
+          echo "$TRAINING_HTML" | grep -q 'name="description"'
+          EMPLOYER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-recruiting/maryland)
+          echo "$EMPLOYER_HTML" | grep -q '<title>Hire Caregivers in Maryland | CNA, GNA, HHA &amp; PCA Recruiting</title>'
+          echo "$EMPLOYER_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-recruiting/maryland"'
+          echo "$EMPLOYER_HTML" | grep -q '"@type":"Service"'
+          ABOUT_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/about)
+          echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Maryland Caregiver Recruiting Network</title>'
+          echo "$ABOUT_HTML" | grep -q '"@type":"AboutPage"'
+          CAREGIVER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
+          echo "$CAREGIVER_HTML" | grep -q '<title>Caregiver Jobs in Maryland: CNA, GNA, HHA &amp; PCA | CareJoys</title>'
+          SITEMAP=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml)
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/about'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-recruiting/maryland'
+          ROBOTS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt)
+          echo "$ROBOTS" | grep -q 'User-agent: OAI-SearchBot'
+          echo "$ROBOTS" | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
+          APP_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/app)
+          echo "$APP_HTML" | grep -q 'name="robots" content="noindex,nofollow"'
           echo "Pilot caregiver training organization routes:"
           for SLUG in             it-works-learning-center             top-knowledge-healthcare-institute             caroline-center             cambridge-nursing-assistant-academy             vision-allied-health-institute             baltimore-city-community-college             care-xpert-academy             heritage-care             dominion-academy             beacon-institute
           do
