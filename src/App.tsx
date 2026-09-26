@@ -122,7 +122,7 @@ function IntakeModal({
 }
 
 export function App() {
-  if (window.location.pathname.startsWith('/caregiver-recruiting/maryland')) return <EmployerRecruitingPage />;
+  if (window.location.pathname.startsWith('/hire-caregivers/maryland')) return <EmployerRecruitingPage />;
   if (window.location.pathname === '/about' || window.location.pathname.startsWith('/about/')) return <AboutCareJoysPage />;
   if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
   if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
@@ -138,7 +138,7 @@ export function App() {
   if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
 
-  const [form, setForm] = useState<FormKind>(null);
+  const [form, setForm] = useState<FormKind>(() => new URLSearchParams(window.location.search).get('hire') === '1' ? 'employer' : null);
   const [employerPreset, setEmployerPreset] = useState<EmployerPreset>({});
 
   function handleHeroSearch(event: FormEvent<HTMLFormElement>) {
@@ -159,7 +159,7 @@ export function App() {
           <a className="hide-sm" href="/about">How it works</a>
           <a className="hide-sm" href="#caregivers">For caregivers</a>
           <a className="hide-sm" href="#schools">For training programs</a>
-          <a href="/caregiver-recruiting/maryland">For employers</a><a href="/app">Employer workspace</a>
+          <a href="/hire-caregivers/maryland">For employers</a><a href="/app">Employer workspace</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>
       </div>
@@ -260,7 +260,7 @@ export function App() {
     </main>
 
     <footer className="footer">
-      <div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/caregiver-recruiting/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
+      <div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
     </footer>
 
     {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
