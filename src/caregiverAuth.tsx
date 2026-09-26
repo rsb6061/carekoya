@@ -52,7 +52,7 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
     return <Auth0Provider
       domain={config.auth0Domain}
       clientId={config.auth0ClientId}
-      authorizationParams={{redirect_uri:window.location.origin+window.location.pathname}}
+      authorizationParams={{redirect_uri:window.location.origin}}
       useRefreshTokens={false}
       cacheLocation="memory"
     ><Bridge>{children}</Bridge></Auth0Provider>;
