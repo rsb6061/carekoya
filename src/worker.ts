@@ -130,6 +130,40 @@ async function requireWorkspace(env: Env, id: string) {
   if (!env.DB || !id) return null;
   return env.DB.prepare("SELECT id, company_name, contact_name, email, phone, zip, roles_needed, status, created_at FROM employer_leads WHERE id = ?").bind(id).first();
 }
+async function handleAgencyDemandSummary(env: Env) {
+  if (!env.DB) return json({ ok:false, error:"Database not configured" }, { status:503 });
+  const jurisdictions = await env.DB.prepare(`
+    SELECT
+      COALESCE(NULLIF(TRIM(a.jurisdiction),''),'Unknown') AS jurisdiction,
+      COUNT(*) AS licensed_records,
+      COUNT(DISTINCT COALESCE(NULLIF(a.organization_id,''),a.id)) AS organizations,
+      SUM(CASE WHEN a.caregiver_match_eligible=1 THEN 1 ELSE 0 END) AS match_eligible_records,
+      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations
+    FROM agencies a
+    WHERE a.is_active=1 AND a.source LIKE 'maryland_ohcq_%'
+    GROUP BY COALESCE(NULLIF(TRIM(a.jurisdiction),''),'Unknown')
+    ORDER BY match_eligible_organizations DESC, organizations DESC, jurisdiction
+  `).all<Record<string,unknown>>();
+  const cities = await env.DB.prepare(`
+    SELECT
+      COALESCE(NULLIF(TRIM(a.city),''),'Unknown') AS city,
+      COALESCE(NULLIF(TRIM(a.state),''),'MD') AS state,
+      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations
+    FROM agencies a
+    WHERE a.is_active=1 AND a.source LIKE 'maryland_ohcq_%'
+    GROUP BY COALESCE(NULLIF(TRIM(a.city),''),'Unknown'), COALESCE(NULLIF(TRIM(a.state),''),'MD')
+    HAVING COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) > 0
+    ORDER BY match_eligible_organizations DESC, city
+  `).all<Record<string,unknown>>();
+  return json({
+    ok:true,
+    source:"CareJoys Maryland OHCQ agency network",
+    generatedAt:new Date().toISOString(),
+    jurisdictions:jurisdictions.results||[],
+    cities:cities.results||[]
+  });
+}
+
 async function handleHealth(env: Env) {
   if (!env.DB) return json({ ok:false, service:"carejoys", database:"not_configured" }, { status:503 });
   try {
@@ -389,6 +423,7 @@ export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
     if(url.pathname==="/api/health") return handleHealth(env);
+    if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
     if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env);
