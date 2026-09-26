@@ -6,6 +6,9 @@ const OUT=process.argv[2]||'/tmp/training-organizations.sql';
 const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','--remote','--json','--command',sql],{encoding:'utf8',maxBuffer:50*1024*1024}));
 const query="SELECT tp.id,tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.website,tp.email,tp.primary_domain,tp.program_type,src.slug AS referral_slug FROM training_programs tp LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active' WHERE tp.is_active=1 AND tp.source='maryland_mbon_natp' ORDER BY tp.program_name,tp.city,tp.zip;";
 const rows=((run(query)[0]||{}).results)||[];
+const existing=((run("SELECT organization_key,slug FROM training_organizations;")[0]||{}).results)||[];
+const existingByKey=new Map(existing.map(r=>[clean(r.organization_key),clean(r.slug)]));
+const existingSlugKey=new Map(existing.map(r=>[clean(r.slug),clean(r.organization_key)]));
 
 const free=new Set(['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','comcast.net','verizon.net','msn.com','live.com']);
 const clean=v=>String(v||'').trim();
@@ -71,8 +74,9 @@ for(const g of groups.values()){
   const website=rs.map(r=>clean(r.website)).find(Boolean)||'';
   const types=[...new Set(rs.map(r=>clean(r.provider_type)).filter(Boolean))].sort();
   const credentials=[...new Set(rs.map(credentialFor).filter(Boolean))].sort();
-  let slug=slugify(canonical);
-  if(usedSlugs.has(slug)&&usedSlugs.get(slug)!==g.key) slug=(slug+'-'+crypto.createHash('sha1').update(g.key).digest('hex').slice(0,6)).slice(0,90);
+  let slug=existingByKey.get(g.key)||slugify(canonical);
+  const existingOwner=existingSlugKey.get(slug);
+  if((existingOwner&&existingOwner!==g.key)||(usedSlugs.has(slug)&&usedSlugs.get(slug)!==g.key)) slug=(slug+'-'+crypto.createHash('sha1').update(g.key).digest('hex').slice(0,6)).slice(0,90);
   usedSlugs.set(slug,g.key);
   const id=idFor(g.key);
   const locations=new Set(rs.map(r=>[clean(r.city).toLowerCase(),clean(r.state).toLowerCase(),clean(r.zip)].join('|')));
