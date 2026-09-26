@@ -184,6 +184,7 @@ async function handleHealth(env: Env) {
     const agencyDomainCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND primary_domain IS NOT NULL AND primary_domain!=''").first<{count:number}>();
     const enrichedAgencyCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND last_enriched_at IS NOT NULL").first<{count:number}>();
     const trainingProgramCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_programs WHERE is_active=1").first<{count:number}>();
+    const trainingOrgCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_organizations WHERE is_active=1").first<{count:number}>();
     const referralLinkCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM school_referral_codes WHERE status='active'").first<{count:number}>();
     const schoolOutreachCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_program_outreach WHERE event_type='school_intro'").first<{count:number}>();
     const claimedProgramCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_programs WHERE claimed_school_lead_id IS NOT NULL").first<{count:number}>();
