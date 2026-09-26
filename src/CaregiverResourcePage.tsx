@@ -32,7 +32,7 @@ export function HowToBecomeCaregiverMarylandPage(){
         <h2>Ready to work?</h2>
         <div className="jobcta">
           <div><strong>Create one CareJoys profile.</strong><span>Get matched with Maryland CNA, GNA, HHA, PCA, private-duty, and home-care opportunities that fit your location and preferences.</span></div>
-          <a className="btn" href="/caregiver-jobs/maryland">Find caregiver jobs</a>
+          <a className="btn" href="/caregiver-jobs/maryland">Find jobs</a>
         </div>
       </div></section>
 
