@@ -502,6 +502,83 @@ async function handleCaregiver(request: Request, env: Env) {
   await scoreCaregiverAgainstAgencies(env,id);
   return json({ok:true,id},{status:201});
 }
+async function handleCaregiverResume(request:Request,env:Env){
+  if(!env.DB)return json({ok:false,error:"Database not configured yet"},{status:503});
+  const data=await readJson(request);
+  if(rejectBot(data))return json({ok:true},{status:201});
+  const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60);
+  if(guard)return guard;
+  const error=requireFields(data,["firstName","lastName","email","phone","zip","state","role"]);
+  if(error)return json({ok:false,error},{status:400});
+  const email=clean(data!.email,320).toLowerCase();
+  if(!emailLooksValid(email))return json({ok:false,error:"Enter a valid email address"},{status:400});
+  const state=clean(data!.state,2).toUpperCase();
+  if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
+  const zip=clean(data!.zip,10);
+  if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a valid 5-digit ZIP code"},{status:400});
+
+  let existing=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(email)=? ORDER BY updated_at DESC LIMIT 1").bind(email).first<{id:string}>();
+  const id=existing?.id||crypto.randomUUID();
+  const first=clean(data!.firstName,120);
+  const last=clean(data!.lastName,120);
+  const role=clean(data!.role,80)||"Caregiver";
+  const certifications=clean(data!.certifications,1500);
+  const specialties=clean(data!.specialties,2000);
+  const languages=clean(data!.languages,1000);
+  const years=Math.max(0,Math.min(60,Number(data!.yearsExperience||0)||0));
+  const shifts=clean(data!.shifts,500);
+  const desiredWage=clean(data!.desiredWage,80);
+  const transportation=clean(data!.transportation,80);
+  const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
+  const smsConsent=data!.smsConsent===true?1:0;
+  const smsAt=smsConsent?new Date().toISOString():null;
+
+  if(existing){
+    await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,
+      years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',
+      last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=?,sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
+      source_detail='caregiver_resume',is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
+        shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,id).run();
+  }else{
+    await env.DB.prepare(`INSERT INTO caregivers
+      (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,
+       shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)`)
+      .bind(id,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
+        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt).run();
+  }
+
+  const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
+
+  const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
+  let openingMatches=0;
+  if(caregiver){
+    const openings=await env.DB.prepare("SELECT * FROM openings WHERE status='open' ORDER BY updated_at DESC LIMIT 500").all<Record<string,unknown>>();
+    for(const opening of openings.results||[]){
+      const scored=scoreCandidate(opening,caregiver);
+      if(scored.score<=0)continue;
+      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
+        VALUES (?,?,?,'matched',?,?,'resume_match')
+        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
+          match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP`)
+        .bind(crypto.randomUUID(),opening.id,id,JSON.stringify(scored.reasons),scored.score).run();
+      openingMatches++;
+    }
+  }
+
+  await env.DB.prepare(`INSERT INTO caregiver_resume_imports
+    (id,caregiver_id,source_filename,source_mime_type,source_file_size,parser_version,detected_role,detected_certifications,detected_specialties,detected_email,detected_phone)
+    VALUES (?,?,?,?,?,'carejoys_resume_v1',?,?,?,?,?)`)
+    .bind(crypto.randomUUID(),id,clean(data!.sourceFilename,240),clean(data!.sourceMimeType,120),Number(data!.sourceFileSize||0)||null,
+      role,certifications,specialties,email?1:0,clean(data!.phone,40)?1:0).run();
+
+  const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
+    .bind(id).first<{count:number}>();
+  const marylandMatching=state==="MD"||(Number(zip.slice(0,3))>=206&&Number(zip.slice(0,3))<=219);
+  return json({ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,marylandMatching},{status:existing?200:201});
+}
+
 async function handleSchool(request: Request, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
@@ -679,6 +756,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/auth/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEmployer(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
     let trainingOrg=url.pathname.match(/^\/api\/public\/training-organization\/([^/]+)$/);
