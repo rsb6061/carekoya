@@ -1174,7 +1174,7 @@ export default {
     ctx.waitUntil((async()=>{
       if(event.cron==="*/5 * * * *"){
         await normalizeExistingJobsBatch(env,100);
-        await discoverAgencyJobsBatch(env,12);
+        await discoverAgencyJobsBatch(env,18);
         return;
       }
       if(event.cron==="17 * * * *"){
