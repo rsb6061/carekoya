@@ -65,6 +65,14 @@ jobs:
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
           echo "Caregiver training directory:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland >/dev/null
+          echo "Pilot caregiver training organization routes:"
+          for SLUG in             it-works-learning-center             top-knowledge-healthcare-institute             caroline-center             cambridge-nursing-assistant-academy             vision-allied-health-institute             baltimore-city-community-college             care-xpert-academy             heritage-care             dominion-academy             beacon-institute
+          do
+            curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 1 "https://carejoys.com/training-programs/$SLUG" >/dev/null
+            ORG=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 1 "https://carejoys.com/api/public/training-organization/$SLUG")
+            test "$(echo "$ORG" | jq -r '.ok')" = "true"
+            test "$(echo "$ORG" | jq -r '.programs | length > 0')" = "true"
+          done
           PROGRAMS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/training-programs)
           test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
           echo "Public config:"
