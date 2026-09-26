@@ -63,6 +63,8 @@ jobs:
           echo "Maryland supply routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
+          echo "Caregiver training directory:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland >/dev/null
           PROGRAMS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/training-programs)
           test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
           echo "Public config:"
