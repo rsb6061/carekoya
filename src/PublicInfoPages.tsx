@@ -5,10 +5,10 @@ export function EmployerRecruitingPage(){
     <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a><a href="/app">Employer workspace</a></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
-        <div className="modal-kicker">Maryland caregiver recruiting</div>
-        <h1><span className="hero-title-line">Hire caregivers in Maryland.</span><span className="hero-title-line">Confirm interest before the interview.</span></h1>
-        <p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care, senior-care, and direct-care employers.</strong> Employers can identify local CNAs, GNAs, HHAs, PCAs, and caregivers by role, geography, shift, pay preference, transportation, and current availability, then use CareJoys to confirm interest and move qualified matches toward interviews.</p>
-        <div className="hero-actions"><a className="btn" href="/#how">See how it works</a><a className="btn secondary" href="/app">Employer workspace</a></div>
+        <div className="modal-kicker">Hire caregivers</div>
+        <h1>Hire caregivers in Maryland.</h1>
+        <p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p>
+        <div className="hero-actions"><a className="btn" href="/?hire=1">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
       </div></section>
 
       <section className="section"><div className="wrap">
@@ -40,7 +40,7 @@ export function EmployerRecruitingPage(){
 
 export function AboutCareJoysPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-recruiting/maryland">For employers</a><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/hire-caregivers/maryland">For employers</a><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">About CareJoys</div>
@@ -51,7 +51,7 @@ export function AboutCareJoysPage(){
       <section className="section"><div className="wrap">
         <h2>What is CareJoys?</h2>
         <div className="jobs">
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/caregiver-recruiting/maryland">Employer recruiting →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/hire-caregivers/maryland">Employer recruiting →</a></div>
           <div className="job"><div><h3>For caregivers</h3><div className="meta">Create one work profile, keep availability current, and decide which relevant Maryland opportunities you want to pursue.</div></div><a className="text-link" href="/caregiver-jobs/maryland">Caregiver network →</a></div>
           <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.</div></div><a className="text-link" href="/training-programs/maryland">Training programs →</a></div>
         </div>
