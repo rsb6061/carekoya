@@ -200,7 +200,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/caregiver-jobs/maryland"){
     return seoAsset(request,env,{
       title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
-      description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers based on role, location, shifts and availability.",
+      description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers by role, location, shifts and availability.",
       canonical:"/caregiver-jobs/maryland",
       snapshot:'<main><h1>Caregiver jobs and job matching in Maryland</h1><p>CareJoys helps CNAs, GNAs, HHAs, PCAs and caregivers create one reusable work profile and connect with relevant Maryland care employers based on role, location, shifts, pay preferences, transportation and current availability.</p><h2>How it works</h2><ol><li>Create one caregiver work profile.</li><li>Keep your availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
