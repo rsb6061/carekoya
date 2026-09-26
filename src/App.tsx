@@ -53,7 +53,7 @@ function IntakeModal({
   const titles = {
     employer: ['Find caregivers', 'Tell us who you need. CareJoys will create the opening, match local caregivers, and email you a secure link to review matches.'],
     caregiver: ['Join the CareJoys network', 'Create a simple work profile so local care employers can find you when you are looking.'],
-    school: ['Partner with CareJoys', 'Help graduates get discovered by local care employers and track placement outcomes.']
+    school: ['Request program addition', 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.']
   } as const;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -99,8 +99,10 @@ function IntakeModal({
             <label>Company name<input name="companyName" required /></label>
             <label>Your name<input name="contactName" required /></label>
             <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
-            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required defaultValue={employerPreset?.zip || ''} /></label><label>Role needed<input name="rolesNeeded" placeholder="CNA, HHA, caregiver" defaultValue={employerPreset?.role || ''} required /></label></div>
-            <label>What are you hiring for?<textarea name="hiringNotes" rows={4} placeholder="Shift, pay range, number of openings, must-have requirements..." /></label>
+            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required defaultValue={employerPreset?.zip || ''} /></label><label>Role needed<select name="rolesNeeded" required defaultValue={employerPreset?.role || ''}><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>DSP</option></select></label></div>
+            <div className="form-grid"><label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Transportation<select name="transportationRequired" defaultValue=""><option value="">Not specified</option><option value="yes">Required</option><option value="no">Not required</option></select></label></div>
+            <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" min="0" /></label><label>Max pay / hr<input type="number" name="payMax" min="0" /></label></div>
+            <label>Must-have requirements<textarea name="hiringNotes" rows={3} placeholder="Experience, credential, schedule, client requirements..." /></label>
           </>}
           {kind === 'caregiver' && <>
             <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
@@ -121,7 +123,7 @@ function IntakeModal({
           </>}
           <TurnstileField onToken={setTurnstileToken} />
           {status === 'error' && <div className="notice">{message}</div>}
-          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Start recruiting' : kind === 'caregiver' ? 'Join CareJoys' : 'Request partnership'}</button>
+          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : kind === 'caregiver' ? 'Join CareJoys' : 'Request addition'}</button>
         </form>
       </>}
     </div>
