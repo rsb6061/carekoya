@@ -49,21 +49,26 @@ const htmlEscape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,(ch)=>({"
 const xmlEscape=(value:unknown)=>htmlEscape(value);
 
 async function careJoysSitemap(env:Env){
-  const urls=[
-    SEO_ORIGIN+"/",
-    SEO_ORIGIN+"/caregiver-jobs/maryland",
-    SEO_ORIGIN+"/training-programs/maryland"
+  const entries:{url:string;lastmod?:string|null}[]=[
+    {url:SEO_ORIGIN+"/"},
+    {url:SEO_ORIGIN+"/about"},
+    {url:SEO_ORIGIN+"/caregiver-recruiting/maryland"},
+    {url:SEO_ORIGIN+"/caregiver-jobs/maryland"},
+    {url:SEO_ORIGIN+"/training-programs/maryland"}
   ];
   if(env.DB){
-    const orgs=await env.DB.prepare(`SELECT DISTINCT torg.slug
+    const orgs=await env.DB.prepare(`SELECT DISTINCT torg.slug,torg.updated_at
       FROM training_organizations torg
       JOIN training_programs tp ON tp.organization_id=torg.id
       WHERE torg.is_active=1 AND tp.is_active=1
         AND tp.provider_type IN ('Freestanding Program','College','High School')
-      ORDER BY torg.slug`).all<{slug:string}>();
-    for(const row of orgs.results||[])if(row.slug)urls.push(SEO_ORIGIN+"/training-programs/"+encodeURIComponent(row.slug));
+      ORDER BY torg.slug`).all<{slug:string;updated_at?:string|null}>();
+    for(const row of orgs.results||[])if(row.slug)entries.push({
+      url:SEO_ORIGIN+"/training-programs/"+encodeURIComponent(row.slug),
+      lastmod:row.updated_at||null
+    });
   }
-  const xml=urls.map(url=>"<url><loc>"+xmlEscape(url)+"</loc></url>").join("");
+  const xml=entries.map(entry=>"<url><loc>"+xmlEscape(entry.url)+"</loc>"+(entry.lastmod?"<lastmod>"+xmlEscape(String(entry.lastmod).slice(0,10))+"</lastmod>":"")+"</url>").join("");
   return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+xml+"</urlset>",{
     headers:{"content-type":"application/xml; charset=utf-8","cache-control":"public,max-age=900"}
   });
@@ -107,18 +112,26 @@ Sitemap: https://carejoys.com/sitemap.xml
 function careJoysLlms(){
   return new Response(`# CareJoys
 
-CareJoys is a Maryland caregiver recruiting and placement network.
+CareJoys is a Maryland caregiver recruiting and placement network for home-care, senior-care, and direct-care hiring.
 
 ## What CareJoys does
-- Helps care employers find local caregivers who match role, geography, shift, pay and availability needs.
-- Helps caregivers create one work profile and get connected with relevant care employers.
-- Helps CNA/GNA and caregiver training programs give graduates tracked referral links and measure downstream placement outcomes.
+- Helps Maryland care employers identify local caregivers by role, geography, shift, pay preference, transportation, credentials, experience, and current availability.
+- Helps employers confirm caregiver interest and move qualified matches toward interviews and hires.
+- Helps caregivers create one reusable work profile and choose which relevant opportunities they want to pursue.
+- Helps CNA/GNA and other caregiver training programs give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.
+
+## What CareJoys is not
+- CareJoys is not a state regulator or credentialing body.
+- Regulatory and training-program approval information remains attributed to the relevant state or training source.
+- A caregiver profile is not treated as currently available unless availability is separately confirmed.
 
 ## Roles
 CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 
 ## Canonical public pages
 - Home: https://carejoys.com/
+- About CareJoys: https://carejoys.com/about
+- Maryland caregiver recruiting for employers: https://carejoys.com/caregiver-recruiting/maryland
 - Maryland caregiver network: https://carejoys.com/caregiver-jobs/maryland
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
@@ -159,22 +172,44 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(request.method!=="GET")return null;
   if(url.pathname==="/"){
     return seoAsset(request,env,{
-      title:"CareJoys | Caregiver Recruiting & Job Matching",
-      description:"CareJoys connects Maryland care employers with CNAs, GNAs, HHAs, PCAs and caregivers, confirms interest and helps move matches into interviews.",
+      title:"CareJoys | Maryland Caregiver Recruiting & Job Matching",
+      description:"CareJoys is a Maryland caregiver recruiting and placement network for home-care and senior-care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers.",
       canonical:"/",
-      snapshot:'<main><h1>Caregiver recruiting and job matching in Maryland</h1><p>CareJoys connects care employers with CNAs, GNAs, HHAs, PCAs and caregivers, confirms who is interested, and helps move matches into interviews.</p><p><a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
+      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care, senior-care, and direct-care employers.</strong> It helps employers find relevant CNAs, GNAs, HHAs, PCAs and caregivers, confirm current interest, and move qualified matches toward interviews.</p><p><a href="/caregiver-recruiting/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
-        {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting care employers, caregivers and caregiver training programs."}
+        {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A Maryland caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"State","name":"Maryland"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
       ]}
+    });
+  }
+  if(url.pathname==="/caregiver-recruiting/maryland"){
+    return seoAsset(request,env,{
+      title:"Hire Caregivers in Maryland | CNA, GNA, HHA & PCA Recruiting",
+      description:"CareJoys helps Maryland home-care and senior-care employers find local CNAs, GNAs, HHAs, PCAs and caregivers, confirm interest, and move matches to interviews.",
+      canonical:"/caregiver-recruiting/maryland",
+      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p><strong>CareJoys is a Maryland caregiver recruiting and placement network for home-care, senior-care, and direct-care employers.</strong> Match local CNAs, GNAs, HHAs, PCAs and caregivers by role, geography, shifts, pay preferences, transportation, experience and current availability. CareJoys then helps confirm who is interested and move qualified matches toward interviews.</p><h2>How CareJoys works for employers</h2><ol><li>Identify relevant local caregivers.</li><li>Confirm current availability and interest.</li><li>Move qualified matches toward interviews and hires.</li></ol><p><a href="/caregiver-jobs/maryland">Maryland caregiver network</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"WebPage","@id":SEO_ORIGIN+"/caregiver-recruiting/maryland#webpage","url":SEO_ORIGIN+"/caregiver-recruiting/maryland","name":"Maryland caregiver recruiting","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
+        {"@type":"Service","@id":SEO_ORIGIN+"/caregiver-recruiting/maryland#service","name":"Caregiver recruiting and placement in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
+      ]}
+    });
+  }
+  if(url.pathname==="/about"){
+    return seoAsset(request,env,{
+      title:"About CareJoys | Maryland Caregiver Recruiting Network",
+      description:"CareJoys connects Maryland care employers, caregivers, and caregiver training programs through current availability, interest confirmation, interviews, and placement outcomes.",
+      canonical:"/about",
+      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a Maryland caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
   if(url.pathname==="/caregiver-jobs/maryland"){
     return seoAsset(request,env,{
       title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
-      description:"Join CareJoys free to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers. One profile, local opportunities.",
+      description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers based on role, location, shifts and availability.",
       canonical:"/caregiver-jobs/maryland",
-      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>CareJoys helps CNAs, GNAs, HHAs, PCAs and caregivers create one profile and connect with relevant Maryland care employers based on role, location, shifts, pay preferences and current availability.</p><p><a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>'
+      snapshot:'<main><h1>Caregiver jobs and job matching in Maryland</h1><p>CareJoys helps CNAs, GNAs, HHAs, PCAs and caregivers create one reusable work profile and connect with relevant Maryland care employers based on role, location, shifts, pay preferences, transportation and current availability.</p><h2>How it works</h2><ol><li>Create one caregiver work profile.</li><li>Keep your availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
   if(url.pathname==="/training-programs/maryland"){
@@ -192,7 +227,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Maryland CNA & GNA Caregiver Training Programs | CareJoys",
       description:"Browse Maryland caregiver training programs for CNA and GNA pathways. CareJoys connects graduates with local care employers and tracks placement outcomes.",
       canonical:"/training-programs/maryland",
-      snapshot:'<main><h1>Maryland caregiver training programs</h1><p>Browse Maryland CNA/GNA caregiver training organizations and their approved program locations. CareJoys gives participating programs tracked graduate referral links and placement outcome reporting.</p><ul>'+links+"</ul></main>"
+      snapshot:'<main><h1>Maryland caregiver training programs</h1><p>Browse Maryland CNA/GNA caregiver training organizations and their approved program locations. CareJoys gives participating programs tracked graduate referral links and placement outcome reporting.</p><ul>'+links+"</ul></main>",
+      jsonLd:{"@context":"https://schema.org","@type":"CollectionPage","url":SEO_ORIGIN+"/training-programs/maryland","name":"Maryland caregiver training programs","isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
   const orgMatch=url.pathname.match(/^\/training-programs\/([^/]+)$/);
@@ -209,7 +245,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         description:(name+" is a Maryland caregiver training organization with "+Number(org.location_count||rows.results?.length||1)+" active program location"+(Number(org.location_count||1)===1?"":"s")+". View "+credentials+" training and CareJoys graduate placement.").slice(0,165),
         canonical:"/training-programs/"+encodeURIComponent(slug),
         snapshot:'<main><h1>'+htmlEscape(name)+"</h1><p>Maryland caregiver training program · "+htmlEscape(credentials)+'</p><ul>'+locations+'</ul><p><a href="/training-programs/maryland">Browse all Maryland caregiver training programs</a></p></main>',
-        jsonLd:{"@context":"https://schema.org","@type":"EducationalOrganization","name":name,"url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug)}
+        jsonLd:{"@context":"https://schema.org","@graph":[
+          {"@type":"WebPage","url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug),"name":name+" caregiver training","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+          {"@type":"EducationalOrganization","name":name,"url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug),"areaServed":{"@type":"State","name":"Maryland"}}
+        ]}
       });
     }
   }
