@@ -43,10 +43,11 @@ export function SchoolProgramPage(){
   return <div className="activation-shell">
     <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
     <main className="activation-card">
-      <div className="activation-kicker">Maryland training partner</div>
+      <div className="activation-kicker">Caregiver training program · {program.credentialCategory||"CNA/GNA"}</div>
       <h1>{program.name}</h1>
       <p className="activation-intro">{[program.providerType,program.city,program.state].filter(Boolean).join(' · ')}</p>
       <div className="agency-source-note"><strong>{program.programType}</strong><span>Current Maryland Board of Nursing status: {program.currentStatus}</span></div>
+      {program.organizationUrl&&<div className="response-actions"><a className="text-link" href={program.organizationUrl}>View {program.organizationName} training page ↗</a></div>}
 
       <div className="activation-section-head"><h2>Free graduate placement network</h2><p>Give graduates one CareJoys link. We track signup → employer interest → interview → hire for your program.</p></div>
       <div className="response-actions"><a className="btn" href={program.referralUrl}>Open graduate signup link</a></div>
@@ -54,7 +55,7 @@ export function SchoolProgramPage(){
       {status==='sent'||status==='pending'?<div className="activation-success">
         <div className="success-mark">✓</div><h2>{status==='sent'?'Check your work email.':'Access request received.'}</h2><p>{message}</p>
       </div>:<form className="activation-form" onSubmit={requestAccess}>
-        <div className="activation-section-head"><h2>Claim this program</h2><p>Program staff can get a placement dashboard and tracked graduate referral link.</p></div>
+        <div className="activation-section-head"><h2>Claim this training location</h2><p>Training-program staff can get a placement dashboard and tracked graduate referral link.</p></div>
         <div className="form-grid"><label>Your name<input name="contactName" required /></label><label>Work email<input type="email" name="email" required /></label></div>
         <label>Phone<input name="phone" /></label>
         <TurnstileField onToken={setTurnstileToken}/>
@@ -122,7 +123,7 @@ export function SchoolDashboard(){
     <header className="app-header"><div className="app-wrap header-inner"><a className="brand" href="/">CareJoys</a><nav className="app-nav"><button className="nav-button" onClick={logout}>Sign out</button></nav></div></header>
     <main className="app-wrap app-content">
       <section className="page-head page-head-row">
-        <div><div className="modal-kicker">Training program placement dashboard</div><h1>{school.name}</h1><p>{[school.providerType,school.city,school.state].filter(Boolean).join(' · ')}</p></div>
+        <div><div className="modal-kicker">Caregiver training placement dashboard</div><h1>{school.name}</h1><p>{[school.providerType,school.city,school.state].filter(Boolean).join(' · ')}</p></div>
         <div className="header-action"><button className="button" onClick={()=>setCohortOpen(true)}>+ New cohort</button></div>
       </section>
 
@@ -136,7 +137,7 @@ export function SchoolDashboard(){
 
       {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
 
-      <section className="section-block"><div className="section-heading"><h2>Program referral link</h2><p>Use this for general referrals. CareJoys attributes downstream placement activity back to your program.</p></div>
+      <section className="section-block"><div className="section-heading"><h2>Training-program referral link</h2><p>Use this for general referrals. CareJoys attributes downstream placement activity back to your training program.</p></div>
         <div className="settings-card referral-box"><code>{school.referralUrl}</code><button className="button" onClick={()=>copy(school.referralUrl,'program')}>{copied==='program'?'Copied':'Copy link'}</button></div>
       </section>
 
