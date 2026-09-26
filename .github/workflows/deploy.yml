@@ -65,6 +65,14 @@ jobs:
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
           echo "Caregiver training directory:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland >/dev/null
+          echo "SEO discovery routes:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<urlset'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/llms.txt | grep -q 'CareJoys is a Maryland caregiver recruiting and placement network'
+          HOME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          echo "$HOME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/"'
+          TRAINING_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
+          echo "$TRAINING_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/training-programs/maryland"'
           echo "Pilot caregiver training organization routes:"
           for SLUG in             it-works-learning-center             top-knowledge-healthcare-institute             caroline-center             cambridge-nursing-assistant-academy             vision-allied-health-institute             baltimore-city-community-college             care-xpert-academy             heritage-care             dominion-academy             beacon-institute
           do
