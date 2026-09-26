@@ -13,6 +13,8 @@ export type FeatureEnv={
   EMAIL?:EmailBinding;
   TURNSTILE_SITE_KEY?:string;
   TURNSTILE_SECRET_KEY?:string;
+  AUTH0_DOMAIN?:string;
+  AUTH0_CLIENT_ID?:string;
 };
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -187,7 +189,12 @@ export async function employerOwnsWorkspace(request:Request,env:FeatureEnv,works
 }
 
 export function publicConfig(env:FeatureEnv){
-  return json({ok:true,turnstileSiteKey:env.TURNSTILE_SITE_KEY||null});
+  return json({
+    ok:true,
+    turnstileSiteKey:env.TURNSTILE_SITE_KEY||null,
+    auth0Domain:env.AUTH0_DOMAIN||null,
+    auth0ClientId:env.AUTH0_CLIENT_ID||null
+  });
 }
 
 export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:string,openingId:string){
