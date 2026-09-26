@@ -171,9 +171,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/"){
     return seoAsset(request,env,{
       title:"CareJoys | Maryland Caregiver Recruiting & Job Matching",
-      description:"CareJoys is a Maryland caregiver recruiting and placement network for home-care and senior-care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers.",
+      description:"CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.",
       canonical:"/",
-      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care, senior-care, and direct-care employers.</strong> It helps employers find relevant CNAs, GNAs, HHAs, PCAs and caregivers, confirm current interest, and move qualified matches toward interviews.</p><p><a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p><p><a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A Maryland caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"State","name":"Maryland"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
