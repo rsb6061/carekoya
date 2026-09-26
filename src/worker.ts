@@ -138,8 +138,11 @@ async function handleAgencyDemandSummary(env: Env) {
       COUNT(*) AS licensed_records,
       COUNT(DISTINCT COALESCE(NULLIF(a.organization_id,''),a.id)) AS organizations,
       SUM(CASE WHEN a.caregiver_match_eligible=1 THEN 1 ELSE 0 END) AS match_eligible_records,
-      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations
+      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations,
+      COUNT(DISTINCT CASE WHEN ao.last_enriched_at IS NOT NULL THEN ao.id END) AS enriched_organizations,
+      COUNT(DISTINCT CASE WHEN ao.current_hiring_signal='hiring_detected' THEN ao.id END) AS hiring_detected_organizations
     FROM agencies a
+    LEFT JOIN agency_organizations ao ON ao.id=a.organization_id
     WHERE a.is_active=1 AND a.source LIKE 'maryland_ohcq_%'
     GROUP BY COALESCE(NULLIF(TRIM(a.jurisdiction),''),'Unknown')
     ORDER BY match_eligible_organizations DESC, organizations DESC, jurisdiction
@@ -148,8 +151,11 @@ async function handleAgencyDemandSummary(env: Env) {
     SELECT
       COALESCE(NULLIF(TRIM(a.city),''),'Unknown') AS city,
       COALESCE(NULLIF(TRIM(a.state),''),'MD') AS state,
-      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations
+      COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) AS match_eligible_organizations,
+      COUNT(DISTINCT CASE WHEN ao.last_enriched_at IS NOT NULL THEN ao.id END) AS enriched_organizations,
+      COUNT(DISTINCT CASE WHEN ao.current_hiring_signal='hiring_detected' THEN ao.id END) AS hiring_detected_organizations
     FROM agencies a
+    LEFT JOIN agency_organizations ao ON ao.id=a.organization_id
     WHERE a.is_active=1 AND a.source LIKE 'maryland_ohcq_%'
     GROUP BY COALESCE(NULLIF(TRIM(a.city),''),'Unknown'), COALESCE(NULLIF(TRIM(a.state),''),'MD')
     HAVING COUNT(DISTINCT CASE WHEN a.caregiver_match_eligible=1 THEN COALESCE(NULLIF(a.organization_id,''),a.id) END) > 0
