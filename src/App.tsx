@@ -9,6 +9,7 @@ import { AgencyClaim } from './AgencyClaim';
 import { MarylandCaregiverPage } from './MarylandCaregiverPage';
 import { SchoolProgramPage, SchoolAuth, SchoolDashboard } from './SchoolPortal';
 import { MarylandSchoolsPage } from './MarylandSchoolsPage';
+import { TrainingOrganizationPage } from './TrainingOrganizationPage';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -125,7 +126,8 @@ export function App() {
   if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
   if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
   if (window.location.pathname.startsWith('/caregiver-jobs/maryland') || window.location.pathname.startsWith('/join/')) return <MarylandCaregiverPage />;
-  if (window.location.pathname.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
+  if (window.location.pathname.startsWith('/training-programs/maryland') || window.location.pathname.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
+  if (window.location.pathname.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
   if (window.location.pathname.startsWith('/school-auth')) return <SchoolAuth />;
   if (window.location.pathname.startsWith('/school-dashboard')) return <SchoolDashboard />;
   if (window.location.pathname.startsWith('/school/')) return <SchoolProgramPage />;
@@ -153,7 +155,7 @@ export function App() {
         <nav className="navlinks">
           <a className="hide-sm" href="#how">How it works</a>
           <a className="hide-sm" href="#caregivers">For caregivers</a>
-          <a className="hide-sm" href="#schools">For schools</a>
+          <a className="hide-sm" href="#schools">For training programs</a>
           <a href="/app">Employer workspace</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>
@@ -227,11 +229,11 @@ export function App() {
 
       <section className="section" id="schools">
         <div className="wrap">
-          <h2>For training programs</h2>
+          <h2>For caregiver training programs</h2>
           <div className="jobs">
             <div className="job">
-              <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA, HHA, and direct-care programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
-              <div className="school-home-actions"><a className="btn secondary" href="/schools/maryland">Find your Maryland program</a><button className="btn secondary" onClick={() => setForm('school')}>Partner with CareJoys</button></div>
+              <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
+              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><button className="btn secondary" onClick={() => setForm('school')}>Partner with CareJoys</button></div>
             </div>
           </div>
         </div>
@@ -255,7 +257,7 @@ export function App() {
     </main>
 
     <footer className="footer">
-      <div className="wrap">CareJoys · Caregivers ready to work. Interviews ready for you. · <a href="#caregivers">For caregivers</a> · <a href="#schools">For schools</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
+      <div className="wrap">CareJoys · Caregivers ready to work. Interviews ready for you. · <a href="#caregivers">For caregivers</a> · <a href="#schools">For training programs</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
     </footer>
 
     {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
