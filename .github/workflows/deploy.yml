@@ -60,7 +60,7 @@ jobs:
           echo "CareJoys favicon:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/favicon.png >/dev/null
           HOME_HEAD=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
-          echo "$HOME_HEAD" | grep -q '/favicon.png?v=1'
+          echo "$HOME_HEAD" | grep -q '/favicon.png?v=2'
           echo "Legal routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null
@@ -97,6 +97,7 @@ jobs:
           echo "$RESUME_HTML" | grep -q '<title>Caregiver Resume: Builder, Example &amp; Job Matching | CareJoys</title>'
           echo "$RESUME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-resume"'
           echo "$RESUME_HTML" | grep -q '<h1>Add your resume, get matched to the best caregiver jobs near you.</h1>'
+          echo "$RESUME_HTML" | grep -q 'Upload your resume or start from scratch below. CareJoys matches you with the best caregiver employers and agencies.'
           echo "$RESUME_HTML" | grep -q '"@type":"WebApplication"'
           RESOURCE_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland)
           echo "$RESOURCE_HTML" | grep -q '<title>How to Become a Caregiver in Maryland | CareJoys</title>'
