@@ -134,7 +134,7 @@ export function CaregiverResumePage(){
           <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
           <TurnstileField onToken={setTurnstileToken}/>
           {status==='error'&&message&&<div className="notice">{message}</div>}
-          <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Matching…':'Create profile & find matches'}</button>
+          <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding jobs…':'Find jobs'}</button>
           <div className="resume-privacy">By creating a profile, you understand it may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>
         </form>
       </div></section>
