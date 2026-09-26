@@ -196,6 +196,9 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const opening=await env.DB.prepare('SELECT * FROM openings WHERE id=? AND employer_id=? LIMIT 1').bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening)return json({ok:false,error:'Opening not found'},{status:404});
+  const slotCount=await env.DB.prepare("SELECT COUNT(*) AS count FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now')")
+    .bind(openingId).first<{count:number}>();
+  if(asNumber(slotCount?.count)<1)return json({ok:false,error:'Add at least one interview time before contacting caregivers.'},{status:400});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const limit=Math.max(1,Math.min(20,asNumber(body.limit)||5));
   const rows=await env.DB.prepare("SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.email IS NOT NULL AND c.email!='' ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?").bind(openingId,limit).all<Record<string,unknown>>();
