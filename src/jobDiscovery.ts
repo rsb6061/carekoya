@@ -114,8 +114,8 @@ const ROLE_RULES:[string,RegExp][]=[
   ['CNA',/\b(cna(?:-i)?|certified nursing assistant|nursing assistant)\b/i],
   ['HHA',/\b(hha|home health aide)\b/i],
   ['PCA',/\b(pca|personal care aide|personal care assistant)\b/i],
-  ['DSP',/\b(dsp|direct support professional|direct care worker)\b/i],
-  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver)?|home care aide|homecare aide|private duty caregiver)\b/i],
+  ['DSP',/\b(dsp|direct support professional|direct care professional|direct care worker)\b/i],
+  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver| care)?|companion care|personal\s*(?:&|and)\s*companion care|home care aide|homecare aide|private duty caregiver)\b/i],
   ['CMT',/\b(cmt|certified medication technician)\b/i],
   ['LPN',/\b(lpn|licensed practical nurse)\b/i],
   ['RN',/\b(rn|registered nurse)\b/i]
@@ -372,6 +372,49 @@ async function jobsFromAtsDestination(dest:{url:string;provider:string},org:Row,
   else return crawlHtmlBoard(dest.url,dest.provider,org,originUrl);
   return {jobs:jobs.map(j=>({...j,sourceListingUrl:originUrl})),linksSeen:0,fetchFailed:false};
 }
+function headingJobsFromCareersPage(pageUrl:string,html:string,org:Row){
+  const pageText=htmlText(html).slice(0,15000);
+  if(!/(apply|application|now hiring|we are hiring|join our team|employment opportunit|open position)/i.test(pageText))return [] as DiscoveredJob[];
+  const headings:string[]=[];
+  const re=/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/gi;
+  for(const m of html.matchAll(re)){
+    const heading=stripHtml(m[1],220);
+    const cls=roleClassification(heading,'');
+    if(cls&&cls.confidence>=90&&!headings.includes(heading))headings.push(heading);
+    if(headings.length>=8)break;
+  }
+  const jobs:DiscoveredJob[]=[];
+  for(const heading of headings){
+    const cls=roleClassification(heading,pageText);
+    if(!cls)continue;
+    const zip=pageText.match(/\b(20[6-9]\d{2}|21\d{3})\b/)?.[1]||clean(org.zip,20);
+    const state=/\bMaryland\b/i.test(pageText)||/\bMD\b/.test(pageText)||mdZip(zip)?'MD':normalizeState(org.state);
+    if(state!=='MD')continue;
+    jobs.push({
+      sourceProvider:'generic_html',
+      sourceJobId:'',
+      sourceUrl:pageUrl,
+      sourceListingUrl:pageUrl,
+      title:heading,
+      role:cls.role,
+      roles:cls.roles,
+      normalizedTitle:normalizeTitle(heading).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),
+      city:clean(org.city,120),
+      state:'MD',
+      zip,
+      employmentType:normalizeEmploymentType('',heading,pageText),
+      payMin:null,
+      payMax:null,
+      descriptionText:pageText.slice(0,8000),
+      classifierReason:cls.reason+' + explicit hiring/application signal on agency careers page',
+      confidence:94,
+      datePosted:'',
+      validThrough:''
+    });
+  }
+  return jobs;
+}
+
 async function greenhouseJobs(account:string,listingUrl:string){
   const data=await fetchJson('https://boards-api.greenhouse.io/v1/boards/'+encodeURIComponent(account)+'/jobs?content=true',8000) as any;
   if(!Array.isArray(data?.jobs))return [] as DiscoveredJob[];
@@ -482,7 +525,8 @@ function isPublishableMarylandJob(job:DiscoveredJob){
   return notExpired&&explicit&&job.confidence>=88&&!!job.sourceUrl&&!!job.title;
 }
 async function dedupeKeyForJob(orgId:string,job:DiscoveredJob){
-  const identity=[orgId,job.sourceProvider,job.sourceJobId||job.sourceUrl||job.title,job.city,job.state].join('|').toLowerCase();
+  const sourceIdentity=job.sourceJobId||(job.sourceUrl+'|'+normalizeTitle(job.title));
+  const identity=[orgId,job.sourceProvider,sourceIdentity,job.city,job.state].join('|').toLowerCase();
   return sha256Hex(identity);
 }
 async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
@@ -576,6 +620,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
     if(!page)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'generic',status:'fetch_failed'};
     jobs.push(...parseJsonLdJobs(page.text,page.url));
     if(jobs.length)providers.add('jsonld');
+    jobs.push(...headingJobsFromCareersPage(page.url,page.text,org));
 
     const links=providerJobLinks(page.url,page.text,'generic');
     jobLinksSeen+=links.length;
@@ -610,6 +655,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
         const careersPage=await fetchText(careersUrl,7500);
         if(!careersPage)continue;
         jobs.push(...parseJsonLdJobs(careersPage.text,careersPage.url));
+        jobs.push(...headingJobsFromCareersPage(careersPage.url,careersPage.text,org));
         const careerLinks=providerJobLinks(careersPage.url,careersPage.text,'generic');
         jobLinksSeen+=careerLinks.length;
         for(const link of careerLinks.slice(0,10)){
