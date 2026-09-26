@@ -3,6 +3,11 @@ import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import './styles.css';
 
+type PublicCaregiverJob={
+  id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
+  employmentType?:string;payMin?:number|null;payMax?:number|null;sourceUrl:string;datePosted?:string;lastSeenAt?:string;
+};
+
 async function submit(data:Record<string,unknown>){
   const res=await fetch('/api/caregivers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
   const body=await res.json() as {ok?:boolean;error?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;existing?:boolean};
@@ -17,6 +22,8 @@ export function MarylandCaregiverPage(){
   const [message,setMessage]=useState('');
   const [matchResult,setMatchResult]=useState<{id?:string;matchedOrganizations?:number;matchedOpenings?:number;existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null}|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
+  const [jobs,setJobs]=useState<PublicCaregiverJob[]>([]);
+  const [jobsLoading,setJobsLoading]=useState(!referralSlug);
 
   useEffect(()=>{
     document.title='Caregiver Jobs in Maryland | CareJoys';
@@ -24,6 +31,10 @@ export function MarylandCaregiverPage(){
       fetch('/api/public/training-program/'+encodeURIComponent(referralSlug)).then(r=>r.json()).then((data:any)=>{
         if(data?.program){setProgram(data.program);document.title='CareJoys for '+data.program.name;}
       }).catch(()=>{});
+    }else{
+      fetch('/api/public/caregiver-jobs?limit=24').then(r=>r.json()).then((data:any)=>{
+        if(Array.isArray(data?.jobs))setJobs(data.jobs);
+      }).catch(()=>{}).finally(()=>setJobsLoading(false));
     }
     const existing=document.querySelector('meta[name="description"]');
     if(existing)existing.setAttribute('content','Join CareJoys free and get matched with Maryland care employers looking for CNAs, GNAs, HHAs, PCAs, and caregivers.');
@@ -56,7 +67,7 @@ export function MarylandCaregiverPage(){
           </div>
         </div>
 
-        <div className="campaign-form-card">
+        <div className="campaign-form-card" id="caregiver-profile">
           {status==='success'?<div className="modal-success">
             <div className="success-mark">✓</div>
             <h2>{matchResult?.existing?'Your CareJoys profile is updated.':'Your CareJoys profile is live.'}</h2>
@@ -79,6 +90,71 @@ export function MarylandCaregiverPage(){
             </form>
           </>}
         </div>
+      </div></section>
+
+      {!referralSlug&&<section className="section caregiver-jobs-section"><div className="wrap">
+        <div className="section-heading">
+          <div><div className="modal-kicker">Current openings</div><h2>Current caregiver jobs in Maryland</h2><p>Verified from Maryland care-employer career pages. CareJoys only publishes high-confidence CNA, GNA, HHA, PCA, DSP and caregiver openings with a traceable source.</p></div>
+          <a className="btn secondary" href="#caregiver-profile">Find jobs</a>
+        </div>
+        {jobsLoading?<div className="empty"><strong>Loading current openings…</strong></div>:jobs.length===0?
+          <div className="empty"><strong>CareJoys is adding verified Maryland caregiver jobs now.</strong><div>Create your profile above and we’ll match you as openings are confirmed.</div></div>:
+          <div className="job-list caregiver-public-job-list">{jobs.map((job,i)=><article className={'job-card '+['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][i%4]} key={job.id}>
+            <div className="job-card-main">
+              <div className="job-card-title-row"><h3>{job.title}</h3></div>
+              <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', ')||job.zip].filter(Boolean).join(' · ')}</div>
+              <div className="job-badges"><span className="badge">{job.role}</span>{job.employmentType&&<span className="badge">{job.employmentType}</span>}{(job.payMin||job.payMax)&&<span className="badge">{job.payMin&&job.payMax?'
+        <p className="meta">New to caregiving? <a className="text-link" href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland →</a></p>
+        <div className="jobs">
+          <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
+          <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
+          <div className="job"><div><h3>Choose what moves forward</h3><div className="meta">You decide which matches interest you before an interview.</div></div><div className="meta">03</div></div>
+        </div>
+      </div></section>
+    </main>
+    <footer className="footer"><div className="wrap">CareJoys · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+  </div>;
+}
++job.payMin+'–
+        <p className="meta">New to caregiving? <a className="text-link" href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland →</a></p>
+        <div className="jobs">
+          <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
+          <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
+          <div className="job"><div><h3>Choose what moves forward</h3><div className="meta">You decide which matches interest you before an interview.</div></div><div className="meta">03</div></div>
+        </div>
+      </div></section>
+    </main>
+    <footer className="footer"><div className="wrap">CareJoys · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+  </div>;
+}
++job.payMax+'/hr':job.payMin?'From 
+        <p className="meta">New to caregiving? <a className="text-link" href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland →</a></p>
+        <div className="jobs">
+          <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
+          <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
+          <div className="job"><div><h3>Choose what moves forward</h3><div className="meta">You decide which matches interest you before an interview.</div></div><div className="meta">03</div></div>
+        </div>
+      </div></section>
+    </main>
+    <footer className="footer"><div className="wrap">CareJoys · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+  </div>;
+}
++job.payMin+'/hr':'Up to 
+        <p className="meta">New to caregiving? <a className="text-link" href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland →</a></p>
+        <div className="jobs">
+          <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
+          <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
+          <div className="job"><div><h3>Choose what moves forward</h3><div className="meta">You decide which matches interest you before an interview.</div></div><div className="meta">03</div></div>
+        </div>
+      </div></section>
+    </main>
+    <footer className="footer"><div className="wrap">CareJoys · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+  </div>;
+}
++job.payMax+'/hr'}</span>}</div>
+            </div>
+            <div className="job-card-side opening-actions"><a className="job-card-action" href={job.sourceUrl} target="_blank" rel="noreferrer">View job ↗</a><a className="button secondary" href="#caregiver-profile">Find jobs</a></div>
+          </article>)}</div>}
       </div></section>
 
       <section className="section"><div className="wrap">
