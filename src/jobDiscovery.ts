@@ -95,6 +95,7 @@ function mdZip(zip:string){
   return /^\d{5}/.test(zip)&&n>=206&&n<=219;
 }
 function escapeRegex(value:string){
+  return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\function escapeRegex(value:string){
   return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
 }
 function roleClassification(title:string,description=''){
@@ -112,6 +113,87 @@ function roleClassification(title:string,description=''){
   if(/\b(rn|registered nurse|lpn|licensed practical nurse|nurse practitioner|therapist|scheduler|coordinator|administrator|manager|director)\b/i.test(titleLower))return null;
   for(const [role,re] of titleRules)if(re.test(all))return {role,confidence:72,reason:'caregiver role appears only in job description'};
   return null;
+}');
+}
+function normalizeTitle(value:unknown){
+  return decodeHtml(clean(value,320))
+    .replace(/\u00a0/g,' ')
+    .replace(/[‐‑‒–—]+/g,' – ')
+    .replace(/\s*\+\s*/g,' + ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .slice(0,220);
+}
+const ROLE_RULES:[string,RegExp][]=[
+  ['GNA',/\b(gna|geriatric nursing assistant)\b/i],
+  ['CNA',/\b(cna(?:-i)?|certified nursing assistant|nursing assistant)\b/i],
+  ['HHA',/\b(hha|home health aide)\b/i],
+  ['PCA',/\b(pca|personal care aide|personal care assistant)\b/i],
+  ['DSP',/\b(dsp|direct support professional|direct care worker)\b/i],
+  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver)?|home care aide|homecare aide|private duty caregiver)\b/i],
+  ['CMT',/\b(cmt|certified medication technician)\b/i],
+  ['LPN',/\b(lpn|licensed practical nurse)\b/i],
+  ['RN',/\b(rn|registered nurse)\b/i]
+];
+const TARGET_ROLES=new Set(['GNA','CNA','HHA','PCA','DSP','Caregiver']);
+function roleClassification(title:string,description=''){
+  const normalized=normalizeTitle(title);
+  const matches:{role:string;index:number}[]=[];
+  for(const [role,re] of ROLE_RULES){
+    const m=normalized.match(re);
+    if(m&&typeof m.index==='number')matches.push({role,index:m.index});
+  }
+  matches.sort((a,b)=>a.index-b.index);
+  const titleRoles=Array.from(new Set(matches.map(m=>m.role)));
+  const target=titleRoles.filter(r=>TARGET_ROLES.has(r));
+  if(target.length)return {
+    role:target[0],
+    roles:titleRoles,
+    confidence:96,
+    reason:titleRoles.length>1?'mixed-role caregiver title: '+titleRoles.join(', '):target[0]+' title'
+  };
+  if(/\b(nurse practitioner|therapist|scheduler|coordinator|administrator|manager|director)\b/i.test(normalized))return null;
+  if(/\b(rn|registered nurse|lpn|licensed practical nurse)\b/i.test(normalized))return null;
+  const descRoles=ROLE_RULES.filter(([,re])=>re.test(description)).map(([role])=>role);
+  const descTargets=Array.from(new Set(descRoles)).filter(r=>TARGET_ROLES.has(r));
+  if(descTargets.length)return {role:descTargets[0],roles:Array.from(new Set(descRoles)),confidence:72,reason:'caregiver role appears only in job description'};
+  return null;
+}
+function normalizeEmploymentType(raw:string,title='',description=''){
+  const all=(raw+' '+title+' '+description).replace(/_/g,' ').toLowerCase();
+  const out:string[]=[];
+  const add=(v:string)=>{if(!out.includes(v))out.push(v)};
+  if(/\bfull[\s-]*time\b/.test(all))add('Full time');
+  if(/\bpart[\s-]*time\b/.test(all))add('Part time');
+  if(/\bper[\s-]*diem\b|\bprn\b/.test(all))add('Per diem');
+  if(/\btemporary\b|\btemp\b/.test(all))add('Temporary');
+  if(/\bcontract\b/.test(all))add('Contract');
+  if(/\bseasonal\b/.test(all))add('Seasonal');
+  return out.join(', ');
+}
+function payFromText(text:string){
+  const normalized=text.replace(/,/g,' ');
+  const range=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
+  if(range)return {min:Number(range[1]),max:Number(range[2]),period:/hour|hr/i.test(range[3])?'hour':/year|yr/i.test(range[3])?'year':/week|wk/i.test(range[3])?'week':range[3].toLowerCase()};
+  const single=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
+  if(single)return {min:Number(single[1]),max:null,period:/hour|hr/i.test(single[2])?'hour':/year|yr/i.test(single[2])?'year':/week|wk/i.test(single[2])?'week':single[2].toLowerCase()};
+  return {min:null,max:null,period:''};
+}
+function rootHost(value:unknown){
+  try{
+    const parts=new URL(clean(value,1000)).hostname.toLowerCase().replace(/^www\./,'').split('.');
+    return parts.slice(Math.max(0,parts.length-2)).join('.');
+  }catch{return ''}
+}
+function sameOrgDomain(url:string,org:Row){
+  const a=rootHost(url),b=rootHost(org.primary_website);
+  return !!a&&!!b&&a===b;
+}
+function badCareerUrl(url:string){
+  try{
+    const h=new URL(url).hostname.toLowerCase();
+    return /(google|bing|duckduckgo|indeed|glassdoor|ziprecruiter|linkedin|facebook|yahoo|juno)\.com$/.test(h);
+  }catch{return true}
 }
 function salaryParts(value:any){
   let min:number|null=null,max:number|null=null;
