@@ -169,10 +169,10 @@ export function App() {
       <section className="hero">
         <div className="wrap">
           <h1>
-            <span className="hero-title-line">Caregivers ready to work.</span>
+            <span className="hero-title-line">Caregiver recruiting in Maryland.</span>
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
-          <p>CareJoys helps home-care and senior-care employers find CNAs, HHAs, and caregivers nearby, confirm who is actually looking, screen fit, and turn matches into interviews.</p>
+          <p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care and senior-care employers.</strong> Find local CNAs, GNAs, HHAs, PCAs, and caregivers, confirm who is actually looking, screen fit, and move qualified matches into interviews.</p>
           <form className="search" onSubmit={handleHeroSearch}>
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
