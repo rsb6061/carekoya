@@ -4,7 +4,7 @@ import './styles.css';
 
 async function submit(data:Record<string,unknown>){
   const res=await fetch('/api/caregivers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
-  const body=await res.json() as {ok?:boolean;error?:string};
+  const body=await res.json() as {ok?:boolean;error?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;existing?:boolean};
   if(!res.ok)throw new Error(body.error||'Could not join CareJoys');
   return body;
 }
@@ -14,6 +14,7 @@ export function MarylandCaregiverPage(){
   const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
   const [status,setStatus]=useState<'idle'|'saving'|'success'|'error'>('idle');
   const [message,setMessage]=useState('');
+  const [matchResult,setMatchResult]=useState<{matchedOrganizations?:number;matchedOpenings?:number;existing?:boolean}|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
 
   useEffect(()=>{
@@ -34,7 +35,7 @@ export function MarylandCaregiverPage(){
     data.smsConsent=fd.get('smsConsent')==='on';
     data.turnstileToken=turnstileToken;
     if(referralSlug)data.referralSlug=referralSlug;
-    try{await submit(data);setStatus('success')}
+    try{const result=await submit(data);setMatchResult(result);setStatus('success')}
     catch(error){setMessage(error instanceof Error?error.message:'Could not join CareJoys');setStatus('error')}
   }
 
@@ -57,9 +58,9 @@ export function MarylandCaregiverPage(){
         <div className="campaign-form-card">
           {status==='success'?<div className="modal-success">
             <div className="success-mark">✓</div>
-            <h2>You’re in the CareJoys network.</h2>
-            <p>We’ll use your profile to identify relevant Maryland care employers. When there is a match, CareJoys can ask whether you are interested before moving you forward.</p>
-            <a className="btn" href="/">Done</a>
+            <h2>{matchResult?.existing?'Your CareJoys profile is updated.':'You’re in the CareJoys network.'}</h2>
+            <p>We found <strong>{matchResult?.matchedOrganizations||0} relevant care organizations</strong>{typeof matchResult?.matchedOpenings==='number'?<> and <strong>{matchResult.matchedOpenings} current opening{matchResult.matchedOpenings===1?'':'s'}</strong></>:null} based on your profile. CareJoys will use your current availability and preferences when employers are hiring.</p>
+            <div className="hero-actions"><a className="btn" href="/caregiver-resume">Add or improve your resume</a><a className="text-link" href="/">Done</a></div>
           </div>:<>
             <div className="modal-kicker">{program?`Referred by ${program.name}`:'Create your caregiver profile'}</div>
             <h2>Tell us what fits.</h2>
