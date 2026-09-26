@@ -196,15 +196,21 @@ function badCareerUrl(url:string){
   }catch{return true}
 }
 function salaryParts(value:any){
-  let min:number|null=null,max:number|null=null;
+  let min:number|null=null,max:number|null=null,period='';
   const raw=value?.value??value;
+  const unit=clean(value?.unitText??raw?.unitText??raw?.unitCode,80).toLowerCase();
   if(typeof raw==='number')min=max=raw;
   else if(raw&&typeof raw==='object'){
     const a=Number(raw.minValue??raw.value??0),b=Number(raw.maxValue??raw.value??0);
     if(Number.isFinite(a)&&a>0)min=a;
     if(Number.isFinite(b)&&b>0)max=b;
   }
-  return {min,max};
+  if(/hour|hourly|hr/.test(unit))period='hour';
+  else if(/year|annual|yr/.test(unit))period='year';
+  else if(/week|wk/.test(unit))period='week';
+  else if(/day/.test(unit))period='day';
+  else if(/month/.test(unit))period='month';
+  return {min,max,period};
 }
 function locationParts(job:any){
   const loc=Array.isArray(job?.jobLocation)?job.jobLocation[0]:job?.jobLocation;
@@ -248,8 +254,11 @@ function parseJsonLdJobs(html:string,pageUrl:string){
       title,role:cls.role,city:loc.city,state:loc.state,zip:loc.zip,
       employmentType:Array.isArray(job.employmentType)?job.employmentType.join(', '):clean(job.employmentType,120),
       payMin:salary.min,payMax:salary.max,descriptionText:description,classifierReason:cls.reason,
-      confidence:cls.confidence,datePosted:clean(job.datePosted,80),validThrough:clean(job.validThrough,80)
-    } as DiscoveredJob;
+      confidence:cls.confidence,datePosted:clean(job.datePosted,80),validThrough:clean(job.validThrough,80),
+      ...(salary.period?{payPeriod:salary.period}:{}),
+      ...(cls.roles?{roles:cls.roles}:{}),
+      normalizedTitle:normalizeTitle(title).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+    } as DiscoveredJob & {payPeriod?:string;roles?:string[];normalizedTitle?:string};
   }).filter(Boolean) as DiscoveredJob[];
 }
 function atsInfo(url:string){
