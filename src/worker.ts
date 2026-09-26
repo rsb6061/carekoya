@@ -543,7 +543,23 @@ async function handleHealth(env: Env) {
     const jobScanSamples = await env.DB.prepare(`SELECT ao.canonical_name,ao.primary_careers_url,s.source_provider,s.last_status,s.job_links_seen,s.jobs_seen,s.jobs_rejected,s.jobs_published,s.last_error
       FROM agency_job_scan_state s JOIN agency_organizations ao ON ao.id=s.organization_id
       WHERE s.last_scanned_at IS NOT NULL ORDER BY s.last_scanned_at DESC LIMIT 20`).all<Record<string,unknown>>();
-    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, jobScanSummary:jobScanRows.results||[], jobScanSamples:jobScanSamples.results||[], timestamp:new Date().toISOString() });
+    const jobSourceProviderCandidates = await env.DB.prepare(`SELECT provider,COUNT(*) AS sources FROM (
+        SELECT CASE
+          WHEN lower(primary_careers_url) LIKE '%workday%' THEN 'workday'
+          WHEN lower(primary_careers_url) LIKE '%icims%' THEN 'icims'
+          WHEN lower(primary_careers_url) LIKE '%paylocity%' THEN 'paylocity'
+          WHEN lower(primary_careers_url) LIKE '%greenhouse%' THEN 'greenhouse'
+          WHEN lower(primary_careers_url) LIKE '%lever.co%' THEN 'lever'
+          WHEN lower(primary_careers_url) LIKE '%ashby%' THEN 'ashby'
+          WHEN lower(primary_careers_url) LIKE '%bamboohr%' THEN 'bamboohr'
+          WHEN lower(primary_careers_url) LIKE '%paycom%' THEN 'paycom'
+          WHEN lower(primary_careers_url) LIKE '%ultipro%' OR lower(primary_careers_url) LIKE '%ukg%' THEN 'ukg'
+          ELSE 'generic'
+        END AS provider
+        FROM agency_organizations
+        WHERE is_active=1 AND primary_careers_url IS NOT NULL AND primary_careers_url!=''
+      ) GROUP BY provider ORDER BY sources DESC`).all<Record<string,unknown>>();
+    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, jobScanSummary:jobScanRows.results||[], jobScanSamples:jobScanSamples.results||[], jobSourceProviderCandidates:jobSourceProviderCandidates.results||[], timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
   }
