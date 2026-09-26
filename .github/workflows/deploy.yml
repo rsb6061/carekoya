@@ -79,18 +79,27 @@ jobs:
           echo "$TRAINING_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/training-programs/maryland"'
           echo "$TRAINING_HTML" | grep -q '<title>Maryland CNA &amp; GNA Caregiver Training Programs | CareJoys</title>'
           echo "$TRAINING_HTML" | grep -q 'name="description"'
-          EMPLOYER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-recruiting/maryland)
-          echo "$EMPLOYER_HTML" | grep -q '<title>Hire Caregivers in Maryland | CNA, GNA, HHA &amp; PCA Recruiting</title>'
-          echo "$EMPLOYER_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-recruiting/maryland"'
+          OLD_EMPLOYER=$(curl --connect-timeout 3 --max-time 15 -s -o /dev/null -w '%{http_code} %{redirect_url}' https://carejoys.com/caregiver-recruiting/maryland)
+          test "$OLD_EMPLOYER" = "301 https://carejoys.com/hire-caregivers/maryland"
+          EMPLOYER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/hire-caregivers/maryland)
+          echo "$EMPLOYER_HTML" | grep -q '<title>Hire Caregivers in Maryland | CareJoys</title>'
+          echo "$EMPLOYER_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/hire-caregivers/maryland"'
           echo "$EMPLOYER_HTML" | grep -q '"@type":"Service"'
+          echo "$EMPLOYER_HTML" | grep -q 'Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.'
           ABOUT_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/about)
           echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Maryland Caregiver Recruiting Network</title>'
           echo "$ABOUT_HTML" | grep -q '"@type":"AboutPage"'
           CAREGIVER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
           echo "$CAREGIVER_HTML" | grep -q '<title>Caregiver Jobs in Maryland: CNA, GNA, HHA &amp; PCA | CareJoys</title>'
+          echo "$CAREGIVER_HTML" | grep -q '<h1>Caregiver jobs in Maryland</h1>'
+          RESOURCE_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland)
+          echo "$RESOURCE_HTML" | grep -q '<title>How to Become a Caregiver in Maryland | CareJoys</title>'
+          echo "$RESOURCE_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland"'
           SITEMAP=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml)
           echo "$SITEMAP" | grep -q 'https://carejoys.com/about'
-          echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-recruiting/maryland'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/hire-caregivers/maryland'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland'
+          if echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-recruiting/maryland'; then exit 1; fi
           ROBOTS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt)
           echo "$ROBOTS" | grep -q 'User-agent: OAI-SearchBot'
           echo "$ROBOTS" | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
