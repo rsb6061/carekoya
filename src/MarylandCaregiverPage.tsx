@@ -46,6 +46,7 @@ export function MarylandCaregiverPage(){
           <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
           <h1>{program?'Free job matching for your graduates.':'Caregiver jobs in Maryland'}</h1>
           <p>{program?`Create one free CareJoys profile and get matched with Maryland care employers hiring graduates from programs like ${program.name}.`:'Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.'}</p>
+          <div className="caregiver-resume-cta"><a className="text-link" href="/caregiver-resume">Already have a resume? Upload it and get matched →</a></div>
           <div className="caregiver-proof">
             <div><strong>Free to join</strong><span>No fees or subscription.</span></div>
             <div><strong>One profile</strong><span>Skip repeating the same application.</span></div>
