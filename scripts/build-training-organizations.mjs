@@ -7,11 +7,11 @@ const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','
 const query="SELECT tp.id,tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.website,tp.email,tp.primary_domain,tp.program_type,src.slug AS referral_slug FROM training_programs tp LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active' WHERE tp.is_active=1 AND tp.source='maryland_mbon_natp' ORDER BY tp.program_name,tp.city,tp.zip;";
 const rows=((run(query)[0]||{}).results)||[];
 const existing=((run("SELECT organization_key,slug FROM training_organizations;")[0]||{}).results)||[];
-const existingByKey=new Map(existing.map(r=>[clean(r.organization_key),clean(r.slug)]));
-const existingSlugKey=new Map(existing.map(r=>[clean(r.slug),clean(r.organization_key)]));
 
 const free=new Set(['gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com','comcast.net','verizon.net','msn.com','live.com']);
 const clean=v=>String(v||'').trim();
+const existingByKey=new Map(existing.map(r=>[clean(r.organization_key),clean(r.slug)]));
+const existingSlugKey=new Map(existing.map(r=>[clean(r.slug),clean(r.organization_key)]));
 const norm=v=>clean(v).toLowerCase().replace(/[^a-z0-9]+/g,'');
 const slugify=v=>clean(v).toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/&/g,' and ').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,78)||'training-program';
 const emailDomain=e=>{const s=clean(e).toLowerCase();const i=s.lastIndexOf('@');return i>0?s.slice(i+1):''};
