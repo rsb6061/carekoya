@@ -1181,7 +1181,7 @@ export default {
       if(event.cron==="*/5 * * * *"){
         await normalizeExistingJobsBatch(env,100);
         await recoverRejectedJobsBatch(env,120);
-        await discoverAgencyJobsBatch(env,18);
+        await discoverAgencyJobsBatch(env,24);
         return;
       }
       if(event.cron==="17 * * * *"){
