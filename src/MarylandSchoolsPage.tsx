@@ -65,7 +65,7 @@ export function MarylandSchoolsPage(){
   },[organizations,query,provider]);
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/caregiver-recruiting/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver training programs</div>
