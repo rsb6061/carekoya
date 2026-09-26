@@ -69,7 +69,7 @@ export function MarylandSchoolsPage(){
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver training programs</div>
-        <h1><span className="hero-title-line">CNA/GNA training.</span><span className="hero-title-line">Free graduate placement.</span></h1>
+        <h1><span className="hero-title-line">Maryland CNA/GNA caregiver training programs.</span><span className="hero-title-line">Free graduate placement.</span></h1>
         <p>CareJoys connects graduates from Maryland caregiver training programs with local care employers and tracks outcomes from profile creation through employer interest, interview, and hire.</p>
         <div className="source-strip school-directory-source">
           <div className="source-strip-title">Approved training, organized by provider</div>
