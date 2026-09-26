@@ -511,11 +511,32 @@ async function handleCaregiver(request: Request, env: Env) {
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
-  const id=crypto.randomUUID();
+  const zip=clean(data!.zip,20);
+  const state=/^2(?:0[6-9]|1\d)/.test(zip)?"MD":"";
+  const first=clean(data!.firstName,120);
+  const last=clean(data!.lastName,120);
   const smsConsent=data!.smsConsent===true?1:0;
-  await env.DB.prepare("INSERT INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)")
-    .bind(id,clean(data!.firstName,120),clean(data!.lastName,120),`${clean(data!.firstName,120)} ${clean(data!.lastName,120)}`.trim(),email,clean(data!.phone,40),clean(data!.zip,20),clean(data!.role,80),clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsConsent?new Date().toISOString():null).run();
-  await env.DB.prepare("UPDATE caregivers SET state='MD',updated_at=CURRENT_TIMESTAMP WHERE id=? AND CAST(substr(zip,1,3) AS INTEGER) BETWEEN 206 AND 219").bind(id).run();
+  const smsAt=smsConsent?new Date().toISOString():null;
+  const existing=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(email)=? ORDER BY updated_at DESC LIMIT 1").bind(email).first<{id:string}>();
+  const id=existing?.id||crypto.randomUUID();
+
+  if(existing){
+    await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=CASE WHEN ?!='' THEN ? ELSE state END,
+      role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
+      sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
+      sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
+      is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,state,clean(data!.role,80),
+        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),
+        smsConsent,smsConsent,smsAt,id).run();
+  }else{
+    await env.DB.prepare(`INSERT INTO caregivers
+      (id,first_name,last_name,display_name,email,phone,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)`)
+      .bind(id,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,clean(data!.role,80),
+        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsAt).run();
+  }
+
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
     let referral=await env.DB.prepare(`SELECT src.id AS referral_id,src.training_program_id,NULL AS cohort_id
@@ -535,9 +556,34 @@ async function handleCaregiver(request: Request, env: Env) {
         .bind(referral.training_program_id,referral.cohort_id||null,referralSlug,id).run();
     }
   }
-  await scoreCaregiverAgainstAgencies(env,id);
-  return json({ok:true,id},{status:201});
+
+  const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
+  const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
+  let openingMatches=0;
+  if(caregiver){
+    const openings=await env.DB.prepare("SELECT * FROM openings WHERE status='open' ORDER BY updated_at DESC LIMIT 500").all<Record<string,unknown>>();
+    for(const opening of openings.results||[]){
+      const scored=scoreCandidate(opening,caregiver);
+      if(scored.score<=0)continue;
+      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
+        VALUES (?,?,?,'matched',?,?,'caregiver_signup')
+        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
+          match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP`)
+        .bind(crypto.randomUUID(),opening.id,id,JSON.stringify(scored.reasons),scored.score).run();
+      openingMatches++;
+    }
+  }
+  const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
+    .bind(id).first<{count:number}>();
+  return json({
+    ok:true,id,
+    matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),
+    matchedOpenings:openingMatches,
+    marylandMatching:state==="MD",
+    existing:!!existing
+  },{status:existing?200:201});
 }
+
 async function handleCaregiverResume(request:Request,env:Env){
   if(!env.DB)return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
