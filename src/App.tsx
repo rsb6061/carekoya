@@ -163,7 +163,7 @@ export function App() {
           <a className="hide-sm" href="/about">How it works</a>
           <a className="hide-sm" href="#caregivers">For caregivers</a>
           <a className="hide-sm" href="#schools">For training programs</a>
-          <a href="/hire-caregivers/maryland">For employers</a><a href="/app">Employer workspace</a>
+          <a href="/hire-caregivers/maryland">For employers</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>
       </div>
