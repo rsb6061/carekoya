@@ -2,13 +2,14 @@ import './styles.css';
 
 export function EmployerRecruitingPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
         <h1>Hire caregivers in Maryland.</h1>
         <p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p>
         <div className="hero-actions"><a className="btn" href="/?hire=1">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
+        <div className="employer-signin-note">Already use CareJoys? <a className="text-link" href="/app">Sign in</a></div>
       </div></section>
 
       <section className="section"><div className="wrap">
