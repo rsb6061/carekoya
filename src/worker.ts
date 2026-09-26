@@ -54,6 +54,7 @@ async function careJoysSitemap(env:Env){
     {url:SEO_ORIGIN+"/about"},
     {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
     {url:SEO_ORIGIN+"/caregiver-jobs/maryland"},
+    {url:SEO_ORIGIN+"/caregiver-resume"},
     {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
     {url:SEO_ORIGIN+"/training-programs/maryland"}
   ];
@@ -128,6 +129,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - About CareJoys: https://carejoys.com/about
 - Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
 - Maryland caregiver network: https://carejoys.com/caregiver-jobs/maryland
+- Caregiver resume builder and job matching: https://carejoys.com/caregiver-resume
 - How to become a caregiver in Maryland: https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
@@ -205,8 +207,20 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
       description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers by role, location, shifts and availability.",
       canonical:"/caregiver-jobs/maryland",
-      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.</p><h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>',
+      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.</p><p><a href="/caregiver-resume">Upload your caregiver resume and get matched</a></p><h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+    });
+  }
+  if(url.pathname==="/caregiver-resume"){
+    return seoAsset(request,env,{
+      title:"Caregiver Resume: Builder, Example & Job Matching | CareJoys",
+      description:"Build or upload a caregiver resume, review your CNA/HHA/PCA skills and certifications, create one CareJoys profile, and get matched with relevant care employers.",
+      canonical:"/caregiver-resume",
+      snapshot:'<main><h1>Build a caregiver resume. Get matched to jobs.</h1><p>Upload a PDF, DOCX or TXT resume or start from scratch. CareJoys turns your reviewed information into a caregiver profile and uses it to match relevant care employers.</p><h2>Caregiver resume example</h2><p><strong>Professional summary:</strong> Compassionate caregiver with experience supporting older adults with activities of daily living, mobility, meal preparation and companionship. Reliable, patient and comfortable working in private homes.</p><h2>Caregiver resume skills</h2><p>Include skills only when they are true for you: ADLs, dementia care, bathing and dressing, transfers, Hoyer lift, gait belt, vital signs, hospice, companionship, meal preparation, medication reminders, housekeeping, transportation, CPR, BLS and First Aid.</p><h2>Caregiver resume with no experience</h2><p>Do not invent paid experience. Relevant family caregiving, volunteer work, training, certifications, dependable transportation and transferable responsibilities can be included when described accurately.</p><p><a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a> · <a href="/training-programs/maryland">Find caregiver training programs</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"WebPage","url":SEO_ORIGIN+"/caregiver-resume","name":"Caregiver Resume Builder, Example and Job Matching","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@type":"Thing","name":"Caregiver resume"}},
+        {"@type":"WebApplication","name":"CareJoys Caregiver Resume Builder","url":SEO_ORIGIN+"/caregiver-resume","applicationCategory":"BusinessApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+      ]}
     });
   }
   if(url.pathname==="/resources/how-to-become-a-caregiver-in-maryland"){
