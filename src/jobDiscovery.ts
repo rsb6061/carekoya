@@ -732,6 +732,58 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   const status=published>0?'published':unique.size>0?'candidates_rejected':jobLinksSeen>0?'job_links_no_relevant_roles':'no_job_board_found';
   return {seen:unique.size,published,rejected,jobLinksSeen,provider,status};
 }
+function mentionsOtherStates(text:string){
+  return /\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(text);
+}
+function exactToken(text:string,value:string){
+  if(!value)return false;
+  return new RegExp('\\b'+escapeRegex(value)+'\\b','i').test(text);
+}
+export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
+  if(!env.DB)return {reviewed:0,recovered:0};
+  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,ao.id AS org_id,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=88 AND (j.publication_reason IS NULL OR j.publication_reason='missing_maryland_evidence') AND upper(COALESCE(ao.state,''))='MD' ORDER BY j.updated_at DESC LIMIT ?";
+  const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
+  let recovered=0;
+  for(const row of rows.results||[]){
+    const title=normalizeTitle(row.title);
+    const description=decodeHtml(clean(row.description_text,8000));
+    const cls=roleClassification(title,description);
+    if(!cls||!TARGET_ROLES.has(cls.role))continue;
+    const validThrough=clean(row.valid_through,80);
+    if(validThrough&&Number.isFinite(Date.parse(validThrough))&&Date.parse(validThrough)<Date.now()-86400000)continue;
+    const currentState=normalizeState(row.state);
+    const currentZip=clean(row.zip,20).match(/\b\d{5}\b/)?.[0]||'';
+    const currentCity=normalizeCity(row.city);
+    const orgCity=normalizeCity(row.org_city);
+    const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
+    const evidence=[title,description,clean(row.source_url,1000),clean(row.source_listing_url,1000)].join(' ');
+    let reason='';
+    let state=currentState;
+    let city=currentCity;
+    let zip=currentZip;
+    if(currentState==='MD'||mdZip(currentZip)){
+      reason='recovered_existing_maryland_location';
+      state='MD';
+    }else if(orgZip&&exactToken(evidence,orgZip)){
+      reason='recovered_exact_agency_zip';
+      state='MD';zip=zip||orgZip;city=city||orgCity;
+    }else if(orgCity&&exactToken(evidence,orgCity)){
+      reason='recovered_exact_agency_city';
+      state='MD';city=city||orgCity;zip=zip||orgZip;
+    }else{
+      const explicitMaryland=/\bMaryland\b|\bMD\b/i.test(evidence);
+      if(explicitMaryland&&!mentionsOtherStates(evidence)){
+        reason='recovered_explicit_maryland_text';
+        state='MD';
+      }
+    }
+    if(!reason)continue;
+    const update="UPDATE caregiver_jobs SET state=?,city=?,zip=?,role=?,roles_json=?,is_published=1,publication_reason=?,location_source=CASE WHEN location_source IS NULL OR location_source='' THEN ? ELSE location_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?";
+    await env.DB.prepare(update).bind(state,city,zip,cls.role,JSON.stringify(cls.roles||[cls.role]),reason,reason,row.id).run();
+    recovered++;
+  }
+  return {reviewed:(rows.results||[]).length,recovered};
+}
 export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
   if(!env.DB)return {processed:0};
   const rows=await env.DB.prepare('SELECT id,agency_organization_id,title,role,roles_json,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text FROM caregiver_jobs WHERE (normalized_title IS NULL OR roles_json IS NULL) AND status IN ("current","duplicate") ORDER BY updated_at DESC LIMIT ?').bind(limit).all<Row>();
