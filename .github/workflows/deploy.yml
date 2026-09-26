@@ -85,6 +85,14 @@ jobs:
           echo "$CAREGIVER_JOBS_HTML" | grep -q 'Current caregiver jobs in Maryland'
           HEALTH_JOBS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health)
           echo "$HEALTH_JOBS" | jq -e '.counts.publishedCaregiverJobs >= 0 and .counts.scannedJobSources >= 0' >/dev/null
+          echo "Caregiver internal job pages:"
+          FIRST_JOB_ID=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 'https://carejoys.com/api/public/caregiver-jobs?limit=1' | jq -r '.jobs[0].id // empty')
+          if [ -n "$FIRST_JOB_ID" ]; then
+            JOB_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 "https://carejoys.com/jobs/$FIRST_JOB_ID")
+            echo "$JOB_HTML" | grep -q "<link rel=\"canonical\" href=\"https://carejoys.com/jobs/$FIRST_JOB_ID\""
+            echo "$JOB_HTML" | grep -q '>Apply<'
+            echo "$SITEMAP" >/dev/null 2>&1 || true
+          fi
           echo "SEO discovery routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<urlset'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
@@ -113,7 +121,7 @@ jobs:
           echo "$RESUME_HTML" | grep -q '<title>Caregiver Resume: Builder, Example &amp; Job Matching | CareJoys</title>'
           echo "$RESUME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-resume"'
           echo "$RESUME_HTML" | grep -q '<h1>Add your resume, get matched to the best caregiver jobs near you.</h1>'
-          echo "$RESUME_HTML" | grep -q 'Upload your resume or start from scratch below. CareJoys matches you with the best caregiver employers and agencies.'
+          echo "$RESUME_HTML" | grep -q 'Upload your resume once. CareJoys builds your caregiver profile, asks only for anything missing, and matches you with caregiver employers and agencies.'
           echo "$RESUME_HTML" | grep -q '"@type":"WebApplication"'
           RESOURCE_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland)
           echo "$RESOURCE_HTML" | grep -q '<title>How to Become a Caregiver in Maryland | CareJoys</title>'
@@ -140,7 +148,9 @@ jobs:
           PROGRAMS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/training-programs)
           test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
           echo "Public config:"
-          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config
+          CONFIG=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config)
+          echo "$CONFIG" | jq -e 'has("auth0Domain") and has("auth0ClientId")' >/dev/null
+          echo "$CONFIG"
           echo
           echo "Agency demand summary:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/agency-demand-summary
