@@ -191,3 +191,46 @@ a{color:inherit;text-decoration:none}
   .caregiver-public-job-list .job{display:block}
   .public-job-actions{margin-top:18px;justify-content:space-between}
 }
+
+.caregiver-onboarding{width:100%}
+.caregiver-onboarding .resume-upload-card{box-shadow:none;background:transparent;border:0;padding:0}
+.onboarding-upload-card{text-align:center}
+.onboarding-file-note{font-size:12px;color:var(--muted);margin-top:10px}
+.onboarding-auth{text-align:center}
+.onboarding-auth h2,.caregiver-onboarding h2{font-family:var(--display);font-size:30px;font-weight:400;letter-spacing:-.03em;margin:6px 0 12px}
+.onboarding-auth p,.onboarding-success>p{color:var(--muted);font-size:14px;line-height:1.55;margin:0 auto 16px;max-width:520px}
+.auth-choice{display:grid;gap:10px;margin:18px 0 6px}
+.auth-google{background:#fff;color:var(--ink);border-color:var(--lavender);box-shadow:none}
+.auth-signed-in{font-size:13px;color:var(--muted);padding:10px 12px;border:1px solid var(--lavender);border-radius:14px;background:#faf8ff;margin-bottom:14px}
+.onboarding-summary{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
+.onboarding-summary-item{display:inline-flex;gap:5px;align-items:center;background:#f4f1ff;border:1px solid var(--lavender);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--muted)}
+.onboarding-summary-item strong{color:var(--ink)}
+.onboarding-match-fields{display:grid;gap:12px;padding:16px;border:1px solid var(--lavender);border-radius:18px;background:#faf8ff}
+.onboarding-match-fields>strong{font-size:14px}
+.onboarding-edit{margin:0;text-align:left}
+.onboarding-success{text-align:center}
+.onboarding-final-action{display:grid;justify-items:center;gap:8px;margin-top:18px}
+.onboarding-final-action span{font-size:12px;color:var(--muted)}
+.caregiver-onboarding.compact .resume-upload-card{padding-top:8px}
+.caregiver-onboarding.compact .profile-photo-step{margin-left:0;margin-right:0}
+
+.job-apply-primary{background:var(--blue)!important;color:#fff!important;border-color:var(--blue)!important;box-shadow:0 5px 14px rgba(66,85,255,.16)!important}
+.job-detail-shell{background:var(--cream);min-height:72vh;padding:34px 0 72px}
+.job-detail-wrap{max-width:900px}
+.job-back-link{display:inline-block;margin-bottom:18px}
+.job-detail-card{background:rgba(255,255,255,.84);border:1px solid var(--lavender);border-radius:28px;padding:32px;box-shadow:0 16px 42px rgba(41,32,89,.07)}
+.job-detail-card h1{font-family:var(--display);font-size:clamp(38px,4.4vw,54px);line-height:1;font-weight:400;letter-spacing:-.04em;margin:6px 0 12px}
+.job-detail-employer{font-size:17px;color:var(--muted);margin-bottom:14px}
+.job-detail-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:24px}
+.job-detail-source{font-size:12px;line-height:1.5;color:#8a8497;margin-top:16px}
+.job-description-section{padding:32px 0 0}
+.job-description-section p{white-space:pre-line;color:var(--muted);line-height:1.7}
+.caregiver-apply-modal{width:min(680px,calc(100vw - 32px))}
+.caregiver-public-job-list .job h3 a:hover{text-decoration:underline;text-underline-offset:3px}
+
+@media(max-width:760px){
+  .job-detail-card{padding:24px}
+  .job-detail-actions{align-items:stretch;flex-direction:column}
+  .job-detail-actions .btn{width:100%}
+  .public-job-actions .btn{width:100%}
+}
