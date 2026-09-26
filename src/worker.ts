@@ -456,6 +456,10 @@ async function handleEmployer(request: Request, env: Env) {
   const zip=clean(data!.zip,20);
   const rolesNeeded=clean(data!.rolesNeeded,500);
   const hiringNotes=clean(data!.hiringNotes,1500);
+  const shifts=clean(data!.shifts,300);
+  const payMin=Math.max(0,Number(data!.payMin||0)||0)||null;
+  const payMax=Math.max(0,Number(data!.payMax||0)||0)||null;
+  const transportationRequired=clean(data!.transportationRequired,20)==="yes"?1:0;
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   const id=existing?.id||crypto.randomUUID();
   if(existing){
@@ -474,13 +478,13 @@ async function handleEmployer(request: Request, env: Env) {
     ORDER BY created_at DESC LIMIT 1`).bind(id,primaryRole,zip).first<{id:string}>();
   const openingId=opening?.id||crypto.randomUUID();
   if(opening){
-    await env.DB.prepare("UPDATE openings SET title=?,state=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(primaryRole+" opening",inferredState,hiringNotes,openingId).run();
+    await env.DB.prepare("UPDATE openings SET title=?,state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(primaryRole+" opening",inferredState,shifts,payMin,payMax,transportationRequired,hiringNotes,openingId).run();
   }else{
     await env.DB.prepare(`INSERT INTO openings
-      (id,employer_id,title,role,state,zip,requirements,status,source)
-      VALUES (?,?,?,?,?,?,?,'open','employer_intake')`)
-      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredState,zip,hiringNotes).run();
+      (id,employer_id,title,role,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
+      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredState,zip,payMin,payMax,shifts,transportationRequired,hiringNotes).run();
   }
 
   const redirectPath="/app?opening="+encodeURIComponent(openingId)+"&match=1";
