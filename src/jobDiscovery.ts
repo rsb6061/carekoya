@@ -67,7 +67,11 @@ async function fetchJsonPost(url:string,body:unknown,ms=8000){
   }catch{return null}finally{clearTimeout(timer)}
 }
 function decodeHtml(value:string){
-  return value.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ');
+  return value
+    .replace(/&#x([0-9a-f]+);/gi,(_,hex)=>String.fromCodePoint(parseInt(hex,16)))
+    .replace(/&#(\d+);/g,(_,num)=>String.fromCodePoint(parseInt(num,10)))
+    .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'")
+    .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ');
 }
 function stripHtml(value:unknown,max=8000){
   return decodeHtml(clean(value,max*2))
@@ -412,4 +416,21 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
     employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,sourceUrl:r.source_url,
     datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
   }))});
+}
+
+
+export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const row=await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,
+      description_text,source_url,source_listing_url,date_posted,first_seen_at,last_seen_at,last_checked_at
+    FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1`)
+    .bind(id).first<Row>();
+  if(!row)return json({ok:false,error:'Job not found'},{status:404});
+  return json({ok:true,job:{
+    id:row.id,title:decodeHtml(clean(row.title,220)),role:row.role,employerName:row.employer_name,
+    city:row.city,state:row.state,zip:row.zip,employmentType:row.employment_type,
+    payMin:row.pay_min,payMax:row.pay_max,description:decodeHtml(clean(row.description_text,8000)),
+    sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
+    firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at
+  }});
 }
