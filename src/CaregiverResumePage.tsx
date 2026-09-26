@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ChangeEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { parseResumeFile, type ParsedResume } from './resumeParser';
+import { ProfilePhotoStep } from './ProfilePhotoStep';
 import './styles.css';
 
 type ResumeForm={
@@ -8,7 +9,7 @@ type ResumeForm={
   shifts:string;desiredWage:string;transportation:string;travelMiles:string;certifications:string;
   specialties:string;languages:string;yearsExperience:string;
 };
-type MatchResult={ok?:boolean;id?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;error?:string};
+type MatchResult={ok?:boolean;id?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null;error?:string};
 
 const empty:ResumeForm={
   firstName:'',lastName:'',email:'',phone:'',zip:'',state:'',role:'Caregiver',shifts:'',
@@ -85,7 +86,8 @@ export function CaregiverResumePage(){
         <div className="modal-kicker">Your CareJoys profile is live</div>
         <h1>{result.marylandMatching?'You’re matched into the Maryland care network.':'Your caregiver profile is ready.'}</h1>
         {result.marylandMatching?<p>CareJoys found <strong>{result.matchedOrganizations||0} relevant care organizations</strong>{typeof result.matchedOpenings==='number'?<> and <strong>{result.matchedOpenings} current opening{result.matchedOpenings===1?'':'s'}</strong></>:null} based on your profile. We’ll use your current availability and preferences when employers are looking.</p>:<p>Your resume has been turned into a structured caregiver profile. Maryland employer matching is live today; CareJoys can use this profile as the network expands.</p>}
-        <div className="hero-actions"><a className="btn" href="/caregiver-jobs/maryland">See caregiver jobs</a><a className="btn secondary" href="/">Done</a></div>
+        {result.id&&result.profilePhotoToken&&<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
+        <div className="hero-actions"><a className="btn" href="/caregiver-jobs/maryland">Find jobs</a><a className="btn secondary" href="/">Done</a></div>
       </div></main>
     </div>;
   }
