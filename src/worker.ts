@@ -1020,7 +1020,7 @@ export default {
   async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     ctx.waitUntil((async()=>{
       if(event.cron==="*/5 * * * *"){
-        await discoverAgencyJobsBatch(env,6);
+        await discoverAgencyJobsBatch(env,12);
         return;
       }
       if(event.cron==="17 * * * *"){
