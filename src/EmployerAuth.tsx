@@ -3,7 +3,7 @@ import './activation.css';
 
 async function post(path:string,data:Record<string,unknown>){
   const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
-  const body=await res.json() as {ok?:boolean;error?:string};
+  const body=await res.json() as {ok?:boolean;error?:string;redirect?:string};
   if(!res.ok)throw new Error(body.error||'Request failed');
   return body;
 }
@@ -15,9 +15,9 @@ export function EmployerAuth(){
 
   useEffect(()=>{
     if(!token){setStatus('error');setMessage('This sign-in link is missing.');return;}
-    post('/api/auth/verify',{token}).then(()=>{
+    post('/api/auth/verify',{token}).then((body)=>{
       setStatus('success');
-      window.setTimeout(()=>window.location.replace('/app'),450);
+      window.setTimeout(()=>window.location.replace(body.redirect||'/app'),450);
     }).catch(err=>{
       setMessage(err instanceof Error?err.message:'This sign-in link is invalid.');
       setStatus('error');
