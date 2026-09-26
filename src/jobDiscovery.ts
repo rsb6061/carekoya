@@ -51,6 +51,21 @@ async function fetchJson(url:string,ms=7000){
     return await res.json() as unknown;
   }catch{return null}finally{clearTimeout(timer)}
 }
+async function fetchJsonPost(url:string,body:unknown,ms=8000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{
+    const res=await fetch(url,{
+      method:'POST',
+      redirect:'follow',
+      headers:{'user-agent':'CareJoysBot/1.0 (+https://carejoys.com)','accept':'application/json','content-type':'application/json'},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+    if(!res.ok)return null;
+    return await res.json() as unknown;
+  }catch{return null}finally{clearTimeout(timer)}
+}
 function decodeHtml(value:string){
   return value.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ');
 }
@@ -217,6 +232,40 @@ async function ashbyJobs(account:string,listingUrl:string){
       classifierReason:cls.reason,confidence:cls.confidence,datePosted:clean(job.publishedAt,80),validThrough:''} as DiscoveredJob;
   }).filter(Boolean) as DiscoveredJob[];
 }
+function workdayEndpoint(listingUrl:string){
+  try{
+    const u=new URL(listingUrl);
+    const host=u.hostname;
+    const first=u.pathname.split('/').filter(Boolean)[0]||'';
+    const tenant=host.split('.')[0].replace(/\.wd\d*$/i,'');
+    if(!first||!tenant)return null;
+    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(first)+'/jobs',host};
+  }catch{return null}
+}
+async function workdayJobs(listingUrl:string){
+  const endpoint=workdayEndpoint(listingUrl);
+  if(!endpoint)return [] as DiscoveredJob[];
+  const data=await fetchJsonPost(endpoint.url,{appliedFacets:{},limit:100,offset:0,searchText:''},9000) as any;
+  if(!Array.isArray(data?.jobPostings))return [] as DiscoveredJob[];
+  return data.jobPostings.map((job:any)=>{
+    const title=clean(job.title,220);
+    const description=stripHtml(Array.isArray(job.bulletFields)?job.bulletFields.join(' '):'',4000);
+    const cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationStringParts(clean(job.locationsText,300));
+    const externalPath=clean(job.externalPath,1000);
+    const sourceUrl=externalPath?new URL(externalPath,'https://'+endpoint.host).toString():listingUrl;
+    return {
+      sourceProvider:'workday',
+      sourceJobId:clean(job.jobReqId||job.id||externalPath,160),
+      sourceUrl,sourceListingUrl:listingUrl,title,role:cls.role,
+      city:loc.city,state:loc.state,zip:loc.zip,employmentType:'',
+      payMin:null,payMax:null,descriptionText:description,classifierReason:cls.reason,
+      confidence:cls.confidence,datePosted:clean(job.postedOn,80),validThrough:''
+    } as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+
 function jobLinks(base:string,html:string){
   const out:{url:string;title:string}[]=[];
   const seen=new Set<string>();
@@ -288,9 +337,8 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   if(ats?.provider==='greenhouse'&&ats.account)jobs=await greenhouseJobs(ats.account,listing);
   else if(ats?.provider==='lever'&&ats.account)jobs=await leverJobs(ats.account,listing);
   else if(ats?.provider==='ashby'&&ats.account)jobs=await ashbyJobs(ats.account,listing);
-  else if(['workday','icims','paylocity'].includes(ats?.provider||'')){
-    return {seen:0,published:0,provider,status:'adapter_pending'};
-  }else{
+  else if(ats?.provider==='workday')jobs=await workdayJobs(listing);
+  else{
     const page=await fetchText(listing,8000);
     if(!page)return {seen:0,published:0,provider,status:'fetch_failed'};
     jobs.push(...parseJsonLdJobs(page.text,page.url));
@@ -324,7 +372,7 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
     FROM agency_organizations ao
     LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
     WHERE ao.is_active=1
-      AND ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!=''
+      AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!='') OR ao.current_hiring_signal='hiring_detected')
       AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime('now','-24 hours'))
     ORDER BY CASE WHEN ao.current_hiring_signal='hiring_detected' THEN 0 ELSE 1 END,
       CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,'') ASC,ao.caregiver_relevance_score DESC
