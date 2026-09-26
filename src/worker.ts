@@ -505,6 +505,61 @@ async function getPublicTrainingProgram(slug:string,env:Env){
   }});
 }
 
+async function issueCaregiverProfilePhotoToken(env:Env,caregiverId:string){
+  if(!env.DB)return null;
+  const token=crypto.randomUUID()+"-"+crypto.randomUUID();
+  const tokenHash=await sha256Hex(token);
+  const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
+  await env.DB.prepare("DELETE FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose='photo_upload' AND used_at IS NULL").bind(caregiverId).run();
+  await env.DB.prepare("INSERT INTO caregiver_profile_edit_tokens(id,caregiver_id,token_hash,purpose,expires_at) VALUES (?,?,?,'photo_upload',?)")
+    .bind(crypto.randomUUID(),caregiverId,tokenHash,expiresAt).run();
+  return token;
+}
+
+function validProfileImage(type:string,bytes:Uint8Array){
+  if(type==="image/jpeg")return bytes.length>=3&&bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff;
+  if(type==="image/png")return bytes.length>=8&&bytes[0]===0x89&&bytes[1]===0x50&&bytes[2]===0x4e&&bytes[3]===0x47;
+  if(type==="image/webp")return bytes.length>=12&&String.fromCharCode(...bytes.slice(0,4))==="RIFF"&&String.fromCharCode(...bytes.slice(8,12))==="WEBP";
+  return false;
+}
+
+async function handleCaregiverProfilePhoto(request:Request,env:Env,caregiverId:string){
+  if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+  if(request.method==="GET"){
+    const employer=await employerSession(request,env);
+    if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+    const row=await env.DB.prepare("SELECT image_blob,content_type FROM caregiver_profile_photos WHERE caregiver_id=? LIMIT 1")
+      .bind(caregiverId).first<{image_blob:ArrayBuffer;content_type:string}>();
+    if(!row)return json({ok:false,error:"Profile photo not found"},{status:404});
+    return new Response(row.image_blob,{headers:{
+      "content-type":row.content_type||"image/webp",
+      "cache-control":"private,max-age=300",
+      "x-content-type-options":"nosniff"
+    }});
+  }
+  if(request.method!=="POST")return json({ok:false,error:"Method not allowed"},{status:405});
+  const token=clean(request.headers.get("x-carejoys-profile-token"),300);
+  if(!token)return json({ok:false,error:"Profile upload session expired"},{status:401});
+  const tokenHash=await sha256Hex(token);
+  const grant=await env.DB.prepare("SELECT id FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose='photo_upload' AND token_hash=? AND used_at IS NULL AND datetime(expires_at)>datetime('now') LIMIT 1")
+    .bind(caregiverId,tokenHash).first<{id:string}>();
+  if(!grant)return json({ok:false,error:"Profile upload session expired. Submit your profile again to get a new upload session."},{status:401});
+  const type=(request.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+  if(!["image/jpeg","image/png","image/webp"].includes(type))return json({ok:false,error:"Use a JPG, PNG, or WebP photo."},{status:400});
+  const body=await request.arrayBuffer();
+  if(body.byteLength<100||body.byteLength>180000)return json({ok:false,error:"Profile photo must be under 180 KB after resizing."},{status:400});
+  const bytes=new Uint8Array(body);
+  if(!validProfileImage(type,bytes))return json({ok:false,error:"That file does not look like a valid image."},{status:400});
+  await env.DB.prepare(`INSERT INTO caregiver_profile_photos(caregiver_id,image_blob,content_type,byte_size)
+    VALUES (?,?,?,?)
+    ON CONFLICT(caregiver_id) DO UPDATE SET image_blob=excluded.image_blob,content_type=excluded.content_type,byte_size=excluded.byte_size,updated_at=CURRENT_TIMESTAMP`)
+    .bind(caregiverId,body,type,body.byteLength).run();
+  const photoUrl="/api/caregivers/"+encodeURIComponent(caregiverId)+"/photo";
+  await env.DB.prepare("UPDATE caregivers SET profile_photo_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(photoUrl,caregiverId).run();
+  await env.DB.prepare("UPDATE caregiver_profile_edit_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(grant.id).run();
+  return json({ok:true,photoUrl});
+}
+
 async function handleCaregiver(request: Request, env: Env) {
   if (!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
@@ -521,25 +576,27 @@ async function handleCaregiver(request: Request, env: Env) {
   const last=clean(data!.lastName,120);
   const smsConsent=data!.smsConsent===true?1:0;
   const smsAt=smsConsent?new Date().toISOString():null;
-  const existing=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(email)=? ORDER BY updated_at DESC LIMIT 1").bind(email).first<{id:string}>();
-  const id=existing?.id||crypto.randomUUID();
+  const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const proposedId=initiallyExisting?.id||crypto.randomUUID();
 
-  if(existing){
-    await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=CASE WHEN ?!='' THEN ? ELSE state END,
-      role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
-      sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
-      sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
-      is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-      .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,state,clean(data!.role,80),
-        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),
-        smsConsent,smsConsent,smsAt,id).run();
-  }else{
-    await env.DB.prepare(`INSERT INTO caregivers
+  if(!initiallyExisting){
+    await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
       (id,first_name,last_name,display_name,email,phone,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)`)
-      .bind(id,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,clean(data!.role,80),
+      .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,clean(data!.role,80),
         clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsAt).run();
   }
+  const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const id=canonical?.id||proposedId;
+  const existedBefore=!!initiallyExisting||id!==proposedId;
+  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=CASE WHEN ?!='' THEN ? ELSE state END,
+    role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
+    sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
+    sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
+    is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,state,clean(data!.role,80),
+      clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),
+      smsConsent,smsConsent,smsAt,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -579,13 +636,16 @@ async function handleCaregiver(request: Request, env: Env) {
   }
   const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
     .bind(id).first<{count:number}>();
+  const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
   return json({
     ok:true,id,
     matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),
     matchedOpenings:openingMatches,
     marylandMatching:state==="MD",
-    existing:!!existing
-  },{status:existing?200:201});
+    existing:existedBefore,
+    profilePhotoToken,
+    profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null
+  },{status:existedBefore?200:201});
 }
 
 async function handleCaregiverResume(request:Request,env:Env){
@@ -603,8 +663,8 @@ async function handleCaregiverResume(request:Request,env:Env){
   const zip=clean(data!.zip,10);
   if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a valid 5-digit ZIP code"},{status:400});
 
-  let existing=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(email)=? ORDER BY updated_at DESC LIMIT 1").bind(email).first<{id:string}>();
-  const id=existing?.id||crypto.randomUUID();
+  const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const proposedId=initiallyExisting?.id||crypto.randomUUID();
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
   const role=clean(data!.role,80)||"Caregiver";
@@ -619,21 +679,24 @@ async function handleCaregiverResume(request:Request,env:Env){
   const smsConsent=data!.smsConsent===true?1:0;
   const smsAt=smsConsent?new Date().toISOString():null;
 
-  if(existing){
-    await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,
-      years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',
-      last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=?,sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
-      source_detail='caregiver_resume',is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-      .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,id).run();
-  }else{
-    await env.DB.prepare(`INSERT INTO caregivers
+  if(!initiallyExisting){
+    await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
       (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,
        shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)`)
-      .bind(id,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
+      .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
         shifts,desiredWage,transportation,travel||null,smsConsent,smsAt).run();
   }
+  const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const id=canonical?.id||proposedId;
+  const existedBefore=!!initiallyExisting||id!==proposedId;
+  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,
+    years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',
+    last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
+    sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
+    source_detail='caregiver_resume',is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
+      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,id).run();
 
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
 
@@ -662,7 +725,8 @@ async function handleCaregiverResume(request:Request,env:Env){
   const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
     .bind(id).first<{count:number}>();
   const marylandMatching=state==="MD"||(Number(zip.slice(0,3))>=206&&Number(zip.slice(0,3))<=219);
-  return json({ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,marylandMatching},{status:existing?200:201});
+  const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
+  return json({ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,marylandMatching,existing:existedBefore,profilePhotoToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null},{status:existedBefore?200:201});
 }
 
 async function handleSchool(request: Request, env: Env) {
@@ -687,7 +751,7 @@ async function searchCandidates(url: URL, env: Env) {
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
-  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown')) ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
+  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source,profile_photo_url FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown')) ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
   let rows=result.results||[];
   if(role) rows=rows.filter(c=>[clean(c.role),clean(c.certifications),clean(c.specialties)].join(" ").toLowerCase().includes(role));
   if(zip) rows=rows.filter(c=>clean(c.zip)===zip);
@@ -741,7 +805,7 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const openingId=clean(url.searchParams.get("openingId"),80);
-  let sql="SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?";
+  let sql="SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at,c.profile_photo_url FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?";
   const args:unknown[]=[workspaceId];
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
@@ -845,6 +909,11 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env);
+    let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
+    if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      return handleCaregiverProfilePhoto(request,env,decodeURIComponent(caregiverPhoto[1]));
+    }
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
     let trainingOrg=url.pathname.match(/^\/api\/public\/training-organization\/([^/]+)$/);
