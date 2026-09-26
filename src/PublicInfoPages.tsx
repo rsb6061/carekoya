@@ -2,7 +2,7 @@ import './styles.css';
 
 export function EmployerRecruitingPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a><a href="/app">Employer workspace</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
