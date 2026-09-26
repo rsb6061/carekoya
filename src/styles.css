@@ -180,3 +180,14 @@ a{color:inherit;text-decoration:none}
 .caregiver-next-steps{margin-top:18px;padding-top:16px;border-top:1px solid var(--lavender);text-align:left}
 .caregiver-next-steps p{margin:5px 0 12px;color:var(--muted);font-size:13px;line-height:1.5}
 .employer-signin-note{margin-top:12px;font-size:13px;color:var(--muted)}
+
+.caregiver-jobs-section .section-heading{align-items:flex-start}
+.caregiver-jobs-section .section-heading p{margin:8px 0 0;max-width:760px;color:var(--muted);line-height:1.55}
+.public-job-actions{display:flex;align-items:center;gap:14px;flex:0 0 auto}
+.public-job-actions .btn{white-space:nowrap}
+@media(max-width:760px){
+  .caregiver-jobs-section .section-heading{display:block}
+  .caregiver-jobs-section .section-heading>.btn{margin-top:14px}
+  .caregiver-public-job-list .job{display:block}
+  .public-job-actions{margin-top:18px;justify-content:space-between}
+}
