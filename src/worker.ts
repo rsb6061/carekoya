@@ -286,14 +286,15 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   const publicJobMatch=url.pathname.match(/^\/jobs\/([^/]+)$/);
   if(publicJobMatch&&env.DB){
     const id=decodeURIComponent(publicJobMatch[1]);
-    const job=await env.DB.prepare("SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,description_text,source_url,date_posted,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
+    const job=await env.DB.prepare("SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text,source_url,date_posted,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
     if(job){
       const title=htmlEntityDecode(job.title||"Caregiver job");
       const employer=String(job.employer_name||"Maryland care employer");
       const location=[job.city,job.state,job.zip].filter(Boolean).join(", ");
       const description=String(job.description_text||"").replace(/\s+/g," ").trim().slice(0,1200);
       const metaDescription=(title+" at "+employer+(location?" in "+location:"")+". Apply through CareJoys and reuse one caregiver profile for relevant jobs.").slice(0,165);
-      const pay=(job.pay_min||job.pay_max)?("$"+String(job.pay_min||"—")+"–$"+String(job.pay_max||"—")+"/hr"):"";
+      const payUnit=job.pay_period==="year"?"/yr":job.pay_period==="week"?"/wk":job.pay_period==="day"?"/day":job.pay_period==="month"?"/mo":job.pay_period==="hour"?"/hr":"";
+      const pay=(job.pay_min||job.pay_max)?("$"+String(job.pay_min||"—")+"–$"+String(job.pay_max||"—")+payUnit):"";
       return seoAsset(request,env,{
         title:(title+" | "+employer+" | CareJoys").slice(0,70),
         description:metaDescription,
