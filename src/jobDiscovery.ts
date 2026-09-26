@@ -25,6 +25,9 @@ type DiscoveredJob={
   confidence:number;
   datePosted:string;
   validThrough:string;
+  payPeriod?:string;
+  roles?:string[];
+  normalizedTitle?:string;
 };
 
 async function sha256Hex(value:string){
@@ -95,25 +98,7 @@ function mdZip(zip:string){
   return /^\d{5}/.test(zip)&&n>=206&&n<=219;
 }
 function escapeRegex(value:string){
-  return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\function escapeRegex(value:string){
   return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
-}
-function roleClassification(title:string,description=''){
-  const titleLower=title.toLowerCase();
-  const all=(title+' '+description).toLowerCase();
-  const titleRules:[string,RegExp,string][]=[
-    ['GNA',/\b(gna|geriatric nursing assistant)\b/i,'GNA title'],
-    ['CNA',/\b(cna(?:-i)?|certified nursing assistant|nursing assistant)\b/i,'CNA/nursing-assistant title'],
-    ['HHA',/\b(hha|home health aide)\b/i,'HHA title'],
-    ['PCA',/\b(pca|personal care aide|personal care assistant)\b/i,'PCA title'],
-    ['DSP',/\b(dsp|direct support professional|direct care worker)\b/i,'DSP/direct-care title'],
-    ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver)?|home care aide|homecare aide|private duty caregiver)\b/i,'caregiver/companion title']
-  ];
-  for(const [role,re,reason] of titleRules)if(re.test(titleLower))return {role,confidence:96,reason};
-  if(/\b(rn|registered nurse|lpn|licensed practical nurse|nurse practitioner|therapist|scheduler|coordinator|administrator|manager|director)\b/i.test(titleLower))return null;
-  for(const [role,re] of titleRules)if(re.test(all))return {role,confidence:72,reason:'caregiver role appears only in job description'};
-  return null;
-}');
 }
 function normalizeTitle(value:unknown){
   return decodeHtml(clean(value,320))
@@ -156,7 +141,12 @@ function roleClassification(title:string,description=''){
   if(/\b(rn|registered nurse|lpn|licensed practical nurse)\b/i.test(normalized))return null;
   const descRoles=ROLE_RULES.filter(([,re])=>re.test(description)).map(([role])=>role);
   const descTargets=Array.from(new Set(descRoles)).filter(r=>TARGET_ROLES.has(r));
-  if(descTargets.length)return {role:descTargets[0],roles:Array.from(new Set(descRoles)),confidence:72,reason:'caregiver role appears only in job description'};
+  if(descTargets.length)return {
+    role:descTargets[0],
+    roles:Array.from(new Set(descRoles)),
+    confidence:72,
+    reason:'caregiver role appears only in job description'
+  };
   return null;
 }
 function normalizeEmploymentType(raw:string,title='',description=''){
@@ -171,12 +161,21 @@ function normalizeEmploymentType(raw:string,title='',description=''){
   if(/\bseasonal\b/.test(all))add('Seasonal');
   return out.join(', ');
 }
+function payPeriod(raw:unknown){
+  const s=clean(raw,80).toLowerCase().replace(/_/g,' ');
+  if(/\b(hour|hourly|hr)\b/.test(s))return 'hour';
+  if(/\b(year|yearly|annual|yr)\b/.test(s))return 'year';
+  if(/\b(week|weekly|wk)\b/.test(s))return 'week';
+  if(/\b(day|daily)\b/.test(s))return 'day';
+  if(/\b(month|monthly)\b/.test(s))return 'month';
+  return '';
+}
 function payFromText(text:string){
   const normalized=text.replace(/,/g,' ');
   const range=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
-  if(range)return {min:Number(range[1]),max:Number(range[2]),period:/hour|hr/i.test(range[3])?'hour':/year|yr/i.test(range[3])?'year':/week|wk/i.test(range[3])?'week':range[3].toLowerCase()};
+  if(range)return {min:Number(range[1]),max:Number(range[2]),period:payPeriod(range[3])};
   const single=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
-  if(single)return {min:Number(single[1]),max:null,period:/hour|hr/i.test(single[2])?'hour':/year|yr/i.test(single[2])?'year':/week|wk/i.test(single[2])?'week':single[2].toLowerCase()};
+  if(single)return {min:Number(single[1]),max:null,period:payPeriod(single[2])};
   return {min:null,max:null,period:''};
 }
 function rootHost(value:unknown){
@@ -198,18 +197,14 @@ function badCareerUrl(url:string){
 function salaryParts(value:any){
   let min:number|null=null,max:number|null=null,period='';
   const raw=value?.value??value;
-  const unit=clean(value?.unitText??raw?.unitText??raw?.unitCode,80).toLowerCase();
+  const unit=value?.unitText??raw?.unitText??raw?.unitCode;
   if(typeof raw==='number')min=max=raw;
   else if(raw&&typeof raw==='object'){
     const a=Number(raw.minValue??raw.value??0),b=Number(raw.maxValue??raw.value??0);
     if(Number.isFinite(a)&&a>0)min=a;
     if(Number.isFinite(b)&&b>0)max=b;
   }
-  if(/hour|hourly|hr/.test(unit))period='hour';
-  else if(/year|annual|yr/.test(unit))period='year';
-  else if(/week|wk/.test(unit))period='week';
-  else if(/day/.test(unit))period='day';
-  else if(/month/.test(unit))period='month';
+  period=payPeriod(unit);
   return {min,max,period};
 }
 function locationParts(job:any){
@@ -253,12 +248,10 @@ function parseJsonLdJobs(html:string,pageUrl:string){
       sourceListingUrl:pageUrl,
       title,role:cls.role,city:loc.city,state:loc.state,zip:loc.zip,
       employmentType:Array.isArray(job.employmentType)?job.employmentType.join(', '):clean(job.employmentType,120),
-      payMin:salary.min,payMax:salary.max,descriptionText:description,classifierReason:cls.reason,
+      payMin:salary.min,payMax:salary.max,payPeriod:salary.period,descriptionText:description,classifierReason:cls.reason,
       confidence:cls.confidence,datePosted:clean(job.datePosted,80),validThrough:clean(job.validThrough,80),
-      ...(salary.period?{payPeriod:salary.period}:{}),
-      ...(cls.roles?{roles:cls.roles}:{}),
-      normalizedTitle:normalizeTitle(title).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
-    } as DiscoveredJob & {payPeriod?:string;roles?:string[];normalizedTitle?:string};
+      roles:cls.roles,normalizedTitle:normalizeTitle(title).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+    } as DiscoveredJob;
   }).filter(Boolean) as DiscoveredJob[];
 }
 function atsInfo(url:string){
@@ -281,6 +274,11 @@ function atsInfo(url:string){
     if(host.includes('myworkdayjobs.com')||host.includes('workday.com'))return {provider:'workday',account:''};
     if(host.includes('icims.com'))return {provider:'icims',account:''};
     if(host.includes('paylocity.com'))return {provider:'paylocity',account:''};
+    if(host.includes('bamboohr.com'))return {provider:'bamboohr',account:''};
+    if(host.includes('paycomonline.net'))return {provider:'paycom',account:''};
+    if(host.includes('ultipro.com')||host.includes('ukg.com'))return {provider:'ukg',account:''};
+    if(host.includes('jazz.co')||host.includes('applytojob.com'))return {provider:'jazzhr',account:''};
+    if(host.includes('workable.com'))return {provider:'workable',account:''};
   }catch{}
   return null;
 }
@@ -294,13 +292,14 @@ function locationStringParts(value:string){
 function downstreamAtsLinks(base:string,html:string){
   const out:{url:string;provider:string}[]=[];
   const seen=new Set<string>();
-  const attr=/\b(?:href|src|action)=["']([^"']+)["']/gi;
-  for(const m of html.matchAll(attr)){
+  const re=/\b(?:href|src|action)=["']([^"']+)["']/gi;
+  for(const m of html.matchAll(re)){
     try{
       const url=new URL(decodeHtml(m[1]),base).toString();
       const ats=atsInfo(url);
       if(!ats||seen.has(url))continue;
-      seen.add(url);out.push({url,provider:ats.provider});
+      seen.add(url);
+      out.push({url,provider:ats.provider});
     }catch{}
     if(out.length>=8)break;
   }
@@ -317,7 +316,8 @@ function careerPageLinks(base:string,html:string){
     try{
       const url=new URL(href,base).toString();
       if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url))continue;
-      seen.add(url);out.push(url);
+      seen.add(url);
+      out.push(url);
     }catch{}
     if(out.length>=5)break;
   }
@@ -336,7 +336,8 @@ function providerJobLinks(base:string,html:string,provider:string){
     try{
       const url=new URL(href,base).toString();
       if(!/^https?:/i.test(url)||seen.has(url)||url===base)continue;
-      seen.add(url);out.push({url,title});
+      seen.add(url);
+      out.push({url,title});
     }catch{}
     if(out.length>=18)break;
   }
@@ -356,21 +357,20 @@ async function crawlHtmlBoard(listingUrl:string,provider:string,org:Row,originUr
       jobs.push(...structured.map(j=>({...j,sourceProvider:provider==='generic'?j.sourceProvider:provider,sourceListingUrl:originUrl})));
       continue;
     }
-    const text=htmlText(detail.text).slice(0,12000);
-    const h1=stripHtml(detail.text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',260);
-    const title=h1||link.title;
-    const generic=textJobFromPage(detail.url,title,detail.text,org);
+    const generic=textJobFromPage(detail.url,link.title,detail.text,org);
     if(generic)jobs.push({...generic,sourceProvider:provider==='generic'?'generic_html':provider,sourceListingUrl:originUrl});
   }
   return {jobs,linksSeen:links.length,fetchFailed:false};
 }
 async function jobsFromAtsDestination(dest:{url:string;provider:string},org:Row,originUrl:string){
   const ats=atsInfo(dest.url);
-  if(dest.provider==='greenhouse'&&ats?.account)return {jobs:await greenhouseJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
-  if(dest.provider==='lever'&&ats?.account)return {jobs:await leverJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
-  if(dest.provider==='ashby'&&ats?.account)return {jobs:await ashbyJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
-  if(dest.provider==='workday')return {jobs:await workdayJobs(dest.url),linksSeen:0,fetchFailed:false};
-  return crawlHtmlBoard(dest.url,dest.provider,org,originUrl);
+  let jobs:DiscoveredJob[]=[];
+  if(dest.provider==='greenhouse'&&ats?.account)jobs=await greenhouseJobs(ats.account,dest.url);
+  else if(dest.provider==='lever'&&ats?.account)jobs=await leverJobs(ats.account,dest.url);
+  else if(dest.provider==='ashby'&&ats?.account)jobs=await ashbyJobs(ats.account,dest.url);
+  else if(dest.provider==='workday')jobs=await workdayJobs(dest.url);
+  else return crawlHtmlBoard(dest.url,dest.provider,org,originUrl);
+  return {jobs:jobs.map(j=>({...j,sourceListingUrl:originUrl})),linksSeen:0,fetchFailed:false};
 }
 async function greenhouseJobs(account:string,listingUrl:string){
   const data=await fetchJson('https://boards-api.greenhouse.io/v1/boards/'+encodeURIComponent(account)+'/jobs?content=true',8000) as any;
@@ -506,28 +506,26 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   }
   const employmentType=normalizeEmploymentType(input.employmentType,title,input.descriptionText);
   const textPay=payFromText(input.descriptionText);
-  const rawPeriod=clean((input as DiscoveredJob & {payPeriod?:string}).payPeriod,30);
   const payMin=input.payMin??textPay.min;
   const payMax=input.payMax??textPay.max;
-  const payPeriod=rawPeriod||textPay.period;
-  const roles=(cls as {roles?:string[]}).roles||[cls.role];
+  const payUnit=input.payPeriod||textPay.period;
+  const roles=cls.roles||[cls.role];
   const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const canonicalFingerprint=await sha256Hex([
-    clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip,employmentType.toLowerCase()
-  ].join('|'));
-  const job:DiscoveredJob={...input,title,role:cls.role,city,state,zip,employmentType,payMin,payMax,classifierReason:cls.reason};
-  const key=await dedupeKeyForJob(clean(org.id,100),job);
-  const publish=isPublishableMarylandJob(job)?1:0;
+  const fingerprint=await sha256Hex([clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip].join('|'));
+  const normalizedJob:DiscoveredJob={...input,title,role:cls.role,city,state,zip,employmentType,payMin,payMax,payPeriod:payUnit,classifierReason:cls.reason,roles,normalizedTitle};
+  const key=await dedupeKeyForJob(clean(org.id,100),normalizedJob);
+  const publish=isPublishableMarylandJob(normalizedJob)?1:0;
   const id='job_'+key.slice(0,28);
   const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=excluded.is_published,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
-  await env.DB.prepare(sql)
-    .bind(id,org.id,key,job.sourceProvider,job.sourceJobId||null,job.sourceUrl,job.sourceListingUrl,title,normalizedTitle,cls.role,JSON.stringify(roles),clean(org.canonical_name,220),
-      city,state,zip,locationSource,employmentType,payMin,payMax,payPeriod,input.descriptionText,cls.reason,input.confidence,
-      input.datePosted||null,input.validThrough||null,canonicalFingerprint,publish).run();
+  await env.DB.prepare(sql).bind(
+    id,org.id,key,normalizedJob.sourceProvider,normalizedJob.sourceJobId||null,normalizedJob.sourceUrl,normalizedJob.sourceListingUrl,
+    title,normalizedTitle,cls.role,JSON.stringify(roles),clean(org.canonical_name,220),city,state,zip,locationSource,employmentType,
+    payMin,payMax,payUnit,input.descriptionText,cls.reason,input.confidence,input.datePosted||null,input.validThrough||null,fingerprint,publish
+  ).run();
   return publish===1;
 }
-function sourceQuality(provider:unknown){
-  const p=clean(provider,50);
+function sourceQuality(value:unknown){
+  const p=clean(value,50);
   if(['workday','greenhouse','lever','ashby'].includes(p))return 5;
   if(['icims','paylocity','bamboohr','paycom','ukg','jazzhr','workable'].includes(p))return 4;
   if(p==='jsonld')return 3;
@@ -535,13 +533,14 @@ function sourceQuality(provider:unknown){
 }
 async function reconcileOrgDuplicates(env:FeatureEnv,orgId:string){
   if(!env.DB)return;
-  const rows=await env.DB.prepare('SELECT id,canonical_fingerprint,source_provider,confidence,last_seen_at FROM caregiver_jobs WHERE agency_organization_id=? AND status="current" AND canonical_fingerprint IS NOT NULL')
-    .bind(orgId).all<Row>();
+  const rows=await env.DB.prepare('SELECT id,canonical_fingerprint,source_provider,confidence,last_seen_at FROM caregiver_jobs WHERE agency_organization_id=? AND status="current" AND canonical_fingerprint IS NOT NULL').bind(orgId).all<Row>();
   const groups=new Map<string,Row[]>();
   for(const row of rows.results||[]){
     const key=clean(row.canonical_fingerprint,100);
     if(!key)continue;
-    const group=groups.get(key)||[];group.push(row);groups.set(key,group);
+    const group=groups.get(key)||[];
+    group.push(row);
+    groups.set(key,group);
   }
   for(const group of groups.values()){
     if(group.length<2)continue;
@@ -569,7 +568,8 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   else if(direct?.provider==='workday')jobs=await workdayJobs(listing);
   else if(direct){
     const crawled=await crawlHtmlBoard(listing,direct.provider,org,listing);
-    jobs.push(...crawled.jobs);jobLinksSeen+=crawled.linksSeen;
+    jobs.push(...crawled.jobs);
+    jobLinksSeen+=crawled.linksSeen;
     if(crawled.fetchFailed)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:direct.provider,status:'fetch_failed'};
   }else{
     const page=await fetchText(listing,8500);
@@ -590,11 +590,10 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
       }
     }
 
-    const downstream=downstreamAtsLinks(page.url,page.text);
-    for(const dest of downstream.slice(0,6)){
+    for(const dest of downstreamAtsLinks(page.url,page.text).slice(0,6)){
       providers.add(dest.provider);
       const result=await jobsFromAtsDestination(dest,org,page.url);
-      jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:page.url})));
+      jobs.push(...result.jobs);
       jobLinksSeen+=result.linksSeen;
     }
 
@@ -604,7 +603,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
         if(nestedAts){
           providers.add(nestedAts.provider);
           const result=await jobsFromAtsDestination({url:careersUrl,provider:nestedAts.provider},org,careersUrl);
-          jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:careersUrl})));
+          jobs.push(...result.jobs);
           jobLinksSeen+=result.linksSeen;
           continue;
         }
@@ -626,7 +625,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
         for(const dest of downstreamAtsLinks(careersPage.url,careersPage.text).slice(0,6)){
           providers.add(dest.provider);
           const result=await jobsFromAtsDestination(dest,org,careersPage.url);
-          jobs.push(...result.jobs.map(j=>({...j,sourceListingUrl:careersPage.url})));
+          jobs.push(...result.jobs);
           jobLinksSeen+=result.linksSeen;
         }
       }
@@ -649,36 +648,23 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   const status=published>0?'published':unique.size>0?'candidates_rejected':jobLinksSeen>0?'job_links_no_relevant_roles':'no_job_board_found';
   return {seen:unique.size,published,rejected,jobLinksSeen,provider,status};
 }
-
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,
-      ao.current_hiring_signal,scan.last_scanned_at
-    FROM agency_organizations ao
-    LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
-    WHERE ao.is_active=1
-      AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!='') OR ao.current_hiring_signal='hiring_detected')
-      AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime('now','-24 hours'))
-    ORDER BY CASE WHEN ao.current_hiring_signal='hiring_detected' THEN 0 ELSE 1 END,
-      CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,'') ASC,ao.caregiver_relevance_score DESC
-    LIMIT ?`).bind(limit).all<Row>();
+  const rows=await env.DB.prepare('SELECT ao.id,ao.canonical_name,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at FROM agency_organizations ao LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id WHERE ao.is_active=1 AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="") OR ao.current_hiring_signal="hiring_detected") AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime("now","-24 hours")) ORDER BY CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,"") ASC,ao.caregiver_relevance_score DESC LIMIT ?').bind(limit).all<Row>();
   let seen=0,published=0,rejected=0;
   for(const org of rows.results||[]){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
     try{result=await discoverJobsForOrg(env,org)}
     catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
-    seen+=result.seen;published+=result.published;rejected+=result.rejected;
-    await env.DB.prepare(`INSERT INTO agency_job_scan_state
-      (organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,job_links_seen,jobs_rejected,last_scanned_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-      ON CONFLICT(organization_id) DO UPDATE SET
-        source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,last_status=excluded.last_status,
-        last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,
-        job_links_seen=excluded.job_links_seen,jobs_rejected=excluded.jobs_rejected,
-        last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`)
-      .bind(org.id,result.provider,clean(org.primary_careers_url,1000),result.status,
-        result.status==='fetch_failed'||result.provider==='error'?result.status:null,
-        result.seen,result.published,result.jobLinksSeen,result.rejected).run();
+    seen+=result.seen;
+    published+=result.published;
+    rejected+=result.rejected;
+    const sql='INSERT INTO agency_job_scan_state (organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,job_links_seen,jobs_rejected,last_scanned_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(organization_id) DO UPDATE SET source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,last_status=excluded.last_status,last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,job_links_seen=excluded.job_links_seen,jobs_rejected=excluded.jobs_rejected,last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
+    await env.DB.prepare(sql).bind(
+      org.id,result.provider,clean(org.primary_careers_url,1000),result.status,
+      result.status==='fetch_failed'||result.provider==='error'?result.status:null,
+      result.seen,result.published,result.jobLinksSeen,result.rejected
+    ).run();
   }
   return {processed:(rows.results||[]).length,seen,published,rejected};
 }
@@ -688,30 +674,29 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   const role=clean(url.searchParams.get('role'),80);
   const city=clean(url.searchParams.get('city'),120);
   const limit=Math.max(1,Math.min(100,asNum(url.searchParams.get('limit'))||50));
-  let sql=`SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,source_url,date_posted,first_seen_at,last_seen_at
-    FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state='MD'`;
+  let sql='SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,source_url,date_posted,first_seen_at,last_seen_at FROM caregiver_jobs WHERE is_published=1 AND status="current" AND state="MD"';
   const args:unknown[]=[];
-  if(role){sql+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,\'\')) LIKE lower(?))';args.push(role,'%\"'+role+'\"%')}
+  if(role){
+    sql+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,"")) LIKE lower(?))';
+    args.push(role,'%"'+role+'"%');
+  }
   if(city){sql+=' AND lower(city)=lower(?)';args.push(city)}
-  sql+=" ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ?";
+  sql+=' ORDER BY CASE WHEN date_posted IS NULL OR date_posted="" THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ?';
   args.push(limit);
   const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
-  return json({ok:true,jobs:(rows.results||[]).map(r=>({
-    id:r.id,title:normalizeTitle(r.title),role:r.role,
-    roles:(()=>{try{return JSON.parse(clean(r.roles_json,1000)||'[]')}catch{return [r.role].filter(Boolean)}})(),
-    employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
-    employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
-    datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
-  }))});
+  return json({ok:true,jobs:(rows.results||[]).map(r=>{
+    let roles:string[]=[];
+    try{roles=JSON.parse(clean(r.roles_json,1000)||'[]')}catch{roles=[clean(r.role,80)].filter(Boolean)}
+    return {
+      id:r.id,title:normalizeTitle(r.title),role:r.role,roles,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
+      employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
+      datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
+    };
+  })});
 }
-
-
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare(`SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,
-      description_text,source_url,source_listing_url,date_posted,first_seen_at,last_seen_at,last_checked_at
-    FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1`)
-    .bind(id).first<Row>();
+  const row=await env.DB.prepare('SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text,source_url,source_listing_url,date_posted,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status="current" LIMIT 1').bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
   let roles:string[]=[];
   try{roles=JSON.parse(clean(row.roles_json,1000)||'[]')}catch{roles=[clean(row.role,80)].filter(Boolean)}
