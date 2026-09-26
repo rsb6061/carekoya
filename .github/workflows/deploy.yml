@@ -68,6 +68,9 @@ jobs:
           echo "Public config:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config
           echo
+          echo "Agency demand summary:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/agency-demand-summary
+          echo
           echo "workers.dev fallback (non-blocking):"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 2 https://carekoya.platesurf-dev-2026.workers.dev/api/health || true
           echo
