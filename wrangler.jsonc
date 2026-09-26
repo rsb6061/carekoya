@@ -30,7 +30,16 @@
       "/training-programs/*",
       "/schools/*",
       "/school/*",
-      "/join/*"
+      "/join/*",
+      "/privacy-policy",
+      "/terms-of-service",
+      "/app*",
+      "/auth*",
+      "/activate*",
+      "/respond*",
+      "/agency*",
+      "/school-auth*",
+      "/school-dashboard*"
     ]
   },
   "d1_databases": [
