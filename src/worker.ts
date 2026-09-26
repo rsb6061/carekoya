@@ -204,12 +204,27 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     });
   }
   if(url.pathname==="/caregiver-jobs/maryland"){
+    let currentJobsHtml="";
+    const itemList:any[]=[];
+    if(env.DB){
+      const currentJobs=await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,source_url
+        FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state='MD'
+        ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT 20`).all<Record<string,unknown>>();
+      currentJobsHtml=(currentJobs.results||[]).map((job,index)=>{
+        const label=[job.employer_name,[job.city,job.state].filter(Boolean).join(", ")||job.zip].filter(Boolean).join(" · ");
+        itemList.push({"@type":"ListItem","position":index+1,"name":String(job.title||"Caregiver job"),"url":String(job.source_url||"")});
+        return '<li><a href="'+htmlEscape(job.source_url)+'">'+htmlEscape(job.title)+'</a> — '+htmlEscape(label)+' · '+htmlEscape(job.role)+'</li>';
+      }).join("");
+    }
     return seoAsset(request,env,{
       title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
-      description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers by role, location, shifts and availability.",
+      description:"Find current caregiver jobs in Maryland from care-employer career pages, including CNA, GNA, HHA, PCA, DSP and caregiver roles, then create one profile for matching.",
       canonical:"/caregiver-jobs/maryland",
-      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.</p><p><a href="/caregiver-resume">Upload your caregiver resume and get matched</a></p><h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>',
-      jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>Find CNA, GNA, HHA, PCA, DSP, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.</p><p><a href="/caregiver-resume">Upload your caregiver resume and get matched</a></p>'+(currentJobsHtml?'<h2>Current caregiver jobs in Maryland</h2><ul>'+currentJobsHtml+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        ...(itemList.length?[{"@type":"ItemList","name":"Current Maryland caregiver jobs","itemListElement":itemList}]:[])
+      ]}
     });
   }
   if(url.pathname==="/caregiver-resume"){
