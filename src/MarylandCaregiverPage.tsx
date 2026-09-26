@@ -44,12 +44,12 @@ export function MarylandCaregiverPage(){
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
           <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
-          <h1>{program?'Free job-matching network for your graduates.':'Caregiver jobs in Maryland, matched to you.'}</h1>
-          <p>{program?`CareJoys partners with training programs like ${program.name} to help graduates get discovered by relevant Maryland care employers. Create one profile and choose which opportunities interest you.`:'Join CareJoys free as a CNA, GNA, HHA, PCA, or caregiver. Tell us where you can work, the shifts you want, and your pay preference. CareJoys uses that profile to connect you with relevant care employers.'}</p>
+          <h1>{program?'Free job matching for your graduates.':'Caregiver jobs in Maryland. One profile.'}</h1>
+          <p>{program?`Create one free CareJoys profile and get matched with Maryland care employers hiring graduates from programs like ${program.name}.`:'Create one free profile and get matched with local CNA, GNA, HHA, PCA, and caregiver jobs that fit your location, shifts, and pay.'}</p>
           <div className="caregiver-proof">
-            <div><strong>Free for caregivers</strong><span>No application fees or subscription.</span></div>
-            <div><strong>Your availability stays current</strong><span>Confirm when you are looking; mark not looking any time.</span></div>
-            <div><strong>Fewer blind applications</strong><span>CareJoys is built to confirm employer and caregiver interest before interviews.</span></div>
+            <div><strong>Free to join</strong><span>No fees or subscription.</span></div>
+            <div><strong>One profile</strong><span>Skip repeating the same application.</span></div>
+            <div><strong>You choose</strong><span>Only move forward on jobs you want.</span></div>
           </div>
         </div>
 
@@ -61,14 +61,13 @@ export function MarylandCaregiverPage(){
             <a className="btn" href="/">Done</a>
           </div>:<>
             <div className="modal-kicker">{program?`Referred by ${program.name}`:'Create your caregiver profile'}</div>
-            <h2>Tell us what you’re looking for.</h2>
+            <h2>Tell us what fits.</h2>
             <form className="intake-form" onSubmit={onSubmit}>
               <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
               <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Mobile phone<input name="phone" required /></label></div>
               <div className="form-grid"><label>Maryland ZIP code<input name="zip" inputMode="numeric" pattern="[0-9]{5}" required /></label><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>Other</option></select></label></div>
               <div className="form-grid"><label>Preferred shifts<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Desired hourly pay<input name="desiredWage" placeholder="$20–24/hr" /></label></div>
               <label>Transportation<select name="transportation" defaultValue=""><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
-              <div className="legal-consent">By joining CareJoys, you understand that your caregiver work profile may be shown to participating care employers for recruiting. Current availability is shown separately. See our <a href="/privacy-policy" target="_blank">Privacy Policy</a> and <a href="/terms-of-service" target="_blank">Terms</a>.</div>
               <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
               <TurnstileField onToken={setTurnstileToken}/>
               {status==='error'&&<div className="notice">{message}</div>}
@@ -79,11 +78,11 @@ export function MarylandCaregiverPage(){
       </div></section>
 
       <section className="section"><div className="wrap">
-        <h2>Built for ongoing caregiver work, not one application.</h2>
+        <h2>One profile. Relevant jobs. Your choice.</h2>
         <div className="jobs">
-          <div className="job"><div><h3>Create one work profile</h3><div className="meta">Role, ZIP, shifts, pay preference, transportation, and current availability.</div></div><div className="meta">01</div></div>
-          <div className="job"><div><h3>Get routed to relevant employers</h3><div className="meta">CareJoys uses your work preferences and geography to identify participating care employers that may fit.</div></div><div className="meta">02</div></div>
-          <div className="job"><div><h3>Choose what interests you</h3><div className="meta">A match is not an application. You decide whether you want to move forward before an interview is booked.</div></div><div className="meta">03</div></div>
+          <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
+          <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
+          <div className="job"><div><h3>Choose what moves forward</h3><div className="meta">You decide which matches interest you before an interview.</div></div><div className="meta">03</div></div>
         </div>
       </div></section>
     </main>
