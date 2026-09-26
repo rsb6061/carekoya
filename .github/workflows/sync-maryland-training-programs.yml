@@ -183,8 +183,15 @@ jobs:
       - name: Seed verified training program contacts
         run: npx wrangler d1 execute DB --remote --file=scripts/seed-training-program-contacts.sql
 
+      - name: Build caregiver training organizations
+        run: |
+          node scripts/build-training-organizations.mjs /tmp/training-organizations.sql
+          npx wrangler d1 execute DB --remote --file=/tmp/training-organizations.sql
+
       - name: Verify program supply universe
         run: |
           npx wrangler d1 execute DB --remote --command="SELECT provider_type,COUNT(*) AS active_programs FROM training_programs WHERE source='maryland_mbon_natp' AND is_active=1 GROUP BY provider_type ORDER BY active_programs DESC;"
           npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_programs,COUNT(DISTINCT city) AS cities,SUM(CASE WHEN website IS NOT NULL AND website!='' THEN 1 ELSE 0 END) AS with_website,SUM(CASE WHEN email IS NOT NULL AND email!='' THEN 1 ELSE 0 END) AS with_email FROM training_programs WHERE source='maryland_mbon_natp' AND is_active=1;"
           npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_referral_links FROM school_referral_codes WHERE status='active';"
+          npx wrangler d1 execute DB --remote --command="SELECT COUNT(*) AS active_training_organizations,SUM(location_count) AS organization_locations FROM training_organizations WHERE is_active=1;"
+          npx wrangler d1 execute DB --remote --command="SELECT canonical_name,slug,location_count,active_program_count FROM training_organizations WHERE is_active=1 AND lower(canonical_name) IN ('it works learning center','top knowledge healthcare institute','caroline center','cambridge nursing assistant academy','vision allied health institute','baltimore city community college','care ''xpert academy','heritage care','dominion academy','beacon institute') ORDER BY canonical_name;"
