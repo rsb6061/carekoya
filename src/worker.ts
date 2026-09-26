@@ -43,6 +43,188 @@ function json(body: unknown, init: ResponseInit = {}) {
     }
   });
 }
+
+const SEO_ORIGIN="https://carejoys.com";
+const htmlEscape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]||ch));
+const xmlEscape=(value:unknown)=>htmlEscape(value);
+
+async function careJoysSitemap(env:Env){
+  const urls=[
+    SEO_ORIGIN+"/",
+    SEO_ORIGIN+"/caregiver-jobs/maryland",
+    SEO_ORIGIN+"/training-programs/maryland"
+  ];
+  if(env.DB){
+    const orgs=await env.DB.prepare(`SELECT DISTINCT torg.slug
+      FROM training_organizations torg
+      JOIN training_programs tp ON tp.organization_id=torg.id
+      WHERE torg.is_active=1 AND tp.is_active=1
+        AND tp.provider_type IN ('Freestanding Program','College','High School')
+      ORDER BY torg.slug`).all<{slug:string}>();
+    for(const row of orgs.results||[])if(row.slug)urls.push(SEO_ORIGIN+"/training-programs/"+encodeURIComponent(row.slug));
+  }
+  const xml=urls.map(url=>"<url><loc>"+xmlEscape(url)+"</loc></url>").join("");
+  return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+xml+"</urlset>",{
+    headers:{"content-type":"application/xml; charset=utf-8","cache-control":"public,max-age=900"}
+  });
+}
+
+function careJoysRobots(){
+  return new Response(`User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /auth
+Disallow: /activate
+Disallow: /respond
+Disallow: /school-auth
+Disallow: /school-dashboard
+
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /auth
+Disallow: /activate
+Disallow: /respond
+Disallow: /school-auth
+Disallow: /school-dashboard
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /auth
+Disallow: /activate
+Disallow: /respond
+Disallow: /school-auth
+Disallow: /school-dashboard
+
+Sitemap: https://carejoys.com/sitemap.xml
+`,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
+}
+
+function careJoysLlms(){
+  return new Response(`# CareJoys
+
+CareJoys is a Maryland caregiver recruiting and placement network.
+
+## What CareJoys does
+- Helps care employers find local caregivers who match role, geography, shift, pay and availability needs.
+- Helps caregivers create one work profile and get connected with relevant care employers.
+- Helps CNA/GNA and caregiver training programs give graduates tracked referral links and measure downstream placement outcomes.
+
+## Roles
+CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
+
+## Canonical public pages
+- Home: https://carejoys.com/
+- Maryland caregiver network: https://carejoys.com/caregiver-jobs/maryland
+- Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
+- Individual training organizations: https://carejoys.com/training-programs/{slug}
+- Sitemap: https://carejoys.com/sitemap.xml
+
+CareJoys distinguishes regulatory training-program data from employer hiring signals and caregiver-provided profile information.
+`,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
+}
+
+async function seoAsset(request:Request,env:Env,meta:{title:string;description:string;canonical:string;robots?:string;snapshot?:string;jsonLd?:unknown}){
+  const asset=await env.ASSETS.fetch(request);
+  const type=asset.headers.get("content-type")||"";
+  if(!type.includes("text/html"))return asset;
+  let body=await asset.text();
+  const canonical=meta.canonical.startsWith("http")?meta.canonical:SEO_ORIGIN+meta.canonical;
+  body=body.replace(/<title>[\s\S]*?<\/title>/i,"<title>"+htmlEscape(meta.title)+"</title>");
+  body=body.replace(/<meta\s+name=["']description["'][^>]*>/i,'<meta name="description" content="'+htmlEscape(meta.description)+'" />');
+  body=body.replace(/<link\s+rel=["']canonical["'][^>]*>/i,'<link rel="canonical" href="'+htmlEscape(canonical)+'" />');
+  const extra=[
+    '<meta name="robots" content="'+htmlEscape(meta.robots||"index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1")+'" />',
+    '<meta property="og:site_name" content="CareJoys" />',
+    '<meta property="og:title" content="'+htmlEscape(meta.title)+'" />',
+    '<meta property="og:description" content="'+htmlEscape(meta.description)+'" />',
+    '<meta property="og:url" content="'+htmlEscape(canonical)+'" />',
+    '<meta property="og:type" content="website" />',
+    '<meta name="twitter:card" content="summary" />',
+    meta.jsonLd?'<script type="application/ld+json">'+JSON.stringify(meta.jsonLd).replace(/</g,"\\u003c")+"</script>":""
+  ].join("");
+  body=body.replace("</head>",extra+"</head>");
+  if(meta.snapshot)body=body.replace('<div id="root"></div>','<div id="root">'+meta.snapshot+"</div>");
+  const headers=new Headers(asset.headers);
+  headers.set("content-type","text/html; charset=utf-8");
+  headers.set("cache-control","public,max-age=300");
+  return new Response(body,{status:asset.status,headers});
+}
+
+async function publicSeoPage(request:Request,url:URL,env:Env){
+  if(request.method!=="GET")return null;
+  if(url.pathname==="/"){
+    return seoAsset(request,env,{
+      title:"CareJoys | Caregiver Recruiting & Job Matching",
+      description:"CareJoys connects Maryland care employers with CNAs, GNAs, HHAs, PCAs and caregivers, confirms interest and helps move matches into interviews.",
+      canonical:"/",
+      snapshot:'<main><h1>Caregiver recruiting and job matching in Maryland</h1><p>CareJoys connects care employers with CNAs, GNAs, HHAs, PCAs and caregivers, confirms who is interested, and helps move matches into interviews.</p><p><a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
+        {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting care employers, caregivers and caregiver training programs."}
+      ]}
+    });
+  }
+  if(url.pathname==="/caregiver-jobs/maryland"){
+    return seoAsset(request,env,{
+      title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
+      description:"Join CareJoys free to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers. One profile, local opportunities.",
+      canonical:"/caregiver-jobs/maryland",
+      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>CareJoys helps CNAs, GNAs, HHAs, PCAs and caregivers create one profile and connect with relevant Maryland care employers based on role, location, shifts, pay preferences and current availability.</p><p><a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>'
+    });
+  }
+  if(url.pathname==="/training-programs/maryland"){
+    let links="";
+    if(env.DB){
+      const rows=await env.DB.prepare(`SELECT DISTINCT torg.canonical_name,torg.slug,torg.credential_categories
+        FROM training_organizations torg
+        JOIN training_programs tp ON tp.organization_id=torg.id
+        WHERE torg.is_active=1 AND tp.is_active=1
+          AND tp.provider_type IN ('Freestanding Program','College','High School')
+        ORDER BY torg.canonical_name LIMIT 250`).all<Record<string,unknown>>();
+      links=(rows.results||[]).map(r=>'<li><a href="/training-programs/'+encodeURIComponent(String(r.slug||""))+'">'+htmlEscape(r.canonical_name)+'</a> · '+htmlEscape(r.credential_categories||"CNA/GNA")+"</li>").join("");
+    }
+    return seoAsset(request,env,{
+      title:"Maryland CNA & GNA Caregiver Training Programs | CareJoys",
+      description:"Browse Maryland caregiver training programs for CNA and GNA pathways. CareJoys connects graduates with local care employers and tracks placement outcomes.",
+      canonical:"/training-programs/maryland",
+      snapshot:'<main><h1>Maryland caregiver training programs</h1><p>Browse Maryland CNA/GNA caregiver training organizations and their approved program locations. CareJoys gives participating programs tracked graduate referral links and placement outcome reporting.</p><ul>'+links+"</ul></main>"
+    });
+  }
+  const orgMatch=url.pathname.match(/^\/training-programs\/([^/]+)$/);
+  if(orgMatch&&env.DB){
+    const slug=decodeURIComponent(orgMatch[1]);
+    const org=await env.DB.prepare("SELECT id,canonical_name,credential_categories,location_count FROM training_organizations WHERE slug=? AND is_active=1 LIMIT 1").bind(slug).first<Record<string,unknown>>();
+    if(org){
+      const rows=await env.DB.prepare("SELECT program_name,provider_type,city,state,zip,current_status,program_type FROM training_programs WHERE organization_id=? AND is_active=1 ORDER BY city,program_name").bind(org.id).all<Record<string,unknown>>();
+      const locations=(rows.results||[]).map(r=>"<li>"+htmlEscape(r.program_name)+" — "+htmlEscape([r.city,r.state,r.zip].filter(Boolean).join(", "))+" · "+htmlEscape(r.program_type)+"</li>").join("");
+      const name=String(org.canonical_name||"Caregiver Training Program");
+      const credentials=String(org.credential_categories||"CNA/GNA");
+      return seoAsset(request,env,{
+        title:(name+" CNA/GNA Training | CareJoys").slice(0,68),
+        description:(name+" is a Maryland caregiver training organization with "+Number(org.location_count||rows.results?.length||1)+" active program location"+(Number(org.location_count||1)===1?"":"s")+". View "+credentials+" training and CareJoys graduate placement.").slice(0,165),
+        canonical:"/training-programs/"+encodeURIComponent(slug),
+        snapshot:'<main><h1>'+htmlEscape(name)+"</h1><p>Maryland caregiver training program · "+htmlEscape(credentials)+'</p><ul>'+locations+'</ul><p><a href="/training-programs/maryland">Browse all Maryland caregiver training programs</a></p></main>',
+        jsonLd:{"@context":"https://schema.org","@type":"EducationalOrganization","name":name,"url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug)}
+      });
+    }
+  }
+  if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
+  if(url.pathname.startsWith("/school/")||url.pathname.startsWith("/join/")){
+    return seoAsset(request,env,{
+      title:"CareJoys",
+      description:"CareJoys caregiver placement and graduate referral network.",
+      canonical:url.pathname,
+      robots:"noindex,follow",
+      snapshot:""
+    });
+  }
+  return null;
+}
 async function readJson(request: Request) {
   try { return await request.json() as Record<string, unknown>; } catch { return null; }
 }
@@ -429,6 +611,11 @@ async function completeActivation(request:Request,env:Env){
 export default {
   async fetch(request:Request,env:Env):Promise<Response>{
     const url=new URL(request.url);
+    if(request.method==="GET"&&url.pathname==="/sitemap.xml") return careJoysSitemap(env);
+    if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
+    if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
+    const seoResponse=await publicSeoPage(request,url,env);
+    if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handleHealth(env);
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
