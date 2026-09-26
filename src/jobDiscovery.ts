@@ -291,6 +291,70 @@ function locationStringParts(value:string){
   const city=state?clean(s.split(',')[0],120):'';
   return {city,state,zip};
 }
+function downstreamAtsLinks(base:string,html:string){
+  const out:{url:string;provider:string}[]=[];
+  const seen=new Set<string>();
+  const attr=/\b(?:href|src|action)=["']([^"']+)["']/gi;
+  for(const m of html.matchAll(attr)){
+    try{
+      const url=new URL(decodeHtml(m[1]),base).toString();
+      const ats=atsInfo(url);
+      if(!ats||seen.has(url))continue;
+      seen.add(url);out.push({url,provider:ats.provider});
+    }catch{}
+    if(out.length>=8)break;
+  }
+  return out;
+}
+function providerJobLinks(base:string,html:string,provider:string){
+  const out:{url:string;title:string}[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const title=stripHtml(m[2],260);
+    const href=decodeHtml(m[1]);
+    const roleHit=!!roleClassification(title,'');
+    const jobLike=/(\/jobs?\/|jobid=|job_id=|jobdetail|job-details|posting|position)/i.test(href);
+    if(!roleHit&&!(provider!=='generic'&&jobLike))continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||url===base)continue;
+      seen.add(url);out.push({url,title});
+    }catch{}
+    if(out.length>=18)break;
+  }
+  return out;
+}
+async function crawlHtmlBoard(listingUrl:string,provider:string,org:Row,originUrl:string){
+  const page=await fetchText(listingUrl,8500);
+  if(!page)return {jobs:[] as DiscoveredJob[],linksSeen:0,fetchFailed:true};
+  const jobs:DiscoveredJob[]=[];
+  jobs.push(...parseJsonLdJobs(page.text,page.url).map(j=>({...j,sourceProvider:provider==='generic'?j.sourceProvider:provider,sourceListingUrl:originUrl})));
+  const links=providerJobLinks(page.url,page.text,provider);
+  for(const link of links.slice(0,14)){
+    const detail=await fetchText(link.url,6500);
+    if(!detail)continue;
+    const structured=parseJsonLdJobs(detail.text,detail.url);
+    if(structured.length){
+      jobs.push(...structured.map(j=>({...j,sourceProvider:provider==='generic'?j.sourceProvider:provider,sourceListingUrl:originUrl})));
+      continue;
+    }
+    const text=htmlText(detail.text).slice(0,12000);
+    const h1=stripHtml(detail.text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',260);
+    const title=h1||link.title;
+    const generic=textJobFromPage(detail.url,title,detail.text,org);
+    if(generic)jobs.push({...generic,sourceProvider:provider==='generic'?'generic_html':provider,sourceListingUrl:originUrl});
+  }
+  return {jobs,linksSeen:links.length,fetchFailed:false};
+}
+async function jobsFromAtsDestination(dest:{url:string;provider:string},org:Row,originUrl:string){
+  const ats=atsInfo(dest.url);
+  if(dest.provider==='greenhouse'&&ats?.account)return {jobs:await greenhouseJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
+  if(dest.provider==='lever'&&ats?.account)return {jobs:await leverJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
+  if(dest.provider==='ashby'&&ats?.account)return {jobs:await ashbyJobs(ats.account,dest.url),linksSeen:0,fetchFailed:false};
+  if(dest.provider==='workday')return {jobs:await workdayJobs(dest.url),linksSeen:0,fetchFailed:false};
+  return crawlHtmlBoard(dest.url,dest.provider,org,originUrl);
+}
 async function greenhouseJobs(account:string,listingUrl:string){
   const data=await fetchJson('https://boards-api.greenhouse.io/v1/boards/'+encodeURIComponent(account)+'/jobs?content=true',8000) as any;
   if(!Array.isArray(data?.jobs))return [] as DiscoveredJob[];
