@@ -48,31 +48,62 @@ export async function listPublicTrainingPrograms(url:URL,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const providerType=clean(url.searchParams.get('providerType'),120);
   const city=clean(url.searchParams.get('city'),120);
-  let rows=(await env.DB.prepare(`SELECT tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.program_type,tp.renewal_due,
-      tp.website,src.slug
+  let rows=(await env.DB.prepare(`SELECT tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip,tp.program_type,tp.credential_category,tp.renewal_due,
+      tp.website,src.slug,torg.canonical_name AS organization_name,torg.slug AS organization_slug
     FROM training_programs tp
     JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    LEFT JOIN training_organizations torg ON torg.id=tp.organization_id AND torg.is_active=1
     WHERE tp.is_active=1 AND tp.source='maryland_mbon_natp'
     ORDER BY tp.provider_type,tp.city,tp.program_name LIMIT 300`).all<Row>()).results||[];
   if(providerType)rows=rows.filter(r=>clean(r.provider_type,120).toLowerCase()===providerType.toLowerCase());
   if(city)rows=rows.filter(r=>clean(r.city,120).toLowerCase()===city.toLowerCase());
   return json({ok:true,total:rows.length,programs:rows.map(r=>({
     name:r.program_name,providerType:r.provider_type,city:r.city,state:r.state,zip:r.zip,programType:r.program_type,
-    renewalDue:r.renewal_due,website:r.website||null,slug:r.slug,
+    credentialCategory:r.credential_category||'CNA/GNA',renewalDue:r.renewal_due,website:r.website||null,slug:r.slug,
+    organizationName:r.organization_name||r.program_name,organizationSlug:r.organization_slug||null,
     referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(r.slug||'')),
-    programUrl:'https://carejoys.com/school/'+encodeURIComponent(String(r.slug||''))
+    programUrl:'https://carejoys.com/school/'+encodeURIComponent(String(r.slug||'')),
+    organizationUrl:r.organization_slug?'https://carejoys.com/training-programs/'+encodeURIComponent(String(r.organization_slug)):null
   }))});
 }
 
 export async function publicSchoolProgram(slug:string,env:FeatureEnv){
   const p=await programBySlug(env,slug);
   if(!p)return json({ok:false,error:'Training program not found'},{status:404});
+  const org=p.organization_id?await env.DB?.prepare("SELECT canonical_name,slug FROM training_organizations WHERE id=? AND is_active=1 LIMIT 1").bind(p.organization_id).first<Row>():null;
   return json({ok:true,program:{
     name:p.program_name,providerType:p.provider_type,address:p.address,city:p.city,state:p.state,zip:p.zip,
-    programType:p.program_type,currentStatus:p.current_status,dateLastApproved:p.date_last_approved,renewalDue:p.renewal_due,
+    programType:p.program_type,credentialCategory:p.credential_category||'CNA/GNA',currentStatus:p.current_status,dateLastApproved:p.date_last_approved,renewalDue:p.renewal_due,
     website:p.website||null,claimed:!!p.claimed_school_lead_id,cohortName:p.cohort_name||null,
+    organizationName:org?.canonical_name||p.program_name,organizationSlug:org?.slug||null,
+    organizationUrl:org?.slug?'https://carejoys.com/training-programs/'+encodeURIComponent(String(org.slug)):null,
     referralUrl:'https://carejoys.com/join/'+encodeURIComponent(String(p.cohort_id?slug:(p.referral_slug||'')))
   }});
+}
+
+export async function publicTrainingOrganization(slug:string,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const org=await env.DB.prepare(`SELECT id,canonical_name,slug,website,provider_types,credential_categories,location_count,active_program_count
+    FROM training_organizations WHERE slug=? AND is_active=1 LIMIT 1`).bind(slug).first<Row>();
+  if(!org)return json({ok:false,error:'Caregiver training program not found'},{status:404});
+  const rows=await env.DB.prepare(`SELECT tp.id,tp.program_name,tp.provider_type,tp.address,tp.city,tp.state,tp.zip,tp.program_type,tp.credential_category,
+      tp.current_status,tp.date_last_approved,tp.renewal_due,tp.website,src.slug AS referral_slug
+    FROM training_programs tp
+    LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    WHERE tp.organization_id=? AND tp.is_active=1
+    ORDER BY tp.city,tp.program_name`).bind(org.id).all<Row>();
+  return json({ok:true,organization:{
+    name:org.canonical_name,slug:org.slug,website:org.website||null,providerTypes:org.provider_types||null,
+    credentialCategories:org.credential_categories||'CNA/GNA',locationCount:Number(org.location_count||0),
+    activeProgramCount:Number(org.active_program_count||0),
+    url:'https://carejoys.com/training-programs/'+encodeURIComponent(String(org.slug||''))
+  },programs:(rows.results||[]).map(r=>({
+    id:r.id,name:r.program_name,providerType:r.provider_type,address:r.address,city:r.city,state:r.state,zip:r.zip,
+    programType:r.program_type,credentialCategory:r.credential_category||'CNA/GNA',currentStatus:r.current_status,
+    dateLastApproved:r.date_last_approved,renewalDue:r.renewal_due,website:r.website||null,
+    referralUrl:r.referral_slug?'https://carejoys.com/join/'+encodeURIComponent(String(r.referral_slug)):null,
+    legacyProgramUrl:r.referral_slug?'https://carejoys.com/school/'+encodeURIComponent(String(r.referral_slug)):null
+  }))});
 }
 
 async function sendSchoolMagic(env:FeatureEnv,lead:{id:string;contact_name?:string;email:string},program:Row){
