@@ -192,15 +192,6 @@ export function App() {
         </div>
       </section>
 
-      <section className="section source-section">
-        <div className="wrap">
-          <div className="source-strip">
-            <div className="source-strip-title">First 5 interested candidates free</div>
-            <div className="meta">Pilot CareJoys on one real caregiver opening. We match the network, contact candidates, confirm interest, and help turn responses into booked interviews.</div>
-          </div>
-        </div>
-      </section>
-
       <section className="section" id="how">
         <div className="wrap">
           <h2>From hiring need to interview</h2>
