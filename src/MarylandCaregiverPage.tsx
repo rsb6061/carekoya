@@ -44,7 +44,7 @@ export function MarylandCaregiverPage(){
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
           <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
-          <h1>{program?'Free job-matching network for your graduates.':'One profile. Local care employers can find you.'}</h1>
+          <h1>{program?'Free job-matching network for your graduates.':'Caregiver jobs in Maryland, matched to you.'}</h1>
           <p>{program?`CareJoys partners with training programs like ${program.name} to help graduates get discovered by relevant Maryland care employers. Create one profile and choose which opportunities interest you.`:'Join CareJoys free as a CNA, GNA, HHA, PCA, or caregiver. Tell us where you can work, the shifts you want, and your pay preference. CareJoys uses that profile to connect you with relevant care employers.'}</p>
           <div className="caregiver-proof">
             <div><strong>Free for caregivers</strong><span>No application fees or subscription.</span></div>
