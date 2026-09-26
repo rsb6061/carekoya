@@ -677,7 +677,29 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
     jobLinksSeen+=crawled.linksSeen;
     if(crawled.fetchFailed)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:direct.provider,status:'fetch_failed'};
   }else{
-    const page=await fetchAgencyRoot(org,listing);
+    let page=await fetchAgencyRoot(org,listing);
+    if(!page){
+      const fallbacks:string[]=[];
+      const add=(url:string)=>{if(url&&!fallbacks.includes(url))fallbacks.push(url)};
+      add(listing);
+      const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'').replace(/^www\./,'');
+      if(domain&&!/@/.test(domain)){
+        add('https://'+domain+'/');
+        add('https://www.'+domain+'/');
+        add('http://'+domain+'/');
+        add('http://www.'+domain+'/');
+      }
+      for(const base of fallbacks){
+        const probed=await probeCommonCareerPage(base);
+        if(!probed)continue;
+        page=probed;
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(probed.url,org.id).run();
+          org.primary_careers_url=probed.url;
+        }
+        break;
+      }
+    }
     if(!page)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'generic',status:'fetch_failed'};
     if(!clean(org.primary_website,1000)&&sameOrgDomain(page.url,{...org,primary_website:page.url})){
       await env.DB.prepare('UPDATE agency_organizations SET primary_website=COALESCE(NULLIF(primary_website,""),?),website_source=CASE WHEN website_source IS NULL OR website_source="" THEN "job_discovery" ELSE website_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(page.url,org.id).run();
