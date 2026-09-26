@@ -45,6 +45,23 @@ async function fetchText(url:string,ms=7000){
     return {url:res.url,text:(await res.text()).slice(0,900000)};
   }catch{return null}finally{clearTimeout(timer)}
 }
+async function fetchAgencyRoot(org:Row,preferred:string){
+  const candidates:string[]=[];
+  const add=(url:string)=>{if(url&&!candidates.includes(url))candidates.push(url)};
+  add(preferred);
+  const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'').replace(/^www\./,'');
+  if(domain&&!/@/.test(domain)){
+    add('https://'+domain+'/');
+    add('https://www.'+domain+'/');
+    add('http://'+domain+'/');
+    add('http://www.'+domain+'/');
+  }
+  for(const url of candidates){
+    const page=await fetchText(url,6500);
+    if(page)return page;
+  }
+  return null;
+}
 async function fetchJson(url:string,ms=7000){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),ms);
@@ -660,7 +677,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
     jobLinksSeen+=crawled.linksSeen;
     if(crawled.fetchFailed)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:direct.provider,status:'fetch_failed'};
   }else{
-    const page=await fetchText(listing,8500);
+    const page=await fetchAgencyRoot(org,listing);
     if(!page)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'generic',status:'fetch_failed'};
     if(!clean(org.primary_website,1000)&&sameOrgDomain(page.url,{...org,primary_website:page.url})){
       await env.DB.prepare('UPDATE agency_organizations SET primary_website=COALESCE(NULLIF(primary_website,""),?),website_source=CASE WHEN website_source IS NULL OR website_source="" THEN "job_discovery" ELSE website_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(page.url,org.id).run();
