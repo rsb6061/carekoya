@@ -74,6 +74,7 @@ export function EmployerWorkspace(){
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
   const [slotInputs,setSlotInputs]=useState([{startsAt:'',durationMinutes:30}]);
+  const [intakeOpeningId]=useState(()=>new URLSearchParams(window.location.search).get('opening')||'');
   const intakeHandled=useRef(false);
 
   async function loadSession(){
@@ -146,8 +147,8 @@ export function EmployerWorkspace(){
     const slots=slotInputs.filter(s=>s.startsAt).map(s=>({startsAt:new Date(s.startsAt).toISOString(),durationMinutes:s.durationMinutes,timezone}));
     try{
       const result=await api<any>('/api/openings/'+slotsFor.id+'/interview-slots',{method:'POST',body:JSON.stringify({slots})});
-      setMessage(result.added+' interview time'+(result.added===1?'':'s')+' added. Interested caregivers can book these directly.');
-      setSlotsFor(null);setSlotInputs([{startsAt:'',durationMinutes:30}]);
+      setMessage(result.added+' interview time'+(result.added===1?'':'s')+' added. Review your matches, then contact the strongest candidates.');
+      setSlotsFor(null);setSlotInputs([{startsAt:'',durationMinutes:30}]);await refreshWorkspace();setTab('pipeline');
     }catch(error){setMessage(error instanceof Error?error.message:'Could not save interview times')}
   }
   async function saveHiringProfile(e:FormEvent<HTMLFormElement>){
@@ -177,6 +178,8 @@ export function EmployerWorkspace(){
   }
 
   const counts=useMemo(()=>{const by=(s:string)=>pipeline.filter(p=>p.stage===s).length;return{matched:by('matched'),contacted:by('contacted'),interested:by('interested'),interview:by('interview'),hired:by('hired')}},[pipeline]);
+  const visiblePipeline=useMemo(()=>intakeOpeningId?pipeline.filter(p=>p.opening_id===intakeOpeningId):pipeline,[pipeline,intakeOpeningId]);
+  const intakeOpening=useMemo(()=>openings.find(o=>o.id===intakeOpeningId)||null,[openings,intakeOpeningId]);
 
   if(authLoading)return <div className="loading-screen">Loading CareJoys…</div>;
   if(!session)return <EmployerSignIn/>;
@@ -253,9 +256,13 @@ export function EmployerWorkspace(){
         {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Caregivers with unconfirmed availability can still appear, but confirmed candidates rank higher in matching.</div></div>:
         <div className="job-list">{candidates.map((c,i)=><article className={'job-card '+cardTone(i)} key={c.id}><div className="job-card-main"><div className="job-card-title-row"><h3>{c.name}</h3></div><div className="job-meta">{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</div><div className="job-badges"><span className={c.workStatus==='actively_looking'?'status applied':'status'}>{c.freshness}</span>{c.shifts&&<span className="badge">{c.shifts}</span>}{c.desiredWage&&<span className="badge">{c.desiredWage}</span>}</div>{c.certifications&&<div className="job-card-cue">{c.certifications}</div>}</div></article>)}</div>}</section>}
 
-      {tab==='pipeline'&&<section className="section-block"><div className="section-heading"><h2>Candidate pipeline</h2><p>Interested responses and interview bookings update automatically. You can still advance or reject candidates manually.</p></div>
-        {pipeline.length===0?<div className="empty"><strong>No matched caregivers yet.</strong><div>Run matching on an opening to populate this pipeline.</div></div>:
-        <div className="job-list">{pipeline.map((row,i)=><article className={'job-card '+cardTone(i)} key={row.id}><div className="job-card-main"><div className="job-card-title-row"><h3>{row.name}</h3></div><div className="job-meta">{[row.role,row.city,row.state].filter(Boolean).join(' · ')}</div><div className="job-badges"><span className="badge">{row.match_score||0}% match</span><span className="status">{row.title}</span><span className="status">{row.freshness}</span>{row.interview_at&&<span className="status applied">{new Date(row.interview_at).toLocaleString()}</span>}</div></div><div className="job-card-side"><select className="pipeline-select" value={row.stage} onChange={e=>moveStage(row.id,e.target.value)}><option value="matched">Matched</option><option value="contacted">Contacted</option><option value="interested">Interested</option><option value="interview">Interview booked</option><option value="hired">Hired</option><option value="rejected">Rejected</option></select></div></article>)}</div>}</section>}
+      {tab==='pipeline'&&<section className="section-block"><div className="section-heading"><h2>{intakeOpening?'Your caregiver matches':'Candidate pipeline'}</h2><p>{intakeOpening?'CareJoys created this opening from your request and ranked the strongest local matches below.':'Interested responses and interview bookings update automatically. You can still advance or reject candidates manually.'}</p></div>
+        {intakeOpening&&<div className="agency-next-action">
+          <div><strong>{Number(intakeOpening.available_interview_slots||0)>0?'Ready to contact candidates':'Next: add interview times'}</strong><p>{Number(intakeOpening.available_interview_slots||0)>0?'Your interview availability is ready. Contact the strongest matches and interested caregivers can book immediately.':'Add at least one interview time before outreach so an interested caregiver can go straight from “yes” to a booked interview.'}</p></div>
+          <div className="hero-actions"><button className="button secondary" onClick={()=>setSlotsFor(intakeOpening)}>{Number(intakeOpening.available_interview_slots||0)>0?'Edit interview times':'Add interview times'}</button>{Number(intakeOpening.available_interview_slots||0)>0&&<button className="button" onClick={()=>contact(intakeOpening.id)}>Contact top 5</button>}</div>
+        </div>}
+        {visiblePipeline.length===0?<div className="empty"><strong>No matched caregivers yet.</strong><div>CareJoys will keep scoring the network as caregiver availability changes.</div></div>:
+        <div className="job-list">{visiblePipeline.map((row,i)=><article className={'job-card '+cardTone(i)} key={row.id}><div className="job-card-main"><div className="job-card-title-row"><h3>{row.name}</h3></div><div className="job-meta">{[row.role,row.city,row.state].filter(Boolean).join(' · ')}</div><div className="job-badges"><span className="badge">{row.match_score||0}% match</span><span className="status">{row.title}</span><span className="status">{row.freshness}</span>{row.interview_at&&<span className="status applied">{new Date(row.interview_at).toLocaleString()}</span>}</div></div><div className="job-card-side"><select className="pipeline-select" value={row.stage} onChange={e=>moveStage(row.id,e.target.value)}><option value="matched">Matched</option><option value="contacted">Contacted</option><option value="interested">Interested</option><option value="interview">Interview booked</option><option value="hired">Hired</option><option value="rejected">Rejected</option></select></div></article>)}</div>}</section>}
 
       {showOpening&&<div className="modal-backdrop" onMouseDown={()=>setShowOpening(false)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setShowOpening(false)}>×</button><div className="modal-kicker">New opening</div><h2>Who do you need?</h2><p className="modal-intro">Add the role, location, pay, and shift. CareJoys uses these details to rank the network.</p>
         <form className="intake-form" onSubmit={createOpening}><label>Job title<input name="title" required placeholder="CNA — day shift" /></label><div className="form-grid"><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option></select></label><label>ZIP<input name="zip" /></label></div><div className="form-grid"><label>City<input name="city" /></label><label>State<input name="state" /></label></div><div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" /></label><label>Max pay / hr<input type="number" name="payMax" /></label></div><label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Requirements<textarea name="requirements" rows={4} placeholder="Experience, credential, schedule, client requirements..." /></label><label className="check-row"><input type="checkbox" name="transportationRequired" /><span>Reliable transportation required</span></label><button className="button submit-button">Create opening</button></form>
