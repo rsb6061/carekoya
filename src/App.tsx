@@ -176,7 +176,7 @@ export function App() {
             <span className="hero-title-line">Caregiver recruiting in Maryland.</span>
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
-          <p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care and senior-care employers.</strong> Find local CNAs, GNAs, HHAs, PCAs, and caregivers, confirm who is actually looking, screen fit, and move qualified matches into interviews.</p>
+          <p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p>
           <form className="search" onSubmit={handleHeroSearch}>
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
