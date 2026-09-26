@@ -52,8 +52,9 @@ async function careJoysSitemap(env:Env){
   const entries:{url:string;lastmod?:string|null}[]=[
     {url:SEO_ORIGIN+"/"},
     {url:SEO_ORIGIN+"/about"},
-    {url:SEO_ORIGIN+"/caregiver-recruiting/maryland"},
+    {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
     {url:SEO_ORIGIN+"/caregiver-jobs/maryland"},
+    {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
     {url:SEO_ORIGIN+"/training-programs/maryland"}
   ];
   if(env.DB){
@@ -125,8 +126,9 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 ## Canonical public pages
 - Home: https://carejoys.com/
 - About CareJoys: https://carejoys.com/about
-- Maryland caregiver recruiting for employers: https://carejoys.com/caregiver-recruiting/maryland
+- Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
 - Maryland caregiver network: https://carejoys.com/caregiver-jobs/maryland
+- How to become a caregiver in Maryland: https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
 - Sitemap: https://carejoys.com/sitemap.xml
@@ -169,22 +171,23 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"CareJoys | Maryland Caregiver Recruiting & Job Matching",
       description:"CareJoys is a Maryland caregiver recruiting and placement network for home-care and senior-care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers.",
       canonical:"/",
-      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care, senior-care, and direct-care employers.</strong> It helps employers find relevant CNAs, GNAs, HHAs, PCAs and caregivers, confirm current interest, and move qualified matches toward interviews.</p><p><a href="/caregiver-recruiting/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p><strong>CareJoys is a caregiver recruiting and placement network for Maryland home-care, senior-care, and direct-care employers.</strong> It helps employers find relevant CNAs, GNAs, HHAs, PCAs and caregivers, confirm current interest, and move qualified matches toward interviews.</p><p><a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A Maryland caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"State","name":"Maryland"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
       ]}
     });
   }
-  if(url.pathname==="/caregiver-recruiting/maryland"){
+  if(url.pathname==="/caregiver-recruiting/maryland") return Response.redirect(SEO_ORIGIN+"/hire-caregivers/maryland",301);
+  if(url.pathname==="/hire-caregivers/maryland"){
     return seoAsset(request,env,{
-      title:"Hire Caregivers in Maryland | CNA, GNA, HHA & PCA Recruiting",
-      description:"CareJoys helps Maryland home-care and senior-care employers find local CNAs, GNAs, HHAs, PCAs and caregivers, confirm interest, and move matches to interviews.",
-      canonical:"/caregiver-recruiting/maryland",
-      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p><strong>CareJoys is a Maryland caregiver recruiting and placement network for home-care, senior-care, and direct-care employers.</strong> Match local CNAs, GNAs, HHAs, PCAs and caregivers by role, geography, shifts, pay preferences, transportation, experience and current availability. CareJoys then helps confirm who is interested and move qualified matches toward interviews.</p><h2>How CareJoys works for employers</h2><ol><li>Identify relevant local caregivers.</li><li>Confirm current availability and interest.</li><li>Move qualified matches toward interviews and hires.</li></ol><p><a href="/caregiver-jobs/maryland">Maryland caregiver network</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      title:"Hire Caregivers in Maryland | CareJoys",
+      description:"Find CNAs, GNAs, HHAs, PCAs and caregivers in Maryland. CareJoys matches local candidates, confirms interest and helps move qualified caregivers to interview.",
+      canonical:"/hire-caregivers/maryland",
+      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/?hire=1">Find caregivers</a> · <a href="/about">How CareJoys works</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys helps Maryland home-care, senior-care and direct-care employers match local candidates by role, geography, shifts, pay preferences, transportation, experience and current availability, then confirm interest before interview.</p><p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
-        {"@type":"WebPage","@id":SEO_ORIGIN+"/caregiver-recruiting/maryland#webpage","url":SEO_ORIGIN+"/caregiver-recruiting/maryland","name":"Maryland caregiver recruiting","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
-        {"@type":"Service","@id":SEO_ORIGIN+"/caregiver-recruiting/maryland#service","name":"Caregiver recruiting and placement in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
+        {"@type":"WebPage","@id":SEO_ORIGIN+"/hire-caregivers/maryland#webpage","url":SEO_ORIGIN+"/hire-caregivers/maryland","name":"Hire caregivers in Maryland","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
+        {"@type":"Service","@id":SEO_ORIGIN+"/hire-caregivers/maryland#service","name":"Hire caregivers in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
       ]}
     });
   }
@@ -202,8 +205,17 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Caregiver Jobs in Maryland: CNA, GNA, HHA & PCA | CareJoys",
       description:"Create one CareJoys profile to connect with Maryland care employers hiring CNAs, GNAs, HHAs, PCAs and caregivers by role, location, shifts and availability.",
       canonical:"/caregiver-jobs/maryland",
-      snapshot:'<main><h1>Caregiver jobs and job matching in Maryland</h1><p>CareJoys helps CNAs, GNAs, HHAs, PCAs and caregivers create one reusable work profile and connect with relevant Maryland care employers based on role, location, shifts, pay preferences, transportation and current availability.</p><h2>How it works</h2><ol><li>Create one caregiver work profile.</li><li>Keep your availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Caregiver jobs in Maryland</h1><p>Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.</p><h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol><p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/caregiver-jobs/maryland","name":"Caregiver jobs and job matching in Maryland","about":{"@type":"Thing","name":"Maryland caregiver jobs"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+    });
+  }
+  if(url.pathname==="/resources/how-to-become-a-caregiver-in-maryland"){
+    return seoAsset(request,env,{
+      title:"How to Become a Caregiver in Maryland | CareJoys",
+      description:"Learn the main paths into caregiver work in Maryland, including PCA and caregiver roles, CNA-I training, current certification rules, training programs and jobs.",
+      canonical:"/resources/how-to-become-a-caregiver-in-maryland",
+      snapshot:'<main><h1>How to become a caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"Article","headline":"How to Become a Caregiver in Maryland","mainEntityOfPage":SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland","publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":[{"@type":"Thing","name":"Caregiver careers in Maryland"},{"@type":"Thing","name":"CNA-I training"}]}
     });
   }
   if(url.pathname==="/training-programs/maryland"){
