@@ -39,13 +39,13 @@ export function MarylandCaregiverPage(){
   }
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-recruiting/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
           <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
-          <h1>{program?'Free job matching for your graduates.':'Caregiver jobs in Maryland. One profile.'}</h1>
-          <p>{program?`Create one free CareJoys profile and get matched with Maryland care employers hiring graduates from programs like ${program.name}.`:'Create one free profile and get matched with local CNA, GNA, HHA, PCA, and caregiver jobs that fit your location, shifts, and pay.'}</p>
+          <h1>{program?'Free job matching for your graduates.':'Caregiver jobs in Maryland'}</h1>
+          <p>{program?`Create one free CareJoys profile and get matched with Maryland care employers hiring graduates from programs like ${program.name}.`:'Find CNA, GNA, HHA, PCA, private-duty and home-care jobs near you. Create one CareJoys profile and get matched with relevant local employers.'}</p>
           <div className="caregiver-proof">
             <div><strong>Free to join</strong><span>No fees or subscription.</span></div>
             <div><strong>One profile</strong><span>Skip repeating the same application.</span></div>
@@ -79,6 +79,7 @@ export function MarylandCaregiverPage(){
 
       <section className="section"><div className="wrap">
         <h2>One profile. Relevant jobs. Your choice.</h2>
+        <p className="meta">New to caregiving? <a className="text-link" href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland →</a></p>
         <div className="jobs">
           <div className="job"><div><h3>Create your profile once</h3><div className="meta">Add your role, ZIP, shifts, pay preference, transportation, and availability.</div></div><div className="meta">01</div></div>
           <div className="job"><div><h3>See better-fit opportunities</h3><div className="meta">CareJoys matches your preferences with participating Maryland care employers.</div></div><div className="meta">02</div></div>
