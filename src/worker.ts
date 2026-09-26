@@ -118,6 +118,11 @@ async function careJoysSitemap(env:Env){
       url:SEO_ORIGIN+"/training-programs/"+encodeURIComponent(row.slug),
       lastmod:row.updated_at||null
     });
+    const jobs=await env.DB.prepare("SELECT id,last_seen_at FROM caregiver_jobs WHERE is_published=1 AND status='current' ORDER BY last_seen_at DESC LIMIT 5000").all<{id:string;last_seen_at?:string|null}>();
+    for(const row of jobs.results||[])if(row.id)entries.push({
+      url:SEO_ORIGIN+"/jobs/"+encodeURIComponent(row.id),
+      lastmod:row.last_seen_at||null
+    });
   }
   const xml=entries.map(entry=>"<url><loc>"+xmlEscape(entry.url)+"</loc>"+(entry.lastmod?"<lastmod>"+xmlEscape(String(entry.lastmod).slice(0,10))+"</lastmod>":"")+"</url>").join("");
   return new Response('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+xml+"</urlset>",{
