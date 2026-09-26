@@ -57,6 +57,10 @@ jobs:
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/candidates.json -w '%{http_code}' https://carejoys.com/api/candidates)" = "401"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/workspace.json -w '%{http_code}' https://carejoys.com/api/workspace)" = "401"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/pipeline.json -w '%{http_code}' https://carejoys.com/api/pipeline)" = "401"
+          echo "CareJoys favicon:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/favicon.png >/dev/null
+          HOME_HEAD=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          echo "$HOME_HEAD" | grep -q '/favicon.png?v=1'
           echo "Legal routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null
