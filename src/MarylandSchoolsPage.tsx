@@ -65,16 +65,12 @@ export function MarylandSchoolsPage(){
   },[organizations,query,provider]);
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver training programs</div>
         <h1><span className="hero-title-line">Maryland CNA/GNA caregiver training programs.</span><span className="hero-title-line">Free graduate placement.</span></h1>
         <p>CareJoys connects graduates from Maryland caregiver training programs with local care employers and tracks outcomes from profile creation through employer interest, interview, and hire.</p>
-        <div className="source-strip school-directory-source">
-          <div className="source-strip-title">Approved training, organized by provider</div>
-          <div className="meta">CNA/GNA is the first credential category. Program records are synchronized from Maryland's approved nursing-assistant training directory, then grouped into parent training organizations while preserving campus and cohort attribution.</div>
-        </div>
       </div></section>
 
       <section className="section"><div className="wrap">
