@@ -29,7 +29,7 @@ export function TrainingOrganizationPage(){
   const programs=data.programs||[];
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/training-programs/maryland">Maryland programs</a><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/training-programs/maryland">Maryland programs</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Caregiver Training Program · {org.credentialCategories||'CNA/GNA'}</div>
@@ -51,7 +51,7 @@ export function TrainingOrganizationPage(){
             <div className="school-directory-program">{p.programType}</div>
             <div className="meta">Maryland Board of Nursing status: {p.currentStatus||'Approved'}</div>
             <div className="school-directory-actions">
-              {p.referralUrl&&<a className="btn secondary" href={p.referralUrl}>Graduate signup</a>}
+              {p.referralUrl&&<a className="btn secondary" href={p.referralUrl}>Find jobs</a>}
               {p.legacyProgramUrl&&<a className="text-link" href={p.legacyProgramUrl}>Program staff / claim ↗</a>}
             </div>
           </article>)}
