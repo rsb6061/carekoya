@@ -52,7 +52,7 @@ function IntakeModal({
 
   const titles = {
     employer: ['Find caregivers', 'Tell us who you need. CareJoys will create the opening, match local caregivers, and email you a secure link to review matches.'],
-    caregiver: ['Join the CareJoys network', 'Create a simple work profile so local care employers can find you when you are looking.'],
+    caregiver: ['Find caregiver jobs', 'Create one profile and get matched with local care employers based on your role, location, shifts, and pay preferences.'],
     school: ['Request program addition', 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.']
   } as const;
 
@@ -123,7 +123,7 @@ function IntakeModal({
           </>}
           <TurnstileField onToken={setTurnstileToken} />
           {status === 'error' && <div className="notice">{message}</div>}
-          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : kind === 'caregiver' ? 'Join CareJoys' : 'Request addition'}</button>
+          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : kind === 'caregiver' ? 'Find jobs' : 'Request addition'}</button>
         </form>
       </>}
     </div>
@@ -227,7 +227,7 @@ export function App() {
               <strong>One profile. Better local opportunities.</strong>
               <span>Tell CareJoys where you work, what shifts you want, and when you are looking. Keep your availability current without rebuilding a resume for every employer.</span>
             </div>
-            <a className="btn" href="/caregiver-jobs/maryland">Find caregiver jobs</a>
+            <a className="btn" href="/caregiver-jobs/maryland">Find jobs</a>
           </div>
         </div>
       </section>
@@ -262,7 +262,7 @@ export function App() {
     </main>
 
     <footer className="footer">
-      <div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
+      <div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
     </footer>
 
     {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
