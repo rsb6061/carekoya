@@ -73,7 +73,11 @@ jobs:
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
           echo "Caregiver training directory:"
-          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland >/dev/null
+          TRAINING_LIVE=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
+          if echo "$TRAINING_LIVE" | grep -q 'Approved training, organized by provider'; then exit 1; fi
+          echo "Caregiver CTA consistency:"
+          HOME_LIVE=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          if echo "$HOME_LIVE" | grep -q 'Join the network'; then exit 1; fi
           echo "SEO discovery routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<urlset'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
