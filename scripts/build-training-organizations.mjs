@@ -20,7 +20,7 @@ const esc=v=>v===null||v===undefined||v===''?'NULL':"'"+String(v).replaceAll("'"
 const idFor=k=>'torg_'+crypto.createHash('sha256').update(k).digest('hex').slice(0,24);
 
 function cleanName(row){
-  let name=clean(row.program_name).replace(/\s+/g,' ');
+  let name=clean(row.program_name).replace(/\s+/g,' ').replace(/,?\s+(?:incorporated|inc\.?|llc|l\.l\.c\.?|corp\.?|corporation)\s*$/i,'').trim();
   const city=clean(row.city);
   if(city){
     const c=city.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&');
