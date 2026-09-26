@@ -165,3 +165,18 @@ a{color:inherit;text-decoration:none}
  .resume-example{grid-template-columns:1fr}
  .section-heading{align-items:flex-start;flex-direction:column}
 }
+
+.profile-photo-step{margin:22px 0 18px;padding:18px;border:1px solid var(--lavender);border-radius:22px;background:rgba(255,255,255,.72);text-align:left}
+.profile-photo-copy strong{display:block;font-size:16px}
+.profile-photo-copy strong span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;margin-left:6px}
+.profile-photo-copy p{margin:6px 0 14px;color:var(--muted);font-size:13px;line-height:1.5}
+.profile-photo-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.profile-photo-preview{width:54px;height:54px;border-radius:50%;overflow:hidden;flex:0 0 54px;border:1px solid var(--lavender);background:#f4f1ff}
+.profile-photo-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.profile-photo-placeholder{width:100%;height:100%;display:grid;place-items:center;font-weight:700;color:var(--blue)}
+.profile-photo-picker{position:relative;overflow:hidden}
+.profile-photo-picker input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.profile-photo-status{font-size:12px;margin-top:10px;color:var(--muted)}
+.caregiver-next-steps{margin-top:18px;padding-top:16px;border-top:1px solid var(--lavender);text-align:left}
+.caregiver-next-steps p{margin:5px 0 12px;color:var(--muted);font-size:13px;line-height:1.5}
+.employer-signin-note{margin-top:12px;font-size:13px;color:var(--muted)}
