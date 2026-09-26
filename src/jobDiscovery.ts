@@ -93,6 +93,14 @@ function normalizeState(value:unknown){
   if(/^maryland$/i.test(s)||/^md$/i.test(s))return 'MD';
   return s.length===2?s.toUpperCase():s;
 }
+function normalizeCity(value:unknown){
+  let s=decodeHtml(clean(value,140)).replace(/\s+/g,' ').replace(/\s*,?\s*(Maryland|MD)\s*$/i,'').trim();
+  if(!s)return '';
+  if(s===s.toUpperCase()||s===s.toLowerCase()){
+    s=s.toLowerCase().replace(/\b[a-z]/g,ch=>ch.toUpperCase());
+  }
+  return s;
+}
 function mdZip(zip:string){
   const n=Number(zip.slice(0,3));
   return /^\d{5}/.test(zip)&&n>=206&&n<=219;
@@ -172,9 +180,9 @@ function payPeriod(raw:unknown){
 }
 function payFromText(text:string){
   const normalized=text.replace(/,/g,' ');
-  const range=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
+  const range=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
   if(range)return {min:Number(range[1]),max:Number(range[2]),period:payPeriod(range[3])};
-  const single=normalized.match(/\$(\d{1,3}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
+  const single=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
   if(single)return {min:Number(single[1]),max:null,period:payPeriod(single[2])};
   return {min:null,max:null,period:''};
 }
@@ -211,9 +219,9 @@ function locationParts(job:any){
   const loc=Array.isArray(job?.jobLocation)?job.jobLocation[0]:job?.jobLocation;
   const address=loc?.address||{};
   return {
-    city:clean(address.addressLocality,120),
+    city:normalizeCity(address.addressLocality),
     state:normalizeState(address.addressRegion),
-    zip:clean(address.postalCode,20)
+    zip:clean(address.postalCode,20).match(/\b\d{5}\b/)?.[0]||''
   };
 }
 function collectJobPostingObjects(value:unknown,out:any[]=[]){
@@ -286,7 +294,7 @@ function locationStringParts(value:string){
   const s=clean(value,300);
   const zip=s.match(/\b(20[6-9]\d{2}|21\d{3})\b/)?.[1]||'';
   const state=/\bMaryland\b/i.test(s)||/\bMD\b/.test(s)?'MD':'';
-  const city=state?clean(s.split(',')[0],120):'';
+  const city=state?normalizeCity(s.split(',')[0]):'';
   return {city,state,zip};
 }
 function downstreamAtsLinks(base:string,html:string){
@@ -296,6 +304,18 @@ function downstreamAtsLinks(base:string,html:string){
   for(const m of html.matchAll(re)){
     try{
       const url=new URL(decodeHtml(m[1]),base).toString();
+      const ats=atsInfo(url);
+      if(!ats||seen.has(url))continue;
+      seen.add(url);
+      out.push({url,provider:ats.provider});
+    }catch{}
+    if(out.length>=8)break;
+  }
+  const rawProviders=/(https?:\\?\/\\?\/[^"'<>\s]+(?:workday|myworkdayjobs|icims|paylocity|greenhouse|lever\.co|ashby|bamboohr|paycom|ultipro|ukg|applytojob|workable)[^"'<>\s]*)/gi;
+  for(const m of html.matchAll(rawProviders)){
+    try{
+      const raw=m[1].replace(/\\\//g,'/');
+      const url=new URL(raw,base).toString();
       const ats=atsInfo(url);
       if(!ats||seen.has(url))continue;
       seen.add(url);
@@ -534,7 +554,7 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   const title=normalizeTitle(input.title);
   const cls=roleClassification(title,input.descriptionText);
   if(!cls)return false;
-  let city=clean(input.city,120);
+  let city=normalizeCity(input.city);
   let state=normalizeState(input.state);
   let zip=clean(input.zip,20).match(/\b\d{5}\b/)?.[0]||'';
   let locationSource=state||zip?'source':'';
@@ -543,7 +563,7 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
     const explicitOther=/\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(input.descriptionText);
     if(!explicitOther){
       state='MD';
-      city=city||clean(org.city,120);
+      city=city||normalizeCity(org.city);
       zip=zip||clean(org.zip,20);
       locationSource='maryland_agency_careers_page';
     }
@@ -710,7 +730,7 @@ export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
     const payUnit=clean(row.pay_period,30)||textPay.period;
     const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
     const fingerprint=await sha256Hex([
-      clean(row.agency_organization_id,100),normalizedTitle,clean(row.city,120).toLowerCase(),normalizeState(row.state),clean(row.zip,20)
+      clean(row.agency_organization_id,100),normalizedTitle,normalizeCity(row.city).toLowerCase(),normalizeState(row.state),clean(row.zip,20)
     ].join('|'));
     await env.DB.prepare('UPDATE caregiver_jobs SET title=?,normalized_title=?,role=?,roles_json=?,employment_type=?,pay_min=?,pay_max=?,pay_period=?,canonical_fingerprint=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
       .bind(title,normalizedTitle,cls.role,JSON.stringify(cls.roles||[cls.role]),employmentType,payMin,payMax,payUnit,fingerprint,row.id).run();
