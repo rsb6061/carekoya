@@ -1,6 +1,7 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
+import { discoverAgencyJobsBatch, getPublicCaregiverJobs } from './jobDiscovery';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -440,7 +441,9 @@ async function handleHealth(env: Env) {
     const referralLinkCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM school_referral_codes WHERE status='active'").first<{count:number}>();
     const schoolOutreachCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_program_outreach WHERE event_type='school_intro'").first<{count:number}>();
     const claimedProgramCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM training_programs WHERE claimed_school_lead_id IS NOT NULL").first<{count:number}>();
-    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, timestamp:new Date().toISOString() });
+    const caregiverJobCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM caregiver_jobs WHERE is_published=1 AND status='current'").first<{count:number}>();
+    const scannedJobSourceCount = await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_job_scan_state WHERE last_scanned_at IS NOT NULL").first<{count:number}>();
+    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
   }
@@ -911,6 +914,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
     let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
     if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
@@ -996,6 +1000,7 @@ export default {
     ctx.waitUntil((async()=>{
       if(event.cron==="17 * * * *"){
         await enrichAgencyBatch(env,30);
+        await discoverAgencyJobsBatch(env,12);
         await scoreAgencyMatches(env);
         return;
       }
