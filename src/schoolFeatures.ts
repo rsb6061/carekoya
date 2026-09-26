@@ -54,6 +54,7 @@ export async function listPublicTrainingPrograms(url:URL,env:FeatureEnv){
     JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
     LEFT JOIN training_organizations torg ON torg.id=tp.organization_id AND torg.is_active=1
     WHERE tp.is_active=1 AND tp.source='maryland_mbon_natp'
+      AND tp.provider_type IN ('Freestanding Program','College','High School')
     ORDER BY tp.provider_type,tp.city,tp.program_name LIMIT 300`).all<Row>()).results||[];
   if(providerType)rows=rows.filter(r=>clean(r.provider_type,120).toLowerCase()===providerType.toLowerCase());
   if(city)rows=rows.filter(r=>clean(r.city,120).toLowerCase()===city.toLowerCase());
