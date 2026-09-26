@@ -29,6 +29,7 @@
       "/resources/*",
       "/caregiver-jobs/*",
       "/caregiver-resume",
+      "/jobs/*",
       "/about",
       "/training-programs/*",
       "/schools/*",
