@@ -3,8 +3,14 @@ import './styles.css';
 
 type Program={
   name:string;providerType:string;city?:string;state?:string;zip?:string;
-  programType?:string;renewalDue?:string;website?:string|null;slug:string;
+  programType?:string;credentialCategory?:string;renewalDue?:string;website?:string|null;slug:string;
+  organizationName?:string;organizationSlug?:string|null;organizationUrl?:string|null;
   referralUrl:string;programUrl:string;
+};
+
+type TrainingOrg={
+  key:string;name:string;providerTypes:string[];credentialCategories:string[];
+  locations:Program[];organizationUrl:string|null;
 };
 
 export function MarylandSchoolsPage(){
@@ -14,7 +20,7 @@ export function MarylandSchoolsPage(){
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    document.title='Maryland CNA & GNA Training Programs | CareJoys';
+    document.title='Maryland Caregiver Training Programs | CareJoys';
     fetch('/api/public/training-programs')
       .then(r=>r.json())
       .then((data:any)=>setPrograms(data.programs||[]))
@@ -22,45 +28,82 @@ export function MarylandSchoolsPage(){
   },[]);
 
   const providers=useMemo(()=>Array.from(new Set(programs.map(p=>p.providerType).filter(Boolean))).sort(),[programs]);
+
+  const organizations=useMemo<TrainingOrg[]>(()=>{
+    const map=new Map<string,TrainingOrg>();
+    for(const p of programs){
+      const key=p.organizationSlug||p.slug;
+      if(!map.has(key))map.set(key,{
+        key,
+        name:p.organizationName||p.name,
+        providerTypes:[],
+        credentialCategories:[],
+        locations:[],
+        organizationUrl:p.organizationUrl||null
+      });
+      const item=map.get(key)!;
+      item.locations.push(p);
+      if(p.providerType&&!item.providerTypes.includes(p.providerType))item.providerTypes.push(p.providerType);
+      const credential=p.credentialCategory||'CNA/GNA';
+      if(!item.credentialCategories.includes(credential))item.credentialCategories.push(credential);
+      if(!item.organizationUrl&&p.organizationUrl)item.organizationUrl=p.organizationUrl;
+    }
+    return Array.from(map.values()).sort((a,b)=>a.name.localeCompare(b.name));
+  },[programs]);
+
   const filtered=useMemo(()=>{
     const q=query.trim().toLowerCase();
-    return programs.filter(p=>(provider==='all'||p.providerType===provider)&&(!q||[p.name,p.city,p.zip,p.programType].join(' ').toLowerCase().includes(q)));
-  },[programs,query,provider]);
+    return organizations.filter(org=>{
+      const providerOk=provider==='all'||org.providerTypes.includes(provider);
+      const text=[
+        org.name,
+        ...org.credentialCategories,
+        ...org.locations.flatMap(p=>[p.name,p.city,p.zip,p.programType])
+      ].filter(Boolean).join(' ').toLowerCase();
+      return providerOk&&(!q||text.includes(q));
+    });
+  },[organizations,query,provider]);
 
   return <div>
     <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">For caregivers</a><a href="/app">For employers</a></nav></div></header>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
-        <div className="modal-kicker">Maryland training programs</div>
-        <h1><span className="hero-title-line">Free graduate placement.</span><span className="hero-title-line">One tracked link per program.</span></h1>
-        <p>CareJoys gives Maryland CNA/GNA and nursing-assistant programs a free graduate referral link and tracks placement outcomes from profile creation through employer interest, interview, and hire.</p>
+        <div className="modal-kicker">Maryland caregiver training programs</div>
+        <h1><span className="hero-title-line">CNA/GNA training.</span><span className="hero-title-line">Free graduate placement.</span></h1>
+        <p>CareJoys connects graduates from Maryland caregiver training programs with local care employers and tracks outcomes from profile creation through employer interest, interview, and hire.</p>
         <div className="source-strip school-directory-source">
-          <div className="source-strip-title">Maryland Board of Nursing directory</div>
-          <div className="meta">Program records are synchronized from the official Maryland approved nursing-assistant training program directory. Program staff can claim their CareJoys page and share the graduate link at no cost.</div>
+          <div className="source-strip-title">Approved training, organized by provider</div>
+          <div className="meta">CNA/GNA is the first credential category. Program records are synchronized from Maryland's approved nursing-assistant training directory, then grouped into parent training organizations while preserving campus and cohort attribution.</div>
         </div>
       </div></section>
 
       <section className="section"><div className="wrap">
-        <div className="section-heading"><h2>Find your program</h2><p>{loading?'Loading approved programs…':filtered.length+' approved training program records'}</p></div>
+        <div className="section-heading"><h2>Find a caregiver training program</h2><p>{loading?'Loading approved programs…':filtered.length+' training organizations · '+programs.length+' active program/location records'}</p></div>
         <div className="school-directory-filters">
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search school, city, ZIP…" />
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search program, city, ZIP…" />
           <select value={provider} onChange={e=>setProvider(e.target.value)}>
             <option value="all">All provider types</option>
             {providers.map(p=><option key={p} value={p}>{p}</option>)}
           </select>
         </div>
         <div className="school-directory-grid">
-          {filtered.map(p=><article className="school-directory-card" key={p.slug}>
-            <div className="modal-kicker">{p.providerType}</div>
-            <h3>{p.name}</h3>
-            <div className="meta">{[p.city,p.state,p.zip].filter(Boolean).join(' · ')}</div>
-            <div className="school-directory-program">{p.programType}</div>
-            {p.renewalDue&&<div className="meta">Renewal due: {p.renewalDue}</div>}
-            <div className="school-directory-actions"><a className="btn secondary" href={p.programUrl}>Program page</a><a className="text-link" href={p.referralUrl}>Graduate signup ↗</a></div>
-          </article>)}
+          {filtered.map(org=>{
+            const cities=Array.from(new Set(org.locations.map(p=>p.city).filter(Boolean))) as string[];
+            const single=org.locations.length===1?org.locations[0]:null;
+            return <article className="school-directory-card" key={org.key}>
+              <div className="modal-kicker">{org.credentialCategories.join(' / ')||'CNA/GNA'}</div>
+              <h3>{org.name}</h3>
+              <div className="meta">{org.providerTypes.join(' · ')}</div>
+              <div className="school-directory-program">{org.locations.length} location{org.locations.length===1?'':'s'}{cities.length?' · '+cities.slice(0,3).join(', ')+(cities.length>3?' +'+(cities.length-3):''):''}</div>
+              <div className="school-directory-actions">
+                <a className="btn secondary" href={org.organizationUrl||single?.programUrl||'#'}>Training program page</a>
+                {single&&<a className="text-link" href={single.referralUrl}>Graduate signup ↗</a>}
+              </div>
+            </article>;
+          })}
         </div>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · Free graduate placement for Maryland training programs · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <footer className="footer"><div className="wrap">CareJoys · Caregiver Training Programs · CNA/GNA graduate placement · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
   </div>;
 }
