@@ -13,6 +13,7 @@ import { TrainingOrganizationPage } from './TrainingOrganizationPage';
 import { EmployerRecruitingPage, AboutCareJoysPage } from './PublicInfoPages';
 import { HowToBecomeCaregiverMarylandPage } from './CaregiverResourcePage';
 import { CaregiverResumePage } from './CaregiverResumePage';
+import { CaregiverJobPage } from './CaregiverJobPage';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -133,6 +134,7 @@ function IntakeModal({
 export function App() {
   if (window.location.pathname.startsWith('/hire-caregivers/maryland')) return <EmployerRecruitingPage />;
   if (window.location.pathname.startsWith('/caregiver-resume')) return <CaregiverResumePage />;
+  if (window.location.pathname.startsWith('/jobs/')) return <CaregiverJobPage />;
   if (window.location.pathname.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
   if (window.location.pathname === '/about' || window.location.pathname.startsWith('/about/')) return <AboutCareJoysPage />;
   if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
