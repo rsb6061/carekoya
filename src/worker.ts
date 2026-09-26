@@ -98,12 +98,6 @@ Disallow: /school-dashboard
 User-agent: *
 Allow: /
 Disallow: /api/
-Disallow: /app
-Disallow: /auth
-Disallow: /activate
-Disallow: /respond
-Disallow: /school-auth
-Disallow: /school-dashboard
 
 Sitemap: https://carejoys.com/sitemap.xml
 `,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
@@ -251,6 +245,15 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         ]}
       });
     }
+  }
+  if(url.pathname==="/privacy-policy"){
+    return seoAsset(request,env,{title:"Privacy Policy | CareJoys",description:"CareJoys privacy policy.",canonical:"/privacy-policy",robots:"noindex,follow"});
+  }
+  if(url.pathname==="/terms-of-service"){
+    return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
+  }
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")){
+    return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
   if(url.pathname.startsWith("/school/")||url.pathname.startsWith("/join/")){
