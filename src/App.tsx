@@ -29,6 +29,9 @@ async function submitJson(path: string, data: Record<string, unknown>) {
     error?: string;
     workspaceId?: string;
     workspaceUrl?: string;
+    matchedOrganizations?: number;
+    matchedOpenings?: number;
+    existing?: boolean;
   };
   if (!response.ok) throw new Error(body.error || 'Something went wrong');
   return body;
@@ -48,7 +51,7 @@ function IntakeModal({
   const [turnstileToken, setTurnstileToken] = useState('');
 
   const titles = {
-    employer: ['Find caregivers', 'Tell us what you are hiring for. CareJoys will match the network and help confirm who is interested. Your first 5 interested caregiver candidates are free during the pilot.'],
+    employer: ['Find caregivers', 'Tell us who you need. CareJoys will create the opening, match local caregivers, and email you a secure link to review matches.'],
     caregiver: ['Join the CareJoys network', 'Create a simple work profile so local care employers can find you when you are looking.'],
     school: ['Partner with CareJoys', 'Help graduates get discovered by local care employers and track placement outcomes.']
   } as const;
@@ -68,7 +71,9 @@ function IntakeModal({
         data
       );
       if (kind === 'employer') {
-        setMessage('Check your email for a secure sign-in link to your CareJoys recruiting workspace.');
+        setMessage('Check your email. Your opening is already created, and the secure link will take you straight to your matches.');
+      } else if (kind === 'caregiver') {
+        setMessage('We found '+Number(result.matchedOrganizations||0)+' relevant care organizations and '+Number(result.matchedOpenings||0)+' current openings based on your profile.');
       }
       setStatus('success');
     } catch (error) {
@@ -83,7 +88,7 @@ function IntakeModal({
       {status === 'success' ? <div className="modal-success">
         <div className="success-mark">✓</div>
         <h2>{kind === 'employer' ? 'Check your email.' : "You're in."}</h2>
-        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.') : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
+        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.') : kind === 'caregiver' ? (message || 'Your profile is in the CareJoys network.') : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
         <button className="btn" onClick={onClose}>Done</button>
       </div> : <>
         <div className="modal-kicker">{kind === 'employer' ? 'For employers' : kind === 'caregiver' ? 'For caregivers' : 'For training programs'}</div>
@@ -94,7 +99,7 @@ function IntakeModal({
             <label>Company name<input name="companyName" required /></label>
             <label>Your name<input name="contactName" required /></label>
             <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
-            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required defaultValue={employerPreset?.zip || ''} /></label><label>Roles needed<input name="rolesNeeded" placeholder="CNA, HHA, caregiver" defaultValue={employerPreset?.role || ''} /></label></div>
+            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required defaultValue={employerPreset?.zip || ''} /></label><label>Role needed<input name="rolesNeeded" placeholder="CNA, HHA, caregiver" defaultValue={employerPreset?.role || ''} required /></label></div>
             <label>What are you hiring for?<textarea name="hiringNotes" rows={4} placeholder="Shift, pay range, number of openings, must-have requirements..." /></label>
           </>}
           {kind === 'caregiver' && <>
@@ -161,8 +166,8 @@ export function App() {
         <a className="brand" href="/">CareJoys</a>
         <nav className="navlinks">
           <a className="hide-sm" href="/about">How it works</a>
-          <a className="hide-sm" href="#caregivers">For caregivers</a>
-          <a className="hide-sm" href="#schools">For training programs</a>
+          <a className="hide-sm" href="/caregiver-jobs/maryland">Caregiver jobs</a>
+          <a className="hide-sm" href="/training-programs/maryland">Training programs</a>
           <a href="/hire-caregivers/maryland">For employers</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>
@@ -220,7 +225,7 @@ export function App() {
               <strong>One profile. Better local opportunities.</strong>
               <span>Tell CareJoys where you work, what shifts you want, and when you are looking. Keep your availability current without rebuilding a resume for every employer.</span>
             </div>
-            <button className="btn" onClick={() => setForm('caregiver')}>Join the network</button>
+            <a className="btn" href="/caregiver-jobs/maryland">Find caregiver jobs</a>
           </div>
         </div>
       </section>
@@ -231,7 +236,7 @@ export function App() {
           <div className="jobs">
             <div className="job">
               <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
-              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><button className="btn secondary" onClick={() => setForm('school')}>Partner with CareJoys</button></div>
+              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><button className="text-button" onClick={() => setForm('school')}>Program not listed? Request addition</button></div>
             </div>
           </div>
         </div>
