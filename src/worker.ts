@@ -1,7 +1,7 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { listPublicTrainingPrograms, publicSchoolProgram, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout, sendSchoolOutreachBatch } from './schoolFeatures';
+import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -439,6 +439,8 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
+    let trainingOrg=url.pathname.match(/^\/api\/public\/training-organization\/([^/]+)$/);
+    if(request.method==="GET"&&trainingOrg) return publicTrainingOrganization(decodeURIComponent(trainingOrg[1]),env);
     let schoolProgram=url.pathname.match(/^\/api\/school\/program\/([^/]+)$/);
     if(request.method==="GET"&&schoolProgram) return publicSchoolProgram(decodeURIComponent(schoolProgram[1]),env);
     if(request.method==="POST"&&url.pathname==="/api/school/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestSchoolAccess(request,env); }
@@ -518,9 +520,7 @@ export default {
         await scoreAgencyMatches(env);
         return;
       }
-      if(event.cron==="41 15 * * *"){
-        await sendSchoolOutreachBatch(env,3);
-      }
+      // School outreach is intentionally manual-only. No scheduled email sends.
     })());
   }
 };
