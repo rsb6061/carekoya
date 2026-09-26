@@ -16,12 +16,12 @@ type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]
 type Candidate={
   id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
   certifications?:string;specialties?:string;yearsExperience?:number;desiredWage?:string;
-  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;
+  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;
 };
 type PipelineRow={
   id:string;opening_id:string;title:string;opening_role:string;caregiver_id:string;
   name:string;city?:string;state?:string;role?:string;certifications?:string;
-  match_score?:number;match_reason?:string;stage:string;freshness?:string;interview_at?:string;
+  match_score?:number;match_reason?:string;stage:string;freshness?:string;interview_at?:string;profilePhotoUrl?:string;
 };
 type SessionEmployer={id:string;companyName:string;contactName:string;email:string;zip?:string};
 
@@ -318,7 +318,7 @@ export function EmployerWorkspace(){
         {visiblePipeline.length===0?<div className="empty"><strong>No matched caregivers yet.</strong><div>CareJoys will keep scoring the network as caregiver availability changes.</div></div>:
         <div className="job-list">{visiblePipeline.map((row,i)=><article className={'job-card '+cardTone(i)} key={row.id}>
           <div className="job-card-main">
-            <div className="job-card-title-row"><h3>{row.name}</h3></div>
+            <div className="job-card-title-row"><div className="candidate-name-row">{row.profilePhotoUrl?<img className="candidate-avatar" src={row.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{row.name?.slice(0,1)||'?'}</span>}<h3>{row.name}</h3></div></div>
             <div className="job-meta">{[row.role,row.city,row.state].filter(Boolean).join(' · ')}</div>
             <div className="job-badges"><span className="badge">{row.match_score||0}% match</span><span className="status">{row.title}</span><span className="status">{row.freshness}</span>{row.interview_at&&<span className="status applied">{new Date(row.interview_at).toLocaleString()}</span>}</div>
           </div>
@@ -342,7 +342,7 @@ export function EmployerWorkspace(){
         </form>
         {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Confirmed candidates rank higher in matching.</div></div>:
         <div className="job-list">{candidates.map((candidate,i)=><article className={'job-card '+cardTone(i)} key={candidate.id}>
-          <div className="job-card-main"><h3>{candidate.name}</h3><div className="job-meta">{[candidate.role,candidate.city,candidate.state].filter(Boolean).join(' · ')}</div>
+          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state].filter(Boolean).join(' · ')}</div>
           <div className="job-badges"><span className={candidate.workStatus==='actively_looking'?'status applied':'status'}>{candidate.freshness}</span>{candidate.shifts&&<span className="badge">{candidate.shifts}</span>}{candidate.desiredWage&&<span className="badge">{candidate.desiredWage}</span>}</div>
           {candidate.certifications&&<div className="job-card-cue">{candidate.certifications}</div>}</div>
         </article>)}</div>}
