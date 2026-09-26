@@ -449,21 +449,43 @@ async function handleEmployer(request: Request, env: Env) {
   if (rejectBot(data)) return json({ok:true},{status:201});
   const guard=await publicFormGuard(request,env,"employer_signup",data,8,60);
   if(guard) return guard;
-  const error=requireFields(data,["companyName","contactName","email","zip"]);
+  const error=requireFields(data,["companyName","contactName","email","zip","rolesNeeded"]);
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
+  const zip=clean(data!.zip,20);
+  const rolesNeeded=clean(data!.rolesNeeded,500);
+  const hiringNotes=clean(data!.hiringNotes,1500);
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   const id=existing?.id||crypto.randomUUID();
   if(existing){
     await env.DB.prepare("UPDATE employer_leads SET company_name=?,contact_name=?,phone=?,zip=?,roles_needed=?,hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(clean(data!.companyName,200),clean(data!.contactName,200),clean(data!.phone,40),clean(data!.zip,20),clean(data!.rolesNeeded,500),clean(data!.hiringNotes,1500),id).run();
+      .bind(clean(data!.companyName,200),clean(data!.contactName,200),clean(data!.phone,40),zip,rolesNeeded,hiringNotes,id).run();
   }else{
     await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
-      .bind(id,clean(data!.companyName,200),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.zip,20),clean(data!.rolesNeeded,500),clean(data!.hiringNotes,1500)).run();
+      .bind(id,clean(data!.companyName,200),clean(data!.contactName,200),email,clean(data!.phone,40),zip,rolesNeeded,hiringNotes).run();
   }
-  await sendEmployerMagicLink(env,id);
-  return json({ok:true,checkEmail:true,email},{status:201});
+
+  const primaryRole=(rolesNeeded.split(/[,/;|]+/).map(v=>v.trim()).find(Boolean)||"Caregiver").slice(0,80);
+  const inferredState=/^2(?:0[6-9]|1\d)/.test(zip)?"MD":"";
+  let opening=await env.DB.prepare(`SELECT id FROM openings
+    WHERE employer_id=? AND source='employer_intake' AND role=? AND zip=? AND status='open'
+      AND datetime(created_at)>datetime('now','-30 minutes')
+    ORDER BY created_at DESC LIMIT 1`).bind(id,primaryRole,zip).first<{id:string}>();
+  const openingId=opening?.id||crypto.randomUUID();
+  if(opening){
+    await env.DB.prepare("UPDATE openings SET title=?,state=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(primaryRole+" opening",inferredState,hiringNotes,openingId).run();
+  }else{
+    await env.DB.prepare(`INSERT INTO openings
+      (id,employer_id,title,role,state,zip,requirements,status,source)
+      VALUES (?,?,?,?,?,?,?,'open','employer_intake')`)
+      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredState,zip,hiringNotes).run();
+  }
+
+  const redirectPath="/app?opening="+encodeURIComponent(openingId)+"&match=1";
+  await sendEmployerMagicLink(env,id,redirectPath);
+  return json({ok:true,checkEmail:true,email,openingId},{status:201});
 }
 async function getPublicTrainingProgram(slug:string,env:Env){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
@@ -634,7 +656,9 @@ async function searchCandidates(url: URL, env: Env) {
 async function getWorkspace(id:string, env:Env) {
   const workspace=await requireWorkspace(env,id);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
-  const openings=await env.DB!.prepare("SELECT * FROM openings WHERE employer_id=? ORDER BY created_at DESC").bind(id).all();
+  const openings=await env.DB!.prepare(`SELECT o.*,
+    (SELECT COUNT(*) FROM interview_slots s WHERE s.opening_id=o.id AND s.status='available' AND datetime(s.starts_at)>datetime('now')) AS available_interview_slots
+    FROM openings o WHERE o.employer_id=? ORDER BY o.created_at DESC`).bind(id).all();
   const pipelineCount=await env.DB!.prepare("SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=?").bind(id).first<{count:number}>();
   return json({ok:true,workspace,openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
 }
