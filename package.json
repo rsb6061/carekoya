@@ -16,7 +16,9 @@
     "typescript": "^5.9.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "lucide-react": "^0.544.0"
+    "lucide-react": "^0.544.0",
+    "mammoth": "^1.10.0",
+    "pdfjs-dist": "^5.4.149"
   },
   "devDependencies": {
     "@types/react": "^19.1.16",
