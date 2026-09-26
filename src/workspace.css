@@ -98,3 +98,6 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .candidate-name-row h3{margin:0}
 .candidate-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;display:block;border:1px solid rgba(32,24,80,.12);background:#fff}
 .candidate-avatar-empty{display:grid;place-items:center;background:#eeeaff;color:#4c43c9;font-weight:700}
+
+.caregiver-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;border:1px solid var(--lavender);background:#f4f1ff;flex:0 0 42px}
+.job-card-title-row{display:flex;align-items:center;gap:10px}
