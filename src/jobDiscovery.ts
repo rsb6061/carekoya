@@ -539,10 +539,15 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
     payMin:null,payMax:null,descriptionText:text.slice(0,8000),classifierReason:cls.reason+(state==='MD'?' + Maryland location':' + Maryland agency fallback'),
     confidence:Math.max(0,cls.confidence+locationPenalty),datePosted:'',validThrough:''} as DiscoveredJob;
 }
-function isPublishableMarylandJob(job:DiscoveredJob){
+function publicationDecision(job:DiscoveredJob){
   const explicit=normalizeState(job.state)==='MD'||mdZip(job.zip);
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
-  return notExpired&&explicit&&job.confidence>=88&&!!job.sourceUrl&&!!job.title;
+  if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
+  if(!notExpired)return {publish:false,reason:'expired'};
+  if(job.confidence<88)return {publish:false,reason:'low_confidence'};
+  if(!TARGET_ROLES.has(job.role))return {publish:false,reason:'non_target_role'};
+  if(!explicit)return {publish:false,reason:'missing_maryland_evidence'};
+  return {publish:true,reason:'explicit_maryland_location'};
 }
 async function dedupeKeyForJob(orgId:string,job:DiscoveredJob){
   const sourceIdentity=job.sourceJobId||(job.sourceUrl+'|'+normalizeTitle(job.title));
@@ -578,13 +583,14 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   const fingerprint=await sha256Hex([clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip].join('|'));
   const normalizedJob:DiscoveredJob={...input,title,role:cls.role,city,state,zip,employmentType,payMin,payMax,payPeriod:payUnit,classifierReason:cls.reason,roles,normalizedTitle};
   const key=await dedupeKeyForJob(clean(org.id,100),normalizedJob);
-  const publish=isPublishableMarylandJob(normalizedJob)?1:0;
+  const decision=publicationDecision(normalizedJob);
+  const publish=decision.publish?1:0;
   const id='job_'+key.slice(0,28);
-  const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=excluded.is_published,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
+  const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,publication_reason,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=excluded.is_published,publication_reason=excluded.publication_reason,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
   await env.DB.prepare(sql).bind(
     id,org.id,key,normalizedJob.sourceProvider,normalizedJob.sourceJobId||null,normalizedJob.sourceUrl,normalizedJob.sourceListingUrl,
     title,normalizedTitle,cls.role,JSON.stringify(roles),clean(org.canonical_name,220),city,state,zip,locationSource,employmentType,
-    payMin,payMax,payUnit,input.descriptionText,cls.reason,input.confidence,input.datePosted||null,input.validThrough||null,fingerprint,publish
+    payMin,payMax,payUnit,input.descriptionText,cls.reason,input.confidence,input.datePosted||null,input.validThrough||null,fingerprint,publish,decision.reason
   ).run();
   return publish===1;
 }
@@ -618,6 +624,10 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   if(!env.DB)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'none',status:'no_db'};
   let listing=clean(org.primary_careers_url,1000);
   if(!listing||badCareerUrl(listing))listing=clean(org.primary_website,1000);
+  if(!listing){
+    const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'');
+    if(domain&&!/@/.test(domain))listing='https://'+domain+'/';
+  }
   if(!listing)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'none',status:'no_valid_source'};
 
   const direct=atsInfo(listing);
@@ -638,6 +648,10 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   }else{
     const page=await fetchText(listing,8500);
     if(!page)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'generic',status:'fetch_failed'};
+    if(!clean(org.primary_website,1000)&&sameOrgDomain(page.url,{...org,primary_website:page.url})){
+      await env.DB.prepare('UPDATE agency_organizations SET primary_website=COALESCE(NULLIF(primary_website,""),?),website_source=CASE WHEN website_source IS NULL OR website_source="" THEN "job_discovery" ELSE website_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(page.url,org.id).run();
+      org.primary_website=page.url;
+    }
     jobs.push(...parseJsonLdJobs(page.text,page.url));
     if(jobs.length)providers.add('jsonld');
     jobs.push(...headingJobsFromCareersPage(page.url,page.text,org));
@@ -664,6 +678,10 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
 
     if(jobs.length===0){
       for(const careersUrl of careerPageLinks(page.url,page.text).slice(0,3)){
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(careersUrl,org.id).run();
+          org.primary_careers_url=careersUrl;
+        }
         const nestedAts=atsInfo(careersUrl);
         if(nestedAts){
           providers.add(nestedAts.provider);
@@ -742,7 +760,7 @@ export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
 
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare('SELECT ao.id,ao.canonical_name,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at FROM agency_organizations ao LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id WHERE ao.is_active=1 AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="") OR ao.current_hiring_signal="hiring_detected") AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime("now","-24 hours")) ORDER BY CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%greenhouse%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%lever.co%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,"") ASC,ao.caregiver_relevance_score DESC LIMIT ?').bind(limit).all<Row>();
+  const rows=await env.DB.prepare('SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at FROM agency_organizations ao LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id WHERE ao.is_active=1 AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="") OR (ao.primary_website IS NOT NULL AND ao.primary_website!="") OR (ao.primary_domain IS NOT NULL AND ao.primary_domain!="")) AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime("now","-24 hours")) ORDER BY CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%greenhouse%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%lever.co%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,CASE WHEN ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="" THEN 0 ELSE 1 END,CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,"") ASC,ao.caregiver_relevance_score DESC LIMIT ?').bind(limit).all<Row>();
   let seen=0,published=0,rejected=0;
   for(const org of rows.results||[]){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
