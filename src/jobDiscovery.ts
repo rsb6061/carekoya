@@ -600,7 +600,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
 }
 
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
-  if(!env.DB)return {processed:0,seen:0,published:0};
+  if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,
       ao.current_hiring_signal,scan.last_scanned_at
     FROM agency_organizations ao
@@ -611,20 +611,25 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
     ORDER BY CASE WHEN ao.current_hiring_signal='hiring_detected' THEN 0 ELSE 1 END,
       CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,'') ASC,ao.caregiver_relevance_score DESC
     LIMIT ?`).bind(limit).all<Row>();
-  let seen=0,published=0;
+  let seen=0,published=0,rejected=0;
   for(const org of rows.results||[]){
-    let result:{seen:number;published:number;provider:string;status:string};
+    let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
     try{result=await discoverJobsForOrg(env,org)}
-    catch(error){result={seen:0,published:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
-    seen+=result.seen;published+=result.published;
-    await env.DB.prepare(`INSERT INTO agency_job_scan_state(organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,last_scanned_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-      ON CONFLICT(organization_id) DO UPDATE SET source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,
-        last_status=excluded.last_status,last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,
+    catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
+    seen+=result.seen;published+=result.published;rejected+=result.rejected;
+    await env.DB.prepare(`INSERT INTO agency_job_scan_state
+      (organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,job_links_seen,jobs_rejected,last_scanned_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+      ON CONFLICT(organization_id) DO UPDATE SET
+        source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,last_status=excluded.last_status,
+        last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,
+        job_links_seen=excluded.job_links_seen,jobs_rejected=excluded.jobs_rejected,
         last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`)
-      .bind(org.id,result.provider,clean(org.primary_careers_url,1000),result.status,result.status==='ok'?null:result.status,result.seen,result.published).run();
+      .bind(org.id,result.provider,clean(org.primary_careers_url,1000),result.status,
+        result.status==='fetch_failed'||result.provider==='error'?result.status:null,
+        result.seen,result.published,result.jobLinksSeen,result.rejected).run();
   }
-  return {processed:(rows.results||[]).length,seen,published};
+  return {processed:(rows.results||[]).length,seen,published,rejected};
 }
 
 export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
@@ -632,17 +637,19 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   const role=clean(url.searchParams.get('role'),80);
   const city=clean(url.searchParams.get('city'),120);
   const limit=Math.max(1,Math.min(100,asNum(url.searchParams.get('limit'))||50));
-  let sql=`SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,source_url,date_posted,first_seen_at,last_seen_at
+  let sql=`SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,source_url,date_posted,first_seen_at,last_seen_at
     FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state='MD'`;
   const args:unknown[]=[];
-  if(role){sql+=' AND lower(role)=lower(?)';args.push(role)}
+  if(role){sql+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,\'\')) LIKE lower(?))';args.push(role,'%\"'+role+'\"%')}
   if(city){sql+=' AND lower(city)=lower(?)';args.push(city)}
   sql+=" ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ?";
   args.push(limit);
   const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
   return json({ok:true,jobs:(rows.results||[]).map(r=>({
-    id:r.id,title:decodeHtml(clean(r.title,220)),role:r.role,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
-    employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,sourceUrl:r.source_url,
+    id:r.id,title:normalizeTitle(r.title),role:r.role,
+    roles:(()=>{try{return JSON.parse(clean(r.roles_json,1000)||'[]')}catch{return [r.role].filter(Boolean)}})(),
+    employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
+    employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
     datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
   }))});
 }
@@ -650,15 +657,17 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
 
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,
+  const row=await env.DB.prepare(`SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,
       description_text,source_url,source_listing_url,date_posted,first_seen_at,last_seen_at,last_checked_at
     FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1`)
     .bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
+  let roles:string[]=[];
+  try{roles=JSON.parse(clean(row.roles_json,1000)||'[]')}catch{roles=[clean(row.role,80)].filter(Boolean)}
   return json({ok:true,job:{
-    id:row.id,title:decodeHtml(clean(row.title,220)),role:row.role,employerName:row.employer_name,
+    id:row.id,title:normalizeTitle(row.title),role:row.role,roles,employerName:row.employer_name,
     city:row.city,state:row.state,zip:row.zip,employmentType:row.employment_type,
-    payMin:row.pay_min,payMax:row.pay_max,description:decodeHtml(clean(row.description_text,8000)),
+    payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:decodeHtml(clean(row.description_text,8000)),
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
     firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at
   }});
