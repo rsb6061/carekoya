@@ -292,7 +292,7 @@ function locationStringParts(value:string){
 function downstreamAtsLinks(base:string,html:string){
   const out:{url:string;provider:string}[]=[];
   const seen=new Set<string>();
-  const re=/\b(?:href|src|action)=["']([^"']+)["']/gi;
+  const re=/\b(?:href|src|action|data-src|data-url)=["']([^"']+)["']/gi;
   for(const m of html.matchAll(re)){
     try{
       const url=new URL(decodeHtml(m[1]),base).toString();
@@ -694,6 +694,32 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   const status=published>0?'published':unique.size>0?'candidates_rejected':jobLinksSeen>0?'job_links_no_relevant_roles':'no_job_board_found';
   return {seen:unique.size,published,rejected,jobLinksSeen,provider,status};
 }
+export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
+  if(!env.DB)return {processed:0};
+  const rows=await env.DB.prepare('SELECT id,agency_organization_id,title,role,roles_json,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text FROM caregiver_jobs WHERE (normalized_title IS NULL OR roles_json IS NULL) AND status IN ("current","duplicate") ORDER BY updated_at DESC LIMIT ?').bind(limit).all<Row>();
+  const orgs=new Set<string>();
+  for(const row of rows.results||[]){
+    const title=normalizeTitle(row.title);
+    const description=clean(row.description_text,8000);
+    const cls=roleClassification(title,description);
+    if(!cls)continue;
+    const employmentType=normalizeEmploymentType(clean(row.employment_type,200),title,description);
+    const textPay=payFromText(description);
+    const payMin=row.pay_min==null?textPay.min:Number(row.pay_min);
+    const payMax=row.pay_max==null?textPay.max:Number(row.pay_max);
+    const payUnit=clean(row.pay_period,30)||textPay.period;
+    const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const fingerprint=await sha256Hex([
+      clean(row.agency_organization_id,100),normalizedTitle,clean(row.city,120).toLowerCase(),normalizeState(row.state),clean(row.zip,20)
+    ].join('|'));
+    await env.DB.prepare('UPDATE caregiver_jobs SET title=?,normalized_title=?,role=?,roles_json=?,employment_type=?,pay_min=?,pay_max=?,pay_period=?,canonical_fingerprint=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      .bind(title,normalizedTitle,cls.role,JSON.stringify(cls.roles||[cls.role]),employmentType,payMin,payMax,payUnit,fingerprint,row.id).run();
+    orgs.add(clean(row.agency_organization_id,100));
+  }
+  for(const orgId of orgs)if(orgId)await reconcileOrgDuplicates(env,orgId);
+  return {processed:(rows.results||[]).length};
+}
+
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
   const rows=await env.DB.prepare('SELECT ao.id,ao.canonical_name,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at FROM agency_organizations ao LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id WHERE ao.is_active=1 AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="") OR ao.current_hiring_signal="hiring_detected") AND (scan.last_scanned_at IS NULL OR datetime(scan.last_scanned_at)<datetime("now","-24 hours")) ORDER BY CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,"") ASC,ao.caregiver_relevance_score DESC LIMIT ?').bind(limit).all<Row>();
