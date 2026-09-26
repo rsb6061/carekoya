@@ -54,11 +54,6 @@ export function MarylandCaregiverPage(){
           <p>{program
             ?'Upload your resume once. CareJoys builds your caregiver profile and matches you with Maryland care employers.'
             :'Upload your resume once. CareJoys matches you with caregiver jobs and employers near you.'}</p>
-          <div className="caregiver-proof">
-            <div><strong>One resume</strong><span>We build your profile automatically.</span></div>
-            <div><strong>Better matches</strong><span>Matched by role, location, shifts and pay.</span></div>
-            <div><strong>Your choice</strong><span>You decide which opportunities move forward.</span></div>
-          </div>
         </div>
 
         <div className="campaign-form-card" id="caregiver-profile">
