@@ -65,6 +65,11 @@ for(const row of rows){
 }
 
 const usedSlugs=new Map();
+const legacySlugRenames=new Map([
+  ['it-works-learning-center-inc','it-works-learning-center'],
+  ['care-xpert-academy-llc','care-xpert-academy'],
+  ['dominion-academy-inc','dominion-academy']
+]);
 const statements=["UPDATE training_organizations SET is_active=0,updated_at=CURRENT_TIMESTAMP;"];
 for(const g of groups.values()){
   const rs=g.rows;
@@ -75,6 +80,7 @@ for(const g of groups.values()){
   const types=[...new Set(rs.map(r=>clean(r.provider_type)).filter(Boolean))].sort();
   const credentials=[...new Set(rs.map(credentialFor).filter(Boolean))].sort();
   let slug=existingByKey.get(g.key)||slugify(canonical);
+  slug=legacySlugRenames.get(slug)||slug;
   const existingOwner=existingSlugKey.get(slug);
   if((existingOwner&&existingOwner!==g.key)||(usedSlugs.has(slug)&&usedSlugs.get(slug)!==g.key)) slug=(slug+'-'+crypto.createHash('sha1').update(g.key).digest('hex').slice(0,6)).slice(0,90);
   usedSlugs.set(slug,g.key);
