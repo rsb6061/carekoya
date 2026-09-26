@@ -764,7 +764,7 @@ async function searchCandidates(url: URL, env: Env) {
     city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:c.certifications,specialties:c.specialties,languages:c.languages,
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
-    workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source
+    workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url
   }))});
 }
 async function getWorkspace(id:string, env:Env) {
@@ -810,7 +810,7 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
   const rows=await env.DB!.prepare(sql).bind(...args).all<Record<string,unknown>>();
-  return json({ok:true,pipeline:(rows.results||[]).map(r=>({...r,name:publicName(r.first_name,r.last_name,r.display_name),freshness:freshnessLabel(r.work_status,r.last_confirmed_at),first_name:undefined,last_name:undefined,display_name:undefined}))});
+  return json({ok:true,pipeline:(rows.results||[]).map(r=>({...r,name:publicName(r.first_name,r.last_name,r.display_name),freshness:freshnessLabel(r.work_status,r.last_confirmed_at),profilePhotoUrl:r.profile_photo_url,first_name:undefined,last_name:undefined,display_name:undefined,profile_photo_url:undefined}))});
 }
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
