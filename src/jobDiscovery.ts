@@ -236,10 +236,11 @@ function workdayEndpoint(listingUrl:string){
   try{
     const u=new URL(listingUrl);
     const host=u.hostname;
-    const first=u.pathname.split('/').filter(Boolean)[0]||'';
-    const tenant=host.split('.')[0].replace(/\.wd\d*$/i,'');
-    if(!first||!tenant)return null;
-    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(first)+'/jobs',host};
+    const parts=u.pathname.split('/').filter(Boolean);
+    const tenant=host.split('.')[0];
+    const site=parts.find(part=>!/^([a-z]{2}-[A-Z]{2}|[a-z]{2})$/.test(part))||'';
+    if(!site||!tenant)return null;
+    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(site)+'/jobs',host};
   }catch{return null}
 }
 async function workdayJobs(listingUrl:string){
