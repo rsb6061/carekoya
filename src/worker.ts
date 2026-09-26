@@ -1,7 +1,7 @@
 import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { discoverAgencyJobsBatch, getPublicCaregiverJobs } from './jobDiscovery';
+import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob } from './jobDiscovery';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -760,7 +760,7 @@ async function handleCaregiverResume(request:Request,env:Env){
   const smsAt=smsConsent?new Date().toISOString():null;
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?,?,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
         shifts,desiredWage,transportation,travel||null,smsConsent,smsAt,authIdentity?.sub||null,authIdentity?.emailVerified?1:0).run();
   }
@@ -832,6 +832,25 @@ async function handleCaregiverResume(request:Request,env:Env){
     authenticated:!!authIdentity,
     targetJob:targetJob?{id:targetJob.id,title:targetJob.title,employerName:targetJob.employer_name,applicationUrl:targetJob.source_url}:null
   },{status:existedBefore?200:201});
+}
+
+async function handlePublicJobApply(request:Request,env:Env,jobId:string){
+  if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+  const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+  const data=await readJson(request);
+  const job=await env.DB.prepare("SELECT id,source_url FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1")
+    .bind(jobId).first<Record<string,unknown>>();
+  if(!job)return json({ok:false,error:"Job not found"},{status:404});
+  const identity=await caregiverAuthIdentity(request,env);
+  let caregiverId=clean(data?.caregiverId,120);
+  if(identity?.sub){
+    const row=await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? OR lower(trim(email))=? ORDER BY CASE WHEN auth0_sub=? THEN 0 ELSE 1 END LIMIT 1")
+      .bind(identity.sub,identity.email,identity.sub).first<{id:string}>();
+    caregiverId=row?.id||caregiverId;
+  }
+  await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,'external_redirect_clicked')")
+    .bind(crypto.randomUUID(),jobId,caregiverId||null).run();
+  return json({ok:true,applicationUrl:clean(job.source_url,1000)});
 }
 
 async function handleSchool(request: Request, env: Env) {
@@ -1015,6 +1034,10 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
+    let publicJob=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)$/);
+    if(request.method==="GET"&&publicJob) return getPublicCaregiverJob(decodeURIComponent(publicJob[1]),env);
+    let publicJobApply=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/apply$/);
+    if(request.method==="POST"&&publicJobApply) return handlePublicJobApply(request,env,decodeURIComponent(publicJobApply[1]));
     let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
     if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
