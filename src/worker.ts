@@ -722,19 +722,29 @@ async function handleCaregiverResume(request:Request,env:Env){
   if(!env.DB)return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
   if(rejectBot(data))return json({ok:true},{status:201});
+  const authIdentity=await caregiverAuthIdentity(request,env);
+  if(env.AUTH0_DOMAIN&&env.AUTH0_CLIENT_ID&&!authIdentity){
+    return json({ok:false,error:"Sign in to save your CareJoys profile"},{status:401});
+  }
   const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60);
   if(guard)return guard;
   const error=requireFields(data,["firstName","lastName","email","phone","zip","state","role"]);
   if(error)return json({ok:false,error},{status:400});
-  const email=clean(data!.email,320).toLowerCase();
+
+  const email=(authIdentity?.email||clean(data!.email,320)).toLowerCase();
   if(!emailLooksValid(email))return json({ok:false,error:"Enter a valid email address"},{status:400});
   const state=clean(data!.state,2).toUpperCase();
   if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
   const zip=clean(data!.zip,10);
   if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a valid 5-digit ZIP code"},{status:400});
 
-  const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const authExisting=authIdentity?.sub
+    ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? LIMIT 1").bind(authIdentity.sub).first<{id:string}>()
+    :null;
+  const emailExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+  const initiallyExisting=authExisting||emailExisting;
   const proposedId=initiallyExisting?.id||crypto.randomUUID();
+
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
   const role=clean(data!.role,80)||"Caregiver";
@@ -750,26 +760,39 @@ async function handleCaregiverResume(request:Request,env:Env){
   const smsAt=smsConsent?new Date().toISOString():null;
 
   if(!initiallyExisting){
-    await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
-      (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,
-       shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)`)
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?,?,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt).run();
+        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt,authIdentity?.sub||null,authIdentity?.emailVerified?1:0).run();
   }
-  const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
+
+  const canonical=authIdentity?.sub
+    ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? OR lower(trim(email))=? ORDER BY CASE WHEN auth0_sub=? THEN 0 ELSE 1 END LIMIT 1")
+      .bind(authIdentity.sub,email,authIdentity.sub).first<{id:string}>()
+    :await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
-  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,
-    years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',
-    last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
-    sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
-    source_detail='caregiver_resume',is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,id).run();
+
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
+      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,authIdentity?.sub||null,authIdentity?.emailVerified?1:0,id).run();
+
+  const referralSlug=clean(data!.referralSlug,120);
+  if(referralSlug){
+    let referral=await env.DB.prepare("SELECT src.id AS referral_id,src.training_program_id,NULL AS cohort_id FROM school_referral_codes src WHERE src.slug=? AND src.status='active' LIMIT 1")
+      .bind(referralSlug).first<{referral_id:string;training_program_id:string;cohort_id:string|null}>();
+    if(!referral){
+      referral=await env.DB.prepare("SELECT src.id AS referral_id,co.training_program_id,co.id AS cohort_id FROM training_program_cohorts co LEFT JOIN school_referral_codes src ON src.training_program_id=co.training_program_id AND src.status='active' WHERE co.referral_code=? AND co.status='active' ORDER BY src.created_at LIMIT 1")
+        .bind(referralSlug).first<{referral_id:string;training_program_id:string;cohort_id:string|null}>();
+    }
+    if(referral?.referral_id){
+      await env.DB.prepare("INSERT OR IGNORE INTO caregiver_referrals(id,caregiver_id,school_referral_code_id,source) VALUES (?,?,?,'school_referral')")
+        .bind(crypto.randomUUID(),id,referral.referral_id).run();
+      await env.DB.prepare("UPDATE caregivers SET source_training_program_id=?,source_training_cohort_id=?,source_referral_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(referral.training_program_id,referral.cohort_id||null,referralSlug,id).run();
+    }
+  }
 
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
-
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
   let openingMatches=0;
   if(caregiver){
@@ -777,26 +800,38 @@ async function handleCaregiverResume(request:Request,env:Env){
     for(const opening of openings.results||[]){
       const scored=scoreCandidate(opening,caregiver);
       if(scored.score<=0)continue;
-      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
-        VALUES (?,?,?,'matched',?,?,'resume_match')
-        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
-          match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP`)
+      await env.DB.prepare("INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?,'resume_match') ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP")
         .bind(crypto.randomUUID(),opening.id,id,JSON.stringify(scored.reasons),scored.score).run();
       openingMatches++;
     }
   }
 
-  await env.DB.prepare(`INSERT INTO caregiver_resume_imports
-    (id,caregiver_id,source_filename,source_mime_type,source_file_size,parser_version,detected_role,detected_certifications,detected_specialties,detected_email,detected_phone)
-    VALUES (?,?,?,?,?,'carejoys_resume_v1',?,?,?,?,?)`)
+  await env.DB.prepare("INSERT INTO caregiver_resume_imports (id,caregiver_id,source_filename,source_mime_type,source_file_size,parser_version,detected_role,detected_certifications,detected_specialties,detected_email,detected_phone) VALUES (?,?,?,?,?,'carejoys_resume_v2',?,?,?,?,?)")
     .bind(crypto.randomUUID(),id,clean(data!.sourceFilename,240),clean(data!.sourceMimeType,120),Number(data!.sourceFileSize||0)||null,
       role,certifications,specialties,email?1:0,clean(data!.phone,40)?1:0).run();
+
+  let targetJob:null|Record<string,unknown>=null;
+  const targetJobId=clean(data!.targetJobId,120);
+  if(targetJobId){
+    targetJob=await env.DB.prepare("SELECT id,title,employer_name,source_url FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1")
+      .bind(targetJobId).first<Record<string,unknown>>();
+    if(targetJob){
+      await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,'profile_completed')")
+        .bind(crypto.randomUUID(),targetJobId,id).run();
+    }
+  }
 
   const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
     .bind(id).first<{count:number}>();
   const marylandMatching=state==="MD"||(Number(zip.slice(0,3))>=206&&Number(zip.slice(0,3))<=219);
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
-  return json({ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,marylandMatching,existing:existedBefore,profilePhotoToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null},{status:existedBefore?200:201});
+
+  return json({
+    ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,
+    marylandMatching,existing:existedBefore,profilePhotoToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null,
+    authenticated:!!authIdentity,
+    targetJob:targetJob?{id:targetJob.id,title:targetJob.title,employerName:targetJob.employer_name,applicationUrl:targetJob.source_url}:null
+  },{status:existedBefore?200:201});
 }
 
 async function handleSchool(request: Request, env: Env) {
