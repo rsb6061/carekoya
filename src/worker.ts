@@ -91,6 +91,10 @@ function json(body: unknown, init: ResponseInit = {}) {
 
 const SEO_ORIGIN="https://carejoys.com";
 const htmlEscape=(value:unknown)=>String(value??"").replace(/[&<>"']/g,(ch)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]||ch));
+const htmlEntityDecode=(value:unknown)=>String(value??"")
+  .replace(/&#x([0-9a-f]+);/gi,(_,hex)=>String.fromCodePoint(parseInt(hex,16)))
+  .replace(/&#(\d+);/g,(_,num)=>String.fromCodePoint(parseInt(num,10)))
+  .replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&nbsp;/g," ");
 const xmlEscape=(value:unknown)=>htmlEscape(value);
 
 async function careJoysSitemap(env:Env){
@@ -256,8 +260,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT 20`).all<Record<string,unknown>>();
       currentJobsHtml=(currentJobs.results||[]).map((job,index)=>{
         const label=[job.employer_name,[job.city,job.state].filter(Boolean).join(", ")||job.zip].filter(Boolean).join(" · ");
-        itemList.push({"@type":"ListItem","position":index+1,"name":String(job.title||"Caregiver job"),"url":String(job.source_url||"")});
-        return '<li><a href="'+htmlEscape(job.source_url)+'">'+htmlEscape(job.title)+'</a> — '+htmlEscape(label)+' · '+htmlEscape(job.role)+'</li>';
+        const internalUrl=SEO_ORIGIN+"/jobs/"+encodeURIComponent(String(job.id||""));
+        const title=htmlEntityDecode(job.title||"Caregiver job");
+        itemList.push({"@type":"ListItem","position":index+1,"name":title,"url":internalUrl});
+        return '<li><a href="/jobs/'+encodeURIComponent(String(job.id||""))+'">'+htmlEscape(title)+'</a> — '+htmlEscape(label)+' · '+htmlEscape(job.role)+'</li>';
       }).join("");
     }
     return seoAsset(request,env,{
@@ -270,6 +276,27 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         ...(itemList.length?[{"@type":"ItemList","name":"Current Maryland caregiver jobs","itemListElement":itemList}]:[])
       ]}
     });
+  }
+  const publicJobMatch=url.pathname.match(/^\/jobs\/([^/]+)$/);
+  if(publicJobMatch&&env.DB){
+    const id=decodeURIComponent(publicJobMatch[1]);
+    const job=await env.DB.prepare("SELECT id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,description_text,source_url,date_posted,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
+    if(job){
+      const title=htmlEntityDecode(job.title||"Caregiver job");
+      const employer=String(job.employer_name||"Maryland care employer");
+      const location=[job.city,job.state,job.zip].filter(Boolean).join(", ");
+      const description=String(job.description_text||"").replace(/\s+/g," ").trim().slice(0,1200);
+      const metaDescription=(title+" at "+employer+(location?" in "+location:"")+". Apply through CareJoys and reuse one caregiver profile for relevant jobs.").slice(0,165);
+      const pay=(job.pay_min||job.pay_max)?("$"+String(job.pay_min||"—")+"–$"+String(job.pay_max||"—")+"/hr"):"";
+      return seoAsset(request,env,{
+        title:(title+" | "+employer+" | CareJoys").slice(0,70),
+        description:metaDescription,
+        canonical:"/jobs/"+encodeURIComponent(id),
+        snapshot:'<main><p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a></p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(description?'<h2>About this job</h2><p>'+htmlEscape(description)+'</p>':'')+'<p>Source: <a href="'+htmlEscape(job.source_url)+'">original employer listing</a></p></main>',
+        jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/jobs/"+encodeURIComponent(id),"name":title+" at "+employer,"isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@type":"Thing","name":"Caregiver job in Maryland"}}
+      });
+    }
+    return seoAsset(request,env,{title:"Job no longer available | CareJoys",description:"This caregiver job is no longer available. Browse current Maryland caregiver jobs.",canonical:"/jobs/"+encodeURIComponent(id),robots:"noindex,follow",snapshot:'<main><h1>This job is no longer available.</h1><p><a href="/caregiver-jobs/maryland">Browse current caregiver jobs</a></p></main>'});
   }
   if(url.pathname==="/caregiver-resume"){
     return seoAsset(request,env,{
