@@ -1002,7 +1002,33 @@ export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
 
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare('SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at FROM agency_organizations ao LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id WHERE ao.is_active=1 AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="") OR (ao.primary_website IS NOT NULL AND ao.primary_website!="") OR (ao.primary_domain IS NOT NULL AND ao.primary_domain!="")) AND (scan.last_scanned_at IS NULL OR (COALESCE(scan.last_status,'') IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source') AND datetime(scan.last_scanned_at)<datetime("now","-4 hours")) OR (COALESCE(scan.last_status,'') NOT IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source') AND datetime(scan.last_scanned_at)<datetime("now","-24 hours"))) ORDER BY CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%greenhouse%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%lever.co%" OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,CASE WHEN ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="" THEN 0 ELSE 1 END,CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,COALESCE(scan.last_scanned_at,"") ASC,ao.caregiver_relevance_score DESC LIMIT ?').bind(limit).all<Row>();
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at
+    FROM agency_organizations ao
+    LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
+    WHERE ao.is_active=1
+      AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="")
+        OR (ao.primary_website IS NOT NULL AND ao.primary_website!="")
+        OR (ao.primary_domain IS NOT NULL AND ao.primary_domain!=""))
+      AND (
+        scan.last_scanned_at IS NULL
+        OR (COALESCE(scan.last_status,'') IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
+          AND datetime(scan.last_scanned_at)<datetime("now","-4 hours"))
+        OR (COALESCE(scan.last_status,'') NOT IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
+          AND datetime(scan.last_scanned_at)<datetime("now","-24 hours"))
+      )
+    ORDER BY
+      CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%greenhouse%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%lever.co%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,
+      CASE WHEN ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="" THEN 0 ELSE 1 END,
+      CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,
+      CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,
+      COALESCE(scan.last_scanned_at,"") ASC,
+      ao.caregiver_relevance_score DESC
+    LIMIT ?`).bind(limit).all<Row>();
   let seen=0,published=0,rejected=0;
   for(const org of rows.results||[]){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
