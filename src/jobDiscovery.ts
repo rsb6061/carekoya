@@ -1054,14 +1054,30 @@ function exactToken(text:string,value:string){
 }
 export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
   if(!env.DB)return {reviewed:0,recovered:0};
-  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,ao.id AS org_id,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=88 AND (j.publication_reason IS NULL OR j.publication_reason='missing_maryland_evidence') ORDER BY j.updated_at DESC LIMIT ?";
+  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72 AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_maryland_evidence','low_confidence')) ORDER BY CASE j.publication_reason WHEN 'missing_maryland_evidence' THEN 0 WHEN 'low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?";
   const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
   let recovered=0;
   for(const row of rows.results||[]){
-    const title=normalizeTitle(row.title);
-    const description=decodeHtml(clean(row.description_text,8000));
+    let title=normalizeTitle(row.title);
+    let description=decodeHtml(clean(row.description_text,8000));
+    let sourceEvidence='';
+    const sourceUrl=clean(row.source_url,1000);
+    if(sourceUrl){
+      const sourcePage=await fetchText(sourceUrl,6000);
+      if(sourcePage){
+        const pageText=htmlText(sourcePage.text).slice(0,12000);
+        const pageTitle=normalizeTitle(stripHtml(sourcePage.text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',220));
+        if(pageTitle&&roleClassification(pageTitle,pageText))title=pageTitle;
+        sourceEvidence=pageText;
+        if(pageText.length>description.length)description=pageText;
+      }
+    }
     const cls=roleClassification(title,description);
     if(!cls||!TARGET_ROLES.has(cls.role))continue;
+    const storedConfidence=asNum(row.confidence);
+    const sourceTitleRole=!!roleClassification(title,'');
+    const hasExplicitHiringSignal=/(apply|application|now hiring|we are hiring|job description|employment|open position|current openings?)/i.test(sourceEvidence||description);
+    if(storedConfidence<88&&!(sourceTitleRole&&hasExplicitHiringSignal))continue;
     const validThrough=clean(row.valid_through,80);
     if(validThrough&&Number.isFinite(Date.parse(validThrough))&&Date.parse(validThrough)<Date.now()-86400000)continue;
     const currentState=normalizeState(row.state);
@@ -1071,7 +1087,7 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
     const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
     const orgState=normalizeState(row.org_state);
     if(orgState!=='MD'&&!mdZip(orgZip))continue;
-    const evidence=[title,description,clean(row.source_url,1000),clean(row.source_listing_url,1000)].join(' ');
+    const evidence=[title,description,sourceEvidence,clean(row.source_url,1000),clean(row.source_listing_url,1000),clean(row.org_name,220)].join(' ');
     let reason='';
     let state=currentState;
     let city=currentCity;
@@ -1090,11 +1106,18 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
       if(explicitMaryland&&!mentionsOtherStates(evidence)){
         reason='recovered_explicit_maryland_text';
         state='MD';
+      }else if(sameOrgDomain(sourceUrl,row)&&orgState==='MD'&&!mentionsOtherStates(sourceEvidence||description)){
+        const strongLocalSignal=sourceTitleRole&&hasExplicitHiringSignal;
+        if(strongLocalSignal){
+          reason='recovered_maryland_employer_source';
+          state='MD';city=city||orgCity;zip=zip||orgZip;
+        }
       }
     }
     if(!reason)continue;
-    const update="UPDATE caregiver_jobs SET state=?,city=?,zip=?,role=?,roles_json=?,is_published=1,publication_reason=?,location_source=CASE WHEN location_source IS NULL OR location_source='' THEN ? ELSE location_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?";
-    await env.DB.prepare(update).bind(state,city,zip,cls.role,JSON.stringify(cls.roles||[cls.role]),reason,reason,row.id).run();
+    const recoveredConfidence=Math.max(storedConfidence,sourceTitleRole?94:88);
+    const update="UPDATE caregiver_jobs SET title=?,normalized_title=?,description_text=?,state=?,city=?,zip=?,role=?,roles_json=?,confidence=?,classifier_reason=?,is_published=1,publication_reason=?,location_source=CASE WHEN location_source IS NULL OR location_source='' THEN ? ELSE location_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?";
+    await env.DB.prepare(update).bind(title,title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),description,state,city,zip,cls.role,JSON.stringify(cls.roles||[cls.role]),recoveredConfidence,cls.reason,reason,reason,row.id).run();
     recovered++;
   }
   return {reviewed:(rows.results||[]).length,recovered};
