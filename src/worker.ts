@@ -1180,7 +1180,7 @@ export default {
     ctx.waitUntil((async()=>{
       if(event.cron==="*/5 * * * *"){
         await normalizeExistingJobsBatch(env,100);
-        await recoverRejectedJobsBatch(env,120);
+        await recoverRejectedJobsBatch(env,180);
         await retryFailedAgencyJobSourcesBatch(env,24);
         await discoverAgencyJobsBatch(env,24);
         return;
