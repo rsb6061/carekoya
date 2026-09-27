@@ -34,15 +34,15 @@ async function sha256Hex(value:string){
   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
   return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function fetchText(url:string,ms=7000){
+async function fetchText(url:string,ms=7000,allowXml=false){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),ms);
   try{
-    const res=await fetch(url,{redirect:'follow',headers:{'user-agent':'CareJoysBot/1.0 (+https://carejoys.com)'},signal:controller.signal});
+    const res=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (compatible; CareJoysBot/1.1; +https://carejoys.com)','accept':'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.5'},signal:controller.signal});
     if(!res.ok)return null;
-    const type=res.headers.get('content-type')||'';
-    if(!type.includes('text/html')&&!type.includes('text/plain'))return null;
-    return {url:res.url,text:(await res.text()).slice(0,900000)};
+    const type=(res.headers.get('content-type')||'').toLowerCase();
+    if(!type.includes('text/html')&&!type.includes('text/plain')&&!(allowXml&&(type.includes('xml')||type.includes('rss'))))return null;
+    return {url:res.url,text:(await res.text()).slice(0,1200000)};
   }catch{return null}finally{clearTimeout(timer)}
 }
 async function fetchAgencyRoot(org:Row,preferred:string){
@@ -53,6 +53,8 @@ async function fetchAgencyRoot(org:Row,preferred:string){
   if(domain&&!/@/.test(domain)){
     add('https://'+domain+'/');
     add('https://www.'+domain+'/');
+    add('https://careers.'+domain+'/');
+    add('https://jobs.'+domain+'/');
     add('http://'+domain+'/');
     add('http://www.'+domain+'/');
   }
@@ -342,6 +344,76 @@ function downstreamAtsLinks(base:string,html:string){
   }
   return out;
 }
+function sitemapCareerUrls(xml:string,org:Row){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<loc>\s*([^<]+)\s*<\/loc>/gi;
+  for(const m of xml.matchAll(re)){
+    const raw=decodeHtml(m[1]);
+    try{
+      const url=new URL(raw).toString();
+      if(seen.has(url)||!orgOrAtsUrl(url,org))continue;
+      if(!/(career|jobs?|employment|join[-_/ ]?(?:our[-_/ ]?)?team|work[-_/ ]?with[-_/ ]?us|open[-_/ ]?positions?|opportunit|hiring|apply)/i.test(url))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=20)break;
+  }
+  return out;
+}
+async function sitemapCareerCandidates(org:Row,base:string){
+  const roots:string[]=[];
+  try{
+    const u=new URL(base);
+    roots.push(u.origin+'/robots.txt',u.origin+'/sitemap.xml',u.origin+'/sitemap_index.xml',u.origin+'/wp-sitemap.xml');
+  }catch{return [] as string[]}
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const sitemapUrls:string[]=[];
+  for(const target of roots){
+    const page=await fetchText(target,5000,true);
+    if(!page)continue;
+    if(target.endsWith('/robots.txt')){
+      for(const m of page.text.matchAll(/^\s*Sitemap:\s*(https?:\/\/\S+)/gim)){
+        if(!sitemapUrls.includes(m[1]))sitemapUrls.push(m[1]);
+      }
+      continue;
+    }
+    for(const url of sitemapCareerUrls(page.text,org)){
+      if(!seen.has(url)){seen.add(url);out.push(url)}
+    }
+    for(const m of page.text.matchAll(/<loc>\s*(https?:\/\/[^<]+\.xml(?:\?[^<]*)?)\s*<\/loc>/gi)){
+      const sm=decodeHtml(m[1]);
+      if(!sitemapUrls.includes(sm))sitemapUrls.push(sm);
+      if(sitemapUrls.length>=8)break;
+    }
+  }
+  for(const sm of sitemapUrls.slice(0,8)){
+    const page=await fetchText(sm,5000,true);
+    if(!page)continue;
+    for(const url of sitemapCareerUrls(page.text,org)){
+      if(!seen.has(url)){seen.add(url);out.push(url)}
+      if(out.length>=20)return out;
+    }
+  }
+  return out;
+}
+function broadCareerLinks(base:string,html:string,org:Row){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const href=decodeHtml(m[1]);
+    const text=stripHtml(m[2],220);
+    if(!/(career|jobs?|employment|join|team|work with us|openings?|positions?|opportunit|hiring|apply)/i.test(text+' '+href))continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=12)break;
+  }
+  return out;
+}
 function careerPageLinks(base:string,html:string){
   const out:string[]=[];
   const seen=new Set<string>();
@@ -441,8 +513,8 @@ function providerJobLinks(base:string,html:string,provider:string){
     const title=stripHtml(m[2],260);
     const href=decodeHtml(m[1]);
     const roleHit=!!roleClassification(title,'');
-    const jobLike=/(\/jobs?\/|jobid=|job_id=|jobdetail|job-details|posting|position)/i.test(href);
-    if(!roleHit&&!(provider!=='generic'&&jobLike))continue;
+    const jobLike=/(\/jobs?\/|\/careers?\/|open[-_/]?positions?|jobid=|job_id=|jobdetail|job-details|posting|position|opening|apply)/i.test(href+' '+title);
+    if(!roleHit&&!jobLike)continue;
     try{
       const url=new URL(href,base).toString();
       if(!/^https?:/i.test(url)||seen.has(url)||url===base)continue;
@@ -856,6 +928,59 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
         }
       }
     if(jobs.length===0){
+      const sitemapCandidates=await sitemapCareerCandidates(org,page.url);
+      for(const candidate of sitemapCandidates.slice(0,8)){
+        const candidateAts=atsInfo(candidate);
+        if(candidateAts){
+          providers.add(candidateAts.provider);
+          const result=await jobsFromAtsDestination({url:candidate,provider:candidateAts.provider},org,candidate);
+          jobs.push(...result.jobs);jobLinksSeen+=result.linksSeen;
+          continue;
+        }
+        const candidatePage=await fetchText(candidate,6500);
+        if(!candidatePage)continue;
+        jobs.push(...parseJsonLdJobs(candidatePage.text,candidatePage.url));
+        jobs.push(...headingJobsFromCareersPage(candidatePage.url,candidatePage.text,org));
+        const links=providerJobLinks(candidatePage.url,candidatePage.text,'generic');
+        jobLinksSeen+=links.length;
+        for(const link of links.slice(0,8)){
+          const detail=await fetchText(link.url,5500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:candidatePage.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:candidatePage.url});
+          }
+        }
+        if(jobs.length&&!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="sitemap_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(candidatePage.url,org.id).run();
+          org.primary_careers_url=candidatePage.url;
+        }
+        if(jobs.length)break;
+      }
+    }
+
+    if(jobs.length===0){
+      for(const candidate of broadCareerLinks(page.url,page.text,org).slice(0,6)){
+        const ats=atsInfo(candidate);
+        if(ats){
+          providers.add(ats.provider);
+          const result=await jobsFromAtsDestination({url:candidate,provider:ats.provider},org,candidate);
+          jobs.push(...result.jobs);jobLinksSeen+=result.linksSeen;
+        }else{
+          const crawled=await crawlHtmlBoard(candidate,'generic',org,candidate);
+          jobs.push(...crawled.jobs);jobLinksSeen+=crawled.linksSeen;
+        }
+        if(jobs.length&&!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="broad_link_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(candidate,org.id).run();
+          org.primary_careers_url=candidate;
+        }
+        if(jobs.length)break;
+      }
+    }
+
+    if(jobs.length===0){
       const searched=await searchCareerCandidates(org);
       for(const candidate of searched.slice(0,6)){
         const candidateAts=atsInfo(candidate);
@@ -974,6 +1099,29 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
   }
   return {reviewed:(rows.results||[]).length,recovered};
 }
+export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
+  if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal
+    FROM agency_job_scan_state scan
+    JOIN agency_organizations ao ON ao.id=scan.organization_id
+    WHERE ao.is_active=1
+      AND scan.last_status IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles')
+      AND datetime(scan.last_scanned_at)<datetime("now","-30 minutes")
+    ORDER BY CASE scan.last_status WHEN 'job_links_no_relevant_roles' THEN 0 WHEN 'no_job_board_found' THEN 1 ELSE 2 END,
+      COALESCE(scan.jobs_seen,0) DESC,scan.last_scanned_at ASC
+    LIMIT ?`).bind(limit).all<Row>();
+  let seen=0,published=0,rejected=0;
+  for(const org of rows.results||[]){
+    let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
+    try{result=await discoverJobsForOrg(env,org)}
+    catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
+    seen+=result.seen;published+=result.published;rejected+=result.rejected;
+    await env.DB.prepare(`UPDATE agency_job_scan_state SET source_provider=?,source_listing_url=?,last_status=?,last_error=?,jobs_seen=?,jobs_published=?,job_links_seen=?,jobs_rejected=?,last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE organization_id=?`)
+      .bind(result.provider,clean(org.primary_careers_url,1000),result.status,result.status==='fetch_failed'||result.provider==='error'?result.status:null,result.seen,result.published,result.jobLinksSeen,result.rejected,org.id).run();
+  }
+  return {processed:(rows.results||[]).length,seen,published,rejected};
+}
+
 export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
   if(!env.DB)return {processed:0};
   const rows=await env.DB.prepare('SELECT id,agency_organization_id,title,role,roles_json,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text FROM caregiver_jobs WHERE (normalized_title IS NULL OR roles_json IS NULL) AND status IN ("current","duplicate") ORDER BY updated_at DESC LIMIT ?').bind(limit).all<Row>();
