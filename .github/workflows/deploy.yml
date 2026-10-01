@@ -60,7 +60,8 @@ jobs:
           test "$(echo "$HEALTH" | jq -r '.counts.duplicateCaregiverEmails')" = "0"
           echo
           echo "WWW health:"
-          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 2             https://www.carejoys.com/api/health
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code} %{redirect_url}' https://www.carejoys.com/about)" = "301 https://carejoys.com/about"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code}' https://carejoys.com/not-a-real-page-smoke)" = "404"
           echo
           echo "Auth boundary smoke tests:"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/candidates.json -w '%{http_code}' https://carejoys.com/api/candidates)" = "401"
@@ -104,7 +105,7 @@ jobs:
             echo "$SITEMAP" >/dev/null 2>&1 || true
           fi
           echo "SEO discovery routes:"
-          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<urlset'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<sitemapindex'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/llms.txt | grep -q 'CareJoys is a Maryland caregiver recruiting and placement network'
           HOME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
@@ -136,7 +137,8 @@ jobs:
           RESOURCE_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland)
           echo "$RESOURCE_HTML" | grep -q '<title>How to Become a Caregiver in Maryland | CareJoys</title>'
           echo "$RESOURCE_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland"'
-          SITEMAP=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml)
+          SITEMAP=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemaps/pages.xml)
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemaps/locations.xml | grep -q 'https://carejoys.com/caregiver-jobs/maryland'
           echo "$SITEMAP" | grep -q 'https://carejoys.com/about'
           echo "$SITEMAP" | grep -q 'https://carejoys.com/hire-caregivers/maryland'
           echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-resume'

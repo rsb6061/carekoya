@@ -155,3 +155,93 @@ describe('analytics', ()=>{
     expect(row).toEqual({path:'/activate',referrer_host:'google.com',utm_source:'newsletter'});
   });
 });
+
+const HTML_SHELL='<!doctype html><html><head><title>CareJoys</title><meta name="description" content="x" /><link rel="canonical" href="https://carejoys.com/" /></head><body><div id="root"></div></body></html>';
+const htmlAssets={ASSETS:{fetch:async()=>new Response(HTML_SHELL,{headers:{'content-type':'text/html; charset=utf-8'}})}};
+const post=(path:string,body:unknown,headers:Record<string,string>={},extra:Record<string,unknown>={})=>call(path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)},extra);
+
+describe('audit fixes: onboarding', ()=>{
+  const profile={firstName:'Ada',lastName:'Lane',phone:'4105550100',zip:'21201',role:'CNA'};
+  it('caregiver resume creates a new profile without sign-in, but will not overwrite an existing one', async()=>{
+    const created=await post('/api/caregiver-resume',{...profile,email:'ada.new@example.com'});
+    expect(created.status).toBe(201);
+    const body=await created.json() as any;
+    expect(Array.isArray(body.topJobs)).toBe(true);
+    const takeover=await post('/api/caregiver-resume',{...profile,firstName:'Mallory',email:'baltimore@example.com'});
+    expect(takeover.status).toBe(409);
+    expect((await takeover.json() as any).needsVerifiedSignIn).toBe(true);
+    expect(await DB.prepare("SELECT first_name FROM caregivers WHERE id='baltimore'").first()).toEqual({first_name:'baltimore'});
+  });
+  it('employer intake for an existing email changes nothing until the emailed link is used', async()=>{
+    sent.length=0;
+    const res=await post('/api/employers',{companyName:'Evil Co',contactName:'Eve',email:'pat@acme.test',zip:'21201',rolesNeeded:'HHA'});
+    expect(res.status).toBe(201);
+    expect(await DB.prepare("SELECT company_name FROM employer_leads WHERE id='emp1'").first()).toEqual({company_name:'Acme Care'});
+    expect(await DB.prepare("SELECT count(*) AS n FROM openings WHERE employer_id='emp1' AND source='employer_intake'").first()).toEqual({n:0});
+    const token=decodeURIComponent(sent[0].html!.match(/token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    expect(verified.status).toBe(200);
+    expect((await verified.json() as any).redirect).toContain('opening=');
+    expect(await DB.prepare("SELECT count(*) AS n FROM openings WHERE employer_id='emp1' AND source='employer_intake'").first()).toEqual({n:1});
+  });
+});
+
+describe('audit fixes: SEO responses', ()=>{
+  beforeAll(async()=>{
+    await DB.prepare("DELETE FROM agency_teaser_tokens WHERE organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM agency_outreach_events WHERE organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE agency_organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM agency_organizations WHERE id='org-test'").run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,city,state,is_active) VALUES ('org-test','org-test','Sunrise Home Care','sunrisecare.test','https://sunrisecare.test','Baltimore','MD',1)").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published) VALUES ('job-test','org-test','job-test','test','https://sunrisecare.test/jobs/1','CNA - Day Shift','CNA','Sunrise Home Care','Baltimore','MD','21201',18,22,'hour','current',1)").run();
+  });
+  it('job pages carry JobPosting data and missing jobs are gone', async()=>{
+    const page=await call('/jobs/job-test',{},htmlAssets);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('"@type":"JobPosting"');
+    expect((await call('/jobs/does-not-exist',{},htmlAssets)).status).toBe(410);
+  });
+  it('unknown pages are a real 404 and www redirects to the apex', async()=>{
+    expect((await call('/definitely-not-a-page',{},htmlAssets)).status).toBe(404);
+    const www=await worker.fetch(new Request('https://www.carejoys.com/about'),env(htmlAssets));
+    expect(www.status).toBe(301);
+    expect(www.headers.get('location')).toBe('https://carejoys.com/about');
+  });
+  it('sitemap is an index of child sitemaps', async()=>{
+    const index=await (await call('/sitemap.xml')).text();
+    expect(index).toContain('<sitemapindex');
+    expect(index).toContain('/sitemaps/pages.xml');
+    expect(await (await call('/sitemaps/jobs-1.xml')).text()).toContain('/jobs/job-test');
+  });
+  it('state hubs render for any state', async()=>{
+    const md=await call('/caregiver-jobs/maryland',{},htmlAssets);
+    expect(md.status).toBe(200);
+    expect(await md.text()).toContain('CNA - Day Shift');
+    const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
+    expect(hub.total).toBeGreaterThan(0);
+  });
+});
+
+describe('audit fixes: agency self-serve', ()=>{
+  it('a work email at the agency domain gets a link that claims the agency', async()=>{
+    sent.length=0;
+    const start=await post('/api/agency/claim/start',{organizationId:'org-test',email:'owner@sunrisecare.test'});
+    expect(start.status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual(['owner@sunrisecare.test']);
+    const token=decodeURIComponent(sent[0].html!.match(/token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    const cookieHeader=verified.headers.get('set-cookie')!;
+    const session=decodeURIComponent(cookieHeader.match(/cj_session=([^;]+)/)![1]);
+    const org=await DB.prepare("SELECT claimed_employer_id FROM agency_organizations WHERE id='org-test'").first() as any;
+    expect(org.claimed_employer_id).toBeTruthy();
+    // The new owner can hide a scraped job, and it drops off public pages.
+    const auth={cookie:'cj_session='+session};
+    expect((await (await call('/api/agency/jobs',{headers:auth})).json() as any).jobs.map((j:any)=>j.id)).toEqual(['job-test']);
+    expect((await post('/api/agency/jobs/job-test',{action:'hide'},auth)).status).toBe(200);
+    expect(await DB.prepare("SELECT is_published FROM caregiver_jobs WHERE id='job-test'").first()).toEqual({is_published:0});
+    expect((await call('/jobs/job-test',{},htmlAssets)).status).toBe(410);
+  });
+  it('an email outside the agency domain cannot claim it', async()=>{
+    expect((await post('/api/agency/claim/start',{organizationId:'org-test',email:'someone@gmail.com'})).status).toBe(409);
+  });
+});
