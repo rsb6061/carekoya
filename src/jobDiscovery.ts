@@ -1,5 +1,6 @@
 import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
+import { US_STATES, stateForZipPrefix, usState } from './usStates';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -110,11 +111,15 @@ function htmlText(html:string){
 }
 function normalizeState(value:unknown){
   const s=clean(value,80);
-  if(/^maryland$/i.test(s)||/^md$/i.test(s))return 'MD';
+  const known=usState(s);
+  if(known)return known.code;
   return s.length===2?s.toUpperCase():s;
 }
-function normalizeCity(value:unknown){
-  let s=decodeHtml(clean(value,140)).replace(/\s+/g,' ').replace(/\s*,?\s*(Maryland|MD)\s*$/i,'').trim();
+// Strips a trailing state: ", Virginia", " Maryland", ", VA" or " VA" (codes only in capitals, so "Bel Air" survives).
+const STATE_NAME_SUFFIX=new RegExp('(?:\\s*,\\s*(?:'+US_STATES.map(([,name])=>name).join('|')+')|\\s*,?\\s*(?:Maryland|MD))\\s*$','i');
+const STATE_CODE_SUFFIX=new RegExp('(?:\\s*,\\s*|\\s+)(?:'+US_STATES.map(([code])=>code).join('|')+')\\s*$');
+export function normalizeCity(value:unknown){
+  let s=decodeHtml(clean(value,140)).replace(/\s+/g,' ').replace(STATE_NAME_SUFFIX,'').replace(STATE_CODE_SUFFIX,'').trim();
   if(!s)return '';
   if(s===s.toUpperCase()||s===s.toLowerCase()){
     s=s.toLowerCase().replace(/\b[a-z]/g,ch=>ch.toUpperCase());
@@ -124,6 +129,32 @@ function normalizeCity(value:unknown){
 function mdZip(zip:string){
   const n=Number(zip.slice(0,3));
   return /^\d{5}/.test(zip)&&n>=206&&n<=219;
+}
+// The state a job is judged against: the agency's own state, falling back to its ZIP, then Maryland (the original market).
+type JobState={code:string;name:string};
+function orgJobState(org:Row):JobState{
+  const s=usState(normalizeState(org.state))||usState(stateForZipPrefix(clean(org.zip,20)))||usState('MD')!;
+  return {code:s.code,name:s.name};
+}
+function zipInState(zip:string,st:JobState){
+  return st.code==='MD'?mdZip(zip):stateForZipPrefix(zip)===st.code;
+}
+function stateZipIn(text:string,st:JobState){
+  for(const m of text.matchAll(/\b\d{5}\b/g))if(zipInState(m[0],st))return m[0];
+  return '';
+}
+function stateNamePattern(name:string){
+  // "Virginia" must not match "West Virginia".
+  return (name==='Virginia'?'(?<!West )':'')+'\\b'+escapeRegex(name)+'\\b';
+}
+export function mentionsState(text:string,st:JobState){
+  if(st.code==='MD')return /\bMaryland\b/i.test(text)||/\bMD\b/.test(text);
+  // Bare two-letter codes like IN, OR or ME are common words, so only count ", VA" or "VA 22030".
+  return new RegExp(stateNamePattern(st.name),'i').test(text)||new RegExp(',\\s*'+st.code+'\\b|\\b'+st.code+'\\s+\\d{5}\\b').test(text);
+}
+export function mentionsOtherStates(text:string,st:JobState){
+  if(st.code==='MD')return /\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(text);
+  return US_STATES.some(([code,name])=>code!==st.code&&mentionsState(text,{code,name}));
 }
 function escapeRegex(value:string){
   return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
@@ -310,12 +341,13 @@ function atsInfo(url:string){
   }catch{}
   return null;
 }
-function locationStringParts(value:string){
+export function locationStringParts(value:string){
   const s=clean(value,300);
-  const zip=s.match(/\b(20[6-9]\d{2}|21\d{3})\b/)?.[1]||'';
-  const state=/\bMaryland\b/i.test(s)||/\bMD\b/.test(s)?'MD':'';
+  const zip=s.match(/\b\d{5}\b/)?.[0]||'';
+  const named=US_STATES.find(([code,name])=>mentionsState(s,{code,name}));
+  const state=named?.[0]||stateForZipPrefix(zip);
   const city=state?normalizeCity(s.split(',')[0]):'';
-  return {city,state,zip};
+  return {city,state,zip:zip&&stateForZipPrefix(zip)===state?zip:''};
 }
 function downstreamAtsLinks(base:string,html:string){
   const out:{url:string;provider:string}[]=[];
@@ -488,7 +520,7 @@ function searchResultLinks(base:string,html:string,org:Row){
 async function searchCareerCandidates(org:Row){
   const domain=orgHost(org);
   const name=clean(org.canonical_name,220);
-  const query=domain?('site:'+domain+' careers jobs employment caregiver'):('"'+name+'" Maryland careers caregiver jobs');
+  const query=domain?('site:'+domain+' careers jobs employment caregiver'):('"'+name+'" '+orgJobState(org).name+' careers caregiver jobs');
   const engines=[
     'https://html.duckduckgo.com/html/?q='+encodeURIComponent(query),
     'https://www.bing.com/search?q='+encodeURIComponent(query)
@@ -567,12 +599,13 @@ function headingJobsFromCareersPage(pageUrl:string,html:string,org:Row){
     if(headings.length>=8)break;
   }
   const jobs:DiscoveredJob[]=[];
+  const st=orgJobState(org);
   for(const heading of headings){
     const cls=roleClassification(heading,pageText);
     if(!cls)continue;
-    const zip=pageText.match(/\b(20[6-9]\d{2}|21\d{3})\b/)?.[1]||clean(org.zip,20);
-    const state=/\bMaryland\b/i.test(pageText)||/\bMD\b/.test(pageText)||mdZip(zip)?'MD':normalizeState(org.state);
-    if(state!=='MD')continue;
+    const zip=stateZipIn(pageText,st)||clean(org.zip,20);
+    const state=mentionsState(pageText,st)||zipInState(zip,st)?st.code:normalizeState(org.state);
+    if(state!==st.code)continue;
     jobs.push({
       sourceProvider:'generic_html',
       sourceJobId:'',
@@ -583,7 +616,7 @@ function headingJobsFromCareersPage(pageUrl:string,html:string,org:Row){
       roles:cls.roles,
       normalizedTitle:normalizeTitle(heading).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),
       city:clean(org.city,120),
-      state:'MD',
+      state:st.code,
       zip,
       employmentType:normalizeEmploymentType('',heading,pageText),
       payMin:null,
@@ -691,26 +724,27 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
   const title=h1||titleHint;
   const cls=roleClassification(title,text);
   if(!cls||cls.confidence<90)return null;
-  const zip=text.match(/\b(20[6-9]\d{2}|21\d{3})\b/)?.[1]||'';
+  const st=orgJobState(org);
+  const zip=stateZipIn(text,st);
   const orgCity=clean(org.city,120);
   const city=orgCity&&new RegExp('\\b'+escapeRegex(orgCity)+'\\b','i').test(text)?orgCity:'';
-  const state=/\bMaryland\b/i.test(text)||/\bMD\b/.test(text)||mdZip(zip)?'MD':'';
-  if(state!=='MD'&&normalizeState(org.state)!=='MD')return null;
-  const locationPenalty=state==='MD'?0:-18;
-  return {sourceProvider:'generic_html',sourceJobId:'',sourceUrl:pageUrl,sourceListingUrl:pageUrl,title,role:cls.role,city,state:state||'MD',zip,
+  const state=mentionsState(text,st)||zipInState(zip,st)?st.code:'';
+  if(state!==st.code&&normalizeState(org.state)!==st.code)return null;
+  const locationPenalty=state===st.code?0:-18;
+  return {sourceProvider:'generic_html',sourceJobId:'',sourceUrl:pageUrl,sourceListingUrl:pageUrl,title,role:cls.role,city,state:state||st.code,zip,
     employmentType:/\bfull[- ]?time\b/i.test(text)?'Full-time':/\bpart[- ]?time\b/i.test(text)?'Part-time':'',
-    payMin:null,payMax:null,descriptionText:text.slice(0,8000),classifierReason:cls.reason+(state==='MD'?' + Maryland location':' + Maryland agency fallback'),
+    payMin:null,payMax:null,descriptionText:text.slice(0,8000),classifierReason:cls.reason+(state===st.code?' + '+st.name+' location':' + '+st.name+' agency fallback'),
     confidence:Math.max(0,cls.confidence+locationPenalty),datePosted:'',validThrough:''} as DiscoveredJob;
 }
-function publicationDecision(job:DiscoveredJob){
-  const explicit=normalizeState(job.state)==='MD'||mdZip(job.zip);
+export function publicationDecision(job:DiscoveredJob){
+  const explicit=!!usState(normalizeState(job.state))||!!stateForZipPrefix(job.zip);
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
   if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
   if(!notExpired)return {publish:false,reason:'expired'};
   if(job.confidence<88)return {publish:false,reason:'low_confidence'};
   if(!TARGET_ROLES.has(job.role))return {publish:false,reason:'non_target_role'};
-  if(!explicit)return {publish:false,reason:'missing_maryland_evidence'};
-  return {publish:true,reason:'explicit_maryland_location'};
+  if(!explicit)return {publish:false,reason:'missing_state_evidence'};
+  return {publish:true,reason:'explicit_state_location'};
 }
 async function dedupeKeyForJob(orgId:string,job:DiscoveredJob){
   const sourceIdentity=job.sourceJobId||(job.sourceUrl+'|'+normalizeTitle(job.title));
@@ -726,14 +760,14 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   let state=normalizeState(input.state);
   let zip=clean(input.zip,20).match(/\b\d{5}\b/)?.[0]||'';
   let locationSource=state||zip?'source':'';
-  if(!state&&mdZip(zip)){state='MD';locationSource='zip'}
-  if(!state&&normalizeState(org.state)==='MD'&&sameOrgDomain(input.sourceListingUrl,org)){
-    const explicitOther=/\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(input.descriptionText);
-    if(!explicitOther){
-      state='MD';
+  const st=orgJobState(org);
+  if(!state&&stateForZipPrefix(zip)){state=stateForZipPrefix(zip);locationSource='zip'}
+  if(!state&&normalizeState(org.state)===st.code&&sameOrgDomain(input.sourceListingUrl,org)){
+    if(!mentionsOtherStates(input.descriptionText,st)){
+      state=st.code;
       city=city||normalizeCity(org.city);
       zip=zip||clean(org.zip,20);
-      locationSource='maryland_agency_careers_page';
+      locationSource='agency_careers_page';
     }
   }
   const employmentType=normalizeEmploymentType(input.employmentType,title,input.descriptionText);
@@ -1046,16 +1080,13 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   const status=published>0?'published':unique.size>0?'candidates_rejected':jobLinksSeen>0?'job_links_no_relevant_roles':'no_job_board_found';
   return {seen:unique.size,published,rejected,jobLinksSeen,provider,status};
 }
-function mentionsOtherStates(text:string){
-  return /\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(text);
-}
 function exactToken(text:string,value:string){
   if(!value)return false;
   return new RegExp('\\b'+escapeRegex(value)+'\\b','i').test(text);
 }
 export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
   if(!env.DB)return {reviewed:0,recovered:0};
-  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72 AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_maryland_evidence','low_confidence')) ORDER BY CASE j.publication_reason WHEN 'missing_maryland_evidence' THEN 0 WHEN 'low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?";
+  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72 AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence','low_confidence')) ORDER BY CASE WHEN j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence') THEN 0 WHEN j.publication_reason='low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?";
   const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
   let recovered=0;
   for(const row of rows.results||[]){
@@ -1087,31 +1118,34 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
     const orgCity=normalizeCity(row.org_city);
     const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
     const orgState=normalizeState(row.org_state);
-    if(orgState!=='MD'&&!mdZip(orgZip))continue;
+    const orgKnown=usState(orgState)||usState(stateForZipPrefix(orgZip));
+    if(!orgKnown)continue;
+    const st={code:orgKnown.code,name:orgKnown.name};
     const evidence=[title,description,sourceEvidence,clean(row.source_url,1000),clean(row.source_listing_url,1000),clean(row.org_name,220)].join(' ');
     let reason='';
     let state=currentState;
     let city=currentCity;
     let zip=currentZip;
-    if(currentState==='MD'||mdZip(currentZip)){
-      reason='recovered_existing_maryland_location';
-      state='MD';
+    const currentKnown=usState(currentState)?currentState:stateForZipPrefix(currentZip);
+    if(currentKnown){
+      reason='recovered_existing_location';
+      state=currentKnown;
     }else if(orgZip&&exactToken(evidence,orgZip)){
       reason='recovered_exact_agency_zip';
-      state='MD';zip=zip||orgZip;city=city||orgCity;
+      state=st.code;zip=zip||orgZip;city=city||orgCity;
     }else if(orgCity&&exactToken(evidence,orgCity)){
       reason='recovered_exact_agency_city';
-      state='MD';city=city||orgCity;zip=zip||orgZip;
+      state=st.code;city=city||orgCity;zip=zip||orgZip;
     }else{
-      const explicitMaryland=/\bMaryland\b|\bMD\b/i.test(evidence);
-      if(explicitMaryland&&!mentionsOtherStates(evidence)){
-        reason='recovered_explicit_maryland_text';
-        state='MD';
-      }else if(sameOrgDomain(sourceUrl,row)&&orgState==='MD'&&!mentionsOtherStates(sourceEvidence||description)){
+      const explicitState=st.code==='MD'?/\bMaryland\b|\bMD\b/i.test(evidence):mentionsState(evidence,st);
+      if(explicitState&&!mentionsOtherStates(evidence,st)){
+        reason='recovered_explicit_state_text';
+        state=st.code;
+      }else if(sameOrgDomain(sourceUrl,row)&&orgState===st.code&&!mentionsOtherStates(sourceEvidence||description,st)){
         const strongLocalSignal=sourceTitleRole&&hasExplicitHiringSignal;
         if(strongLocalSignal){
-          reason='recovered_maryland_employer_source';
-          state='MD';city=city||orgCity;zip=zip||orgZip;
+          reason='recovered_employer_source';
+          state=st.code;city=city||orgCity;zip=zip||orgZip;
         }
       }
     }
