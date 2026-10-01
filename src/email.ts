@@ -181,3 +181,11 @@ export function schoolMagicLinkEmail(input:{contactName:string;programName:strin
     text:`Hi ${input.contactName||'there'},\n\nUse this secure one-time link to open the CareJoys placement dashboard for ${input.programName}. It expires in 15 minutes:\n\n${input.link}\n\nCareJoys · carejoys.com`
   };
 }
+
+/** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
+export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
+  const url=esc(unsubscribeLink);
+  const footer=`<p style="font-size:12px;line-height:1.6;color:#8a849b;text-align:center;margin:14px 0 0">Don't want these emails? <a href="${url}" style="color:#8a849b">Unsubscribe</a>.</p>`;
+  const html=message.html.replace(/<\/div>\s*<\/div>\s*$/,`</div>${footer}</div>`);
+  return {...message,html:html===message.html?message.html+footer:html,text:`${message.text}\n\nUnsubscribe: ${unsubscribeLink}`};
+}

@@ -266,10 +266,7 @@ export async function interviewSlots(request:Request,env:FeatureEnv,workspaceId:
   return json({ok:true,added});
 }
 
-async function responseRecord(env:FeatureEnv,token:string){
-  if(!env.DB||!token)return null;
-  const hash=await sha256Hex(token);
-  return env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.stage,cp.response_value,cp.interview_booked_at,cp.opening_id,
+const RESPONSE_RECORD_SELECT=`SELECT cp.id AS pipeline_id,cp.stage,cp.response_value,cp.interview_booked_at,cp.opening_id,
     c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email,c.work_status,
     cp.employer_notified_interest_at,
     o.title,o.role,o.city,o.state,o.zip,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,
@@ -277,8 +274,16 @@ async function responseRecord(env:FeatureEnv,token:string){
     FROM candidate_pipeline cp
     JOIN caregivers c ON c.id=cp.caregiver_id
     JOIN openings o ON o.id=cp.opening_id
-    JOIN employer_leads e ON e.id=o.employer_id
-    WHERE cp.response_token_hash=? AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now')) LIMIT 1`).bind(hash).first<Record<string,unknown>>();
+    JOIN employer_leads e ON e.id=o.employer_id`;
+async function responseRecord(env:FeatureEnv,token:string){
+  if(!env.DB||!token)return null;
+  const hash=await sha256Hex(token);
+  return env.DB.prepare(RESPONSE_RECORD_SELECT+` WHERE cp.response_token_hash=? AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now')) LIMIT 1`).bind(hash).first<Record<string,unknown>>();
+}
+/** Same record as a response link, looked up for a signed-in caregiver; only invitations an employer actually sent. */
+async function caregiverInviteRecord(env:FeatureEnv,pipelineId:string,caregiverId:string){
+  if(!env.DB||!pipelineId||!caregiverId)return null;
+  return env.DB.prepare(RESPONSE_RECORD_SELECT+' WHERE cp.id=? AND cp.caregiver_id=? AND cp.contacted_at IS NOT NULL LIMIT 1').bind(pipelineId,caregiverId).first<Record<string,unknown>>();
 }
 
 export async function getCandidateResponse(url:URL,env:FeatureEnv){
@@ -302,6 +307,20 @@ export async function submitCandidateResponse(request:Request,env:FeatureEnv){
   if(!['interested','not_interested'].includes(choice))return json({ok:false,error:'Choose interested or not interested.'},{status:400});
   const row=await responseRecord(env,token);
   if(!row)return json({ok:false,error:'This job-response link is invalid.'},{status:404});
+  return applyCandidateResponse(env,row,choice,'web');
+}
+
+export async function respondToInviteForCaregiver(env:FeatureEnv,caregiverId:string,pipelineId:string,choiceValue:unknown){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const choice=clean(choiceValue,40);
+  if(!['interested','not_interested'].includes(choice))return json({ok:false,error:'Choose interested or not interested.'},{status:400});
+  const row=await caregiverInviteRecord(env,pipelineId,caregiverId);
+  if(!row)return json({ok:false,error:'Invitation not found.'},{status:404});
+  return applyCandidateResponse(env,row,choice,'dashboard');
+}
+
+async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,choice:string,channel:'web'|'dashboard'){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   if(choice==='interested'){
     await env.DB.prepare("UPDATE candidate_pipeline SET stage='interested',response_value='interested',response_at=CURRENT_TIMESTAMP,responded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
     await env.DB.prepare("UPDATE caregivers SET work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.caregiver_id).run();
@@ -331,8 +350,8 @@ export async function submitCandidateResponse(request:Request,env:FeatureEnv){
   }else{
     await env.DB.prepare("UPDATE candidate_pipeline SET stage='rejected',response_value='not_interested',response_at=CURRENT_TIMESTAMP,responded_at=CURRENT_TIMESTAMP,rejected_reason='caregiver_not_interested',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
   }
-  await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,payload) VALUES (?,?,?,'web','inbound','job_interest_response',?)")
-    .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,JSON.stringify({choice})).run();
+  await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,payload) VALUES (?,?,?,?,'inbound','job_interest_response',?)")
+    .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,channel,JSON.stringify({choice})).run();
   return json({ok:true,choice});
 }
 
@@ -340,7 +359,16 @@ export async function bookCandidateInterview(request:Request,env:FeatureEnv){
   if(!env.DB||!env.EMAIL)return json({ok:false,error:'Email service is not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
   const token=clean(data?.token,300),slotId=clean(data?.slotId,100);
-  const row=await responseRecord(env,token);
+  return bookInterviewSlot(env,await responseRecord(env,token),slotId);
+}
+
+export async function bookInterviewForCaregiver(env:FeatureEnv,caregiverId:string,pipelineId:string,slotIdValue:unknown){
+  if(!env.DB||!env.EMAIL)return json({ok:false,error:'Email service is not configured'},{status:503});
+  return bookInterviewSlot(env,await caregiverInviteRecord(env,pipelineId,caregiverId),clean(slotIdValue,100));
+}
+
+async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,slotId:string){
+  if(!env.DB||!env.EMAIL)return json({ok:false,error:'Email service is not configured'},{status:503});
   if(!row||row.response_value!=='interested')return json({ok:false,error:'Confirm interest before booking an interview.'},{status:400});
   const slot=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE id=? AND opening_id=? LIMIT 1").bind(slotId,row.opening_id).first<Record<string,unknown>>();
   if(!slot||slot.status!=='available')return json({ok:false,error:'That interview time is no longer available.'},{status:409});

@@ -16,7 +16,7 @@ type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]
 type Candidate={
   id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
   certifications?:string;specialties?:string;yearsExperience?:number;desiredWage?:string;
-  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;
+  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;distanceMiles?:number|null;
 };
 type PipelineRow={
   id:string;opening_id:string;title:string;opening_role:string;caregiver_id:string;
@@ -76,7 +76,7 @@ export function EmployerWorkspace(){
   const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'>('openings');
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
-  const [filters,setFilters]=useState({role:'',zip:'',state:'',freshness:'all'});
+  const [filters,setFilters]=useState({role:'',zip:'',radius:'25',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
   const [slotInputs,setSlotInputs]=useState([{startsAt:'',durationMinutes:30}]);
@@ -335,14 +335,15 @@ export function EmployerWorkspace(){
         <div className="section-heading"><h2>Talent network</h2><p>Confirmed availability ranks above older, unconfirmed profiles.</p></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role: CNA, HHA, caregiver" />
-          <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" />
+          <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" />
+          <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
           <input value={filters.state} onChange={e=>setFilters({...filters,state:e.target.value})} placeholder="State" />
           <select value={filters.freshness} onChange={e=>setFilters({...filters,freshness:e.target.value})}><option value="all">Any availability</option><option value="confirmed">Confirmed in last 30 days</option></select>
           <button className="button">Search</button>
         </form>
         {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Confirmed candidates rank higher in matching.</div></div>:
         <div className="job-list">{candidates.map((candidate,i)=><article className={'job-card '+cardTone(i)} key={candidate.id}>
-          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state].filter(Boolean).join(' · ')}</div>
+          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state,candidate.distanceMiles!=null?candidate.distanceMiles+' mi away':''].filter(Boolean).join(' · ')}</div>
           <div className="job-badges"><span className={candidate.workStatus==='actively_looking'?'status applied':'status'}>{candidate.freshness}</span>{candidate.shifts&&<span className="badge">{candidate.shifts}</span>}{candidate.desiredWage&&<span className="badge">{candidate.desiredWage}</span>}</div>
           {candidate.certifications&&<div className="job-card-cue">{candidate.certifications}</div>}</div>
         </article>)}</div>}
