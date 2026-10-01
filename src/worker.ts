@@ -1,6 +1,7 @@
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, payText, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
@@ -1343,6 +1344,13 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
     if(request.method==="POST"&&url.pathname==="/api/respond"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return submitCandidateResponse(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/teaser") return getAgencyTeaser(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/agency/search") return searchAgencies(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/agency/claim/start"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return startAgencyClaim(request,env); }
+    if(request.method==="GET"&&url.pathname==="/api/agency/suggestions") return agencySuggestions(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/agency/jobs") return agencyJobs(request,env);
+    let agencyJob=url.pathname.match(/^\/api\/agency\/jobs\/([^/]+)$/);
+    if(request.method==="POST"&&agencyJob){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyJob(request,env,decodeURIComponent(agencyJob[1])); }
+    if(request.method==="GET"&&url.pathname==="/api/public/pricing") return json({ok:true,freeContacts:freeContacts(env)},{headers:{"cache-control":"public,max-age=3600"}});
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env); }
