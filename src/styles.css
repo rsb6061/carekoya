@@ -234,3 +234,5 @@ a{color:inherit;text-decoration:none}
   .job-detail-actions .btn{width:100%}
   .public-job-actions .btn{width:100%}
 }
+.onboarding-final-action .check-row{max-width:420px;text-align:left}
+.onboarding-final-action .check-row span{font-size:14px;color:var(--ink)}

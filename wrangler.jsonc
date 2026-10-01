@@ -24,6 +24,8 @@
       "/robots.txt",
       "/sitemap.xml",
       "/llms.txt",
+      "/agent",
+      "/.well-known/*",
       "/caregiver-recruiting/*",
       "/hire-caregivers/*",
       "/resources/*",
