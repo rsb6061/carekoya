@@ -43,7 +43,10 @@
       "/respond*",
       "/agency*",
       "/school-auth*",
-      "/school-dashboard*"
+      "/school-dashboard*",
+      "/me",
+      "/me/*",
+      "/admin*"
     ]
   },
   "d1_databases": [
@@ -62,6 +65,12 @@
       ]
     }
   ],
+  "vars": {
+    // Outreach crons send nothing until this is "true". Caps are emails per UTC day.
+    "OUTREACH_ENABLED": "false",
+    "REACTIVATION_DAILY_CAP": "50",
+    "AGENCY_TEASER_DAILY_CAP": "10"
+  },
   "triggers": {
     "crons": [
       "*/5 * * * *",

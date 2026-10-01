@@ -35,6 +35,7 @@ jobs:
 
       - run: npm install
       - run: npm run typecheck
+      - run: npm test
       - run: npm run build
 
       - name: Deploy Worker and D1 migrations
@@ -60,6 +61,10 @@ jobs:
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/candidates.json -w '%{http_code}' https://carejoys.com/api/candidates)" = "401"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/workspace.json -w '%{http_code}' https://carejoys.com/api/workspace)" = "401"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/pipeline.json -w '%{http_code}' https://carejoys.com/api/pipeline)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/admin.json -w '%{http_code}' https://carejoys.com/api/admin/overview)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/activation.json -w '%{http_code}' https://carejoys.com/api/activation-stats)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/me.json -w '%{http_code}' https://carejoys.com/api/me)" = "401"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health | jq -e 'has("tables") | not' >/dev/null
           echo "Private caregiver photo boundary:"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/photo.json -w '%{http_code}' https://carejoys.com/api/caregivers/not-a-real-caregiver/photo)" = "401"
           echo "CareJoys favicon:"

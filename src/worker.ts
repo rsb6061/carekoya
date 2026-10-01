@@ -2,6 +2,13 @@ import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
+import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
+import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
+import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach } from './admin';
+import { runScheduledOutreach } from './outreach';
+import { billingStatus, createCheckout, createPortal, handleStripeWebhook } from './billing';
+import { handleUnsubscribe } from './emailPreferences';
+import { bookInviteInterview, getCaregiverDashboard, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverDashboard';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -23,6 +30,15 @@ interface Env {
   TURNSTILE_SECRET_KEY?: string;
   AUTH0_DOMAIN?: string;
   AUTH0_CLIENT_ID?: string;
+  ADMIN_EMAILS?: string;
+  ADMIN_TOKEN?: string;
+  OUTREACH_ENABLED?: string;
+  REACTIVATION_DAILY_CAP?: string;
+  AGENCY_TEASER_DAILY_CAP?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PRICE_ID?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  FREE_CONTACTS?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -372,7 +388,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/me"||url.pathname.startsWith("/me/")||url.pathname.startsWith("/admin")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
@@ -405,70 +421,6 @@ function publicName(first: unknown, last: unknown, display: unknown) {
   const d = clean(display, 120);
   const parts = d.split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.` : (d || "Caregiver");
-}
-function ageDays(timestamp: unknown) {
-  const value = clean(timestamp, 80);
-  if (!value) return null;
-  const ms = Date.now() - new Date(value).getTime();
-  return Number.isFinite(ms) ? Math.max(0, ms / 86400000) : null;
-}
-function freshnessLabel(status: unknown, confirmedAt: unknown) {
-  const s = clean(status, 80);
-  const days = ageDays(confirmedAt);
-  if (s === "actively_looking" && days !== null) {
-    if (days < 1) return "Confirmed today";
-    if (days <= 7) return `Confirmed ${Math.floor(days)}d ago`;
-    if (days <= 30) return "Confirmed this month";
-  }
-  if (s === "not_looking") return "Not currently looking";
-  return "Availability unconfirmed";
-}
-function splitTerms(value: string) {
-  return value.toLowerCase().split(/[^a-z0-9]+/).filter((x) => x.length > 2);
-}
-function scoreCandidate(opening: Record<string, unknown>, c: Record<string, unknown>) {
-  let score = 0;
-  const reasons: string[] = [];
-  const targetRole = clean(opening.role).toLowerCase();
-  const roleText = [clean(c.role), clean(c.certifications), clean(c.specialties)].join(" ").toLowerCase();
-  if (targetRole && roleText.includes(targetRole)) { score += 40; reasons.push("role match"); }
-  else if (targetRole) {
-    const aliases: Record<string, string[]> = {
-      cna: ["cna", "certified nursing assistant", "nursing assistant"],
-      gna: ["gna", "geriatric nursing assistant", "nursing assistant"],
-      hha: ["hha", "home health aide"],
-      pca: ["pca", "personal care aide"],
-      caregiver: ["caregiver", "personal care", "home health", "cna", "hha", "pca"]
-    };
-    const terms = aliases[targetRole] || [targetRole];
-    if (terms.some((term) => roleText.includes(term))) { score += 35; reasons.push("related credential"); }
-  }
-  const openingZip = clean(opening.zip);
-  const caregiverZip = clean(c.zip);
-  const openingState = clean(opening.state).toLowerCase();
-  const caregiverState = clean(c.state).toLowerCase();
-  const openingCity = clean(opening.city).toLowerCase();
-  const caregiverCity = clean(c.city).toLowerCase();
-  if (openingZip && caregiverZip && openingZip === caregiverZip) { score += 25; reasons.push("same ZIP"); }
-  else if (openingCity && caregiverCity && openingCity === caregiverCity && openingState === caregiverState) { score += 20; reasons.push("same city"); }
-  else if (openingState && caregiverState && openingState === caregiverState) { score += 10; reasons.push("same state"); }
-  const days = ageDays(c.last_confirmed_at);
-  const status = clean(c.work_status);
-  if (status === "actively_looking" && days !== null) {
-    if (days <= 7) { score += 25; reasons.push("recently confirmed"); }
-    else if (days <= 30) { score += 18; reasons.push("confirmed this month"); }
-    else if (days <= 90) { score += 8; reasons.push("older availability"); }
-  }
-  const targetShift = clean(opening.shift_preferences);
-  const candidateShift = clean(c.shift_preferences);
-  if (targetShift && candidateShift) {
-    const targetTerms = splitTerms(targetShift);
-    if (targetTerms.some((term) => candidateShift.toLowerCase().includes(term))) { score += 10; reasons.push("shift overlap"); }
-  }
-  if (Number(opening.transportation_required || 0) === 1) {
-    if (clean(c.transportation) || Number(c.willing_to_drive || 0) === 1) { score += 5; reasons.push("transportation"); }
-  }
-  return { score: Math.min(100, score), reasons };
 }
 async function requireWorkspace(env: Env, id: string) {
   if (!env.DB || !id) return null;
@@ -512,6 +464,20 @@ async function handleAgencyDemandSummary(env: Env) {
     jurisdictions:jurisdictions.results||[],
     cities:cities.results||[]
   });
+}
+
+/** Public liveness check: aggregate counts the deploy smoke test needs, nothing else. Details live at /api/admin/health. */
+async function handlePublicHealth(env: Env) {
+  if (!env.DB) return json({ ok:false, service:"carejoys", database:"not_configured" }, { status:503 });
+  try {
+    const row = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM (SELECT lower(trim(email)) FROM caregivers WHERE email IS NOT NULL AND trim(email)!='' GROUP BY lower(trim(email)) HAVING COUNT(*)>1)) AS duplicate_emails,
+      (SELECT COUNT(*) FROM caregiver_jobs WHERE is_published=1 AND status='current') AS published_jobs,
+      (SELECT COUNT(*) FROM agency_job_scan_state WHERE last_scanned_at IS NOT NULL) AS scanned_sources`).first<Record<string,unknown>>();
+    return json({ ok:true, service:"carejoys", database:"ready", counts:{ duplicateCaregiverEmails:Number(row?.duplicate_emails||0), publishedCaregiverJobs:Number(row?.published_jobs||0), scannedJobSources:Number(row?.scanned_sources||0) }, timestamp:new Date().toISOString() });
+  } catch {
+    return json({ ok:false, service:"carejoys", database:"error" }, { status:500 });
+  }
 }
 
 async function handleHealth(env: Env) {
@@ -598,20 +564,22 @@ async function handleEmployer(request: Request, env: Env) {
   }
 
   const primaryRole=(rolesNeeded.split(/[,/;|]+/).map(v=>v.trim()).find(Boolean)||"Caregiver").slice(0,80);
-  const inferredState=/^2(?:0[6-9]|1\d)/.test(zip)?"MD":"";
+  const zipInfo=await lookupZip(env.DB,zip);
+  const inferredState=zipInfo?.state||await stateForZip(env.DB,zip);
+  const inferredCity=zipInfo?.city||"";
   let opening=await env.DB.prepare(`SELECT id FROM openings
     WHERE employer_id=? AND source='employer_intake' AND role=? AND zip=? AND status='open'
       AND datetime(created_at)>datetime('now','-30 minutes')
     ORDER BY created_at DESC LIMIT 1`).bind(id,primaryRole,zip).first<{id:string}>();
   const openingId=opening?.id||crypto.randomUUID();
   if(opening){
-    await env.DB.prepare("UPDATE openings SET title=?,state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(primaryRole+" opening",inferredState,shifts,payMin,payMax,transportationRequired,hiringNotes,openingId).run();
+    await env.DB.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(primaryRole+" opening",inferredCity,inferredState,shifts,payMin,payMax,transportationRequired,hiringNotes,openingId).run();
   }else{
     await env.DB.prepare(`INSERT INTO openings
-      (id,employer_id,title,role,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
-      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredState,zip,payMin,payMax,shifts,transportationRequired,hiringNotes).run();
+      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
+      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredCity,inferredState,zip,payMin,payMax,shifts,transportationRequired,hiringNotes).run();
   }
 
   const redirectPath="/app?opening="+encodeURIComponent(openingId)+"&match=1";
@@ -698,7 +666,9 @@ async function handleCaregiver(request: Request, env: Env) {
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
   const zip=clean(data!.zip,20);
-  const state=/^2(?:0[6-9]|1\d)/.test(zip)?"MD":"";
+  const zipInfo=await lookupZip(env.DB,zip);
+  const state=zipInfo?.state||await stateForZip(env.DB,zip);
+  const city=zipInfo?.city||"";
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
   const smsConsent=data!.smsConsent===true?1:0;
@@ -708,20 +678,20 @@ async function handleCaregiver(request: Request, env: Env) {
 
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
-      (id,first_name,last_name,display_name,email,phone,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)`)
-      .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,clean(data!.role,80),
+      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)`)
+      .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),city||null,zip,state,clean(data!.role,80),
         clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsAt).run();
   }
   const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
-  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,state=CASE WHEN ?!='' THEN ? ELSE state END,
+  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,city=COALESCE(NULLIF(?,''),city),state=CASE WHEN ?!='' THEN ? ELSE state END,
     role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
     sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
     sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
     is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,state,state,clean(data!.role,80),
+    .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,city,state,state,clean(data!.role,80),
       clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),
       smsConsent,smsConsent,smsAt,id).run();
 
@@ -747,20 +717,7 @@ async function handleCaregiver(request: Request, env: Env) {
 
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
-  let openingMatches=0;
-  if(caregiver){
-    const openings=await env.DB.prepare("SELECT * FROM openings WHERE status='open' ORDER BY updated_at DESC LIMIT 500").all<Record<string,unknown>>();
-    for(const opening of openings.results||[]){
-      const scored=scoreCandidate(opening,caregiver);
-      if(scored.score<=0)continue;
-      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
-        VALUES (?,?,?,'matched',?,?,'caregiver_signup')
-        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
-          match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP`)
-        .bind(crypto.randomUUID(),opening.id,id,JSON.stringify(scored.reasons),scored.score).run();
-      openingMatches++;
-    }
-  }
+  const openingMatches=caregiver?await matchCaregiverToOpenings(env,id,"caregiver_signup"):0;
   const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
     .bind(id).first<{count:number}>();
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
@@ -801,6 +758,8 @@ async function handleCaregiverResume(request:Request,env:Env){
   const emailExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const initiallyExisting=authExisting||emailExisting;
   const proposedId=initiallyExisting?.id||crypto.randomUUID();
+  // Only attach this Auth0 login to an existing email-matched profile when Auth0 verified the email; the sub unlocks /me.
+  const linkSub=authIdentity?.sub&&(authExisting||!emailExisting||authIdentity.emailVerified)?authIdentity.sub:null;
 
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
@@ -831,7 +790,7 @@ async function handleCaregiverResume(request:Request,env:Env){
 
   await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,authIdentity?.sub||null,authIdentity?.emailVerified?1:0,id).run();
+      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -851,17 +810,7 @@ async function handleCaregiverResume(request:Request,env:Env){
 
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
-  let openingMatches=0;
-  if(caregiver){
-    const openings=await env.DB.prepare("SELECT * FROM openings WHERE status='open' ORDER BY updated_at DESC LIMIT 500").all<Record<string,unknown>>();
-    for(const opening of openings.results||[]){
-      const scored=scoreCandidate(opening,caregiver);
-      if(scored.score<=0)continue;
-      await env.DB.prepare("INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?,'resume_match') ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP")
-        .bind(crypto.randomUUID(),opening.id,id,JSON.stringify(scored.reasons),scored.score).run();
-      openingMatches++;
-    }
-  }
+  const openingMatches=caregiver?await matchCaregiverToOpenings(env,id,"resume_match"):0;
 
   await env.DB.prepare("INSERT INTO caregiver_resume_imports (id,caregiver_id,source_filename,source_mime_type,source_file_size,parser_version,detected_role,detected_certifications,detected_specialties,detected_email,detected_phone) VALUES (?,?,?,?,?,'carejoys_resume_v2',?,?,?,?,?)")
     .bind(crypto.randomUUID(),id,clean(data!.sourceFilename,240),clean(data!.sourceMimeType,120),Number(data!.sourceFileSize||0)||null,
@@ -880,7 +829,7 @@ async function handleCaregiverResume(request:Request,env:Env){
 
   const relevant=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=? AND fit_score>=40")
     .bind(id).first<{count:number}>();
-  const marylandMatching=state==="MD"||(Number(zip.slice(0,3))>=206&&Number(zip.slice(0,3))<=219);
+  const marylandMatching=state==="MD";
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
 
   return json({
@@ -910,6 +859,34 @@ async function handlePublicJobApply(request:Request,env:Env,jobId:string){
   return json({ok:true,applicationUrl:clean(job.source_url,1000)});
 }
 
+/** Scores one caregiver against open openings within reach and upserts `matched` pipeline rows. */
+async function matchCaregiverToOpenings(env:Env,caregiverId:string,source:string){
+  const caregiver=await env.DB!.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Record<string,unknown>>();
+  if(!caregiver)return 0;
+  const geo=rowGeo(caregiver);
+  let sql=`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.status='open'`;
+  const args:unknown[]=[];
+  if(geo){
+    const box=boundingBox(geo,commuteRadiusMiles(caregiver));
+    sql+=" AND (zg.lat IS NULL OR (zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?))";
+    args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }
+  sql+=" ORDER BY o.updated_at DESC LIMIT 500";
+  const openings=await env.DB!.prepare(sql).bind(...args).all<Record<string,unknown>>();
+  let matched=0;
+  for(const opening of openings.results||[]){
+    const scored=scoreCandidate(opening,caregiver);
+    if(scored.score<=0)continue;
+    await env.DB!.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
+      VALUES (?,?,?,'matched',?,?,?)
+      ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
+        match_reason=excluded.match_reason,match_score=excluded.match_score,updated_at=CURRENT_TIMESTAMP`)
+      .bind(crypto.randomUUID(),opening.id,caregiverId,JSON.stringify(scored.reasons),scored.score,source).run();
+    matched++;
+  }
+  return matched;
+}
+
 async function handleSchool(request: Request, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
@@ -925,27 +902,45 @@ async function handleSchool(request: Request, env: Env) {
     .bind(id,clean(data!.organizationName,250),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.city,120),clean(data!.state,80),clean(data!.programTypes,500),clean(data!.graduatingCount,50),clean(data!.notes,1500)).run();
   return json({ok:true,id},{status:201});
 }
+const SEARCHABLE_CAREGIVER="c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))";
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
-  const zip=clean(url.searchParams.get("zip"),20);
+  const zip=normalizeZip(url.searchParams.get("zip"));
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
-  const result=await env.DB.prepare("SELECT id,first_name,last_name,display_name,city,state,zip,role,certifications,specialties,languages,years_experience,desired_wage,hourly_rate_min,hourly_rate_max,shift_preferences,travel_distance_miles,transportation,willing_to_drive,work_status,last_confirmed_at,source,profile_photo_url FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown')) ORDER BY CASE WHEN last_confirmed_at IS NULL THEN 1 ELSE 0 END, last_confirmed_at DESC LIMIT 250").all<Record<string,unknown>>();
-  let rows=result.results||[];
-  if(role) rows=rows.filter(c=>[clean(c.role),clean(c.certifications),clean(c.specialties)].join(" ").toLowerCase().includes(role));
-  if(zip) rows=rows.filter(c=>clean(c.zip)===zip);
-  if(state) rows=rows.filter(c=>clean(c.state).toLowerCase()===state);
-  if(shift) rows=rows.filter(c=>clean(c.shift_preferences).toLowerCase().includes(shift));
-  if(freshness==="confirmed") rows=rows.filter(c=>clean(c.work_status)==="actively_looking" && (ageDays(c.last_confirmed_at)??999)<=30);
-  return json({ok:true,total:rows.length,candidates:rows.slice(0,100).map(c=>({
+  const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
+  const center=zip?await lookupZip(env.DB,zip):null;
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
+  const args:unknown[]=[];
+  if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
+  if(center){
+    const box=boundingBox(center,radius);
+    sql+=" AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?"; args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }else if(zip){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
+  if(state){ sql+=" AND lower(COALESCE(c.state,''))=?"; args.push(state); }
+  if(shift){ sql+=" AND lower(COALESCE(c.shift_preferences,'')) LIKE ?"; args.push("%"+shift+"%"); }
+  if(freshness==="confirmed"){ sql+=" AND c.work_status='actively_looking' AND datetime(c.last_confirmed_at)>=datetime('now','-30 days')"; }
+  sql+=" ORDER BY CASE WHEN c.last_confirmed_at IS NULL THEN 1 ELSE 0 END, c.last_confirmed_at DESC LIMIT 1000";
+  const result=await env.DB.prepare(sql).bind(...args).all<Record<string,unknown>>();
+  let rows=(result.results||[]).map(c=>{
+    const geo=rowGeo(c);
+    return {c,distanceMiles:center&&geo?haversineMiles(center,geo):null};
+  });
+  if(center){
+    rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
+    rows.sort((a,b)=>(ageDays(a.c.last_confirmed_at)??9999)-(ageDays(b.c.last_confirmed_at)??9999)||(a.distanceMiles!-b.distanceMiles!));
+  }
+  return json({ok:true,total:rows.length,radiusMiles:center?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>({
     id:c.id,
     name:publicName(c.first_name,c.last_name,c.display_name),
     city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:c.certifications,specialties:c.specialties,languages:c.languages,
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
-    workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url
+    workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
+    distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
   }))});
 }
 async function getWorkspace(id:string, env:Env) {
@@ -964,23 +959,36 @@ async function createOpening(id:string,request:Request,env:Env) {
   const error=requireFields(data,["title","role"]);
   if(error) return json({ok:false,error},{status:400});
   const openingId=crypto.randomUUID();
+  const zipInfo=await lookupZip(env.DB,data!.zip);
   await env.DB!.prepare("INSERT INTO openings (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'open')")
-    .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120),clean(data!.state,80),clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,clean(data!.shifts,300),data!.transportationRequired===true?1:0,clean(data!.requirements,1200)).run();
+    .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"",clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,clean(data!.shifts,300),data!.transportationRequired===true?1:0,clean(data!.requirements,1200)).run();
   return json({ok:true,id:openingId},{status:201});
 }
 async function matchOpening(workspaceId:string,openingId:string,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
-  const opening=await env.DB!.prepare("SELECT * FROM openings WHERE id=? AND employer_id=?").bind(openingId,workspaceId).first<Record<string,unknown>>();
+  const opening=await env.DB!.prepare(`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.id=? AND o.employer_id=?`).bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening) return json({ok:false,error:"Opening not found"},{status:404});
-  const result=await env.DB!.prepare("SELECT * FROM caregivers WHERE is_active=1 AND (work_status='actively_looking' OR (source='legacy_carekoya' AND work_status='unknown'))").all<Record<string,unknown>>();
+  // Prefilter in SQL: within the widest allowed commute of the opening, or the same state when the opening has no known ZIP.
+  const openingGeo=rowGeo(opening);
+  let candidateSql=`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
+  const candidateArgs:unknown[]=[];
+  if(openingGeo){
+    const box=boundingBox(openingGeo,MAX_SEARCH_MILES);
+    candidateSql+=" AND (zg.lat IS NULL OR (zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?))";
+    candidateArgs.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }else if(clean(opening.state)){
+    candidateSql+=" AND (COALESCE(c.state,'')='' OR upper(c.state)=upper(?))";
+    candidateArgs.push(clean(opening.state));
+  }
+  const result=await env.DB!.prepare(candidateSql).bind(...candidateArgs).all<Record<string,unknown>>();
   const scored=(result.results||[]).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
   for(const item of scored){
     const pipelineId=crypto.randomUUID();
     await env.DB!.prepare("INSERT OR IGNORE INTO candidate_pipeline (id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?, 'carejoys_match')")
       .bind(pipelineId,openingId,item.c.id,JSON.stringify(item.reasons),item.score).run();
   }
-  return json({ok:true,matched:scored.length,top:scored.slice(0,10).map(x=>({id:x.c.id,name:publicName(x.c.first_name,x.c.last_name,x.c.display_name),score:x.score,reasons:x.reasons,freshness:freshnessLabel(x.c.work_status,x.c.last_confirmed_at),city:x.c.city,state:x.c.state,role:x.c.role}))});
+  return json({ok:true,matched:scored.length,top:scored.slice(0,10).map(x=>({id:x.c.id,name:publicName(x.c.first_name,x.c.last_name,x.c.display_name),score:x.score,reasons:x.reasons,distanceMiles:x.distanceMiles===null?null:Math.round(x.distanceMiles*10)/10,freshness:freshnessLabel(x.c.work_status,x.c.last_confirmed_at),city:x.c.city,state:x.c.state,role:x.c.role}))});
 }
 async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
@@ -1080,7 +1088,43 @@ export default {
     if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
-    if(url.pathname==="/api/health") return handleHealth(env);
+    if(url.pathname==="/api/health") return handlePublicHealth(env);
+    if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
+    if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
+
+    if(url.pathname==="/api/me"||url.pathname.startsWith("/api/me/")){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      const identity=await caregiverAuthIdentity(request,env);
+      if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
+      const invite=url.pathname.match(/^\/api\/me\/invites\/([^/]+)\/(respond|book)$/);
+      if(request.method==="POST"&&invite) return invite[2]==="respond"?respondToInvite(request,env,identity,decodeURIComponent(invite[1])):bookInviteInterview(request,env,identity,decodeURIComponent(invite[1]));
+      return json({ok:false,error:"Not found"},{status:404});
+    }
+
+    if(request.method==="POST"&&url.pathname==="/api/stripe/webhook") return handleStripeWebhook(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/billing") return billingStatus(request,env);
+    if(request.method==="POST"&&(url.pathname==="/api/billing/checkout"||url.pathname==="/api/billing/portal")){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      return url.pathname.endsWith("/checkout")?createCheckout(request,env):createPortal(request,env);
+    }
+    if(request.method==="POST"&&url.pathname==="/api/admin/auth/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAdminMagicLink(request,env); }
+    if(url.pathname.startsWith("/api/admin/")||url.pathname==="/api/activation-stats"){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      const admin=await adminFromRequest(request,env);
+      if(!admin) return json({ok:false,error:"Admin sign-in required"},{status:401});
+      if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
+      if(request.method==="GET"&&url.pathname==="/api/admin/session") return json({ok:true,admin});
+      if(request.method==="GET"&&url.pathname==="/api/admin/health") return handleHealth(env);
+      if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
+      if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
+        const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
+        return json({ok:true,admin,funnel,outreach,employers});
+      }
+      if(request.method==="POST"&&url.pathname==="/api/admin/outreach/run") return runAdminOutreach(request,env);
+      return json({ok:false,error:"Not found"},{status:404});
+    }
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
@@ -1117,7 +1161,6 @@ export default {
       if(!(await employerSession(request,env))) return json({ok:false,error:"Sign in required"},{status:401});
       return searchCandidates(url,env);
     }
-    if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
@@ -1190,7 +1233,12 @@ export default {
         await scoreAgencyMatches(env);
         return;
       }
-      // School outreach is intentionally manual-only. No scheduled email sends.
+      if(event.cron==="41 15 * * *"){
+        // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
+        // School outreach stays manual-only.
+        await runScheduledOutreach(env);
+        return;
+      }
     })());
   }
 };
