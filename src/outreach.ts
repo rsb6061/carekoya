@@ -1,6 +1,6 @@
 import { caregiverActivationEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
-import { sendAgencyTeaserBatch } from './agencyFeatures';
+import { agencyTeaserTestEmail, sendAgencyTeaserBatch } from './agencyFeatures';
 import { type FeatureEnv } from './serverFeatures';
 
 type Row=Record<string,unknown>;
@@ -88,6 +88,17 @@ export async function runOutreach(env:OutreachEnv,kind:OutreachKind,trigger:'cro
   await env.DB.prepare('INSERT INTO outreach_runs(id,kind,trigger,attempted,sent,failed) VALUES (?,?,?,?,?,?)')
     .bind(crypto.randomUUID(),kind,trigger,result.attempted,result.sent,result.failed).run();
   return {kind,cap,...result};
+}
+
+/** Sends one sample of an outreach email to an admin. Links are inert and nothing counts toward caps or marks anyone contacted. */
+export async function sendOutreachTest(env:OutreachEnv,kind:OutreachKind,to:string){
+  if(!env.EMAIL)return {sent:false,error:'email_not_configured'};
+  const message=kind==='reactivation'
+    ?caregiverActivationEmail('there','https://carejoys.com/activate?token=test-preview')
+    :await agencyTeaserTestEmail(env);
+  const body=withUnsubscribe(message,'https://carejoys.com/api/unsubscribe?token=test-preview');
+  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to,subject:'[Test] '+body.subject,html:body.html,text:body.text});
+  return {sent:true,to,subject:body.subject};
 }
 
 /** Daily cron entry point. Does nothing until OUTREACH_ENABLED=true is set on the Worker. */

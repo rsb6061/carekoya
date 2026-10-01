@@ -122,6 +122,17 @@ describe('outreach', ()=>{
     const token=decodeURIComponent(sent[0].html!.match(/activate\?token=([^"&]+)/)![1]);
     expect((await call('/api/activate?token='+encodeURIComponent(token))).status).toBe(200);
   });
+  it('admin test send emails only the signed-in admin and counts toward nothing', async()=>{
+    sent.length=0;
+    const runCount=async()=>((await DB.prepare("SELECT COUNT(*) AS n FROM outreach_runs").first()) as {n:number}).n;
+    const before=await runCount();
+    const post=(kind:string)=>call('/api/admin/outreach/test',{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify({kind})},{ADMIN_EMAILS:'pat@acme.test'});
+    expect((await post('reactivation')).status).toBe(200);
+    expect((await post('agency_teasers')).status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual(['pat@acme.test','pat@acme.test']);
+    expect(sent.every(m=>m.subject.startsWith('[Test] '))).toBe(true);
+    expect(await runCount()).toBe(before);
+  });
   it('scheduled outreach does nothing until enabled', async()=>{
     sent.length=0;
     const waits:Promise<unknown>[]=[];

@@ -85,6 +85,15 @@ export function AdminConsole(){
     finally{setBusy(false)}
   }
 
+  async function test(kind:string){
+    setBusy(true);setNotice('');
+    try{
+      const body=await api<{result:{to:string}}>('/api/admin/outreach/test',{method:'POST',body:JSON.stringify({kind})});
+      setNotice(`Test ${KIND_LABELS[kind].toLowerCase()} email sent to ${body.result.to}.`);
+    }catch(err){setNotice(err instanceof Error?err.message:'Test send failed')}
+    finally{setBusy(false)}
+  }
+
   if(needsLogin)return <AdminSignIn/>;
   if(!data)return <div className="loading-screen">{notice||'Loading admin…'}</div>;
   const f=data.funnel;
@@ -112,7 +121,10 @@ export function AdminConsole(){
           <div className="job-meta">{KIND_LABELS[t.kind]}</div>
           <div style={{fontSize:30,fontWeight:600}}>{t.sentToday} / {t.cap}</div>
           <div className="job-meta">sent today{t.kind==='reactivation'?` · ${data.outreach.reactivationQueue} still to reach`:''}</div>
-          <button className="button secondary" style={{marginTop:10}} disabled={busy||t.sentToday>=t.cap} onClick={()=>void run(t.kind)}>Send today’s remaining</button>
+          <div className="empty-actions" style={{marginTop:10}}>
+            <button className="button secondary" disabled={busy} onClick={()=>void test(t.kind)}>Send test to me</button>
+            <button className="button secondary" disabled={busy||t.sentToday>=t.cap} onClick={()=>void run(t.kind)}>Send today’s remaining</button>
+          </div>
         </div>)}</div>
         <div style={{...grid,marginTop:12}}>
           <Stat label="Legacy caregivers" value={f.reactivation.legacyTotal}/>
