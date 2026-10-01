@@ -1,5 +1,7 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
+import { contactAllowance } from './billing';
+
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
   bind(...values:unknown[]):Statement;
@@ -15,6 +17,9 @@ export type FeatureEnv={
   TURNSTILE_SECRET_KEY?:string;
   AUTH0_DOMAIN?:string;
   AUTH0_CLIENT_ID?:string;
+  STRIPE_SECRET_KEY?:string;
+  STRIPE_PRICE_ID?:string;
+  FREE_CONTACTS?:string;
 };
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -207,7 +212,9 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
     .bind(openingId).first<{count:number}>();
   if(asNumber(slotCount?.count)<1)return json({ok:false,error:'Add at least one interview time before contacting caregivers.'},{status:400});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
-  const limit=Math.max(1,Math.min(20,asNumber(body.limit)||5));
+  const allowance=await contactAllowance(env,workspaceId);
+  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free candidate contacts. Upgrade to keep contacting caregivers.`},{status:402});
+  const limit=Math.min(allowance.remaining,Math.max(1,Math.min(20,asNumber(body.limit)||5)));
   const rows=await env.DB.prepare("SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.email IS NOT NULL AND c.email!='' ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?").bind(openingId,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   for(const row of rows.results||[]){

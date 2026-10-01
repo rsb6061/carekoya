@@ -113,3 +113,24 @@ describe('email', ()=>{
     expect(msg.text).toContain('Unsubscribe: https://carejoys.com/api/unsubscribe?token=y');
   });
 });
+
+import { billingEnabled, freeContacts, verifyStripeSignature } from '../src/billing';
+
+describe('billing', ()=>{
+  it('is inert until Stripe is configured', ()=>{
+    expect(billingEnabled({})).toBe(false);
+    expect(billingEnabled({STRIPE_SECRET_KEY:'sk'})).toBe(false);
+    expect(billingEnabled({STRIPE_SECRET_KEY:'sk',STRIPE_PRICE_ID:'price'})).toBe(true);
+    expect(freeContacts({})).toBe(5);
+    expect(freeContacts({FREE_CONTACTS:'0'})).toBe(0);
+  });
+  it('verifies Stripe webhook signatures', async()=>{
+    const secret='whsec_test',payload='{"type":"ping"}',t=1_700_000_000;
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+    const sig=Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(`${t}.${payload}`)))).map(b=>b.toString(16).padStart(2,'0')).join('');
+    expect(await verifyStripeSignature(payload,`t=${t},v1=${sig}`,secret,t+10)).toBe(true);
+    expect(await verifyStripeSignature(payload+' ',`t=${t},v1=${sig}`,secret,t+10)).toBe(false);
+    expect(await verifyStripeSignature(payload,`t=${t},v1=${sig}`,secret,t+1000)).toBe(false);
+    expect(await verifyStripeSignature(payload,`t=${t},v1=${sig}`,'other',t)).toBe(false);
+  });
+});

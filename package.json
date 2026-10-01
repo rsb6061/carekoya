@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && npm run db:migrations:apply && wrangler deploy",
-    "pretest": "wrangler d1 migrations apply DB --local --config tests/wrangler.test.jsonc --persist-to .wrangler/test",
+    "pretest": "node -e \"require('fs').rmSync('.wrangler/test',{recursive:true,force:true})\" && wrangler d1 migrations apply DB --local --config tests/wrangler.test.jsonc --persist-to .wrangler/test",
     "test": "vitest run",
     "zip-geo:build": "node scripts/build-zip-geo.mjs"
   },

@@ -6,6 +6,7 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './m
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach } from './admin';
 import { runScheduledOutreach } from './outreach';
+import { billingStatus, createCheckout, createPortal, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { bookInviteInterview, getCaregiverDashboard, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverDashboard';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
@@ -34,6 +35,10 @@ interface Env {
   OUTREACH_ENABLED?: string;
   REACTIVATION_DAILY_CAP?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PRICE_ID?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  FREE_CONTACTS?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -1098,6 +1103,12 @@ export default {
       return json({ok:false,error:"Not found"},{status:404});
     }
 
+    if(request.method==="POST"&&url.pathname==="/api/stripe/webhook") return handleStripeWebhook(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/billing") return billingStatus(request,env);
+    if(request.method==="POST"&&(url.pathname==="/api/billing/checkout"||url.pathname==="/api/billing/portal")){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      return url.pathname.endsWith("/checkout")?createCheckout(request,env):createPortal(request,env);
+    }
     if(request.method==="POST"&&url.pathname==="/api/admin/auth/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAdminMagicLink(request,env); }
     if(url.pathname.startsWith("/api/admin/")||url.pathname==="/api/activation-stats"){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
