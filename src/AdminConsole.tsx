@@ -102,6 +102,16 @@ export function AdminConsole(){
     finally{setBusy(false)}
   }
 
+  async function agencyTest(reset=false){
+    if(reset&&!window.confirm('Reset the test agency? This removes its claim, hiring profile and pipeline so you can start over.'))return;
+    setBusy(true);setNotice('');
+    try{
+      const body=await api<{result?:{to?:string;email:string;candidateCount:number}}>('/api/admin/agency-test',{method:'POST',body:JSON.stringify({reset})});
+      setNotice(reset?'Test agency reset.':`Live teaser for CareJoys Test Agency (${body.result!.candidateCount} matched caregivers) sent to ${body.result!.email}.`);
+    }catch(err){setNotice(err instanceof Error?err.message:'Test agency failed')}
+    finally{setBusy(false)}
+  }
+
   if(needsLogin)return <AdminSignIn/>;
   if(!data)return <div className="loading-screen">{notice||'Loading admin…'}</div>;
   const f=data.funnel;
@@ -133,7 +143,17 @@ export function AdminConsole(){
             <button className="button secondary" disabled={busy} onClick={()=>void test(t.kind)}>Send test to me</button>
             <button className="button secondary" disabled={busy||t.sentToday>=t.cap} onClick={()=>void run(t.kind)}>Send today’s remaining</button>
           </div>
-        </div>)}</div>
+        </div>)}
+          <div className="settings-card">
+            <div className="job-meta">Agency walkthrough</div>
+            <div style={{fontWeight:600,margin:'6px 0'}}>CareJoys Test Agency</div>
+            <div className="job-meta">A hidden Baltimore agency. Its live teaser comes to you so you can claim it and onboard like a real agency. Never sent to anyone else.</div>
+            <div className="empty-actions" style={{marginTop:10}}>
+              <button className="button secondary" disabled={busy} onClick={()=>void agencyTest()}>Send me a live agency teaser</button>
+              <button className="button secondary" disabled={busy} onClick={()=>void agencyTest(true)}>Reset test agency</button>
+            </div>
+          </div>
+        </div>
         <div style={{...grid,marginTop:12}}>
           <Stat label="Legacy caregivers" value={f.reactivation.legacyTotal}/>
           <Stat label="Reactivation sent" value={f.reactivation.sent}/>

@@ -141,7 +141,7 @@ const toolHandlers:Record<string,(env:FeatureEnv,args:Row,ctx:Ctx)=>Promise<unkn
     const jobFilter=role?" AND (lower(j.role)=lower(?) OR lower(COALESCE(j.roles_json,'')) LIKE lower(?))":'';
     let sql=`SELECT o.id,o.canonical_name,o.city,o.state,o.zip,o.primary_website,o.primary_careers_url,o.current_hiring_signal,o.claimed_employer_id,${REACHABLE_AGENCY_SQL} AS reachable,
         (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=o.id AND j.is_published=1 AND j.status='current'${jobFilter}) AS open_jobs
-      FROM agency_organizations o WHERE o.is_active=1`;
+      FROM agency_organizations o WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0`;
     const binds:unknown[]=role?[role,'%"'+role+'"%']:[];
     if(city){sql+=' AND lower(o.city)=lower(?)';binds.push(city)}
     if(zip){sql+=" AND substr(COALESCE(o.zip,''),1,3)=?";binds.push(zip.slice(0,3))}

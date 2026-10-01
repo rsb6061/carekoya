@@ -155,6 +155,24 @@ describe('outreach', ()=>{
     expect(sent.every(m=>m.subject.startsWith('[Test] '))).toBe(true);
     expect(await runCount()).toBe(before);
   });
+  it('admin agency walkthrough sends a live teaser for a hidden test agency', async()=>{
+    sent.length=0;
+    const post=(body:object)=>call('/api/admin/agency-test',{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify(body)},{ADMIN_EMAILS:'pat@acme.test'});
+    const res=await post({});
+    expect(res.status).toBe(200);
+    expect((await res.json() as any).result.candidateCount).toBeGreaterThan(0);
+    expect(sent.map(m=>m.to)).toEqual(['pat@acme.test']);
+    expect(sent[0].subject.startsWith('[Test] ')).toBe(true);
+    const token=decodeURIComponent((sent[0].html||'').match(/agency\?token=([^"&\s]+)/)![1]);
+    const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
+    expect(teaser.agency.name).toBe('CareJoys Test Agency');
+    expect(teaser.candidateCount).toBeGreaterThan(0);
+    // Hidden from public search and not counted as real outreach.
+    expect((await (await call('/api/agency/search?q=carejoys')).json() as any).agencies).toEqual([]);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE event_type='candidate_teaser'").first()).toEqual({n:0});
+    expect((await post({reset:true})).status).toBe(200);
+    expect((await call('/api/agency/teaser?token='+encodeURIComponent(token))).status).toBe(404);
+  });
   it('scheduled outreach does nothing until enabled', async()=>{
     sent.length=0;
     const waits:Promise<unknown>[]=[];

@@ -94,7 +94,7 @@ export async function resolveTargets(env:FeatureEnv,input:{jobIds?:unknown;agenc
     out.push({organizationId:clean(row.agency_organization_id,120),agencyName:clean(row.canonical_name,200),city:clean(row.city,120),state:clean(row.state,20),jobId:id,jobTitle:clean(row.title,200)});
   }
   for(const id of agencyIds){
-    const row=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.city,o.state,${REACHABLE_AGENCY_SQL} AS reachable FROM agency_organizations o WHERE o.id=? AND o.is_active=1 LIMIT 1`).bind(id).first<Row>();
+    const row=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.city,o.state,${REACHABLE_AGENCY_SQL} AS reachable FROM agency_organizations o WHERE o.id=? AND o.is_active=1 AND COALESCE(o.is_test,0)=0 LIMIT 1`).bind(id).first<Row>();
     if(!row)throw new Error(`Agency ${id} is not on CareJoys. Search again for hiring agencies.`);
     if(!asNum(row.reachable))throw new Error(`${clean(row.canonical_name,200)} can't receive profiles through CareJoys yet.`);
     if(out.some(t=>t.organizationId===id&&!t.jobId))continue;
