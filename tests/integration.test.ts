@@ -3,6 +3,7 @@ import { getPlatformProxy } from 'wrangler';
 import worker from '../src/worker';
 import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
+import { runDataForSeoJobs } from '../src/dataforseo';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -254,5 +255,81 @@ describe('audit fixes: agency self-serve', ()=>{
   });
   it('an email outside the agency domain cannot claim it', async()=>{
     expect((await post('/api/agency/claim/start',{organizationId:'org-test',email:'someone@gmail.com'})).status).toBe(409);
+  });
+});
+
+describe('DataForSEO pull in the Worker', ()=>{
+  const listing=(n:number,extra:Record<string,unknown>={})=>({title:'Agency '+n,category:'Home help service agency',place_id:'place-'+n,cid:String(n),
+    phone:'+1804555'+String(1000+n),url:'https://agency'+n+'.example/',address_info:{address:n+' Main St',city:'Richmond',zip:'23219',region:'Virginia'},
+    rating:{value:4.5,votes_count:n},...extra});
+  function fakeApi(pages:any[][],total:number){
+    const calls:any[]=[];
+    const original=globalThis.fetch;
+    globalThis.fetch=(async(_url:string,init:any)=>{
+      const task=JSON.parse(init.body)[0];
+      calls.push(task);
+      const virginia=task.filters?.[0]?.[2]==='Virginia'&&task.categories?.[0]==='home_help_service_agency';
+      if(task.limit===1)return new Response(JSON.stringify({status_code:20000,cost:0.01,tasks:[{status_code:20000,result:[{total_count:virginia?total:0,items:[]}]}]}));
+      const page=pages.shift()||[];
+      return new Response(JSON.stringify({status_code:20000,cost:0.5,tasks:[{status_code:20000,result:[{total_count:total,items:page,offset_token:pages.length?'next':''}]}]}));
+    }) as any;
+    return {calls,restore:()=>{globalThis.fetch=original}};
+  }
+  const creds={DATAFORSEO_LOGIN:'me@example.com',DATAFORSEO_PASSWORD:'pw'};
+  const job=(id:string,mode:string,maxCost=10)=>DB.prepare("INSERT INTO dataforseo_import_jobs(id,states,mode,max_cost) VALUES (?,?,?,?)").bind(id,'VA',mode,maxCost).run();
+  const status=(id:string)=>DB.prepare('SELECT * FROM dataforseo_import_jobs WHERE id=?').bind(id).first();
+
+  it('an estimate only counts listings', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('est','estimate');
+    const api=fakeApi([],1500);
+    try{await runDataForSeoJobs(env(creds))}finally{api.restore()}
+    const row=await status('est') as any;
+    expect(row.status).toBe('estimated');
+    expect(row.listings).toBe(1500);
+    expect(api.calls.every(c=>c.limit===1)).toBe(true);
+    expect(JSON.parse(row.plan_json)).toEqual([expect.objectContaining({state:'VA',category:'home_help_service_agency',filterValue:'Virginia',total:1500})]);
+  });
+
+  it('an import pages through listings, saves agencies and retires stale ones', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await DB.prepare("DELETE FROM agencies WHERE source='google_business'").run();
+    await DB.prepare("INSERT INTO agencies(id,source,source_key,name,state,is_active,last_source_sync_at) VALUES ('old','google_business','place:gone','Closed Agency','VA',1,'2020-01-01 00:00:00')").run();
+    await job('imp','import');
+    const api=fakeApi([[listing(1),listing(2),listing(3,{address_info:{region:'Maryland'}})],[listing(4),listing(5,{title:'Richmond Medical Supply'})]],5);
+    try{
+      await runDataForSeoJobs(env(creds)); // probes
+      expect((await status('imp') as any).status).toBe('running');
+      await runDataForSeoJobs(env(creds)); // both pages
+    }finally{api.restore()}
+    const row=await status('imp') as any;
+    expect(row.status).toBe('done');
+    expect(row.agencies).toBe(4);
+    expect(api.calls.filter(c=>c.limit===1000)[1].offset_token).toBe('next');
+    const saved=(await DB.prepare("SELECT name,state,phone,website,rating,caregiver_match_eligible,is_active FROM agencies WHERE source='google_business' ORDER BY name").all()).results as any[];
+    expect(saved.map(r=>r.name)).toEqual(['Agency 1','Agency 2','Agency 4','Closed Agency','Richmond Medical Supply']);
+    expect(saved.find(r=>r.name==='Agency 1')).toMatchObject({state:'VA',phone:'(804) 555-1001',website:'https://agency1.example/',rating:4.5,caregiver_match_eligible:1,is_active:1});
+    expect(saved.find(r=>r.name==='Richmond Medical Supply').caregiver_match_eligible).toBe(0);
+    expect(saved.find(r=>r.name==='Closed Agency').is_active).toBe(0);
+  });
+
+  it('stops before passing the spend cap', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('cap','import',0.6);
+    const api=fakeApi([[listing(1)],[listing(2)],[listing(3)]],3000);
+    try{await runDataForSeoJobs(env(creds));await runDataForSeoJobs(env(creds))}finally{api.restore()}
+    const row=await status('cap') as any;
+    expect(row.status).toBe('stopped');
+    expect(row.spent).toBeLessThanOrEqual(0.6+0.5);
+    expect(api.calls.filter(c=>c.limit===1000).length).toBe(1);
+  });
+
+  it('fails clearly without credentials', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('nocreds','estimate');
+    await runDataForSeoJobs(env());
+    const row=await status('nocreds') as any;
+    expect(row.status).toBe('failed');
+    expect(row.error).toMatch(/DATAFORSEO_LOGIN/);
   });
 });
