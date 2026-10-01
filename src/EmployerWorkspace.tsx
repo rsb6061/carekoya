@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
+import { AgencyInbox } from './AgencyInboxTab';
 import './workspace.css';
 
 type Opening={
@@ -74,7 +75,8 @@ export function EmployerWorkspace(){
   const [pipeline,setPipeline]=useState<PipelineRow[]>([]);
   const [candidates,setCandidates]=useState<Candidate[]>([]);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'>('openings');
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'>(()=>new URLSearchParams(window.location.search).get('tab')==='inbox'?'inbox':'openings');
+  const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
@@ -269,6 +271,7 @@ export function EmployerWorkspace(){
     <header className="app-header"><div className="app-wrap header-inner">
       <a className="brand" href="/app">CareJoys</a>
       <nav className="app-nav">
+        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='inbox'?'active':'')} onClick={()=>setTab('inbox')}>Inbox{inboxWaiting?` (${inboxWaiting})`:''}</button>}
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>
         <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Pipeline</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')}>Talent network</button>
@@ -296,6 +299,8 @@ export function EmployerWorkspace(){
           :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free candidate contacts left. Matching and browsing are always free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
       </div>}
       {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
+
+      {agencyNetwork.agency&&<div hidden={tab!=='inbox'}><AgencyInbox onCount={setInboxWaiting}/></div>}
 
       {tab==='openings'&&<section className="section-block">
         <div className="section-heading"><h2>Openings</h2><p>Describe the role once. CareJoys matches the network; you add interview times before outreach.</p></div>

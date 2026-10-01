@@ -182,6 +182,63 @@ export function schoolMagicLinkEmail(input:{contactName:string;programName:strin
   };
 }
 
+type InterestPreview={label:string;detail:string};
+const P='font-size:16px;line-height:1.6;color:#5f5972';
+const BUTTON='display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700';
+function interestRows(items:InterestPreview[]){
+  return items.slice(0,5).map(p=>`
+    <div style="background:#f6f3ff;border:1px solid #d8d2ff;border-radius:16px;padding:13px 15px;margin:9px 0">
+      <div style="font-weight:700;color:#1b153c">${esc(p.label)}</div>
+      <div style="font-size:14px;line-height:1.5;color:#6e6882">${esc(p.detail)}</div>
+    </div>`).join('');
+}
+
+// To an agency that hasn't claimed its CareJoys listing: real caregivers asked to be sent to it.
+// The previews stay de-identified until the agency verifies its address.
+export function agencyInterestActivationEmail(input:{contactName:string;agencyName:string;items:InterestPreview[];count:number;link:string}) {
+  const many=input.count===1?'A caregiver wants':`${input.count} caregivers want`;
+  return {
+    subject:`${many} to work with ${input.agencyName}`,
+    html:shell(`${many} to work with you`,`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      <p style="${P}">${input.count===1?'A caregiver':'Caregivers'} on CareJoys asked us to send ${input.count===1?'their profile':'their profiles'} to <strong>${esc(input.agencyName)}</strong>.</p>
+      ${interestRows(input.items)}
+      <p style="${P}">Verify your agency email to see ${input.count===1?'their':'each'} full profile and contact details. It's free.</p>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="${BUTTON}">View ${input.count===1?'caregiver':'caregivers'}</a></p>`),
+    text:`Hi ${input.contactName||'there'},\n\n${input.count===1?'A caregiver':'Caregivers'} on CareJoys asked us to send ${input.count===1?'their profile':'their profiles'} to ${input.agencyName}.\n\n${input.items.slice(0,5).map(p=>p.label+' · '+p.detail).join('\n')}\n\nVerify your agency email to see the full profile and contact details. It's free:\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+// To an agency that already claimed its listing: new caregivers in its Inbox.
+export function agencyInterestNotifyEmail(input:{recipientName:string;agencyName:string;items:InterestPreview[];count:number;link:string}) {
+  const subject=input.count===1?`New caregiver for ${input.agencyName}: ${input.items[0]?.label||'Caregiver'}`:`${input.count} new caregivers for ${input.agencyName}`;
+  return {
+    subject,
+    html:shell(input.count===1?'A caregiver wants to work with you':`${input.count} caregivers want to work with you`,`
+      <p style="${P}">Hi ${esc(input.recipientName||'there')},</p>
+      <p style="${P}">${input.count===1?'This caregiver':'These caregivers'} asked CareJoys to send ${input.count===1?'their profile':'their profiles'} to ${esc(input.agencyName)}. Contact details are in your Inbox.</p>
+      ${interestRows(input.items)}
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="${BUTTON}">Open your Inbox</a></p>`),
+    text:`Hi ${input.recipientName||'there'},\n\n${input.count===1?'This caregiver':'These caregivers'} asked CareJoys to send ${input.count===1?'their profile':'their profiles'} to ${input.agencyName}:\n\n${input.items.slice(0,5).map(p=>p.label+' · '+p.detail).join('\n')}\n\nOpen your Inbox:\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+// To the caregiver: nothing is sent to an agency until they press Send on this link.
+export function caregiverInterestConfirmEmail(input:{firstName:string;targets:InterestPreview[];link:string;viaAssistant:boolean}) {
+  const one=input.targets.length===1;
+  return {
+    subject:one?`Send your CareJoys profile to ${input.targets[0].label}?`:`Send your CareJoys profile to ${input.targets.length} agencies?`,
+    html:shell('Confirm where your profile goes',`
+      <p style="${P}">Hi ${esc(input.firstName||'there')},</p>
+      <p style="${P}">${input.viaAssistant?'Your AI assistant asked CareJoys':'You asked CareJoys'} to send your caregiver profile to:</p>
+      ${interestRows(input.targets)}
+      <p style="${P}">Nothing has been sent yet. Press the button to send it. The link works for 48 hours.</p>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="${BUTTON}">Review and send</a></p>
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">If this wasn't you, ignore this email and nothing will be sent.</p>`),
+    text:`Hi ${input.firstName||'there'},\n\n${input.viaAssistant?'Your AI assistant asked CareJoys':'You asked CareJoys'} to send your caregiver profile to:\n\n${input.targets.map(p=>p.label+' · '+p.detail).join('\n')}\n\nNothing has been sent yet. Review and send (works for 48 hours):\n${input.link}\n\nIf this wasn't you, ignore this email and nothing will be sent.\n\nCareJoys · carejoys.com`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
   const url=esc(unsubscribeLink);

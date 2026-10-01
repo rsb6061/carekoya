@@ -101,3 +101,15 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 
 .caregiver-avatar{width:42px;height:42px;border-radius:50%;object-fit:cover;border:1px solid var(--lavender);background:#f4f1ff;flex:0 0 42px}
 .job-card-title-row{display:flex;align-items:center;gap:10px}
+
+.inbox-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.inbox-filter{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;border:1px solid var(--lavender);background:#fffdf9;color:#514b65;font:inherit;font-size:14px;cursor:pointer}
+.inbox-filter b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.inbox-filter.active{background:#e8e3ff;color:var(--ink);font-weight:600}
+.inbox-filter.needs-reply b{color:var(--orange)}
+.inbox-filter:focus-visible,.inbox-notes:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.inbox-card .candidate-name-row .status{margin-left:2px}
+.inbox-note{margin:14px 0 0;padding:10px 13px;border-left:3px solid var(--lavender);background:rgba(255,255,255,.6);border-radius:0 12px 12px 0;color:#4f4962;font-size:14px;line-height:1.5}
+.inbox-contact{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:14px;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+.inbox-source{color:var(--muted)}
+.inbox-notes{margin-top:12px;width:100%;min-height:44px;border:1px solid var(--lavender);border-radius:14px;padding:9px 12px;background:rgba(255,255,255,.75);font:inherit;font-size:14px;color:var(--ink);resize:vertical}

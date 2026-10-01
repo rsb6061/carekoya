@@ -21,6 +21,8 @@ const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage
 const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
 const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
+const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
+const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
 const CaregiverDashboard=named(()=>import('./CaregiverDashboard'),'CaregiverDashboard');
 const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
 
@@ -137,6 +139,8 @@ function routePage(path:string){
   if (path.startsWith('/activate')) return <CaregiverActivation />;
   if (path.startsWith('/auth')) return <EmployerAuth />;
   if (path.startsWith('/respond')) return <CandidateResponse />;
+  if (path.startsWith('/confirm-interest')) return <ConfirmInterest />;
+  if (path === '/agent') return <AgentSetupPage />;
   if (path.startsWith('/agency')) return <AgencyClaim />;
   if (parseJobsHubPath(path) || path.startsWith('/join/')) return <MarylandCaregiverPage />;
   if (path.startsWith('/training-programs/maryland') || path.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
