@@ -99,22 +99,27 @@ export async function publicFormGuard(request:Request,env:FeatureEnv,bucket:stri
   return null;
 }
 
-async function sendMagic(env:FeatureEnv,employer:{id:string;contact_name?:string;email:string},redirectPath?:string){
+// Agency inboxes are often shared and slow, so links last an hour and an older unused link keeps working until it expires.
+export const MAGIC_LINK_MINUTES=60;
+
+async function sendMagic(env:FeatureEnv,employer:{id:string;contact_name?:string;email:string},redirectPath?:string,pendingIntake?:Record<string,unknown>|null){
   if(!env.DB||!env.EMAIL)throw new Error('Email service is not configured');
   const token=crypto.randomUUID()+'-'+crypto.randomUUID();
   const hash=await sha256Hex(token);
-  const expires=new Date(Date.now()+15*60000).toISOString();
-  await env.DB.prepare('DELETE FROM employer_auth_tokens WHERE employer_id=? AND used_at IS NULL').bind(employer.id).run();
-  await env.DB.prepare('INSERT INTO employer_auth_tokens(id,employer_id,token_hash,expires_at,redirect_path) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),employer.id,hash,expires,clean(redirectPath,500)||null).run();
+  const expires=new Date(Date.now()+MAGIC_LINK_MINUTES*60000).toISOString();
+  await env.DB.prepare("DELETE FROM employer_auth_tokens WHERE employer_id=? AND used_at IS NULL AND datetime(expires_at)<=datetime('now')").bind(employer.id).run();
+  await env.DB.prepare('INSERT INTO employer_auth_tokens(id,employer_id,token_hash,expires_at,redirect_path,pending_intake) VALUES (?,?,?,?,?,?)')
+    .bind(crypto.randomUUID(),employer.id,hash,expires,clean(redirectPath,500)||null,pendingIntake?JSON.stringify(pendingIntake):null).run();
   const link='https://carejoys.com/auth?token='+encodeURIComponent(token);
   const body=employerMagicLinkEmail(clean(employer.contact_name,120).split(/\s+/)[0]||'there',link);
   await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:employer.email,subject:body.subject,html:body.html,text:body.text});
 }
 
-export async function sendEmployerMagicLink(env:FeatureEnv,employerId:string,redirectPath?:string){
+/** `pendingIntake` is applied only once the link is clicked, so an unverified form can never change an existing account. */
+export async function sendEmployerMagicLink(env:FeatureEnv,employerId:string,redirectPath?:string,pendingIntake?:Record<string,unknown>|null){
   if(!env.DB)return;
   const employer=await env.DB.prepare('SELECT id,contact_name,email FROM employer_leads WHERE id=? LIMIT 1').bind(employerId).first<{id:string;contact_name?:string;email:string}>();
-  if(employer)await sendMagic(env,employer,redirectPath);
+  if(employer)await sendMagic(env,employer,redirectPath,pendingIntake);
 }
 
 export async function requestEmployerMagicLink(request:Request,env:FeatureEnv){
@@ -129,13 +134,15 @@ export async function requestEmployerMagicLink(request:Request,env:FeatureEnv){
   return json({ok:true,message:'If that email has a CareJoys workspace, a sign-in link is on the way.'});
 }
 
-export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv){
+export type PendingIntakeHandler=(employerId:string,intake:Record<string,unknown>)=>Promise<string|null>;
+
+export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,applyPendingIntake?:PendingIntakeHandler){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
   const token=clean(data?.token,300);
   if(!token)return json({ok:false,error:'Sign-in link is missing'},{status:400});
   const hash=await sha256Hex(token);
-  const record=await env.DB.prepare("SELECT id,employer_id,redirect_path FROM employer_auth_tokens WHERE token_hash=? AND used_at IS NULL AND datetime(expires_at)>datetime('now') LIMIT 1").bind(hash).first<{id:string;employer_id:string;redirect_path?:string|null}>();
+  const record=await env.DB.prepare("SELECT id,employer_id,redirect_path,pending_intake FROM employer_auth_tokens WHERE token_hash=? AND used_at IS NULL AND datetime(expires_at)>datetime('now') LIMIT 1").bind(hash).first<{id:string;employer_id:string;redirect_path?:string|null;pending_intake?:string|null}>();
   if(!record)return json({ok:false,error:'This sign-in link is invalid or has expired.'},{status:400});
   const used=await env.DB.prepare("UPDATE employer_auth_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(record.id).run();
   if(asNumber(used.meta?.changes)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
@@ -152,7 +159,12 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv){
     await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) SELECT ?,organization_id,'agency_claim_verified',recipient_email,? FROM agency_teaser_tokens WHERE id=?")
       .bind(crypto.randomUUID(),JSON.stringify({employerId:record.employer_id}),claim.id).run();
   }
-  return json({ok:true,redirect:clean(record.redirect_path,500)||'/app'},{
+  let redirect=clean(record.redirect_path,500)||'/app';
+  if(record.pending_intake&&applyPendingIntake){
+    try{redirect=(await applyPendingIntake(record.employer_id,JSON.parse(record.pending_intake)))||redirect}
+    catch(error){console.error('pending intake failed',error)}
+  }
+  return json({ok:true,redirect},{
     status:200,
     headers:{'Set-Cookie':`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`}
   });

@@ -23,7 +23,15 @@ const fallback:CaregiverAuthValue={
 const CaregiverAuthContext=createContext<CaregiverAuthValue>(fallback);
 
 function Bridge({children}:{children:ReactNode}){
-  const {isLoading,isAuthenticated,user,loginWithPopup,logout,getIdTokenClaims}=useAuth0();
+  const {isLoading,isAuthenticated,user,loginWithPopup,loginWithRedirect,logout,getIdTokenClaims}=useAuth0();
+  // Mobile browsers often block popups; fall back to a full-page redirect that comes back to this page.
+  const login=async(authorizationParams:Record<string,string>)=>{
+    try{await loginWithPopup({authorizationParams})}
+    catch(error){
+      if((error as {error?:string})?.error!=='popup_open')throw error;
+      await loginWithRedirect({authorizationParams,appState:{returnTo:window.location.pathname+window.location.search}});
+    }
+  };
   const value=useMemo<CaregiverAuthValue>(()=>({
     configured:true,
     loading:isLoading,
@@ -31,11 +39,11 @@ function Bridge({children}:{children:ReactNode}){
     email:user?.email||'',
     name:user?.name||'',
     sub:user?.sub||'',
-    loginGoogle:()=>loginWithPopup({authorizationParams:{connection:'google-oauth2',prompt:'select_account'}}),
-    loginEmail:()=>loginWithPopup({authorizationParams:{prompt:'login'}}),
+    loginGoogle:()=>login({connection:'google-oauth2',prompt:'select_account'}),
+    loginEmail:()=>login({prompt:'login'}),
     logout:()=>logout({logoutParams:{returnTo:window.location.origin}}),
     getIdToken:async()=>((await getIdTokenClaims())?.__raw||'')
-  }),[isLoading,isAuthenticated,user?.email,user?.name,user?.sub,loginWithPopup,logout,getIdTokenClaims]);
+  }),[isLoading,isAuthenticated,user?.email,user?.name,user?.sub,loginWithPopup,loginWithRedirect,logout,getIdTokenClaims]);
   return <CaregiverAuthContext.Provider value={value}>{children}</CaregiverAuthContext.Provider>;
 }
 
@@ -53,8 +61,15 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
       domain={config.auth0Domain}
       clientId={config.auth0ClientId}
       authorizationParams={{redirect_uri:window.location.origin}}
-      useRefreshTokens={false}
-      cacheLocation="memory"
+      // Caregivers stay signed in across visits; refresh tokens fall back to silent auth if the tenant has them off.
+      useRefreshTokens
+      useRefreshTokensFallback
+      cacheLocation="localstorage"
+      onRedirectCallback={(appState)=>{
+        const returnTo=typeof appState?.returnTo==='string'&&appState.returnTo.startsWith('/')&&!appState.returnTo.startsWith('//')?appState.returnTo:'/';
+        if(returnTo!==window.location.pathname)window.location.replace(returnTo);
+        else window.history.replaceState(null,'',returnTo);
+      }}
     ><Bridge>{children}</Bridge></Auth0Provider>;
   }
 

@@ -1,25 +1,32 @@
-import { useState, type FormEvent } from 'react';
-import { EmployerWorkspace } from './EmployerWorkspace';
-import { CaregiverActivation } from './CaregiverActivation';
-import { EmployerAuth } from './EmployerAuth';
-import { CandidateResponse } from './CandidateResponse';
+import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
-import { LegalPage } from './LegalPage';
-import { AgencyClaim } from './AgencyClaim';
-import { MarylandCaregiverPage } from './MarylandCaregiverPage';
-import { SchoolProgramPage, SchoolAuth, SchoolDashboard } from './SchoolPortal';
-import { MarylandSchoolsPage } from './MarylandSchoolsPage';
-import { TrainingOrganizationPage } from './TrainingOrganizationPage';
-import { EmployerRecruitingPage, AboutCareJoysPage } from './PublicInfoPages';
-import { HowToBecomeCaregiverMarylandPage } from './CaregiverResourcePage';
-import { CaregiverResumePage } from './CaregiverResumePage';
-import { CaregiverJobPage } from './CaregiverJobPage';
-import { ConfirmInterest } from './ConfirmInterest';
-import { AgentSetupPage } from './AgentSetupPage';
-import { CaregiverDashboard } from './CaregiverDashboard';
-import { AdminConsole } from './AdminConsole';
+import { parseJobsHubPath } from './usStates';
 
-type FormKind = 'employer' | 'caregiver' | 'school' | null;
+// Each page is its own chunk so a visitor only downloads the page they opened.
+const named=<K extends string>(load:()=>Promise<Record<K,ComponentType<any>>>,name:K)=>lazy(()=>load().then(m=>({default:m[name]})));
+const EmployerWorkspace=named(()=>import('./EmployerWorkspace'),'EmployerWorkspace');
+const CaregiverActivation=named(()=>import('./CaregiverActivation'),'CaregiverActivation');
+const EmployerAuth=named(()=>import('./EmployerAuth'),'EmployerAuth');
+const CandidateResponse=named(()=>import('./CandidateResponse'),'CandidateResponse');
+const LegalPage=named(()=>import('./LegalPage'),'LegalPage');
+const AgencyClaim=named(()=>import('./AgencyClaim'),'AgencyClaim');
+const MarylandCaregiverPage=named(()=>import('./MarylandCaregiverPage'),'MarylandCaregiverPage');
+const SchoolProgramPage=named(()=>import('./SchoolPortal'),'SchoolProgramPage');
+const SchoolAuth=named(()=>import('./SchoolPortal'),'SchoolAuth');
+const SchoolDashboard=named(()=>import('./SchoolPortal'),'SchoolDashboard');
+const MarylandSchoolsPage=named(()=>import('./MarylandSchoolsPage'),'MarylandSchoolsPage');
+const TrainingOrganizationPage=named(()=>import('./TrainingOrganizationPage'),'TrainingOrganizationPage');
+const EmployerRecruitingPage=named(()=>import('./PublicInfoPages'),'EmployerRecruitingPage');
+const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage');
+const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
+const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
+const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
+const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
+const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
+const CaregiverDashboard=named(()=>import('./CaregiverDashboard'),'CaregiverDashboard');
+const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
+
+type FormKind = 'employer' | 'school' | null;
 
 type EmployerPreset = { role?: string; zip?: string };
 
@@ -37,6 +44,7 @@ async function submitJson(path: string, data: Record<string, unknown>) {
     matchedOrganizations?: number;
     matchedOpenings?: number;
     existing?: boolean;
+    outOfArea?: boolean;
   };
   if (!response.ok) throw new Error(body.error || 'Something went wrong');
   return body;
@@ -57,7 +65,6 @@ function IntakeModal({
 
   const titles = {
     employer: ['Find caregivers', 'Tell us who you need. CareJoys will create the opening, match local caregivers, and email you a secure link to review matches.'],
-    caregiver: ['Find caregiver jobs', 'Create one profile and get matched with local care employers based on your role, location, shifts, and pay preferences.'],
     school: ['Request program addition', 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.']
   } as const;
 
@@ -67,18 +74,15 @@ function IntakeModal({
     setMessage('');
     const fd = new FormData(event.currentTarget);
     const data = Object.fromEntries(fd.entries()) as Record<string, unknown>;
-    if (kind === 'caregiver') data.smsConsent = fd.get('smsConsent') === 'on';
     data.turnstileToken = turnstileToken;
 
     try {
       const result = await submitJson(
-        kind === 'employer' ? '/api/employers' : kind === 'caregiver' ? '/api/caregivers' : '/api/schools',
+        kind === 'employer' ? '/api/employers' : '/api/schools',
         data
       );
       if (kind === 'employer') {
-        setMessage('Check your email. Your opening is already created, and the secure link will take you straight to your matches.');
-      } else if (kind === 'caregiver') {
-        setMessage('We found '+Number(result.matchedOrganizations||0)+' relevant care organizations and '+Number(result.matchedOpenings||0)+' current openings based on your profile.');
+        setMessage('Check your email. The secure link takes you straight to your matches.'+(result.outOfArea?' CareJoys is newest outside Maryland, so your first matches may be fewer while caregivers in your area join.':''));
       }
       setStatus('success');
     } catch (error) {
@@ -92,11 +96,11 @@ function IntakeModal({
       <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
       {status === 'success' ? <div className="modal-success">
         <div className="success-mark">✓</div>
-        <h2>{kind === 'employer' ? 'Check your email.' : "You're in."}</h2>
-        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.') : kind === 'caregiver' ? (message || 'Your profile is in the CareJoys network.') : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
+        <h2>{kind === 'employer' ? 'Check your email.' : 'Thanks, we have it.'}</h2>
+        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.')  : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
         <button className="btn" onClick={onClose}>Done</button>
       </div> : <>
-        <div className="modal-kicker">{kind === 'employer' ? 'For employers' : kind === 'caregiver' ? 'For caregivers' : 'For training programs'}</div>
+        <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
         <h2>{titles[kind][0]}</h2>
         <p className="modal-intro">{titles[kind][1]}</p>
         <form className="intake-form" onSubmit={handleSubmit}>
@@ -109,15 +113,6 @@ function IntakeModal({
             <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" min="0" /></label><label>Max pay / hr<input type="number" name="payMax" min="0" /></label></div>
             <label>Must-have requirements<textarea name="hiringNotes" rows={3} placeholder="Experience, credential, schedule, client requirements..." /></label>
           </>}
-          {kind === 'caregiver' && <>
-            <div className="form-grid"><label>First name<input name="firstName" required /></label><label>Last name<input name="lastName" required /></label></div>
-            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Mobile phone<input name="phone" required /></label></div>
-            <div className="form-grid"><label>ZIP code<input name="zip" inputMode="numeric" required /></label><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>Other</option></select></label></div>
-            <div className="form-grid"><label>Preferred shifts<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Desired hourly pay<input name="desiredWage" placeholder="$20–24/hr" /></label></div>
-            <label>Transportation<select name="transportation" defaultValue=""><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
-            <div className="legal-consent">By joining CareJoys, you understand that your caregiver work profile may be shown to participating care employers for recruiting. Your current availability is labeled separately, and you can mark yourself not looking to leave employer search. See our <a href="/privacy-policy" target="_blank">Privacy Policy</a> and <a href="/terms-of-service" target="_blank">Terms</a>.</div>
-            <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
-          </>}
           {kind === 'school' && <>
             <label>School / program name<input name="organizationName" required /></label>
             <label>Your name<input name="contactName" required /></label>
@@ -128,37 +123,59 @@ function IntakeModal({
           </>}
           <TurnstileField onToken={setTurnstileToken} />
           {status === 'error' && <div className="notice">{message}</div>}
-          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : kind === 'caregiver' ? 'Find jobs' : 'Request addition'}</button>
+          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : 'Request addition'}</button>
         </form>
       </>}
     </div>
   </div>;
 }
 
-export function App() {
-  if (window.location.pathname.startsWith('/hire-caregivers/maryland')) return <EmployerRecruitingPage />;
-  if (window.location.pathname.startsWith('/caregiver-resume')) return <CaregiverResumePage />;
-  if (window.location.pathname.startsWith('/jobs/')) return <CaregiverJobPage />;
-  if (window.location.pathname.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
-  if (window.location.pathname === '/about' || window.location.pathname.startsWith('/about/')) return <AboutCareJoysPage />;
-  if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
-  if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
-  if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
-  if (window.location.pathname.startsWith('/confirm-interest')) return <ConfirmInterest />;
-  if (window.location.pathname === '/agent') return <AgentSetupPage />;
-  if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
-  if (window.location.pathname.startsWith('/caregiver-jobs/maryland') || window.location.pathname.startsWith('/join/')) return <MarylandCaregiverPage />;
-  if (window.location.pathname.startsWith('/training-programs/maryland') || window.location.pathname.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
-  if (window.location.pathname.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
-  if (window.location.pathname.startsWith('/school-auth')) return <SchoolAuth />;
-  if (window.location.pathname.startsWith('/school-dashboard')) return <SchoolDashboard />;
-  if (window.location.pathname.startsWith('/school/')) return <SchoolProgramPage />;
-  if (window.location.pathname.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
-  if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
-  if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
-  if (window.location.pathname === '/me' || window.location.pathname.startsWith('/me/')) return <CaregiverDashboard />;
-  if (window.location.pathname.startsWith('/admin')) return <AdminConsole />;
+function routePage(path:string){
+  if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
+  if (path.startsWith('/caregiver-resume')) return <CaregiverResumePage />;
+  if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
+  if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
+  if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;
+  if (path.startsWith('/activate')) return <CaregiverActivation />;
+  if (path.startsWith('/auth')) return <EmployerAuth />;
+  if (path.startsWith('/respond')) return <CandidateResponse />;
+  if (path.startsWith('/confirm-interest')) return <ConfirmInterest />;
+  if (path === '/agent') return <AgentSetupPage />;
+  if (path.startsWith('/agency')) return <AgencyClaim />;
+  if (parseJobsHubPath(path) || path.startsWith('/join/')) return <MarylandCaregiverPage />;
+  if (path.startsWith('/training-programs/maryland') || path.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
+  if (path.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
+  if (path.startsWith('/school-auth')) return <SchoolAuth />;
+  if (path.startsWith('/school-dashboard')) return <SchoolDashboard />;
+  if (path.startsWith('/school/')) return <SchoolProgramPage />;
+  if (path.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
+  if (path.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
+  if (path.startsWith('/app')) return <EmployerWorkspace />;
+  if (path === '/me' || path.startsWith('/me/')) return <CaregiverDashboard />;
+  if (path.startsWith('/admin')) return <AdminConsole />;
+  return null;
+}
 
+export function App() {
+  const path=window.location.pathname;
+  const page=routePage(path);
+  if (page) return <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{page}</Suspense>;
+  // The Worker answers unknown paths with a 404 status; match it instead of showing the homepage.
+  if (path !== '/' && path !== '/index.html') return <NotFound />;
+  return <Home />;
+}
+
+function NotFound(){
+  return <div>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <main className="section"><div className="wrap">
+      <h1>Page not found</h1>
+      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs/maryland">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers/maryland">hiring caregivers</a>.</p>
+    </div></main>
+  </div>;
+}
+
+function Home() {
   const [form, setForm] = useState<FormKind>(() => new URLSearchParams(window.location.search).get('hire') === '1' ? 'employer' : null);
   const [employerPreset, setEmployerPreset] = useState<EmployerPreset>({});
 
@@ -204,7 +221,7 @@ export function App() {
               <option value="PCA">PCA</option>
               <option value="Caregiver">Caregiver</option>
             </select>
-            <input name="location" placeholder="City, state, or ZIP" />
+            <input name="location" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
             <button className="btn" type="submit">Find caregivers</button>
           </form>
         </div>

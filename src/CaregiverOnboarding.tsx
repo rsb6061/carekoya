@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { parseResumeFile, type ParsedResume } from './resumeParser';
 import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
+import { jobsHubPath, usState } from './usStates';
 
 type ResumeForm={
   firstName:string;lastName:string;email:string;phone:string;zip:string;state:string;role:string;
@@ -11,7 +12,8 @@ type ResumeForm={
 };
 type MatchResult={
   ok?:boolean;id?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;
-  existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null;error?:string;
+  existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null;error?:string;needsVerifiedSignIn?:boolean;authenticated?:boolean;
+  topJobs?:{id:string;title:string;employerName?:string;city?:string;state?:string;distanceMiles?:number|null}[];
   targetJob?:{id:string;title?:string;employerName?:string;applicationUrl?:string}|null;
 };
 type Props={
@@ -31,9 +33,20 @@ function splitName(name:string){
   const parts=name.trim().split(/\s+/).filter(Boolean);
   return {firstName:parts[0]||'',lastName:parts.length>1?parts[parts.length-1]:''};
 }
+// Only used for display; the server works out the state from any US ZIP.
 function inferState(zip:string){
   const prefix=Number(zip.slice(0,3));
   return zip&&prefix>=206&&prefix<=219?'MD':'';
+}
+const phoneOk=(value:string)=>{const d=value.replace(/\D/g,'');return d.length===10||(d.length===11&&d.startsWith('1'))};
+// The parsed resume survives a sign-in redirect (popup blocked) in this tab's sessionStorage.
+const DRAFT_KEY='carejoys:onboarding-draft';
+type Draft={form:ResumeForm;parsed:ParsedResume|null;fileMeta:{name:string;type:string;size:number}|null;resubmit:boolean};
+function readDraft():Draft|null{
+  try{const raw=sessionStorage.getItem(DRAFT_KEY);return raw?JSON.parse(raw) as Draft:null}catch{return null}
+}
+function writeDraft(draft:Draft|null){
+  try{if(draft)sessionStorage.setItem(DRAFT_KEY,JSON.stringify(draft));else sessionStorage.removeItem(DRAFT_KEY)}catch{}
 }
 function summaryValue(label:string,value:string){
   return value?<span className="onboarding-summary-item"><strong>{label}</strong>{value}</span>:null;
@@ -41,16 +54,22 @@ function summaryValue(label:string,value:string){
 
 export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=false,heading='Upload your resume',subheading='We’ll build your CareJoys profile and ask only for anything missing.'}:Props){
   const auth=useCaregiverAuth();
-  const [stage,setStage]=useState<'upload'|'auth'|'profile'|'success'>('upload');
-  const [form,setForm]=useState<ResumeForm>(empty);
-  const [parsed,setParsed]=useState<ParsedResume|null>(null);
-  const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(null);
+  const [draft]=useState(readDraft);
+  const [stage,setStage]=useState<'upload'|'auth'|'profile'|'success'>(draft?'profile':'upload');
+  const [form,setForm]=useState<ResumeForm>(draft?.form||empty);
+  const [parsed,setParsed]=useState<ParsedResume|null>(draft?.parsed||null);
+  const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(draft?.fileMeta||null);
+  const [needsState,setNeedsState]=useState(false);
+  const [pendingResubmit,setPendingResubmit]=useState(!!draft?.resubmit);
   const [parsing,setParsing]=useState(false);
   const [status,setStatus]=useState<'idle'|'saving'|'error'>('idle');
   const [message,setMessage]=useState('');
   const [result,setResult]=useState<MatchResult|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [editParsed,setEditParsed]=useState(false);
+  const smsConsentRef=useRef(false);
+  const [turnstileRequired,setTurnstileRequired]=useState(false);
+  useEffect(()=>{fetch('/api/config').then(r=>r.json()).then((c:any)=>setTurnstileRequired(!!c?.turnstileSiteKey)).catch(()=>{})},[]);
   const [sendProfile,setSendProfile]=useState(true);
   const [continuing,setContinuing]=useState(false);
 
@@ -70,6 +89,14 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     if(stage==='auth')setStage('profile');
   },[auth.isAuthenticated,auth.email,auth.name,stage]);
 
+  // After signing in to claim an existing profile, send the same answers again automatically.
+  useEffect(()=>{
+    if(!pendingResubmit||!auth.isAuthenticated||stage!=='profile'||status==='saving')return;
+    if(!auth.configured||turnstileRequired&&!turnstileToken)return;
+    setPendingResubmit(false);
+    void save();
+  },[pendingResubmit,auth.isAuthenticated,stage,turnstileToken]);
+
   function afterResume(found:ParsedResume|null){
     if(found){
       setParsed(found);
@@ -87,7 +114,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         languages:found.languages.join(', ')
       }));
     }
-    setStage(auth.configured&&!auth.isAuthenticated?'auth':'profile');
+    // Sign-in is optional now: everyone goes straight to the profile, and only an existing profile asks for it.
+    setStage('profile');
   }
 
   async function onFile(e:ChangeEvent<HTMLInputElement>){
@@ -105,16 +133,28 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   async function login(kind:'google'|'email'){
     setStatus('idle');setMessage('');
+    // Keep the answers in case the browser blocks the popup and sign-in falls back to a full-page redirect.
+    if(stage!=='success')writeDraft({form,parsed,fileMeta,resubmit:stage==='auth'});
     try{
       if(kind==='google')await auth.loginGoogle();
       else await auth.loginEmail();
+      if(stage==='auth')setPendingResubmit(true);
+      return true;
     }catch(error){
       setStatus('error');setMessage(error instanceof Error?error.message:'Could not sign in.');
+      return false;
     }
   }
 
   async function onSubmit(e:FormEvent<HTMLFormElement>){
-    e.preventDefault();setStatus('saving');setMessage('');
+    e.preventDefault();
+    smsConsentRef.current=new FormData(e.currentTarget).get('smsConsent')==='on';
+    if(!phoneOk(form.phone)){setStatus('error');setMessage('Enter a 10-digit mobile phone number.');return;}
+    await save();
+  }
+
+  async function save(){
+    setStatus('saving');setMessage('');
     try{
       const idToken=auth.configured?await auth.getIdToken():'';
       const payload={
@@ -122,7 +162,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         email:auth.email||form.email,
         yearsExperience:Number(form.yearsExperience||0)||null,
         travelMiles:Number(form.travelMiles||0)||null,
-        smsConsent:new FormData(e.currentTarget).get('smsConsent')==='on',
+        smsConsent:smsConsentRef.current,
         turnstileToken,
         sourceFilename:fileMeta?.name||'',
         sourceMimeType:fileMeta?.type||'',
@@ -136,7 +176,15 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         body:JSON.stringify(payload)
       });
       const body=await res.json() as MatchResult;
-      if(!res.ok)throw new Error(body.error||'Could not save your CareJoys profile.');
+      if(res.status===409&&body.needsVerifiedSignIn){
+        setStatus('idle');setMessage(body.error||'');setTurnstileToken('');setStage('auth');
+        return;
+      }
+      if(!res.ok){
+        if(/two-letter state/i.test(body.error||''))setNeedsState(true);
+        throw new Error(body.error||'Could not save your CareJoys profile.');
+      }
+      writeDraft(null);
       setResult(body);setStage('success');setStatus('idle');
     }catch(error){
       setStatus('error');setMessage(error instanceof Error?error.message:'Could not save your profile.');
@@ -171,7 +219,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   const missing=useMemo(()=>({
     firstName:!form.firstName,lastName:!form.lastName,email:!form.email&&!auth.email,phone:!form.phone,
-    zip:!form.zip,state:!form.state,role:!form.role
+    zip:!form.zip,state:needsState&&!form.state,role:!form.role
   }),[form,auth.email]);
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
 
@@ -181,14 +229,27 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         <div className="success-mark">✓</div>
         <div className="modal-kicker">{result.targetJob?'Application ready':'Profile ready'}</div>
         <h2>{result.targetJob?'Your CareJoys profile is ready.':'You’re matched.'}</h2>
-        <p>CareJoys found <strong>{result.matchedOrganizations||0} relevant care organizations</strong>{typeof result.matchedOpenings==='number'?<> and <strong>{result.matchedOpenings} current opening{result.matchedOpenings===1?'':'s'}</strong></>:null}.</p>
+        <p>CareJoys found <strong>{result.matchedOrganizations||0} relevant care organizations</strong>{typeof result.matchedOpenings==='number'?<> and <strong>{result.matchedOpenings} current job{result.matchedOpenings===1?'':'s'} near you</strong></>:null}.</p>
+        {!!result.topJobs?.length&&<ul className="onboarding-top-jobs">
+          {result.topJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
+        </ul>}
         {result.id&&result.profilePhotoToken&&<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
         {result.targetJob?.applicationUrl
           ?<div className="onboarding-final-action">
             <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {result.targetJob.employerName||'this employer'} so they can contact me</span></label>
             <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue application'}</button><span>You’ll finish on {result.targetJob.employerName||'the employer'}’s site.</span>
           </div>
-          :<a className="btn" href="/caregiver-jobs/maryland#current-jobs">See matching jobs</a>}
+          :auth.isAuthenticated
+            ?<a className="btn" href="/me">Open your dashboard</a>
+            :<a className="btn" href={jobsHubPath(usState(form.state)||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
+        {!auth.isAuthenticated&&auth.configured&&<div className="onboarding-save-login">
+          <strong>Come back to your matches anytime</strong>
+          <span>Sign in once to see employer invites, update availability and track applications.</span>
+          <div className="auth-choice">
+            <button className="btn secondary auth-google" onClick={async()=>{if(await login('google'))window.location.href='/me'}}>Continue with Google</button>
+            <button className="text-button" onClick={async()=>{if(await login('email'))window.location.href='/me'}}>Use email instead</button>
+          </div>
+        </div>}
       </div>
     </div>;
   }
@@ -196,15 +257,15 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   if(stage==='auth'){
     return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-auth">
-        <div className="modal-kicker">Save your profile</div>
-        <h2>One quick sign in.</h2>
-        <p>We parsed your resume. Sign in so you can save the profile, apply, and reuse it for other caregiver jobs.</p>
+        <div className="modal-kicker">Welcome back</div>
+        <h2>You already have a CareJoys profile.</h2>
+        <p>Sign in with the same email to update it. Your answers are saved and will be sent as soon as you’re signed in.</p>
         {fileMeta&&<div className="resume-file-meta">{fileMeta.name} · {foundCount} profile details found</div>}
         <div className="auth-choice">
           <button className="btn auth-google" onClick={()=>login('google')}>Continue with Google</button>
           <button className="btn secondary" onClick={()=>login('email')}>Continue with email</button>
         </div>
-        <button className="text-button" onClick={()=>setStage('upload')}>Use a different resume</button>
+        <button className="text-button" onClick={()=>{setStage('profile');setEditParsed(true);setMessage('')}}>Use a different email</button>
         {status==='error'&&<div className="notice">{message}</div>}
       </div>
     </div>;
@@ -228,7 +289,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         </div>}
         {(missing.email||missing.phone||editParsed)&&<div className="form-grid">
           {!auth.isAuthenticated&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} required /></label>}
-          <label>Mobile phone<input value={form.phone} onChange={e=>patch('phone',e.target.value)} required /></label>
+          <label>Mobile phone<input type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} required /></label>
         </div>}
         {(missing.zip||missing.state||missing.role||editParsed)&&<div className="form-grid">
           <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);if(!form.state)patch('state',inferState(e.target.value))}} inputMode="numeric" pattern="[0-9]{5}" required /></label>

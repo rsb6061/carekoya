@@ -134,3 +134,73 @@ describe('billing', ()=>{
     expect(await verifyStripeSignature(payload,`t=${t},v1=${sig}`,'other',t)).toBe(false);
   });
 });
+
+import { employmentTypeSchema, jobPageTitle, jobPostingJsonLd, payText, trimAtWord } from '../src/seo';
+import { parseJobsHubPath, slugify, usState } from '../src/usStates';
+import { emailMatchesAgencyDomain, maskEmail, normalizeDomain } from '../src/agencySelfServe';
+
+describe('seo helpers', ()=>{
+  it('trims at a word boundary', ()=>{
+    expect(trimAtWord('Certified Nursing Assistant overnight shift',30)).toBe('Certified Nursing Assistant');
+    expect(trimAtWord('short',30)).toBe('short');
+  });
+  it('drops the employer before cutting the job title', ()=>{
+    expect(jobPageTitle('CNA','Acme Care')).toBe('CNA | Acme Care | CareJoys');
+    expect(jobPageTitle('Home Health Aide – weekend days','A Very Long Home Care Agency Name LLC of Maryland')).toBe('Home Health Aide – weekend days | CareJoys');
+  });
+  it('maps employment types and pay', ()=>{
+    expect(employmentTypeSchema('Full-time, Part time')).toEqual(['FULL_TIME','PART_TIME']);
+    expect(employmentTypeSchema('PRN')).toEqual(['PER_DIEM']);
+    expect(employmentTypeSchema('')).toEqual([]);
+    expect(payText(18,22,'hour')).toBe('$18–$22/hr');
+    expect(payText(0,40000,'year')).toBe('Up to $40000/yr');
+  });
+  it('builds Google for Jobs markup', ()=>{
+    const posting=jobPostingJsonLd({id:'job_1',title:'CNA &amp; GNA',employer_name:'Acme Care',city:'Baltimore',state:'MD',zip:'21201',
+      employment_type:'Full-time',pay_min:18,pay_max:22,pay_period:'hour',description_text:'Help <clients>',date_posted:'2026-09-20',
+      last_checked_at:'2026-09-30 10:00:00'},{primary_website:'https://acme.example'}) as any;
+    expect(posting['@type']).toBe('JobPosting');
+    expect(posting.title).toBe('CNA & GNA');
+    expect(posting.datePosted).toBe('2026-09-20');
+    expect(posting.validThrough).toBe('2026-10-30T10:00:00.000Z');
+    expect(posting.hiringOrganization).toEqual({'@type':'Organization',name:'Acme Care',sameAs:'https://acme.example'});
+    expect(posting.jobLocation.address).toMatchObject({addressLocality:'Baltimore',addressRegion:'MD',postalCode:'21201',addressCountry:'US'});
+    expect(posting.baseSalary.value).toEqual({'@type':'QuantitativeValue',minValue:18,maxValue:22,unitText:'HOUR'});
+    expect(posting.employmentType).toBe('FULL_TIME');
+    expect(posting.description).toBe('<p>Help &lt;clients&gt;</p>');
+  });
+});
+
+describe('us states', ()=>{
+  it('resolves slugs and codes', ()=>{
+    expect(usState('new-york')?.code).toBe('NY');
+    expect(usState('va')?.slug).toBe('virginia');
+    expect(usState('narnia')).toBeNull();
+    expect(slugify('Ellicott City')).toBe('ellicott-city');
+  });
+  it('parses hub paths and rejects non-canonical ones', ()=>{
+    expect(parseJobsHubPath('/caregiver-jobs/maryland')).toEqual({state:usState('MD'),citySlug:''});
+    expect(parseJobsHubPath('/caregiver-jobs/maryland/baltimore')?.citySlug).toBe('baltimore');
+    expect(parseJobsHubPath('/caregiver-jobs/md')).toBeNull();
+    expect(parseJobsHubPath('/caregiver-jobs/narnia')).toBeNull();
+  });
+});
+
+describe('agency self-serve claim helpers', ()=>{
+  it('normalizes domains from emails and URLs', ()=>{
+    expect(normalizeDomain('https://www.Acme-Care.com/careers')).toBe('acme-care.com');
+    expect(normalizeDomain('pat@acme-care.com')).toBe('acme-care.com');
+    expect(normalizeDomain('not a domain')).toBe('');
+  });
+  it('only counts work email at the agency domain', ()=>{
+    const org={primary_domain:'acme-care.com'};
+    expect(emailMatchesAgencyDomain('pat@acme-care.com',org)).toBe(true);
+    expect(emailMatchesAgencyDomain('pat@hr.acme-care.com',org)).toBe(true);
+    expect(emailMatchesAgencyDomain('pat@notacme-care.com',org)).toBe(false);
+    expect(emailMatchesAgencyDomain('pat@gmail.com',{primary_domain:'gmail.com'})).toBe(false);
+    expect(emailMatchesAgencyDomain('pat@acme-care.com',{})).toBe(false);
+  });
+  it('masks emails', ()=>{
+    expect(maskEmail('jane@agency.com')).toBe('j***@agency.com');
+  });
+});

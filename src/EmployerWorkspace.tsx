@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
+import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
 import './workspace.css';
 
@@ -118,6 +119,10 @@ export function EmployerWorkspace(){
   }
 
   useEffect(()=>{void loadSession()},[]);
+  // A claim link lands on /app?tab=hiring; open that tab once the linked agency has loaded.
+  useEffect(()=>{
+    if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='hiring')setTab('hiring');
+  },[agencyNetwork.agency]);
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
 
   useEffect(()=>{
@@ -313,8 +318,10 @@ export function EmployerWorkspace(){
           </div>
           <div className="job-card-side opening-actions">
             <button className="job-card-action" onClick={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}}>View matches</button>
-            <button className="button secondary" onClick={()=>setSlotsFor(o)}>{Number(o.available_interview_slots||0)>0?'Edit interview times':'Add interview times'}</button>
-            <button className="button secondary" disabled={Number(o.available_interview_slots||0)<1} title={Number(o.available_interview_slots||0)<1?'Add at least one interview time first':''} onClick={()=>contact(o.id)}>Contact top 5</button>
+            {Number(o.available_interview_slots||0)>0
+              ?<><button className="button secondary" onClick={()=>setSlotsFor(o)}>Edit interview times</button><button className="button secondary" onClick={()=>contact(o.id)}>Contact top 5</button></>
+              // Contacting needs a time interested caregivers can book, so the first step is the button itself, not a disabled one.
+              :<><button className="button" onClick={()=>setSlotsFor(o)}>Add interview times</button><span className="opening-next-step">Step 1 of 2: add a time interested caregivers can book, then contact your top 5.</span></>}
           </div>
         </article>)}</div>}
       </section>}
@@ -368,6 +375,8 @@ export function EmployerWorkspace(){
         </article>)}</div>}
       </section>}
 
+      {!loading&&workspace&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+
       {tab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
         <div className="section-heading"><h2>Always-on hiring preferences</h2><p>Optional: save your usual hiring needs so CareJoys can keep scoring new caregivers even when you do not have an urgent opening.</p></div>
         <div className="agency-profile-grid">
@@ -401,6 +410,7 @@ export function EmployerWorkspace(){
           <div className="job-badges"><span className="badge">{match.fitScore}% fit</span><span className="status">{match.freshness}</span>{match.desiredWage&&<span className="badge">{match.desiredWage}</span>}</div>
           {match.certifications&&<div className="job-card-cue">{match.certifications}</div>}</div>
         </article>)}</div>}
+        <AgencyJobsPanel/>
       </section>}
 
       {showOpening&&<div className="modal-backdrop" onMouseDown={()=>setShowOpening(false)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>

@@ -1,15 +1,37 @@
+import { useEffect, useState } from 'react';
+import { AgencyFinder } from './AgencyFinder';
+import { jobsHubPath, usState } from './usStates';
 import './styles.css';
 
 export function EmployerRecruitingPage(){
+  const state=usState(decodeURIComponent(window.location.pathname.split('/')[2]||''))||usState('MD')!;
+  const isMaryland=state.code==='MD';
+  const [freeContacts,setFreeContacts]=useState<number|null>(null);
+  useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/about">About</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={jobsHubPath(state)}>Caregiver jobs</a>{isMaryland&&<a href="/training-programs/maryland">Training programs</a>}<a href="/about">About</a></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
-        <h1>Hire caregivers in Maryland.</h1>
-        <p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p>
+        <h1>Hire caregivers in {state.name}.</h1>
+        <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
         <div className="hero-actions"><a className="btn" href="/?hire=1">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
         <div className="employer-signin-note">Already use CareJoys? <a className="text-link" href="/app">Sign in</a></div>
+      </div></section>
+
+      <section className="section" id="claim-agency"><div className="wrap">
+        <h2>Already a licensed home-care agency?</h2>
+        <p className="section-lead">Find your agency to claim it. Claimed agencies get always-on caregiver matches, an Inbox of caregivers who asked to work with them, and control over the jobs CareJoys shows from their careers page.</p>
+        <AgencyFinder stateCode={state.code}/>
+      </div></section>
+
+      <section className="section" id="pricing"><div className="wrap">
+        <h2>Pricing</h2>
+        <div className="jobs">
+          <div className="job"><div><h3>Searching and matching are free</h3><div className="meta">Post openings, see ranked local matches, and keep always-on hiring preferences at no cost.</div></div><div className="meta">Free</div></div>
+          <div className="job"><div><h3>{freeContacts===0?'Contacting caregivers':'Your first '+(freeContacts??5)+' caregiver contacts are free'}</h3><div className="meta">CareJoys contacts matched caregivers for you, confirms interest, and lets them book your interview times.</div></div><div className="meta">{freeContacts===0?'Subscription':'Free'}</div></div>
+          <div className="job"><div><h3>Then a monthly subscription</h3><div className="meta">Contacting more caregivers after the free allowance needs a CareJoys subscription, which you can start or cancel from your workspace.</div></div><div className="meta">Monthly</div></div>
+        </div>
       </div></section>
 
       <section className="section"><div className="wrap">
@@ -23,7 +45,7 @@ export function EmployerRecruitingPage(){
 
       <section className="section"><div className="wrap">
         <h2>Caregiver roles CareJoys supports</h2>
-        <div className="jobcta"><div><strong>CNA · GNA · HHA · PCA · Caregiver</strong><span>CareJoys models credentials, experience, work preferences, transportation, and current availability separately from job title so employers can match the actual requirements of the role.</span></div><a className="btn secondary" href="/caregiver-jobs/maryland">Caregiver network</a></div>
+        <div className="jobcta"><div><strong>CNA · {isMaryland?'GNA · ':''}HHA · PCA · Caregiver</strong><span>CareJoys models credentials, experience, work preferences, transportation, and current availability separately from job title so employers can match the actual requirements of the role.</span></div><a className="btn secondary" href="/caregiver-jobs/maryland">Caregiver network</a></div>
       </div></section>
 
       <section className="section"><div className="wrap">
@@ -35,7 +57,7 @@ export function EmployerRecruitingPage(){
         </div>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <footer className="footer"><div className="wrap">CareJoys · {state.name} caregiver recruiting and placement · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
   </div>;
 }
 
