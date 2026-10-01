@@ -121,7 +121,7 @@ async function sendSchoolMagic(env:FeatureEnv,lead:{id:string;contact_name?:stri
     programName:clean(program.program_name,200),
     link
   });
-  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:lead.email,subject:body.subject,html:body.html,text:body.text});
+  await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:lead.email,subject:body.subject,html:body.html,text:body.text});
 }
 
 export async function requestSchoolAccess(request:Request,env:FeatureEnv){
@@ -307,7 +307,7 @@ export async function sendSchoolOutreachBatch(env:FeatureEnv,limit=3){
     });
     try{
       const result=await env.EMAIL.send({
-        from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:email,subject:body.subject,html:body.html,text:body.text
+        from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text
       });
       await env.DB.prepare(`INSERT INTO training_program_outreach
         (id,training_program_id,event_type,channel,recipient,provider_message_id,payload)
