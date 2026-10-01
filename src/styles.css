@@ -234,3 +234,13 @@ a{color:inherit;text-decoration:none}
   .job-detail-actions .btn{width:100%}
   .public-job-actions .btn{width:100%}
 }
+.hub-breadcrumb{font-size:14px;color:var(--muted);margin-bottom:10px}
+.hub-breadcrumb a{color:inherit;text-decoration:underline}
+.hub-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.hub-filter{border:1px solid var(--lavender);background:rgba(255,255,255,.82);border-radius:999px;padding:8px 14px;font-size:14px;cursor:pointer;color:var(--ink)}
+.hub-filter.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.hub-pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:22px}
+.hub-pager .btn:disabled{opacity:.45;cursor:default}
+.hub-cities{margin-top:34px}
+.hub-cities h3{margin:0 0 12px}
+.hub-cities .pill{text-decoration:none;color:var(--ink)}

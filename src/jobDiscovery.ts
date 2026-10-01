@@ -89,7 +89,7 @@ async function fetchJsonPost(url:string,body:unknown,ms=8000){
     return await res.json() as unknown;
   }catch{return null}finally{clearTimeout(timer)}
 }
-function decodeHtml(value:string){
+export function decodeHtml(value:string){
   return value
     .replace(/&#x([0-9a-f]+);/gi,(_,hex)=>String.fromCodePoint(parseInt(hex,16)))
     .replace(/&#(\d+);/g,(_,num)=>String.fromCodePoint(parseInt(num,10)))
@@ -128,7 +128,7 @@ function mdZip(zip:string){
 function escapeRegex(value:string){
   return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
 }
-function normalizeTitle(value:unknown){
+export function normalizeTitle(value:unknown){
   return decodeHtml(clean(value,320))
     .replace(/\u00a0/g,' ')
     .replace(/[‐‑‒–—]+/g,' – ')

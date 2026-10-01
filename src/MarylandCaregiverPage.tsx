@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
+import { jobsHubPath, parseJobsHubPath, usState } from './usStates';
 import './styles.css';
 
+// Serves every /caregiver-jobs/{state}[/{city}] hub and /join/{referral}; the file keeps its original name.
 type PublicCaregiverJob={
-  id:string;title:string;role:string;roles?:string[];employerName:string;city?:string;state?:string;zip?:string;
-  employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;sourceUrl:string;datePosted?:string;lastSeenAt?:string;
+  id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
+  employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;
 };
+type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];jobs:PublicCaregiverJob[]};
+
+const ROLES=['CNA','GNA','HHA','PCA','DSP','Caregiver'];
 
 function payLabel(job:PublicCaregiverJob){
   const min=Number(job.payMin||0),max=Number(job.payMax||0);
@@ -29,40 +34,60 @@ export function MarylandCaregiverPage(){
   const referralSlug=window.location.pathname.startsWith('/join/')
     ?decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1]||'')
     :'';
+  const parsed=parseJobsHubPath(window.location.pathname);
+  const state=parsed?.state||usState('MD')!;
+  const citySlug=parsed?.citySlug||'';
+  const params=new URLSearchParams(window.location.search);
+  const [role,setRole]=useState(params.get('role')||'');
+  const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
   const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
-  const [jobs,setJobs]=useState<PublicCaregiverJob[]>([]);
+  const [hub,setHub]=useState<Hub|null>(null);
   const [jobsLoading,setJobsLoading]=useState(!referralSlug);
 
   useEffect(()=>{
-    document.title='Caregiver Jobs in Maryland | CareJoys';
-    if(referralSlug){
-      fetch('/api/public/training-program/'+encodeURIComponent(referralSlug))
-        .then(r=>r.json())
-        .then((data:any)=>{
-          if(data?.program){setProgram(data.program);document.title='CareJoys for '+data.program.name}
-        }).catch(()=>{});
-    }else{
-      fetch('/api/public/caregiver-jobs?limit=24')
-        .then(r=>r.json())
-        .then((data:any)=>{if(Array.isArray(data?.jobs))setJobs(data.jobs)})
-        .catch(()=>{})
-        .finally(()=>setJobsLoading(false));
-    }
+    if(!referralSlug)return;
+    fetch('/api/public/training-program/'+encodeURIComponent(referralSlug))
+      .then(r=>r.json())
+      .then((data:any)=>{
+        if(data?.program){setProgram(data.program);document.title='CareJoys for '+data.program.name}
+      }).catch(()=>{});
   },[referralSlug]);
+
+  useEffect(()=>{
+    if(referralSlug)return;
+    setJobsLoading(true);
+    const q=new URLSearchParams({state:state.code,page:String(page)});
+    if(citySlug)q.set('city',citySlug);
+    if(role)q.set('role',role);
+    fetch('/api/public/jobs-hub?'+q.toString())
+      .then(r=>r.json())
+      .then((data:any)=>{if(Array.isArray(data?.jobs))setHub(data)})
+      .catch(()=>{})
+      .finally(()=>setJobsLoading(false));
+    // Keep the address bar shareable without a reload.
+    const next=new URLSearchParams();
+    if(role)next.set('role',role);
+    if(page>1)next.set('page',String(page));
+    const qs=next.toString();
+    window.history.replaceState(null,'',window.location.pathname+(qs?'?'+qs:'')+window.location.hash);
+  },[referralSlug,state.code,citySlug,role,page]);
+
+  const place=hub?.city?hub.city+', '+state.code:state.name;
 
   return <div>
     <header className="nav"><div className="wrap nav-inner">
       <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="/training-programs/maryland">Training programs</a><a href="/hire-caregivers/maryland">For employers</a></nav>
+      <nav className="navlinks"><a href="/me">Caregiver sign in</a><a href="/training-programs/maryland">Training programs</a><a href={'/hire-caregivers/'+state.slug}>For employers</a></nav>
     </div></header>
 
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
-          <div className="modal-kicker">{program?program.name:'Maryland caregivers'}</div>
-          <h1>{program?'Get matched after training.':'Caregiver jobs in Maryland'}</h1>
+          {!program&&<div className="hub-breadcrumb"><a href="/">CareJoys</a> › {citySlug?<><a href={jobsHubPath(state)}>{state.name}</a> › {hub?.city||'…'}</>:state.name}</div>}
+          <div className="modal-kicker">{program?program.name:state.name+' caregivers'}</div>
+          <h1>{program?'Get matched after training.':'Caregiver jobs in '+place}</h1>
           <p>{program
-            ?'Upload your resume once. CareJoys builds your caregiver profile and matches you with Maryland care employers.'
+            ?'Upload your resume once. CareJoys builds your caregiver profile and matches you with care employers near you.'
             :'Upload your resume once. CareJoys matches you with caregiver jobs and employers near you.'}</p>
         </div>
 
@@ -75,17 +100,21 @@ export function MarylandCaregiverPage(){
         <div className="section-heading">
           <div>
             <div className="modal-kicker">Current openings</div>
-            <h2>Current caregiver jobs in Maryland</h2>
-            <p>Verified from care-employer career pages. Open a job on CareJoys, then apply with the same reusable profile.</p>
+            <h2>Current caregiver jobs in {place}</h2>
+            <p>{hub?.total?hub.total+' current opening'+(hub.total===1?'':'s')+', verified from care-employer career pages. ':'Verified from care-employer career pages. '}Open a job on CareJoys, then apply with the same reusable profile.</p>
           </div>
         </div>
 
-        {jobsLoading
+        <div className="hub-filters" role="group" aria-label="Filter by role">
+          {['',...ROLES].map(r=><button key={r||'all'} className={'hub-filter '+(role===r?'active':'')} onClick={()=>{setRole(r);setPage(1)}}>{r||'All roles'}</button>)}
+        </div>
+
+        {jobsLoading&&!hub
           ?<div className="empty"><strong>Loading current openings…</strong></div>
-          :jobs.length===0
-            ?<div className="empty"><strong>CareJoys is adding verified Maryland caregiver jobs now.</strong><div>Upload your resume above and we’ll match you as openings are confirmed.</div></div>
+          :!hub||hub.jobs.length===0
+            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs in {place} now.</strong><div>Upload your resume above and we’ll match you as openings are confirmed.</div></div>
             :<div className="jobs caregiver-public-job-list">
-              {jobs.map(job=>{
+              {hub.jobs.map(job=>{
                 const pay=payLabel(job);
                 const href='/jobs/'+encodeURIComponent(job.id);
                 return <article className="job" key={job.id}>
@@ -93,7 +122,7 @@ export function MarylandCaregiverPage(){
                     <h3><a href={href}>{job.title}</a></h3>
                     <div className="meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', ')||job.zip].filter(Boolean).join(' · ')}</div>
                     <div className="job-tags">
-                      {(job.roles?.length?job.roles:[job.role]).map(role=><span className="pill" key={role}>{pillLabel(role)}</span>)}
+                      {job.role&&<span className="pill">{pillLabel(job.role)}</span>}
                       {employmentPills(job.employmentType).map(type=><span className="pill" key={type}>{type}</span>)}
                       {pay&&<span className="pill">{pay}</span>}
                     </div>
@@ -104,6 +133,17 @@ export function MarylandCaregiverPage(){
                 </article>;
               })}
             </div>}
+
+        {hub&&hub.pages>1&&<nav className="hub-pager" aria-label="Pages">
+          <button className="btn secondary" disabled={page<=1} onClick={()=>{setPage(page-1);window.scrollTo({top:0})}}>Previous</button>
+          <span>Page {hub.page} of {hub.pages}</span>
+          <button className="btn secondary" disabled={page>=hub.pages} onClick={()=>{setPage(page+1);window.scrollTo({top:0})}}>Next</button>
+        </nav>}
+
+        {!citySlug&&hub&&hub.cities.length>0&&<div className="hub-cities">
+          <h3>Caregiver jobs by city</h3>
+          <div className="job-tags">{hub.cities.map(c=><a className="pill" key={c.slug} href={jobsHubPath(state,c.slug)}>{c.city} ({c.count})</a>)}</div>
+        </div>}
       </div></section>}
 
       <section className="section"><div className="wrap">
