@@ -1466,6 +1466,11 @@ export default {
         await discoverAgencyJobsBatch(env,24);
         return;
       }
+      if(event.cron==="2,32,47 * * * *"){
+        // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
+        await enrichAgencyBatch(env,30);
+        return;
+      }
       if(event.cron==="17 * * * *"){
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
