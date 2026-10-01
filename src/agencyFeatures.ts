@@ -1,6 +1,7 @@
 import { agencyCandidateTeaserEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
+import { waitingInterestPreviews } from './agencyInbox';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -132,7 +133,7 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
   if(!env.DB)return {scored:0};
   const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 LIMIT 1").bind(caregiverId).first<Row>();
   if(!caregiver||clean(caregiver.state,20).toUpperCase()!=='MD')return {scored:0};
-  await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=?").bind(caregiverId).run();
+  await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=? AND status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").bind(caregiverId).run();
   const result=await env.DB.prepare(`WITH scored AS (
       SELECT ao.id AS organization_id,c.id AS caregiver_id,
         CASE
@@ -163,14 +164,19 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
     SELECT organization_id||':'||caregiver_id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,
       json_object('geography',geography_score,'role',role_score,'freshness',freshness_score,'provider',provider_score),
       'matched',CURRENT_TIMESTAMP
-    FROM ranked WHERE rn<=75`).bind(caregiverId).run();
+    FROM ranked WHERE rn<=75
+    ON CONFLICT(organization_id,caregiver_id) DO UPDATE SET
+      fit_score=excluded.fit_score,geography_score=excluded.geography_score,role_score=excluded.role_score,
+      freshness_score=excluded.freshness_score,provider_score=excluded.provider_score,match_reason=excluded.match_reason,
+      last_scored_at=excluded.last_scored_at,updated_at=CURRENT_TIMESTAMP`).bind(caregiverId).run();
   const row=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_org_candidate_matches WHERE caregiver_id=?").bind(caregiverId).first<{count:number}>();
   return {scored:asNum(row?.count)};
 }
 
 export async function scoreAgencyMatches(env:FeatureEnv){
   if(!env.DB)return {scored:0};
-  await env.DB.prepare("DELETE FROM agency_org_candidate_matches").run();
+  // Rescore in place: only plain 'matched' rows are cleared, so any row someone acted on keeps its state.
+  await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").run();
   const result=await env.DB.prepare(`WITH scored AS (
       SELECT ao.id AS organization_id,c.id AS caregiver_id,
         CASE
@@ -204,7 +210,11 @@ export async function scoreAgencyMatches(env:FeatureEnv){
     SELECT organization_id||':'||caregiver_id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,
       json_object('geography',geography_score,'role',role_score,'freshness',freshness_score,'provider',provider_score),
       'matched',CURRENT_TIMESTAMP
-    FROM ranked WHERE rn<=75`).run();
+    FROM ranked WHERE rn<=75
+    ON CONFLICT(organization_id,caregiver_id) DO UPDATE SET
+      fit_score=excluded.fit_score,geography_score=excluded.geography_score,role_score=excluded.role_score,
+      freshness_score=excluded.freshness_score,provider_score=excluded.provider_score,match_reason=excluded.match_reason,
+      last_scored_at=excluded.last_scored_at,updated_at=CURRENT_TIMESTAMP`).run();
   return {scored:asNum(result.meta?.changes)};
 }
 
@@ -237,10 +247,11 @@ export async function getAgencyTeaser(url:URL,env:FeatureEnv){
   if(!row)return json({ok:false,error:'This agency link is invalid or has expired.'},{status:404});
   await env.DB!.prepare("UPDATE agency_teaser_tokens SET opened_at=COALESCE(opened_at,CURRENT_TIMESTAMP) WHERE id=?").bind(row.token_id).run();
   const previews=await candidatePreviews(env,clean(row.organization_id,100),5);
+  const interests=await waitingInterestPreviews(env,clean(row.organization_id,100));
   return json({ok:true,agency:{
     name:row.canonical_name,city:row.city,state:row.state,providerTypes:row.provider_types,
     claimed:!!row.claimed_employer_id,claimRequested:!!row.claim_requested_at
-  },candidateCount:previews.length,candidates:previews});
+  },candidateCount:previews.length,candidates:previews,interests});
 }
 
 export async function requestAgencyClaim(request:Request,env:FeatureEnv){
@@ -261,7 +272,8 @@ export async function requestAgencyClaim(request:Request,env:FeatureEnv){
       .bind(employerId,row.canonical_name,'',email,'').run();
   }
   await env.DB.prepare("UPDATE agency_teaser_tokens SET claim_requested_at=CURRENT_TIMESTAMP,employer_id=? WHERE id=?").bind(employerId,row.token_id).run();
-  await sendEmployerMagicLink(env,employerId);
+  const waiting=await env.DB.prepare("SELECT 1 AS hit FROM agency_interests WHERE organization_id=? LIMIT 1").bind(row.organization_id).first();
+  await sendEmployerMagicLink(env,employerId,waiting?'/app?tab=inbox':undefined);
   return json({ok:true,message:'Check your agency email for a secure CareJoys sign-in link.'});
 }
 

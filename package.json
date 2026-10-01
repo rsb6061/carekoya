@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "test:node": "node --no-warnings --test scripts/test-*.mjs",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && npm run db:migrations:apply && wrangler deploy",
     "pretest": "node -e \"require('fs').rmSync('.wrangler/test',{recursive:true,force:true})\" && wrangler d1 migrations apply DB --local --config tests/wrangler.test.jsonc --persist-to .wrangler/test",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
+    "esbuild": ">=0.25.0",
     "vitest": "^5.0.3",
     "wrangler": "^4.102.0",
     "zipcodes": "^8.0.0"

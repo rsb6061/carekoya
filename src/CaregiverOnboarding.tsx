@@ -51,6 +51,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [result,setResult]=useState<MatchResult|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [editParsed,setEditParsed]=useState(false);
+  const [sendProfile,setSendProfile]=useState(true);
+  const [continuing,setContinuing]=useState(false);
 
   function patch<K extends keyof ResumeForm>(key:K,value:ResumeForm[K]){
     setForm(prev=>({...prev,[key]:value}));
@@ -144,8 +146,17 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   async function continueApplication(){
     const target=result?.targetJob;
     if(!target?.id||!target.applicationUrl)return;
+    setContinuing(true);
     try{
       const idToken=auth.configured?await auth.getIdToken():'';
+      if(sendProfile){
+        // Also put the caregiver in the agency's CareJoys Inbox. Without a verified sign-in this emails them a Send link.
+        await fetch('/api/public/caregiver-jobs/'+encodeURIComponent(target.id)+'/interest',{
+          method:'POST',
+          headers:{'content-type':'application/json',...(idToken?{authorization:'Bearer '+idToken}:{})},
+          body:JSON.stringify({caregiverId:result?.id})
+        }).catch(()=>null);
+      }
       const res=await fetch('/api/public/caregiver-jobs/'+encodeURIComponent(target.id)+'/apply',{
         method:'POST',
         headers:{'content-type':'application/json',...(idToken?{authorization:'Bearer '+idToken}:{})},
@@ -173,7 +184,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         <p>CareJoys found <strong>{result.matchedOrganizations||0} relevant care organizations</strong>{typeof result.matchedOpenings==='number'?<> and <strong>{result.matchedOpenings} current opening{result.matchedOpenings===1?'':'s'}</strong></>:null}.</p>
         {result.id&&result.profilePhotoToken&&<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
         {result.targetJob?.applicationUrl
-          ?<div className="onboarding-final-action"><button className="btn" onClick={continueApplication}>Continue application</button><span>You’ll finish on {result.targetJob.employerName||'the employer'}’s site.</span></div>
+          ?<div className="onboarding-final-action">
+            <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {result.targetJob.employerName||'this employer'} so they can contact me</span></label>
+            <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue application'}</button><span>You’ll finish on {result.targetJob.employerName||'the employer'}’s site.</span>
+          </div>
           :<a className="btn" href="/caregiver-jobs/maryland#current-jobs">See matching jobs</a>}
       </div>
     </div>;

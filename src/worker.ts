@@ -2,6 +2,8 @@ import { type EmailBinding } from './email';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
+import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
+import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach } from './admin';
@@ -121,7 +123,8 @@ async function careJoysSitemap(env:Env){
     {url:SEO_ORIGIN+"/caregiver-jobs/maryland"},
     {url:SEO_ORIGIN+"/caregiver-resume"},
     {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
-    {url:SEO_ORIGIN+"/training-programs/maryland"}
+    {url:SEO_ORIGIN+"/training-programs/maryland"},
+    {url:SEO_ORIGIN+"/agent"}
   ];
   if(env.DB){
     const orgs=await env.DB.prepare(`SELECT DISTINCT torg.slug,torg.updated_at
@@ -207,6 +210,13 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Sitemap: https://carejoys.com/sitemap.xml
 
 CareJoys distinguishes regulatory training-program data from employer hiring signals and caregiver-provided profile information.
+
+## For AI assistants (MCP)
+- MCP server (Streamable HTTP, no sign-in): https://carejoys.com/api/mcp
+- Setup for Claude and ChatGPT: https://carejoys.com/agent
+- Server card: https://carejoys.com/.well-known/mcp/server-card.json
+- Tools: search_caregiver_jobs, get_caregiver_job, find_hiring_agencies, prepare_job_interest, confirm_job_interest, get_interest_status.
+- An assistant can prepare to send a caregiver's profile to agencies, but nothing is sent until the caregiver presses Send in the confirmation email CareJoys sends them.
 `,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
 }
 
@@ -262,6 +272,15 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         {"@type":"WebPage","@id":SEO_ORIGIN+"/hire-caregivers/maryland#webpage","url":SEO_ORIGIN+"/hire-caregivers/maryland","name":"Hire caregivers in Maryland","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Service","@id":SEO_ORIGIN+"/hire-caregivers/maryland#service","name":"Hire caregivers in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
       ]}
+    });
+  }
+  if(url.pathname==="/agent"){
+    return seoAsset(request,env,{
+      title:"CareJoys for Claude and ChatGPT | Caregiver Jobs MCP",
+      description:"Connect Claude or ChatGPT to CareJoys to search current caregiver, CNA, GNA, HHA and PCA jobs and send a caregiver's profile to home-care agencies after email confirmation.",
+      canonical:"/agent",
+      snapshot:'<main><h1>Use CareJoys from Claude or ChatGPT</h1><p>Add the CareJoys MCP server to your AI assistant to search current caregiver jobs at home-care agencies and send your profile to the ones you pick.</p><p>Server URL: <code>https://carejoys.com/api/mcp</code></p><p>Nothing is sent to an agency until you press Send in the email CareJoys sends you.</p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/agent","name":"CareJoys for Claude and ChatGPT","isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
   if(url.pathname==="/about"){
@@ -1086,6 +1105,9 @@ export default {
     if(request.method==="GET"&&url.pathname==="/sitemap.xml") return careJoysSitemap(env);
     if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
     if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
+    if(url.pathname===MCP_PATH) return handleMcp(request,env);
+    if(request.method==="GET"&&(url.pathname==="/.well-known/mcp/server-card.json"||url.pathname==="/.well-known/mcp.json"))
+      return json(mcpServerCard(),{headers:{"cache-control":"public,max-age=3600","access-control-allow-origin":"*"}});
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
@@ -1139,6 +1161,13 @@ export default {
     if(request.method==="GET"&&publicJob) return getPublicCaregiverJob(decodeURIComponent(publicJob[1]),env);
     let publicJobApply=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/apply$/);
     if(request.method==="POST"&&publicJobApply) return handlePublicJobApply(request,env,decodeURIComponent(publicJobApply[1]));
+    let publicJobInterest=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/interest$/);
+    if(request.method==="POST"&&publicJobInterest){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      return sendProfileFromJobPage(request,env,decodeURIComponent(publicJobInterest[1]),await caregiverAuthIdentity(request,env));
+    }
+    if(request.method==="GET"&&url.pathname==="/api/interest-confirm") return getInterestConfirmation(url,env);
+    if(request.method==="POST"&&url.pathname==="/api/interest-confirm"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return confirmInterestRequest(request,env); }
     let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
     if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
@@ -1168,6 +1197,9 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/agency/teaser") return getAgencyTeaser(url,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/agency/inbox") return getAgencyInbox(request,env);
+    let inboxItem=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)$/);
+    if(request.method==="POST"&&inboxItem){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyInterest(request,env,decodeURIComponent(inboxItem[1])); }
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
@@ -1231,6 +1263,7 @@ export default {
       if(event.cron==="17 * * * *"){
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
+        await notifyAgenciesOfInterestsBatch(env,20);
         return;
       }
       if(event.cron==="41 15 * * *"){

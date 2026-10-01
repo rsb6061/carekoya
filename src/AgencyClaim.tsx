@@ -3,6 +3,7 @@ import { TurnstileField } from './TurnstileField';
 import './activation.css';
 
 type CandidatePreview={role:string;area:string;experience:string;freshness:string;fitScore:number};
+type InterestPreview={role:string;area:string;jobTitle:string|null;experience:string};
 type AgencyPreview={name:string;city?:string;state?:string;providerTypes?:string;claimed?:boolean;claimRequested?:boolean};
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -17,14 +18,15 @@ export function AgencyClaim(){
   const [agency,setAgency]=useState<AgencyPreview|null>(null);
   const [candidates,setCandidates]=useState<CandidatePreview[]>([]);
   const [count,setCount]=useState(0);
+  const [interests,setInterests]=useState<InterestPreview[]>([]);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [status,setStatus]=useState<'loading'|'ready'|'sending'|'sent'|'error'>('loading');
   const [message,setMessage]=useState('');
 
   useEffect(()=>{
     if(!token){setStatus('error');setMessage('This agency link is missing.');return;}
-    api<{agency:AgencyPreview;candidateCount:number;candidates:CandidatePreview[]}>('/api/agency/teaser?token='+encodeURIComponent(token))
-      .then(data=>{setAgency(data.agency);setCandidates(data.candidates||[]);setCount(data.candidateCount||0);setStatus('ready')})
+    api<{agency:AgencyPreview;candidateCount:number;candidates:CandidatePreview[];interests?:InterestPreview[]}>('/api/agency/teaser?token='+encodeURIComponent(token))
+      .then(data=>{setAgency(data.agency);setInterests(data.interests||[]);setCandidates(data.candidates||[]);setCount(data.candidateCount||0);setStatus('ready')})
       .catch(error=>{setStatus('error');setMessage(error instanceof Error?error.message:'Could not open this agency link.')});
   },[token]);
 
@@ -47,16 +49,28 @@ export function AgencyClaim(){
   return <div className="activation-shell">
     <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
     <main className="activation-card">
-      <div className="activation-kicker">Caregiver matches for {agency.name}</div>
+      <div className="activation-kicker">{interests.length?'Caregivers waiting for':'Caregiver matches for'} {agency.name}</div>
+      {interests.length?<>
+        <h1>{interests.length===1?'A caregiver wants':interests.length+' caregivers want'} to work with you.</h1>
+        <p className="activation-intro">{interests.length===1?'This caregiver':'These caregivers'} asked CareJoys to send {interests.length===1?'their profile':'their profiles'} to your agency. Verify your agency email to see full profiles and contact details in your Inbox.</p>
+        <div className="candidate-preview-list">
+          {interests.map((c,i)=><div className="candidate-preview" key={'i'+i}>
+            <strong>{c.role}{c.jobTitle?' · '+c.jobTitle:''}</strong>
+            <span>{[c.area,c.experience].filter(Boolean).join(' · ')}</span>
+          </div>)}
+        </div>
+        {count>0&&<p className="activation-intro">CareJoys also matched {count} more caregiver profile{count===1?'':'s'} near you.</p>}
+      </>:<>
       <h1>{count} caregiver match{count===1?'':'es'} near your agency.</h1>
       <p className="activation-intro">CareJoys matched these profiles using location, caregiver role, and your Maryland provider record. The previews are intentionally de-identified until your agency is verified.</p>
+      </>}
 
-      <div className="candidate-preview-list">
+      {!interests.length&&<div className="candidate-preview-list">
         {candidates.map((c,i)=><div className="candidate-preview" key={i}>
           <strong>{c.role}</strong>
           <span>{[c.area,c.experience,c.freshness].filter(Boolean).join(' · ')}</span>
         </div>)}
-      </div>
+      </div>}
 
       <div className="agency-source-note">
         <strong>{agency.name}</strong>
@@ -73,7 +87,7 @@ export function AgencyClaim(){
         <p className="activation-intro">Claim your agency to review the matching caregiver profiles, confirm what you hire for, and contact interested caregivers. Your first 5 interested caregiver candidates are free during the pilot.</p>
         <TurnstileField onToken={setTurnstileToken}/>
         {message&&<div className="notice">{message}</div>}
-        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Sending verification…':'Claim agency and review matches'}</button>
+        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Sending verification…':interests.length?'Verify and open your Inbox':'Claim agency and review matches'}</button>
       </>}
       {agency.claimed&&<a className="btn" href="/app">Sign in to CareJoys</a>}
     </main>

@@ -14,6 +14,8 @@ import { EmployerRecruitingPage, AboutCareJoysPage } from './PublicInfoPages';
 import { HowToBecomeCaregiverMarylandPage } from './CaregiverResourcePage';
 import { CaregiverResumePage } from './CaregiverResumePage';
 import { CaregiverJobPage } from './CaregiverJobPage';
+import { ConfirmInterest } from './ConfirmInterest';
+import { AgentSetupPage } from './AgentSetupPage';
 import { CaregiverDashboard } from './CaregiverDashboard';
 import { AdminConsole } from './AdminConsole';
 
@@ -142,6 +144,8 @@ export function App() {
   if (window.location.pathname.startsWith('/activate')) return <CaregiverActivation />;
   if (window.location.pathname.startsWith('/auth')) return <EmployerAuth />;
   if (window.location.pathname.startsWith('/respond')) return <CandidateResponse />;
+  if (window.location.pathname.startsWith('/confirm-interest')) return <ConfirmInterest />;
+  if (window.location.pathname === '/agent') return <AgentSetupPage />;
   if (window.location.pathname.startsWith('/agency')) return <AgencyClaim />;
   if (window.location.pathname.startsWith('/caregiver-jobs/maryland') || window.location.pathname.startsWith('/join/')) return <MarylandCaregiverPage />;
   if (window.location.pathname.startsWith('/training-programs/maryland') || window.location.pathname.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
