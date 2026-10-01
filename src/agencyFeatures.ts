@@ -378,7 +378,7 @@ const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primar
     FROM agency_organizations o
     JOIN agency_org_candidate_matches m ON m.organization_id=o.id
     JOIN caregivers c ON c.id=m.caregiver_id
-    WHERE o.is_active=1 AND o.claimed_employer_id IS NULL
+    WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       AND (o.teaser_last_sent_at IS NULL OR datetime(o.teaser_last_sent_at)<datetime('now','-30 days'))
@@ -404,38 +404,85 @@ export async function agencyTeaserTestEmail(env:FeatureEnv){
   });
 }
 
+/** Emails one agency its teaser with a live 14-day claim link. Test sends are marked and don't count toward caps or stats. */
+async function deliverTeaser(env:FeatureEnv,org:Row,test=false){
+  const token=crypto.randomUUID()+'-'+crypto.randomUUID();
+  const hash=await sha256Hex(token);
+  const expires=new Date(Date.now()+14*86400000).toISOString();
+  const email=clean(org.primary_email,320).toLowerCase();
+  const previews=await candidatePreviews(env,clean(org.id,100),3);
+  const unsubscribe=await unsubscribeLink(env.DB!,email,'agency_teaser');
+  const body=withUnsubscribe(agencyCandidateTeaserEmail({
+    contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'there',
+    agencyName:clean(org.canonical_name,180),
+    candidateCount:asNum(org.candidate_count),
+    previews,
+    claimLink:'https://carejoys.com/agency?token='+encodeURIComponent(token)
+  }),unsubscribe.link);
+  try{
+    const result=await env.EMAIL!.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:(test?'[Test] ':'')+body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
+    await env.DB!.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
+      .bind(crypto.randomUUID(),org.id,hash,email,expires).run();
+    await env.DB!.prepare("UPDATE agency_organizations SET teaser_last_sent_at=CURRENT_TIMESTAMP,teaser_send_count=teaser_send_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(org.id).run();
+    await env.DB!.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)")
+      .bind(crypto.randomUUID(),org.id,test?'candidate_teaser_test':'candidate_teaser',email,result.messageId||null,JSON.stringify({candidateCount:asNum(org.candidate_count),topScore:asNum(org.top_score)})).run();
+    return true;
+  }catch(error){
+    await env.DB!.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'candidate_teaser_failed',?,?)")
+      .bind(crypto.randomUUID(),org.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
+    if(test)throw error;
+    return false;
+  }
+}
+
 export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
   if(!env.DB||!env.EMAIL)return {attempted:0,sent:0,failed:0};
   const orgs=await env.DB.prepare(TEASER_ELIGIBLE_SQL).bind(limit).all<Row>();
   let sent=0,failed=0;
-  for(const org of orgs.results||[]){
-    const token=crypto.randomUUID()+'-'+crypto.randomUUID();
-    const hash=await sha256Hex(token);
-    const expires=new Date(Date.now()+14*86400000).toISOString();
-    const tokenId=crypto.randomUUID();
-    const email=clean(org.primary_email,320).toLowerCase();
-    const previews=await candidatePreviews(env,clean(org.id,100),3);
-    const unsubscribe=await unsubscribeLink(env.DB,email,'agency_teaser');
-    const body=withUnsubscribe(agencyCandidateTeaserEmail({
-      contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'there',
-      agencyName:clean(org.canonical_name,180),
-      candidateCount:asNum(org.candidate_count),
-      previews,
-      claimLink:'https://carejoys.com/agency?token='+encodeURIComponent(token)
-    }),unsubscribe.link);
-    try{
-      const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
-      await env.DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
-        .bind(tokenId,org.id,hash,email,expires).run();
-      await env.DB.prepare("UPDATE agency_organizations SET teaser_last_sent_at=CURRENT_TIMESTAMP,teaser_send_count=teaser_send_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(org.id).run();
-      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,'candidate_teaser',?,?,?)")
-        .bind(crypto.randomUUID(),org.id,email,result.messageId||null,JSON.stringify({candidateCount:asNum(org.candidate_count),topScore:asNum(org.top_score)})).run();
-      sent++;
-    }catch(error){
-      failed++;
-      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'candidate_teaser_failed',?,?)")
-        .bind(crypto.randomUUID(),org.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
-    }
-  }
+  for(const org of orgs.results||[])(await deliverTeaser(env,org))?sent++:failed++;
   return {attempted:(orgs.results||[]).length,sent,failed};
+}
+
+export const TEST_AGENCY_ID='carejoys-test-agency';
+
+/** Removes the test agency's claim, tokens, matches, hiring profile and openings so the walkthrough can start over. */
+export async function resetTestAgency(env:FeatureEnv){
+  const db=env.DB!;
+  const openings=await db.prepare('SELECT id FROM openings WHERE agency_organization_id=?').bind(TEST_AGENCY_ID).all<Row>();
+  for(const o of openings.results||[]){
+    await db.prepare('UPDATE outreach_events SET opening_id=NULL WHERE opening_id=?').bind(o.id).run();
+    await db.prepare('DELETE FROM interview_slots WHERE opening_id=?').bind(o.id).run();
+    await db.prepare('DELETE FROM candidate_pipeline WHERE opening_id=?').bind(o.id).run();
+    await db.prepare('DELETE FROM openings WHERE id=?').bind(o.id).run();
+  }
+  for(const table of ['agency_teaser_tokens','agency_org_candidate_matches','agency_org_hiring_profiles','agency_outreach_events'])
+    await db.prepare(`DELETE FROM ${table} WHERE organization_id=?`).bind(TEST_AGENCY_ID).run();
+  await db.prepare('UPDATE agency_organizations SET claimed_employer_id=NULL,teaser_last_sent_at=NULL,teaser_send_count=0 WHERE id=?').bind(TEST_AGENCY_ID).run();
+}
+
+/**
+ * Admin walkthrough: a hidden "CareJoys Test Agency" in Baltimore, matched to real Maryland caregivers,
+ * whose live teaser goes to `email`. It never appears in agency search, the MCP or real outreach.
+ */
+export async function startTestAgency(env:FeatureEnv,email:string){
+  if(!env.DB||!env.EMAIL)throw new Error('Email is not configured');
+  await resetTestAgency(env);
+  await env.DB.prepare(`INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,zip,provider_types,caregiver_relevance_score,current_hiring_signal,is_active,is_test)
+    VALUES (?,?,'CareJoys Test Agency',?,'Baltimore','MD','21201','Residential Service Agency',90,'unknown',1,1)
+    ON CONFLICT(id) DO UPDATE SET primary_email=excluded.primary_email,is_active=1,is_test=1,updated_at=CURRENT_TIMESTAMP`)
+    .bind(TEST_AGENCY_ID,TEST_AGENCY_ID,email).run();
+  await env.DB.prepare(`INSERT INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
+    SELECT ?||':'||c.id,?,c.id,g+f+20,g,5,f,15,json_object('geography',g,'role',5,'freshness',f,'provider',15),'matched',CURRENT_TIMESTAMP FROM (
+      SELECT c.id,
+        CASE WHEN c.zip='21201' THEN 50 WHEN lower(coalesce(c.city,''))='baltimore' THEN 35 ELSE 15 END AS g,
+        CASE WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
+          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8 ELSE 0 END AS f
+      FROM caregivers c
+      WHERE c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
+        AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
+      ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
+  const org=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
+    FROM agency_organizations o LEFT JOIN agency_org_candidate_matches m ON m.organization_id=o.id WHERE o.id=? GROUP BY o.id`).bind(TEST_AGENCY_ID).first<Row>();
+  await deliverTeaser(env,org!,true);
+  return {email,candidateCount:asNum(org?.candidate_count)};
 }

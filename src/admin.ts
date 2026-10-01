@@ -1,5 +1,6 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
+import { resetTestAgency, startTestAgency } from './agencyFeatures';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
@@ -125,6 +126,16 @@ export async function sendAdminOutreachTest(request:Request,env:AdminEnv,admin:{
   const to=(admin.email||clean(data?.to,320)).toLowerCase();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return json({ok:false,error:'No admin email to send the test to'},{status:400});
   try{return json({ok:true,result:await sendOutreachTest(env,kind,to)})}
+  catch(error){return json({ok:false,error:error instanceof Error?error.message:'Test send failed'},{status:502})}
+}
+
+/** Sends the admin a live teaser for the hidden test agency so they can walk through claiming and onboarding. */
+export async function sendAdminAgencyTest(request:Request,env:AdminEnv,admin:{email:string}){
+  const data=await request.json().catch(()=>null) as Row|null;
+  if(data?.reset){await resetTestAgency(env);return json({ok:true,reset:true})}
+  const to=(admin.email||clean(data?.to,320)).toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return json({ok:false,error:'No admin email to send the test to'},{status:400});
+  try{return json({ok:true,result:await startTestAgency(env,to)})}
   catch(error){return json({ok:false,error:error instanceof Error?error.message:'Test send failed'},{status:502})}
 }
 

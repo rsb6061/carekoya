@@ -50,7 +50,7 @@ export async function searchAgencies(url:URL,env:FeatureEnv){
   const zip=clean(url.searchParams.get('zip'),10).replace(/\D/g,'').slice(0,5);
   const state=clean(url.searchParams.get('state'),2).toUpperCase();
   if(q.length<2&&zip.length<5)return json({ok:true,agencies:[]});
-  let sql="SELECT id,canonical_name,city,state,zip,provider_types,primary_website,primary_domain,primary_email,claimed_employer_id FROM agency_organizations WHERE is_active=1";
+  let sql="SELECT id,canonical_name,city,state,zip,provider_types,primary_website,primary_domain,primary_email,claimed_employer_id FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0";
   const args:unknown[]=[];
   if(q.length>=2){
     const like='%'+q.toLowerCase().replace(/[%_]/g,'')+'%';
@@ -162,13 +162,13 @@ export async function agencySuggestions(request:Request,env:FeatureEnv){
   const domain=normalizeDomain(employer.email);
   const results=new Map<string,Row>();
   if(domain&&!FREE_MAIL.has(domain)){
-    const rows=await env.DB.prepare("SELECT * FROM agency_organizations WHERE is_active=1 AND (lower(primary_domain)=? OR lower(primary_website) LIKE ?) LIMIT 5").bind(domain,'%'+domain+'%').all<Row>();
+    const rows=await env.DB.prepare("SELECT * FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0 AND (lower(primary_domain)=? OR lower(primary_website) LIKE ?) LIMIT 5").bind(domain,'%'+domain+'%').all<Row>();
     for(const r of rows.results||[])results.set(clean(r.id,100),r);
   }
   const company=clean(employer.company_name,200).toLowerCase().replace(/\b(llc|inc|corp|co|ltd|the)\b\.?/g,'').replace(/[^a-z0-9 ]+/g,' ').trim();
   if(company.length>=3){
     const zip=clean(employer.zip,10).slice(0,3);
-    const rows=await env.DB.prepare("SELECT * FROM agency_organizations WHERE is_active=1 AND lower(canonical_name) LIKE ? ORDER BY CASE WHEN substr(COALESCE(zip,''),1,3)=? THEN 0 ELSE 1 END,license_count DESC LIMIT 5")
+    const rows=await env.DB.prepare("SELECT * FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0 AND lower(canonical_name) LIKE ? ORDER BY CASE WHEN substr(COALESCE(zip,''),1,3)=? THEN 0 ELSE 1 END,license_count DESC LIMIT 5")
       .bind('%'+company.split(/\s+/).slice(0,3).join('%')+'%',zip).all<Row>();
     for(const r of rows.results||[])results.set(clean(r.id,100),r);
   }
