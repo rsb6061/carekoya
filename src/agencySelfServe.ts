@@ -109,7 +109,7 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
   if(!org)return json({ok:false,error:'Agency not found'},{status:404});
   if(org.claimed_employer_id){
     if(session&&clean(org.claimed_employer_id,100)===clean(session.id,100))return json({ok:true,claimed:true,message:'This agency is already linked to your workspace.'});
-    return json({ok:false,error:'This agency is already linked to a CareJoys workspace. Sign in with that account, or contact updates@carejoys.com.'},{status:409});
+    return json({ok:false,error:'This agency is already linked to a CareJoys workspace. Sign in with that account, or contact hello@carejoys.com.'},{status:409});
   }
   const orgId=clean(org.id,100);
   const orgName=clean(org.canonical_name,200);
@@ -146,7 +146,7 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
     .bind(crypto.randomUUID(),orgId,workEmail,JSON.stringify({name:clean(data?.name,200),phone:clean(data?.phone,40)})).run();
   const admins=clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
   for(const to of admins.slice(0,5)){
-    await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to,subject:'Manual agency claim: '+orgName,
+    await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to,subject:'Manual agency claim: '+orgName,
       text:workEmail+' asked to manage '+orgName+' ('+[org.city,org.state].filter(Boolean).join(', ')+') on CareJoys. Agency id: '+orgId+'. Reply to them after checking they work there.',
       html:'<p>'+escapeHtml(workEmail)+' asked to manage <strong>'+escapeHtml(orgName)+'</strong> ('+escapeHtml([org.city,org.state].filter(Boolean).join(', '))+') on CareJoys.</p><p>Agency id: '+escapeHtml(orgId)+'</p><p>Reply to them after checking they work there.</p>'}).catch(()=>null);
   }

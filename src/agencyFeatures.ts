@@ -412,7 +412,7 @@ export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
       claimLink:'https://carejoys.com/agency?token='+encodeURIComponent(token)
     }),unsubscribe.link);
     try{
-      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
+      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
       await env.DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
         .bind(tokenId,org.id,hash,email,expires).run();
       await env.DB.prepare("UPDATE agency_organizations SET teaser_last_sent_at=CURRENT_TIMESTAMP,teaser_send_count=teaser_send_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(org.id).run();
