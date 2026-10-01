@@ -118,6 +118,27 @@ test('the Inbox shows full contact details to the claimed agency only, and saves
   assert.deepEqual(events,['created','stage_changed','stage_changed']);
 });
 
+test('unclaimed agencies get no email while outreach is off or after they unsubscribe; claimed agencies still do',async()=>{
+  const t=fresh();
+  t.env.OUTREACH_ENABLED='false';
+  addCaregiver(t.db);
+  await mod.createAgencyInterests(t.env,{caregiverId:'cg-1',targets:await mod.resolveTargets(t.env,{agencyIds:['org-b']}),source:'job_page'});
+  assert.equal(t.sent.length,0);
+  assert.equal((await mod.notifyAgenciesOfInterestsBatch(t.env)).attempted,0);
+  await claimed(t);
+  await mod.createAgencyInterests(t.env,{caregiverId:'cg-1',targets:await mod.resolveTargets(t.env,{agencyIds:['org-a']}),source:'job_page'});
+  assert.equal(t.sent.length,1);
+  assert.equal(t.sent[0].to,'owner@harbor.example');
+  const email=t.db.prepare("SELECT primary_email FROM agency_organizations WHERE id='org-b'").get().primary_email;
+  t.db.prepare("INSERT INTO email_suppressions(email) VALUES (?)").run(email.toLowerCase());
+  t.env.OUTREACH_ENABLED='true';
+  assert.equal((await mod.notifyAgenciesOfInterestsBatch(t.env)).attempted,0);
+  t.db.exec('DELETE FROM email_suppressions');
+  assert.equal((await mod.notifyAgenciesOfInterestsBatch(t.env)).sent,1);
+  assert.match(t.sent[1].text,/Unsubscribe: https:\/\/carejoys\.com\/api\/unsubscribe/);
+  assert.ok(t.sent[1].headers['List-Unsubscribe']);
+});
+
 test('the claim page an activation email opens lists waiting caregivers without names',async()=>{
   const t=fresh();
   addCaregiver(t.db);

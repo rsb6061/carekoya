@@ -1,6 +1,9 @@
 import { agencyInterestActivationEmail, agencyInterestNotifyEmail, caregiverInterestConfirmEmail } from './email';
 import { employerSession, type FeatureEnv } from './serverFeatures';
 import { scoreCaregiverAgainstAgencies } from './agencyFeatures';
+import { outreachEnabled, type OutreachEnv } from './outreach';
+import { isSuppressed, unsubscribeLink } from './emailPreferences';
+import { withUnsubscribe } from './email';
 
 // The Agency Inbox: every caregiver who asked to be sent to an agency, in five stages.
 //
@@ -146,7 +149,7 @@ async function interestPreviews(env:FeatureEnv,orgId:string,identified:boolean){
 
 // Tells an agency about caregivers waiting in its Inbox: at most one email per agency per day, so a busy day
 // becomes one email. Unclaimed agencies get the activation email at their listed address.
-export async function notifyAgency(env:FeatureEnv,orgId:string):Promise<'sent'|'skipped'|'failed'>{
+export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|'skipped'|'failed'>{
   if(!env.DB||!env.EMAIL)return 'skipped';
   const org=await env.DB.prepare('SELECT id,canonical_name,primary_email,primary_contact_name,claimed_employer_id FROM agency_organizations WHERE id=? AND is_active=1').bind(orgId).first<Row>();
   if(!org)return 'skipped';
@@ -155,10 +158,12 @@ export async function notifyAgency(env:FeatureEnv,orgId:string):Promise<'sent'|'
   const sentToday=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_outreach_events WHERE event_type IN ('interest_activation','interest_notify') AND datetime(created_at)>datetime('now','-1 day')").first<{count:number}>();
   if(asNum(sentToday?.count)>=AGENCY_EMAILS_PER_DAY)return 'skipped';
   const claimedBy=clean(org.claimed_employer_id,120);
+  // An unclaimed agency never asked to hear from CareJoys, so its email is outreach: it waits for OUTREACH_ENABLED and honors unsubscribes.
+  if(!claimedBy&&(!outreachEnabled(env)||await isSuppressed(env.DB,clean(org.primary_email,320))))return 'skipped';
   const previews=await interestPreviews(env,orgId,!!claimedBy);
   if(!previews.length)return 'skipped';
   const agencyName=clean(org.canonical_name,200);
-  let to='',body:{subject:string;html:string;text:string},eventType='';
+  let to='',body:{subject:string;html:string;text:string},eventType='',headers:Record<string,string>|undefined;
   if(claimedBy){
     const employer=await env.DB.prepare("SELECT email,contact_name FROM employer_leads WHERE id=? AND status!='disabled'").bind(claimedBy).first<Row>();
     to=clean(employer?.email,320).toLowerCase();
@@ -171,11 +176,13 @@ export async function notifyAgency(env:FeatureEnv,orgId:string):Promise<'sent'|'
     await env.DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),orgId,await sha256Hex(token),to,new Date(Date.now()+14*86400000).toISOString()).run();
     eventType='interest_activation';
-    body=agencyInterestActivationEmail({contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'',agencyName,items:previews,count:previews.length,link:ORIGIN+'/agency?token='+encodeURIComponent(token)});
+    const unsubscribe=await unsubscribeLink(env.DB,to,'agency_interest');
+    headers=unsubscribe.headers;
+    body=withUnsubscribe(agencyInterestActivationEmail({contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'',agencyName,items:previews,count:previews.length,link:ORIGIN+'/agency?token='+encodeURIComponent(token)}),unsubscribe.link);
   }
   if(!emailLooksValid(to))return 'skipped';
   try{
-    const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text});
+    const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text,...(headers?{headers}:{})});
     await env.DB.prepare("UPDATE agency_interests SET agency_notified_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND agency_notified_at IS NULL").bind(orgId).run();
     await env.DB.prepare('INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)')
       .bind(crypto.randomUUID(),orgId,eventType,to,result.messageId||null,JSON.stringify({count:previews.length})).run();
@@ -189,12 +196,13 @@ export async function notifyAgency(env:FeatureEnv,orgId:string):Promise<'sent'|'
 }
 
 // Hourly: agencies whose daily email was already used get the rest of their waiting caregivers here.
-export async function notifyAgenciesOfInterestsBatch(env:FeatureEnv,limit=20){
+export async function notifyAgenciesOfInterestsBatch(env:OutreachEnv,limit=20){
   if(!env.DB)return {attempted:0,sent:0};
   const rows=await env.DB.prepare(`SELECT ai.organization_id FROM agency_interests ai JOIN agency_organizations o ON o.id=ai.organization_id
     WHERE ai.agency_notified_at IS NULL AND o.is_active=1 AND ${REACHABLE_AGENCY_SQL}
+      AND (o.claimed_employer_id IS NOT NULL OR (?=1 AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))))
       AND NOT EXISTS (SELECT 1 FROM agency_interests x WHERE x.organization_id=ai.organization_id AND x.agency_notified_at IS NOT NULL AND datetime(x.agency_notified_at)>datetime('now','-1 day'))
-    GROUP BY ai.organization_id ORDER BY MIN(ai.created_at) LIMIT ?`).bind(limit).all<{organization_id:string}>();
+    GROUP BY ai.organization_id ORDER BY MIN(ai.created_at) LIMIT ?`).bind(outreachEnabled(env)?1:0,limit).all<{organization_id:string}>();
   let sent=0;
   for(const row of rows.results||[])if(await notifyAgency(env,row.organization_id)==='sent')sent++;
   return {attempted:(rows.results||[]).length,sent};

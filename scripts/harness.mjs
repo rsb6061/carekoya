@@ -42,7 +42,7 @@ export function createEnv(){
   const sent=[];
   const DB=createD1();
   return {
-    env:{DB,EMAIL:{async send(message){sent.push(message);return {messageId:'m'+sent.length}}}},
+    env:{DB,OUTREACH_ENABLED:'true',EMAIL:{async send(message){sent.push(message);return {messageId:'m'+sent.length}}}},
     sent,
     db:DB.raw
   };
