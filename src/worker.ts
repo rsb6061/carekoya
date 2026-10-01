@@ -8,7 +8,7 @@ import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAn
 import { runScheduledOutreach } from './outreach';
 import { billingStatus, createCheckout, createPortal, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
-import { bookInviteInterview, getCaregiverDashboard, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverDashboard';
+import { bookInviteInterview, getCaregiverDashboard, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
