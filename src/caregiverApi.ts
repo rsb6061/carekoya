@@ -24,6 +24,25 @@ export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIden
   return byEmail.id;
 }
 
+/** Current published jobs within the caregiver's commute radius (or their state when the ZIP has no centroid), newest first. */
+export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
+  if(!env.DB)return [];
+  const geo=rowGeo(c);
+  const radius=commuteRadiusMiles(c);
+  let jobsSql=`SELECT j.id,j.title,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.date_posted,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
+  const jobArgs:unknown[]=[];
+  if(geo){
+    const box=boundingBox(geo,radius);
+    jobsSql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';jobArgs.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }else if(clean(c.state)){jobsSql+=' AND j.state=?';jobArgs.push(clean(c.state))}
+  jobsSql+=" ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted='' THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT 60";
+  const jobRows=await env.DB.prepare(jobsSql).bind(...jobArgs).all<Row>();
+  return (jobRows.results||[]).map(j=>{const g=rowGeo(j);return {j,d:geo&&g?haversineMiles(geo,g):null}})
+    .filter(x=>!geo||(x.d!==null&&x.d<=radius)).slice(0,limit)
+    .map(({j,d})=>({id:j.id,title:j.title,employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,distanceMiles:d===null?null:Math.round(d*10)/10}));
+}
+
 export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!identity)return unauthorized();
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
@@ -44,20 +63,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     slotsByOpening[openingId]=slots.results||[];
   }
 
-  const geo=rowGeo(c);
-  const radius=commuteRadiusMiles(c);
-  let jobsSql=`SELECT j.id,j.title,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.date_posted,zg.lat AS geo_lat,zg.lng AS geo_lng
-    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
-  const jobArgs:unknown[]=[];
-  if(geo){
-    const box=boundingBox(geo,radius);
-    jobsSql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';jobArgs.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
-  }else if(clean(c.state)){jobsSql+=' AND j.state=?';jobArgs.push(clean(c.state))}
-  jobsSql+=" ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted='' THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT 60";
-  const jobRows=await env.DB.prepare(jobsSql).bind(...jobArgs).all<Row>();
-  const nearbyJobs=(jobRows.results||[]).map(j=>{const g=rowGeo(j);return {j,d:geo&&g?haversineMiles(geo,g):null}})
-    .filter(x=>!geo||(x.d!==null&&x.d<=radius)).slice(0,12)
-    .map(({j,d})=>({id:j.id,title:j.title,employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,distanceMiles:d===null?null:Math.round(d*10)/10}));
+  const nearbyJobs=await nearbyJobsFor(env,c,12);
 
   const applications=await env.DB.prepare(`SELECT a.event_type,a.created_at,j.id AS job_id,j.title,j.employer_name,j.source_url
     FROM caregiver_job_apply_events a JOIN caregiver_jobs j ON j.id=a.caregiver_job_id

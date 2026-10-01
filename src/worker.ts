@@ -8,7 +8,7 @@ import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAn
 import { runScheduledOutreach } from './outreach';
 import { billingStatus, createCheckout, createPortal, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
-import { bookInviteInterview, getCaregiverDashboard, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
+import { bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -92,6 +92,13 @@ async function caregiverAuthIdentity(request:Request,env:Env){
       name:clean(payload.name,200)
     };
   }catch{return null}
+}
+
+type WorkerCtx={waitUntil(promise:Promise<unknown>):void};
+/** Background work when the runtime gives us a context; awaited inline otherwise (tests, local scripts). */
+async function runAfterResponse(ctx:WorkerCtx|undefined,work:Promise<unknown>){
+  const guarded=work.catch(error=>console.error("background task failed",error));
+  if(ctx)ctx.waitUntil(guarded);else await guarded;
 }
 
 function json(body: unknown, init: ResponseInit = {}) {
@@ -407,6 +414,7 @@ async function readJson(request: Request) {
   try { return await request.json() as Record<string, unknown>; } catch { return null; }
 }
 const clean = (value: unknown, max = 500) => typeof value === "string" ? value.trim().slice(0, max) : "";
+const phoneLooksValid = (value: string) => { const digits=value.replace(/\D/g,""); return digits.length===10||(digits.length===11&&digits.startsWith("1")); };
 const emailLooksValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const rejectBot = (data: Record<string, unknown> | null) => !!clean(data?.website);
 function requireFields(data: Record<string, unknown> | null, fields: string[]) {
@@ -546,45 +554,65 @@ async function handleEmployer(request: Request, env: Env) {
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
-  const zip=clean(data!.zip,20);
-  const rolesNeeded=clean(data!.rolesNeeded,500);
-  const hiringNotes=clean(data!.hiringNotes,1500);
-  const shifts=clean(data!.shifts,300);
-  const payMin=Math.max(0,Number(data!.payMin||0)||0)||null;
-  const payMax=Math.max(0,Number(data!.payMax||0)||0)||null;
-  const transportationRequired=clean(data!.transportationRequired,20)==="yes"?1:0;
+  const intake:EmployerIntake={
+    companyName:clean(data!.companyName,200),contactName:clean(data!.contactName,200),phone:clean(data!.phone,40),
+    zip:clean(data!.zip,20),rolesNeeded:clean(data!.rolesNeeded,500),hiringNotes:clean(data!.hiringNotes,1500),shifts:clean(data!.shifts,300),
+    payMin:Math.max(0,Number(data!.payMin||0)||0)||null,payMax:Math.max(0,Number(data!.payMax||0)||0)||null,
+    transportationRequired:clean(data!.transportationRequired,20)==="yes"
+  };
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
-  const id=existing?.id||crypto.randomUUID();
+  const state=await stateForZip(env.DB,intake.zip);
+  const outOfArea=!!state&&state!=="MD";
   if(existing){
-    await env.DB.prepare("UPDATE employer_leads SET company_name=?,contact_name=?,phone=?,zip=?,roles_needed=?,hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(clean(data!.companyName,200),clean(data!.contactName,200),clean(data!.phone,40),zip,rolesNeeded,hiringNotes,id).run();
-  }else{
-    await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
-      .bind(id,clean(data!.companyName,200),clean(data!.contactName,200),email,clean(data!.phone,40),zip,rolesNeeded,hiringNotes).run();
+    // Anyone can type an existing employer's email, so nothing changes on that account until the emailed link is clicked.
+    await sendEmployerMagicLink(env,existing.id,"/app",{kind:"employer_intake",...intake});
+    return json({ok:true,checkEmail:true,email,outOfArea},{status:201});
   }
+  const id=crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
+    .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes).run();
+  const openingId=await createIntakeOpening(env,id,intake);
+  await sendEmployerMagicLink(env,id,"/app?opening="+encodeURIComponent(openingId)+"&match=1");
+  return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
+}
 
-  const primaryRole=(rolesNeeded.split(/[,/;|]+/).map(v=>v.trim()).find(Boolean)||"Caregiver").slice(0,80);
-  const zipInfo=await lookupZip(env.DB,zip);
-  const inferredState=zipInfo?.state||await stateForZip(env.DB,zip);
+type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;payMin:number|null;payMax:number|null;transportationRequired:boolean};
+
+/** Creates (or refreshes, within 30 minutes) the opening an employer described in the intake form. */
+async function createIntakeOpening(env:Env,employerId:string,intake:EmployerIntake){
+  const primaryRole=(intake.rolesNeeded.split(/[,/;|]+/).map(v=>v.trim()).find(Boolean)||"Caregiver").slice(0,80);
+  const zipInfo=await lookupZip(env.DB,intake.zip);
+  const inferredState=zipInfo?.state||await stateForZip(env.DB,intake.zip);
   const inferredCity=zipInfo?.city||"";
-  let opening=await env.DB.prepare(`SELECT id FROM openings
+  const opening=await env.DB!.prepare(`SELECT id FROM openings
     WHERE employer_id=? AND source='employer_intake' AND role=? AND zip=? AND status='open'
       AND datetime(created_at)>datetime('now','-30 minutes')
-    ORDER BY created_at DESC LIMIT 1`).bind(id,primaryRole,zip).first<{id:string}>();
+    ORDER BY created_at DESC LIMIT 1`).bind(employerId,primaryRole,intake.zip).first<{id:string}>();
   const openingId=opening?.id||crypto.randomUUID();
   if(opening){
-    await env.DB.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(primaryRole+" opening",inferredCity,inferredState,shifts,payMin,payMax,transportationRequired,hiringNotes,openingId).run();
+    await env.DB!.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(primaryRole+" opening",inferredCity,inferredState,intake.shifts,intake.payMin,intake.payMax,intake.transportationRequired?1:0,intake.hiringNotes,openingId).run();
   }else{
-    await env.DB.prepare(`INSERT INTO openings
+    await env.DB!.prepare(`INSERT INTO openings
       (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
-      .bind(openingId,id,primaryRole+" opening",primaryRole,inferredCity,inferredState,zip,payMin,payMax,shifts,transportationRequired,hiringNotes).run();
+      .bind(openingId,employerId,primaryRole+" opening",primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,intake.shifts,intake.transportationRequired?1:0,intake.hiringNotes).run();
   }
+  return openingId;
+}
 
-  const redirectPath="/app?opening="+encodeURIComponent(openingId)+"&match=1";
-  await sendEmployerMagicLink(env,id,redirectPath);
-  return json({ok:true,checkEmail:true,email,openingId},{status:201});
+/** Runs when an employer clicks a link that carried a form submission: apply it now that the email is proven. */
+async function applyPendingEmployerIntake(env:Env,employerId:string,raw:Record<string,unknown>){
+  if(raw.kind!=="employer_intake"||!env.DB)return null;
+  const intake:EmployerIntake={
+    companyName:clean(raw.companyName,200),contactName:clean(raw.contactName,200),phone:clean(raw.phone,40),zip:clean(raw.zip,20),
+    rolesNeeded:clean(raw.rolesNeeded,500),hiringNotes:clean(raw.hiringNotes,1500),shifts:clean(raw.shifts,300),
+    payMin:Number(raw.payMin)||null,payMax:Number(raw.payMax)||null,transportationRequired:raw.transportationRequired===true
+  };
+  await env.DB.prepare("UPDATE employer_leads SET company_name=COALESCE(NULLIF(?,''),company_name),contact_name=COALESCE(NULLIF(?,''),contact_name),phone=COALESCE(NULLIF(?,''),phone),zip=COALESCE(NULLIF(?,''),zip),roles_needed=COALESCE(NULLIF(?,''),roles_needed),hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(intake.companyName,intake.contactName,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,employerId).run();
+  const openingId=await createIntakeOpening(env,employerId,intake);
+  return "/app?opening="+encodeURIComponent(openingId)+"&match=1";
 }
 async function getPublicTrainingProgram(slug:string,env:Env){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
@@ -732,31 +760,34 @@ async function handleCaregiver(request: Request, env: Env) {
   },{status:existedBefore?200:201});
 }
 
-async function handleCaregiverResume(request:Request,env:Env){
+async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   if(!env.DB)return json({ok:false,error:"Database not configured yet"},{status:503});
   const data=await readJson(request);
   if(rejectBot(data))return json({ok:true},{status:201});
+  // Sign-in is optional for a new profile; it is only required to change a profile that already exists (below).
   const authIdentity=await caregiverAuthIdentity(request,env);
-  if(env.AUTH0_DOMAIN&&env.AUTH0_CLIENT_ID&&!authIdentity){
-    return json({ok:false,error:"Sign in to save your CareJoys profile"},{status:401});
-  }
   const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60);
   if(guard)return guard;
-  const error=requireFields(data,["firstName","lastName","email","phone","zip","state","role"]);
+  const error=requireFields(data,["firstName","lastName","email","phone","zip","role"]);
   if(error)return json({ok:false,error},{status:400});
 
   const email=(authIdentity?.email||clean(data!.email,320)).toLowerCase();
   if(!emailLooksValid(email))return json({ok:false,error:"Enter a valid email address"},{status:400});
-  const state=clean(data!.state,2).toUpperCase();
-  if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
   const zip=clean(data!.zip,10);
   if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a valid 5-digit ZIP code"},{status:400});
+  if(!phoneLooksValid(clean(data!.phone,40)))return json({ok:false,error:"Enter a valid 10-digit mobile phone number"},{status:400});
+  const state=(clean(data!.state,2).toUpperCase()||await stateForZip(env.DB,zip)||"").slice(0,2);
+  if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
 
   const authExisting=authIdentity?.sub
     ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? LIMIT 1").bind(authIdentity.sub).first<{id:string}>()
     :null;
   const emailExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const initiallyExisting=authExisting||emailExisting;
+  // An email match alone proves nothing: only the profile's own login, or a login whose email Auth0 verified, may change it.
+  if(emailExisting&&!authExisting&&!authIdentity?.emailVerified){
+    return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in with Google or a verified email to update it."},{status:409});
+  }
   const proposedId=initiallyExisting?.id||crypto.randomUUID();
   // Only attach this Auth0 login to an existing email-matched profile when Auth0 verified the email; the sub unlocks /me.
   const linkSub=authIdentity?.sub&&(authExisting||!emailExisting||authIdentity.emailVerified)?authIdentity.sub:null;
@@ -809,8 +840,10 @@ async function handleCaregiverResume(request:Request,env:Env){
   }
 
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
-  const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
-  const openingMatches=caregiver?await matchCaregiverToOpenings(env,id,"resume_match"):0;
+  const caregiver=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(id).first<Record<string,unknown>>();
+  // Employer openings are scored after the response goes out so the caregiver is not kept waiting.
+  if(caregiver)await runAfterResponse(ctx,matchCaregiverToOpenings(env,id,"resume_match"));
+  const nearbyJobs=caregiver?await nearbyJobsFor(env,caregiver,60):[];
 
   await env.DB.prepare("INSERT INTO caregiver_resume_imports (id,caregiver_id,source_filename,source_mime_type,source_file_size,parser_version,detected_role,detected_certifications,detected_specialties,detected_email,detected_phone) VALUES (?,?,?,?,?,'carejoys_resume_v2',?,?,?,?,?)")
     .bind(crypto.randomUUID(),id,clean(data!.sourceFilename,240),clean(data!.sourceMimeType,120),Number(data!.sourceFileSize||0)||null,
@@ -833,7 +866,7 @@ async function handleCaregiverResume(request:Request,env:Env){
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
 
   return json({
-    ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:openingMatches,
+    ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:nearbyJobs.length,topJobs:nearbyJobs.slice(0,3),
     marylandMatching,existing:existedBefore,profilePhotoToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null,
     authenticated:!!authIdentity,
     targetJob:targetJob?{id:targetJob.id,title:targetJob.title,employerName:targetJob.employer_name,applicationUrl:targetJob.source_url}:null
@@ -1081,7 +1114,7 @@ async function completeActivation(request:Request,env:Env){
 
 
 export default {
-  async fetch(request:Request,env:Env):Promise<Response>{
+  async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     const url=new URL(request.url);
     if(request.method==="GET"&&url.pathname==="/sitemap.xml") return careJoysSitemap(env);
     if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
@@ -1128,12 +1161,12 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake));
     if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
     if(request.method==="POST"&&url.pathname==="/api/auth/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEmployer(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env,ctx);
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
     let publicJob=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)$/);
     if(request.method==="GET"&&publicJob) return getPublicCaregiverJob(decodeURIComponent(publicJob[1]),env);
