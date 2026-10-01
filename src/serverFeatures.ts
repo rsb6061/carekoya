@@ -112,7 +112,7 @@ async function sendMagic(env:FeatureEnv,employer:{id:string;contact_name?:string
     .bind(crypto.randomUUID(),employer.id,hash,expires,clean(redirectPath,500)||null,pendingIntake?JSON.stringify(pendingIntake):null).run();
   const link='https://carejoys.com/auth?token='+encodeURIComponent(token);
   const body=employerMagicLinkEmail(clean(employer.contact_name,120).split(/\s+/)[0]||'there',link);
-  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:employer.email,subject:body.subject,html:body.html,text:body.text});
+  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:employer.email,subject:body.subject,html:body.html,text:body.text});
 }
 
 /** `pendingIntake` is applied only once the link is clicked, so an unverified form can never change an existing account. */
@@ -243,7 +243,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
       location,pay,shift:clean(opening.shift_preferences,300),link
     });
     try{
-      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
+      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
       const responseExpiresAt=new Date(Date.now()+14*86400000).toISOString();
       await env.DB.prepare("UPDATE candidate_pipeline SET stage='contacted',contacted_at=CURRENT_TIMESTAMP,response_token_hash=?,response_sent_at=CURRENT_TIMESTAMP,response_expires_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(hash,responseExpiresAt,row.pipeline_id).run();
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?)")
@@ -360,7 +360,7 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
         hasInterviewSlots:asNumber(slotCount?.count)>0
       });
       try{
-        const sent=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
+        const sent=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
         await env.DB.prepare("UPDATE candidate_pipeline SET employer_notified_interest_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
         await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','employer_interest_notice',?,?)")
           .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,sent.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
@@ -403,8 +403,8 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
   const caregiverEmail=interviewConfirmedEmail({recipientName:clean(row.first_name,100)||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
   const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
   const sends:Promise<unknown>[]=[];
-  if(emailValid(clean(row.email,320)))sends.push(env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.email,320),subject:caregiverEmail.subject,html:caregiverEmail.html,text:caregiverEmail.text,attachments:[attachment]}));
-  if(emailValid(clean(row.employer_email,320)))sends.push(env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:clean(row.employer_email,320),subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
+  if(emailValid(clean(row.email,320)))sends.push(env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:clean(row.email,320),subject:caregiverEmail.subject,html:caregiverEmail.html,text:caregiverEmail.text,attachments:[attachment]}));
+  if(emailValid(clean(row.employer_email,320)))sends.push(env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:clean(row.employer_email,320),subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
   await Promise.allSettled(sends);
   return json({ok:true,startsAt:slot.starts_at,label});
 }
