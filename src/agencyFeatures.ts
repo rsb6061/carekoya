@@ -1,4 +1,5 @@
-import { agencyCandidateTeaserEmail } from './email';
+import { agencyCandidateTeaserEmail, withUnsubscribe } from './email';
+import { unsubscribeLink } from './emailPreferences';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
 import { waitingInterestPreviews } from './agencyInbox';
 
@@ -368,6 +369,7 @@ export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
     JOIN caregivers c ON c.id=m.caregiver_id
     WHERE o.is_active=1 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
+      AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       AND (o.teaser_last_sent_at IS NULL OR datetime(o.teaser_last_sent_at)<datetime('now','-30 days'))
       AND NOT EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND datetime(t.expires_at)>datetime('now'))
     GROUP BY o.id
@@ -382,15 +384,16 @@ export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
     const tokenId=crypto.randomUUID();
     const email=clean(org.primary_email,320).toLowerCase();
     const previews=await candidatePreviews(env,clean(org.id,100),3);
-    const body=agencyCandidateTeaserEmail({
+    const unsubscribe=await unsubscribeLink(env.DB,email,'agency_teaser');
+    const body=withUnsubscribe(agencyCandidateTeaserEmail({
       contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'there',
       agencyName:clean(org.canonical_name,180),
       candidateCount:asNum(org.candidate_count),
       previews,
       claimLink:'https://carejoys.com/agency?token='+encodeURIComponent(token)
-    });
+    }),unsubscribe.link);
     try{
-      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text});
+      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
       await env.DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
         .bind(tokenId,org.id,hash,email,expires).run();
       await env.DB.prepare("UPDATE agency_organizations SET teaser_last_sent_at=CURRENT_TIMESTAMP,teaser_send_count=teaser_send_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(org.id).run();

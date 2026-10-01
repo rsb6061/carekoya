@@ -17,7 +17,7 @@ type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]
 type Candidate={
   id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
   certifications?:string;specialties?:string;yearsExperience?:number;desiredWage?:string;
-  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;
+  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;distanceMiles?:number|null;
 };
 type PipelineRow={
   id:string;opening_id:string;title:string;opening_role:string;caregiver_id:string;
@@ -78,7 +78,8 @@ export function EmployerWorkspace(){
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
-  const [filters,setFilters]=useState({role:'',zip:'',state:'',freshness:'all'});
+  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
+  const [filters,setFilters]=useState({role:'',zip:'',radius:'25',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
   const [slotInputs,setSlotInputs]=useState([{startsAt:'',durationMinutes:30}]);
@@ -107,6 +108,7 @@ export function EmployerWorkspace(){
       setPipeline(p.pipeline||[]);
       const network=await api<AgencyNetwork>('/api/agency/network');
       setAgencyNetwork(network);
+      setBilling(await api<any>('/api/billing').catch(()=>null));
     }catch(e){
       if(e instanceof Error&&e.message==='Sign in required')setSession(null);
       else setMessage(e instanceof Error?e.message:'Could not load workspace');
@@ -180,6 +182,13 @@ export function EmployerWorkspace(){
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not contact matches');
     }
+  }
+
+  async function openBilling(kind:'checkout'|'portal'){
+    try{
+      const result=await api<{url:string}>('/api/billing/'+kind,{method:'POST'});
+      window.location.href=result.url;
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing')}
   }
 
   async function moveStage(id:string,stage:string){
@@ -279,6 +288,11 @@ export function EmployerWorkspace(){
         <span>{counts.interview} interviews</span><span>{counts.hired} hired</span>
       </div>
       <div className="pipeline-legend"><span>Matched</span><b>→</b><span>Interview times</span><b>→</b><span>Contacted</span><b>→</b><span>Interested</span><b>→</b><span>Interview booked</span><b>→</b><span>Hired</span></div>
+      {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+        {billing.subscribed
+          ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
+          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free candidate contacts left. Matching and browsing are always free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
+      </div>}
       {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
 
       {agencyNetwork.agency&&<div hidden={tab!=='inbox'}><AgencyInbox onCount={setInboxWaiting}/></div>}
@@ -340,14 +354,15 @@ export function EmployerWorkspace(){
         <div className="section-heading"><h2>Talent network</h2><p>Confirmed availability ranks above older, unconfirmed profiles.</p></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role: CNA, HHA, caregiver" />
-          <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" />
+          <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" />
+          <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
           <input value={filters.state} onChange={e=>setFilters({...filters,state:e.target.value})} placeholder="State" />
           <select value={filters.freshness} onChange={e=>setFilters({...filters,freshness:e.target.value})}><option value="all">Any availability</option><option value="confirmed">Confirmed in last 30 days</option></select>
           <button className="button">Search</button>
         </form>
         {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Confirmed candidates rank higher in matching.</div></div>:
         <div className="job-list">{candidates.map((candidate,i)=><article className={'job-card '+cardTone(i)} key={candidate.id}>
-          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state].filter(Boolean).join(' · ')}</div>
+          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state,candidate.distanceMiles!=null?candidate.distanceMiles+' mi away':''].filter(Boolean).join(' · ')}</div>
           <div className="job-badges"><span className={candidate.workStatus==='actively_looking'?'status applied':'status'}>{candidate.freshness}</span>{candidate.shifts&&<span className="badge">{candidate.shifts}</span>}{candidate.desiredWage&&<span className="badge">{candidate.desiredWage}</span>}</div>
           {candidate.certifications&&<div className="job-card-cue">{candidate.certifications}</div>}</div>
         </article>)}</div>}

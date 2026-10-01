@@ -1,4 +1,5 @@
 import { type FeatureEnv } from './serverFeatures';
+import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -1225,23 +1226,35 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   const role=clean(url.searchParams.get('role'),80);
   const city=clean(url.searchParams.get('city'),120);
   const limit=Math.max(1,Math.min(100,asNum(url.searchParams.get('limit'))||50));
-  let sql='SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,source_url,date_posted,first_seen_at,last_seen_at FROM caregiver_jobs WHERE is_published=1 AND status="current" AND state="MD"';
+  // State defaults to MD so existing Maryland pages keep working; any state (or `all`) can be requested.
+  const stateParam=clean(url.searchParams.get('state'),20).toUpperCase()||'MD';
+  const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,asNum(url.searchParams.get('radius'))||25));
+  const center=await lookupZip(env.DB,url.searchParams.get('zip'));
+  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status="current"`;
   const args:unknown[]=[];
+  if(center){
+    const box=boundingBox(center,radius);
+    sql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }else if(stateParam!=='ALL'){sql+=' AND j.state=?';args.push(stateParam)}
   if(role){
-    sql+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,"")) LIKE lower(?))';
+    sql+=' AND (lower(j.role)=lower(?) OR lower(COALESCE(j.roles_json,"")) LIKE lower(?))';
     args.push(role,'%"'+role+'"%');
   }
-  if(city){sql+=' AND lower(city)=lower(?)';args.push(city)}
-  sql+=' ORDER BY CASE WHEN date_posted IS NULL OR date_posted="" THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ?';
-  args.push(limit);
+  if(city){sql+=' AND lower(j.city)=lower(?)';args.push(city)}
+  sql+=' ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted="" THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT ?';
+  args.push(center?Math.min(500,limit*5):limit);
   const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
-  return json({ok:true,jobs:(rows.results||[]).map(r=>{
+  let results=(rows.results||[]).map(r=>{const geo=rowGeo(r);return {r,distanceMiles:center&&geo?haversineMiles(center,geo):null}});
+  if(center)results=results.filter(x=>x.distanceMiles!==null&&x.distanceMiles<=radius).slice(0,limit);
+  return json({ok:true,jobs:results.map(({r,distanceMiles})=>{
     let roles:string[]=[];
     try{roles=JSON.parse(clean(r.roles_json,1000)||'[]')}catch{roles=[clean(r.role,80)].filter(Boolean)}
     return {
       id:r.id,title:normalizeTitle(r.title),role:r.role,roles,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
       employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
-      datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at
+      datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at,
+      distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
     };
   })});
 }

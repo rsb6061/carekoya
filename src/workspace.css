@@ -47,7 +47,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .empty strong{color:var(--ink)}
 .empty-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
 .settings-card{color:var(--ink);padding:20px}
-.talent-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1.3fr auto;gap:8px;margin-bottom:22px}
+.talent-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1.3fr auto;gap:8px;margin-bottom:22px}
 .talent-filters input,.talent-filters select,.pipeline-select{height:44px;border:1px solid var(--lavender);border-radius:16px;padding:0 12px;background:rgba(255,255,255,.85);font:inherit;color:var(--ink)}
 .pipeline-select{min-width:150px}
 .app-footer{border-top:0;background:var(--ink);color:#eae7f4;padding:28px 0;font-size:14px}

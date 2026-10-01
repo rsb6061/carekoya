@@ -16,6 +16,8 @@ import { CaregiverResumePage } from './CaregiverResumePage';
 import { CaregiverJobPage } from './CaregiverJobPage';
 import { ConfirmInterest } from './ConfirmInterest';
 import { AgentSetupPage } from './AgentSetupPage';
+import { CaregiverDashboard } from './CaregiverDashboard';
+import { AdminConsole } from './AdminConsole';
 
 type FormKind = 'employer' | 'caregiver' | 'school' | null;
 
@@ -154,6 +156,8 @@ export function App() {
   if (window.location.pathname.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
   if (window.location.pathname.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
   if (window.location.pathname.startsWith('/app')) return <EmployerWorkspace />;
+  if (window.location.pathname === '/me' || window.location.pathname.startsWith('/me/')) return <CaregiverDashboard />;
+  if (window.location.pathname.startsWith('/admin')) return <AdminConsole />;
 
   const [form, setForm] = useState<FormKind>(() => new URLSearchParams(window.location.search).get('hire') === '1' ? 'employer' : null);
   const [employerPreset, setEmployerPreset] = useState<EmployerPreset>({});
@@ -176,6 +180,7 @@ export function App() {
           <a className="hide-sm" href="/about">How it works</a>
           <a className="hide-sm" href="/caregiver-jobs/maryland">Caregiver jobs</a>
           <a className="hide-sm" href="/training-programs/maryland">Training programs</a>
+          <a className="hide-sm" href="/me">Caregiver sign in</a>
           <a href="/hire-caregivers/maryland">For employers</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>

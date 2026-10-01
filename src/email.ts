@@ -238,3 +238,11 @@ export function caregiverInterestConfirmEmail(input:{firstName:string;targets:In
     text:`Hi ${input.firstName||'there'},\n\n${input.viaAssistant?'Your AI assistant asked CareJoys':'You asked CareJoys'} to send your caregiver profile to:\n\n${input.targets.map(p=>p.label+' · '+p.detail).join('\n')}\n\nNothing has been sent yet. Review and send (works for 48 hours):\n${input.link}\n\nIf this wasn't you, ignore this email and nothing will be sent.\n\nCareJoys · carejoys.com`
   };
 }
+
+/** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
+export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
+  const url=esc(unsubscribeLink);
+  const footer=`<p style="font-size:12px;line-height:1.6;color:#8a849b;text-align:center;margin:14px 0 0">Don't want these emails? <a href="${url}" style="color:#8a849b">Unsubscribe</a>.</p>`;
+  const html=message.html.replace(/<\/div>\s*<\/div>\s*$/,`</div>${footer}</div>`);
+  return {...message,html:html===message.html?message.html+footer:html,text:`${message.text}\n\nUnsubscribe: ${unsubscribeLink}`};
+}
