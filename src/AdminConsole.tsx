@@ -19,7 +19,7 @@ type Overview={
     today:Array<{kind:'reactivation'|'agency_teasers';cap:number;sentToday:number}>;
     recentRuns:Array<{kind:string;trigger:string;attempted:number;sent:number;failed:number;created_at:string}>;
   };
-  employers:Array<{id:string;company_name:string;contact_name?:string;email:string;zip?:string;created_at:string;last_login_at?:string;openings:number;contacted:number;interviews:number;claimed_agency?:string}>;
+  employers:Array<{id:string;company_name:string;contact_name?:string;email:string;zip?:string;created_at:string;last_login_at?:string;openings:number;contacted:number;interviews:number;claimed_agency?:string;approval:string}>;
 };
 
 const STEP_LABELS:Record<string,string>={employers:'Employer signups',openings:'Openings',matched:'Matches',contacted:'Contacted',interested:'Interested',interviews:'Interviews booked',hired:'Hired'};
@@ -82,6 +82,14 @@ export function AdminConsole(){
       setNotice(body.result.skipped?`Nothing sent: ${body.result.skipped.replace(/_/g,' ')}.`:`Sent ${body.result.sent}${body.result.failed?`, ${body.result.failed} failed`:''}.`);
       await load();
     }catch(err){setNotice(err instanceof Error?err.message:'Send failed')}
+    finally{setBusy(false)}
+  }
+
+  async function approve(id:string,name:string){
+    if(!window.confirm(`Approve ${name}? They'll be able to see caregiver profiles and get an email saying so.`))return;
+    setBusy(true);setNotice('');
+    try{await api('/api/admin/employers/'+encodeURIComponent(id)+'/approve',{method:'POST',body:'{}'});setNotice(name+' approved.');await load()}
+    catch(err){setNotice(err instanceof Error?err.message:'Approve failed')}
     finally{setBusy(false)}
   }
 
@@ -155,10 +163,10 @@ export function AdminConsole(){
       </section>
 
       <section className="section-block">
-        <div className="section-heading"><h2>Recent employers</h2></div>
+        <div className="section-heading"><h2>Recent employers{data.employers.filter(e=>e.approval==='pending').length?` · ${data.employers.filter(e=>e.approval==='pending').length} waiting for approval`:''}</h2><p>Employers on personal email addresses (Gmail, Yahoo…) can't see caregiver profiles until you approve them. Company emails and claimed agencies get in automatically.</p></div>
         <div className="settings-card" style={{overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:14}}>
-            <thead><tr style={{textAlign:'left'}}>{['Company','Contact','Signed up','Last login','Openings','Contacted','Interviews','Agency'].map(h=><th key={h} style={{padding:'6px 8px'}}>{h}</th>)}</tr></thead>
+            <thead><tr style={{textAlign:'left'}}>{['Company','Contact','Signed up','Last login','Openings','Contacted','Interviews','Agency','Access'].map(h=><th key={h} style={{padding:'6px 8px'}}>{h}</th>)}</tr></thead>
             <tbody>{data.employers.map(e=><tr key={e.id} style={{borderTop:'1px solid var(--line)'}}>
               <td style={{padding:'6px 8px'}}>{e.company_name}</td>
               <td style={{padding:'6px 8px'}}>{[e.contact_name,e.email].filter(Boolean).join(' · ')}</td>
@@ -168,6 +176,9 @@ export function AdminConsole(){
               <td style={{padding:'6px 8px'}}>{e.contacted}</td>
               <td style={{padding:'6px 8px'}}>{e.interviews}</td>
               <td style={{padding:'6px 8px'}}>{e.claimed_agency||''}</td>
+              <td style={{padding:'6px 8px'}}>{e.approval==='pending'
+                ?<button className="button secondary" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve</button>
+                :({manual:'Approved',agency:'Agency',business_email:'Company email',admin:'Admin'} as Record<string,string>)[e.approval]||e.approval}</td>
             </tr>)}</tbody>
           </table>
         </div>

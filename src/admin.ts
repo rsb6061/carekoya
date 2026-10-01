@@ -1,4 +1,5 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
+import { employerApproval } from './employerApproval';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
@@ -98,13 +99,15 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
 }
 
 export async function adminEmployers(env:AdminEnv){
-  const rows=await env.DB!.prepare(`SELECT e.id,e.company_name,e.contact_name,e.email,e.zip,e.status,e.created_at,e.last_login_at,
+  const rows=await env.DB!.prepare(`SELECT e.id,e.company_name,e.contact_name,e.email,e.zip,e.status,e.created_at,e.last_login_at,e.approved_at,e.approval_requested_at,
       (SELECT COUNT(*) FROM openings o WHERE o.employer_id=e.id) AS openings,
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.contacted_at IS NOT NULL) AS contacted,
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.interview_booked_at IS NOT NULL) AS interviews,
       (SELECT canonical_name FROM agency_organizations ao WHERE ao.claimed_employer_id=e.id LIMIT 1) AS claimed_agency
     FROM employer_leads e WHERE COALESCE(e.hiring_notes,'')!='CareJoys admin account' ORDER BY e.created_at DESC LIMIT 50`).all<Row>();
-  return rows.results||[];
+  const out=[];
+  for(const row of rows.results||[])out.push({...row,approval:(await employerApproval(env,row)).reason});
+  return out;
 }
 
 export async function runAdminOutreach(request:Request,env:AdminEnv){
