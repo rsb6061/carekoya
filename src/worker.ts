@@ -9,6 +9,7 @@ import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getIntere
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
+import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
@@ -567,6 +568,13 @@ function publicName(first: unknown, last: unknown, display: unknown) {
   const parts = d.split(/\s+/).filter(Boolean);
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.` : (d || "Caregiver");
 }
+/** Signed-in employer who may see caregiver profiles, or the 401/403 to return instead. */
+async function approvedEmployer(request:Request,env:Env):Promise<Record<string,unknown>|Response>{
+  const employer=await employerSession(request,env);
+  if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+  if(!(await approvalFor(env,String(employer.id))).approved)return pendingApprovalResponse(env,String(employer.id));
+  return employer;
+}
 async function requireWorkspace(env: Env, id: string) {
   if (!env.DB || !id) return null;
   return env.DB.prepare("SELECT id, company_name, contact_name, email, phone, zip, roles_needed, status, created_at FROM employer_leads WHERE id = ?").bind(id).first();
@@ -786,8 +794,8 @@ function validProfileImage(type:string,bytes:Uint8Array){
 async function handleCaregiverProfilePhoto(request:Request,env:Env,caregiverId:string){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
   if(request.method==="GET"){
-    const employer=await employerSession(request,env);
-    if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+    const employer=await approvedEmployer(request,env);
+    if(employer instanceof Response)return employer;
     const row=await env.DB.prepare("SELECT image_blob,content_type FROM caregiver_profile_photos WHERE caregiver_id=? LIMIT 1")
       .bind(caregiverId).first<{image_blob:ArrayBuffer;content_type:string}>();
     if(!row)return json({ok:false,error:"Profile photo not found"},{status:404});
@@ -1140,7 +1148,7 @@ async function getWorkspace(id:string, env:Env) {
     (SELECT COUNT(*) FROM interview_slots s WHERE s.opening_id=o.id AND s.status='available' AND datetime(s.starts_at)>datetime('now')) AS available_interview_slots
     FROM openings o WHERE o.employer_id=? ORDER BY o.created_at DESC`).bind(id).all();
   const pipelineCount=await env.DB!.prepare("SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=?").bind(id).first<{count:number}>();
-  return json({ok:true,workspace,openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
+  return json({ok:true,workspace,approval:await approvalFor(env,id),openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
 }
 async function createOpening(id:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,id);
@@ -1322,6 +1330,8 @@ export default {
         const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
         return json({ok:true,admin,funnel,outreach,employers});
       }
+      const approve=url.pathname.match(/^\/api\/admin\/employers\/([^/]+)\/approve$/);
+      if(request.method==="POST"&&approve) return approveEmployer(env,decodeURIComponent(approve[1]),admin.email||"admin_token");
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/run") return runAdminOutreach(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/test") return sendAdminOutreachTest(request,env,admin);
       return json({ok:false,error:"Not found"},{status:404});
@@ -1369,7 +1379,8 @@ export default {
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
-      if(!(await employerSession(request,env))) return json({ok:false,error:"Sign in required"},{status:401});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
       return searchCandidates(url,env);
     }
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
@@ -1406,15 +1417,15 @@ export default {
     let m=url.pathname.match(/^\/api\/openings\/([^/]+)\/match$/);
     if(request.method==="POST"&&m){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
-      const employer=await employerSession(request,env);
-      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
       return matchOpening(String(employer.id),m[1],env);
     }
     m=url.pathname.match(/^\/api\/openings\/([^/]+)\/contact$/);
     if(request.method==="POST"&&m){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
-      const employer=await employerSession(request,env);
-      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
       return contactMatches(request,env,String(employer.id),m[1]);
     }
     m=url.pathname.match(/^\/api\/openings\/([^/]+)\/interview-slots$/);
@@ -1425,15 +1436,15 @@ export default {
       return interviewSlots(request,env,String(employer.id),m[1]);
     }
     if(request.method==="GET"&&url.pathname==="/api/pipeline"){
-      const employer=await employerSession(request,env);
-      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
       return getPipeline(String(employer.id),url,env);
     }
     m=url.pathname.match(/^\/api\/pipeline\/([^/]+)$/);
     if(request.method==="PATCH"&&m){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
-      const employer=await employerSession(request,env);
-      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
       return updatePipeline(String(employer.id),m[1],request,env);
     }
 

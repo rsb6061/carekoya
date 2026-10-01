@@ -70,6 +70,27 @@ describe('auth boundaries', ()=>{
   });
 });
 
+describe('employer approval', ()=>{
+  it('free-mail employers wait for an admin before seeing caregivers; company emails do not', async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('empfree','Solo Care','Sam','sam@gmail.com','21201','CNA','active')").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s2','empfree',?,?)").bind(await sha256Hex('free-session'),new Date(Date.now()+86400000).toISOString()).run();
+    sent.length=0;
+    const asFree=(extra:Record<string,unknown>={})=>call('/api/candidates?zip=21201',{headers:{cookie:'cj_session=free-session'}},{ADMIN_EMAILS:'boss@carejoys.com',...extra});
+    const blocked=await asFree();
+    expect(blocked.status).toBe(403);
+    expect(((await blocked.json()) as any).pendingApproval).toBe(true);
+    expect(sent.map(m=>m.to)).toEqual([['boss@carejoys.com']]);
+    await asFree();
+    expect(sent).toHaveLength(1);
+    expect((await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).status).toBe(200);
+    const ws=await (await call('/api/workspace',{headers:{cookie:'cj_session=free-session'}})).json() as any;
+    expect(ws.approval).toEqual({approved:false,reason:'pending'});
+    const approved=await call('/api/admin/employers/empfree/approve',{method:'POST',headers:{authorization:'Bearer t0ken','content-type':'application/json'},body:'{}'},{ADMIN_TOKEN:'t0ken'});
+    expect(approved.status).toBe(200);
+    expect((await asFree()).status).toBe(200);
+  });
+});
+
 describe('distance matching', ()=>{
   it('talent search returns caregivers within the radius, nearest-first among equally fresh', async()=>{
     const res=await call('/api/candidates?zip=21201&radius=25',{headers:{cookie:'cj_session='+SESSION}});

@@ -79,6 +79,7 @@ export function EmployerWorkspace(){
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
+  const [pendingApproval,setPendingApproval]=useState(false);
   const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
   const [filters,setFilters]=useState({role:'',zip:'',radius:'25',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
@@ -105,7 +106,8 @@ export function EmployerWorkspace(){
       const data=await api<any>('/api/workspace');
       setWorkspace(data.workspace);
       setOpenings(data.openings||[]);
-      const p=await api<any>('/api/pipeline');
+      setPendingApproval(data.approval?.approved===false);
+      const p=data.approval?.approved===false?{pipeline:[]}:await api<any>('/api/pipeline');
       setPipeline(p.pipeline||[]);
       const network=await api<AgencyNetwork>('/api/agency/network');
       setAgencyNetwork(network);
@@ -293,6 +295,7 @@ export function EmployerWorkspace(){
         <span>{counts.interview} interviews</span><span>{counts.hired} hired</span>
       </div>
       <div className="pipeline-legend"><span>Matched</span><b>→</b><span>Interview times</span><b>→</b><span>Contacted</span><b>→</b><span>Interested</span><b>→</b><span>Interview booked</span><b>→</b><span>Hired</span></div>
+      {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Your account is waiting for approval.</strong> Because you signed up with a personal email address, CareJoys reviews new accounts before showing caregiver profiles. You can add openings now, and we’ll email you as soon as you’re approved. Signing up with your agency email skips this step.</div>}
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
           ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>

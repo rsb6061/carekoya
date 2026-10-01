@@ -1,3 +1,4 @@
+import { FREE_MAIL } from './employerApproval';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
 
 // Self-serve agency claiming: find your agency, prove you work there, and link it to a CareJoys workspace.
@@ -10,10 +11,6 @@ const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body
   ...init,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...(init.headers||{})}
 });
 const emailValid=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-
-// A Gmail address proves nothing about who runs an agency, so these never count as a domain match.
-const FREE_MAIL=new Set(['gmail.com','googlemail.com','yahoo.com','ymail.com','hotmail.com','outlook.com','live.com','msn.com','aol.com',
-  'icloud.com','me.com','mac.com','comcast.net','verizon.net','att.net','sbcglobal.net','protonmail.com','proton.me','gmx.com','mail.com','zoho.com']);
 
 export function normalizeDomain(value:unknown){
   let v=clean(value,300).toLowerCase();
