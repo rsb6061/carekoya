@@ -49,6 +49,11 @@ jobs:
 
       - name: Smoke test production domain and database
         run: |
+          echo "Waiting for the new Worker version to serve carejoys.com:"
+          for i in $(seq 1 24); do
+            if curl --connect-timeout 3 --max-time 15 -s https://carejoys.com/api/health | jq -e 'has("tables") | not' >/dev/null; then echo "live"; break; fi
+            sleep 5
+          done
           echo "Production health:"
           HEALTH=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 2 https://carejoys.com/api/health)
           echo "$HEALTH"
