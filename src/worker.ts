@@ -4,7 +4,7 @@ import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, g
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
-import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach } from './admin';
+import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
 import { billingStatus, createCheckout, createPortal, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
@@ -1123,6 +1123,7 @@ export default {
         return json({ok:true,admin,funnel,outreach,employers});
       }
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/run") return runAdminOutreach(request,env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/outreach/test") return sendAdminOutreachTest(request,env,admin);
       return json({ok:false,error:"Not found"},{status:404});
     }
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);

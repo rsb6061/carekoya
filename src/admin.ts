@@ -1,5 +1,5 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
-import { outreachStatus, runOutreach, type OutreachEnv, type OutreachKind } from './outreach';
+import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
 export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string};
@@ -112,6 +112,17 @@ export async function runAdminOutreach(request:Request,env:AdminEnv){
   const kind=clean(data?.kind,40) as OutreachKind;
   if(kind!=='reactivation'&&kind!=='agency_teasers')return json({ok:false,error:'Unknown outreach kind'},{status:400});
   return json({ok:true,result:await runOutreach(env,kind,'admin'),outreach:await outreachStatus(env)});
+}
+
+/** Emails the signed-in admin a sample of one outreach email. Token callers pass `to`. */
+export async function sendAdminOutreachTest(request:Request,env:AdminEnv,admin:{email:string}){
+  const data=await request.json().catch(()=>null) as Row|null;
+  const kind=clean(data?.kind,40) as OutreachKind;
+  if(kind!=='reactivation'&&kind!=='agency_teasers')return json({ok:false,error:'Unknown outreach kind'},{status:400});
+  const to=(admin.email||clean(data?.to,320)).toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return json({ok:false,error:'No admin email to send the test to'},{status:400});
+  try{return json({ok:true,result:await sendOutreachTest(env,kind,to)})}
+  catch(error){return json({ok:false,error:error instanceof Error?error.message:'Test send failed'},{status:502})}
 }
 
 export { outreachStatus };

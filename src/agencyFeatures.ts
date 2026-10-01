@@ -348,9 +348,8 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv){
   return json({ok:true,openingId:opening.id});
 }
 
-export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
-  if(!env.DB||!env.EMAIL)return {attempted:0,sent:0,failed:0};
-  const orgs=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,
+/** Agencies due a teaser: unclaimed, emailable, not suppressed, not teased in 30 days, with real matches. */
+const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,
       COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o
     JOIN agency_org_candidate_matches m ON m.organization_id=o.id
@@ -363,7 +362,27 @@ export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
     GROUP BY o.id
     HAVING SUM(CASE WHEN c.work_status='actively_looking' THEN 1 ELSE 0 END)>=1 OR COUNT(m.id)>=2
     ORDER BY MAX(m.fit_score) DESC,COUNT(m.id) DESC
-    LIMIT ?`).bind(limit).all<Row>();
+    LIMIT ?`;
+
+/** The teaser the next eligible agency would get, with an inert claim link, for admin test sends. */
+export async function agencyTeaserTestEmail(env:FeatureEnv){
+  const org=env.DB?await env.DB.prepare(TEASER_ELIGIBLE_SQL).bind(1).first<Row>():null;
+  const previews=org?await candidatePreviews(env,clean(org.id,100),3):[
+    {role:'Certified Nursing Assistant',area:'Baltimore, MD',experience:'4 years experience',freshness:'Confirmed 2d ago'},
+    {role:'Home Health Aide',area:'Towson, MD',experience:'Experience on profile',freshness:'Confirmed 5d ago'}
+  ];
+  return agencyCandidateTeaserEmail({
+    contactName:clean(org?.primary_contact_name,120).split(/\s+/)[0]||'there',
+    agencyName:clean(org?.canonical_name,180)||'Sample Home Care Agency',
+    candidateCount:org?asNum(org.candidate_count):previews.length,
+    previews,
+    claimLink:'https://carejoys.com/agency'
+  });
+}
+
+export async function sendAgencyTeaserBatch(env:FeatureEnv,limit=5){
+  if(!env.DB||!env.EMAIL)return {attempted:0,sent:0,failed:0};
+  const orgs=await env.DB.prepare(TEASER_ELIGIBLE_SQL).bind(limit).all<Row>();
   let sent=0,failed=0;
   for(const org of orgs.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
