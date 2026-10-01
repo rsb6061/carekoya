@@ -1,4 +1,4 @@
-// Pure helpers shared by the national agency importers (NPPES, DataForSEO) and the organization builder.
+// Pure helpers shared by the NPPES importer and the organization builder (Google listings come from src/dataforseo.ts).
 // Kept free of I/O so scripts/test-agency-sources.mjs can exercise them directly.
 import crypto from 'node:crypto';
 
@@ -137,16 +137,7 @@ export function nppesRecord(fields,index,states){
   };
 }
 
-// ---------------------------------------------------------------- Google business listings via DataForSEO
-
-/** Google categories pulled by default; overridable with --categories. */
-export const GOOGLE_CATEGORIES={
-  home_help_service_agency:{label:'Home help service agency',score:85},
-  home_health_care_service:{label:'Home health care service',score:80},
-  nursing_agency:{label:'Nursing agency',score:65},
-  senior_citizens_care_service:{label:'Senior citizens care service',score:75}
-};
-const NOT_AN_EMPLOYER=/\b(hospital|pharmacy|medical supply|medical equipment|dme|oxygen|clinic|urgent care|insurance|staffing software|school|academy|training center|institute)\b/i;
+// ---------------------------------------------------------------- websites (Google rows are written by src/dataforseo.ts)
 
 export function hostOf(url){
   try{return new URL(/^https?:/i.test(clean(url))?clean(url):'https://'+clean(url)).hostname.toLowerCase().replace(/^www\./,'')}catch{return ''}
@@ -158,38 +149,6 @@ export function ownSiteDomain(url){
     const path=u.pathname.replace(/\/+$/,'');
     return path===''||/^\/(index\.html?|home)$/i.test(path)?u.hostname.toLowerCase().replace(/^www\./,''):'';
   }catch{return ''}
-}
-
-/** One DataForSEO business_listings item → an `agencies` record, or null if it is outside the state or closed. */
-export function googleRecord(item,state,categoryId){
-  const addr=item?.address_info||{};
-  const itemState=stateCode(addr.region)||stateCode(clean(item?.address).match(/,\s*([A-Z]{2})\s+\d{5}/)?.[1]);
-  if(itemState!==state)return null;
-  const placeId=clean(item.place_id),cid=clean(item.cid);
-  const key=placeId?'place:'+placeId:cid?'cid:'+cid:'';
-  const name=clean(item.title);
-  if(!key||!name)return null;
-  if(/closed_forever|permanently_closed/i.test(JSON.stringify(item.work_time?.work_hours?.current_status||''))||item.is_permanently_closed===true)return null;
-  const cat=GOOGLE_CATEGORIES[categoryId];
-  const category=clean(item.category)||cat?.label||categoryId;
-  const noise=NOT_AN_EMPLOYER.test(name+' '+category);
-  return {
-    source:'google_business',sourceKey:key,id:idFor('google_business',key),
-    googlePlaceId:placeId,googleCid:cid,googleCategory:category,
-    name,legalName:'',
-    address1:clean(addr.address)||clean(item.address).split(',')[0]||'',
-    city:clean(addr.city),state:itemState,zip:zip5(addr.zip),
-    phone:formatPhone(item.phone),website:clean(item.url),
-    rating:Number.isFinite(Number(item.rating?.value))?Number(item.rating.value):null,
-    reviewCount:Number.isFinite(Number(item.rating?.votes_count))?Number(item.rating.votes_count):null,
-    latitude:Number.isFinite(Number(item.latitude))?Number(item.latitude):null,
-    longitude:Number.isFinite(Number(item.longitude))?Number(item.longitude):null,
-    providerType:'Google listing: '+category,
-    licenseType:null,
-    score:noise?20:(cat?.score??60),eligible:noise?0:1,
-    sourceUrl:clean(item.check_url)||(cid?'https://maps.google.com/?cid='+cid:''),
-    sourceAsOfDate:clean(item.last_updated_time).slice(0,10)||null
-  };
 }
 
 // ---------------------------------------------------------------- shared upsert

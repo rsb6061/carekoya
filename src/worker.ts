@@ -11,6 +11,7 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './m
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
+import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
@@ -44,6 +45,8 @@ interface Env {
   STRIPE_PRICE_ID?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   FREE_CONTACTS?: string;
+  DATAFORSEO_LOGIN?: string;
+  DATAFORSEO_PASSWORD?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -1444,6 +1447,8 @@ export default {
   async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     ctx.waitUntil((async()=>{
       if(event.cron==="*/5 * * * *"){
+        // Its own failures are recorded on the job row, so they never block the job crawler below.
+        await runDataForSeoJobs(env).catch(()=>null);
         await normalizeExistingJobsBatch(env,100);
         await recoverRejectedJobsBatch(env,180);
         await retryFailedAgencyJobSourcesBatch(env,24);

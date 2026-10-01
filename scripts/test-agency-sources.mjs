@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  baseOrganizationKey, googleRecord, groupAgencies, inferredRoles, nppesHeader, nppesRecord, organizationFields,
+  baseOrganizationKey, groupAgencies, inferredRoles, nppesHeader, nppesRecord, organizationFields,
   ownSiteDomain, parseCsvLine, parseStates, phone10, stateCode
 } from './lib/agency-sources.mjs';
 
@@ -57,20 +57,6 @@ test('NPPES rows become agencies only for active organizations with a home care 
   assert.equal(both.providerType,'In Home Supportive Care Agency, Home Health Agency');
   assert.throws(()=>nppesHeader(HEADER.filter(h=>h!=='NPI')),/missing column: NPI/);
   assert.equal(parseCsvLine(csv(nppesRow({}))).length,HEADER.length);
-});
-
-test('Google listings map to agencies, filtered to the state and away from non-employers',()=>{
-  const item={title:'Comfort Home Care',category:'Home help service agency',place_id:'ChIJ1',cid:'99',phone:'+18045550100',
-    url:'https://comforthomecare.example/',address:'1 Oak St, Richmond, VA 23220',
-    address_info:{address:'1 Oak St',city:'Richmond',zip:'23220',region:'Virginia'},rating:{value:4.8,votes_count:52},latitude:37.5,longitude:-77.4};
-  const r=googleRecord(item,'VA','home_help_service_agency');
-  assert.equal(r.sourceKey,'place:ChIJ1');
-  assert.equal(r.state,'VA');
-  assert.equal(r.rating,4.8);
-  assert.equal(r.reviewCount,52);
-  assert.equal(r.eligible,1);
-  assert.equal(googleRecord({...item,address_info:{...item.address_info,region:'Maryland'}},'VA','home_help_service_agency'),null);
-  assert.equal(googleRecord({...item,title:'Richmond Medical Supply'},'VA','home_help_service_agency').eligible,0);
 });
 
 test('only a site of its own counts as an agency domain',()=>{
