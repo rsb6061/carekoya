@@ -816,7 +816,9 @@ async function handleCaregiver(request: Request, env: Env) {
   const smsConsent=data!.smsConsent===true?1:0;
   const smsAt=smsConsent?new Date().toISOString():null;
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
-  const proposedId=initiallyExisting?.id||crypto.randomUUID();
+  // This form has no sign-in, so it may create a profile but never change one that already exists.
+  if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/me to update it."},{status:409});
+  const proposedId=crypto.randomUUID();
 
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers

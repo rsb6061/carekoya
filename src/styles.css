@@ -244,3 +244,10 @@ a{color:inherit;text-decoration:none}
 .hub-cities{margin-top:34px}
 .hub-cities h3{margin:0 0 12px}
 .hub-cities .pill{text-decoration:none;color:var(--ink)}
+.onboarding-top-jobs{list-style:none;padding:0;margin:14px 0;display:grid;gap:8px;text-align:left}
+.onboarding-top-jobs li{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--lavender);border-radius:14px;background:rgba(255,255,255,.8)}
+.onboarding-top-jobs a{color:var(--ink)}
+.onboarding-top-jobs span{font-size:13px;color:var(--muted)}
+.onboarding-save-login{display:grid;gap:6px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line);text-align:left}
+.onboarding-save-login span{font-size:14px;color:var(--muted)}
+.page-loading{min-height:60vh}
