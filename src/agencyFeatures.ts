@@ -67,6 +67,14 @@ function findCareerUrl(base:string,html:string){
   }
   return '';
 }
+/** A contact address on the agency's own domain; third-party addresses (widgets, builders) are ignored. */
+export function siteEmail(html:string,domain:string){
+  for(const m of html.matchAll(/(?:mailto:)?([a-z0-9._%+-]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+))/gi)){
+    const email=m[1].toLowerCase(),host=m[2].toLowerCase();
+    if(host===domain||host.endsWith('.'+domain))return email;
+  }
+  return '';
+}
 function hiringSignal(text:string,roles:string[]){
   const t=text.toLowerCase();
   if(roles.length&&/(apply now|view jobs|open positions|join our team|we are hiring|careers|employment opportunities|current openings)/i.test(t))return 'hiring_detected';
@@ -76,7 +84,7 @@ function hiringSignal(text:string,roles:string[]){
 
 export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
   if(!env.DB)return {processed:0,enriched:0};
-  const rows=await env.DB.prepare(`SELECT id,canonical_name,primary_domain,primary_website,primary_careers_url
+  const rows=await env.DB.prepare(`SELECT id,canonical_name,primary_domain,primary_website,primary_careers_url,primary_email
     FROM agency_organizations
     WHERE is_active=1 AND primary_domain IS NOT NULL AND primary_domain!=''
       AND (last_enriched_at IS NULL OR datetime(last_enriched_at)<datetime('now','-30 days'))
@@ -107,12 +115,15 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
     const roles=inferRoles(body);
     const signal=hiringSignal(body,roles);
     const finalCareer=career?.url||careerUrl||'';
+    // Agencies found through NPI or Google listings have no email yet; take one from their own site.
+    const email=clean(row.primary_email,320)?'':siteEmail(home.text,domain)||(career?siteEmail(career.text,domain):'');
     await env.DB.prepare(`UPDATE agency_organizations SET
-      primary_website=?,primary_careers_url=?,website_source='email_domain',
+      primary_email=CASE WHEN coalesce(primary_email,'')='' AND ?!='' THEN ? ELSE primary_email END,
+      primary_website=?,primary_careers_url=?,website_source=CASE WHEN website_source='google_business' THEN website_source ELSE 'email_domain' END,
       careers_source=?,inferred_roles=?,current_hiring_signal=?,hiring_signal_source=?,
       hiring_signal_checked_at=CURRENT_TIMESTAMP,last_enriched_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
       WHERE id=?`)
-      .bind(home.url,finalCareer,finalCareer?'site_careers_page':'site_homepage',roles.join(', '),signal,finalCareer?'careers_page':'website',row.id).run();
+      .bind(email,email,home.url,finalCareer,finalCareer?'site_careers_page':'site_homepage',roles.join(', '),signal,finalCareer?'careers_page':'website',row.id).run();
     const hp=await env.DB.prepare("SELECT employer_confirmed_at FROM agency_org_hiring_profiles WHERE organization_id=?").bind(row.id).first<Row>();
     if(!hp?.employer_confirmed_at){
       await env.DB.prepare(`INSERT INTO agency_org_hiring_profiles
@@ -132,15 +143,14 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
 export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:string){
   if(!env.DB)return {scored:0};
   const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 LIMIT 1").bind(caregiverId).first<Row>();
-  if(!caregiver||clean(caregiver.state,20).toUpperCase()!=='MD')return {scored:0};
+  if(!caregiver||!/^[A-Z]{2}$/.test(clean(caregiver.state,20).toUpperCase()))return {scored:0};
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=? AND status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").bind(caregiverId).run();
   const result=await env.DB.prepare(`WITH scored AS (
       SELECT ao.id AS organization_id,c.id AS caregiver_id,
         CASE
           WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
           WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
-          WHEN lower(coalesce(ao.state,''))=lower(coalesce(c.state,'')) AND ao.state!='' THEN 15
-          ELSE 10 END AS geography_score,
+          ELSE 15 END AS geography_score,
         CASE
           WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
           WHEN lower(coalesce(hp.roles,'')) LIKE '%caregiver%' THEN 12
@@ -153,7 +163,7 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
       FROM caregivers c
       CROSS JOIN agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
-      WHERE c.id=? AND c.is_active=1 AND (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)) AND ao.is_active=1
+      WHERE c.id=? AND c.is_active=1 AND ao.is_active=1 AND upper(coalesce(ao.state,''))=upper(c.state)
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
@@ -182,9 +192,8 @@ export async function scoreAgencyMatches(env:FeatureEnv){
         CASE
           WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
           WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
-          WHEN lower(coalesce(ao.state,''))=lower(coalesce(c.state,'')) AND ao.state!='' THEN 15
-          WHEN (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)) THEN 10
-          ELSE 0 END AS geography_score,
+          WHEN coalesce(c.state,'')!='' THEN 15
+          ELSE 10 END AS geography_score,
         CASE
           WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
           WHEN lower(coalesce(hp.roles,'')) LIKE '%caregiver%' THEN 12
@@ -199,7 +208,10 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       CROSS JOIN caregivers c
       WHERE ao.is_active=1 AND c.is_active=1
         AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
-        AND (upper(coalesce(c.state,''))='MD' OR (coalesce(c.state,'')='' AND CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219))
+        -- Agencies only match caregivers in their own state; a caregiver with no state but a Maryland ZIP counts as Maryland.
+        AND upper(coalesce(ao.state,''))=upper(CASE WHEN coalesce(c.state,'')!='' THEN c.state
+          WHEN CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219 THEN 'MD' ELSE '' END)
+        AND coalesce(ao.state,'')!=''
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(PARTITION BY caregiver_id ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
@@ -268,7 +280,7 @@ export async function requestAgencyClaim(request:Request,env:FeatureEnv){
   if(!employerId){
     employerId=crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status)
-      VALUES (?,?,?,?,?,'Caregiver, CNA, HHA, PCA','Imported from Maryland licensed provider directory','active')`)
+      VALUES (?,?,?,?,?,'Caregiver, CNA, HHA, PCA','Imported from licensed provider directory','active')`)
       .bind(employerId,row.canonical_name,'',email,'').run();
   }
   await env.DB.prepare("UPDATE agency_teaser_tokens SET claim_requested_at=CURRENT_TIMESTAMP,employer_id=? WHERE id=?").bind(employerId,row.token_id).run();

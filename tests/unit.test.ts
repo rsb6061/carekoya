@@ -4,6 +4,9 @@ import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/match
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
+import { stateForZipPrefix } from '../src/usStates';
+import { siteEmail } from '../src/agencyFeatures';
+import { locationStringParts, mentionsOtherStates, mentionsState, normalizeCity, publicationDecision } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -202,5 +205,57 @@ describe('agency self-serve claim helpers', ()=>{
   });
   it('masks emails', ()=>{
     expect(maskEmail('jane@agency.com')).toBe('j***@agency.com');
+  });
+});
+
+describe('national agency helpers', ()=>{
+  it('maps ZIP prefixes to states', ()=>{
+    expect(stateForZipPrefix('21201')).toBe('MD');
+    expect(stateForZipPrefix('23219-1234')).toBe('VA');
+    expect(stateForZipPrefix('20001')).toBe('DC');
+    expect(stateForZipPrefix('22030')).toBe('VA');
+    expect(stateForZipPrefix('25301')).toBe('WV');
+    expect(stateForZipPrefix('90210')).toBe('CA');
+    expect(stateForZipPrefix('00901')).toBe('');
+    expect(stateForZipPrefix('abc')).toBe('');
+  });
+  it('takes an email only from the agency\'s own domain', ()=>{
+    expect(siteEmail('<a href="mailto:Jobs@SunriseCare.com">x</a> sentry@wixpress.com','sunrisecare.com')).toBe('jobs@sunrisecare.com');
+    expect(siteEmail('logo@2x.png support@wix.com','sunrisecare.com')).toBe('');
+    expect(siteEmail('hr@mail.sunrisecare.com','sunrisecare.com')).toBe('hr@mail.sunrisecare.com');
+  });
+});
+
+describe('job location by agency state', ()=>{
+  const VA={code:'VA',name:'Virginia'},MD={code:'MD',name:'Maryland'},IN={code:'IN',name:'Indiana'};
+  it('strips state suffixes from cities without eating real words', ()=>{
+    expect(normalizeCity('Richmond, VA')).toBe('Richmond');
+    expect(normalizeCity('Richmond, Virginia')).toBe('Richmond');
+    expect(normalizeCity('Baltimore Maryland')).toBe('Baltimore');
+    expect(normalizeCity('BALTIMORE MD')).toBe('Baltimore');
+    expect(normalizeCity('Bel Air')).toBe('Bel Air');
+    expect(normalizeCity('Ellicott City')).toBe('Ellicott City');
+  });
+  it('reads any state from ATS location strings', ()=>{
+    expect(locationStringParts('Richmond, VA 23219')).toEqual({city:'Richmond',state:'VA',zip:'23219'});
+    expect(locationStringParts('Towson, Maryland')).toEqual({city:'Towson',state:'MD',zip:''});
+    expect(locationStringParts('Remote')).toEqual({city:'',state:'',zip:''});
+  });
+  it('recognizes state mentions safely', ()=>{
+    expect(mentionsState('Now hiring in Norfolk, VA',VA)).toBe(true);
+    expect(mentionsState('Serving Virginia families',VA)).toBe(true);
+    expect(mentionsState('Charleston, West Virginia',VA)).toBe(false);
+    expect(mentionsState('Sign IN to apply',IN)).toBe(false);
+    expect(mentionsState('Carmel, IN 46032',IN)).toBe(true);
+    expect(mentionsState('Baltimore MD',MD)).toBe(true);
+    expect(mentionsOtherStates('Offices in Richmond, VA and Raleigh, NC',VA)).toBe(true);
+    expect(mentionsOtherStates('Offices in Richmond, VA',VA)).toBe(false);
+  });
+  it('publishes jobs with an explicit location in any state', ()=>{
+    const job={sourceProvider:'x',sourceJobId:'',sourceUrl:'https://a.test/j',sourceListingUrl:'',title:'Home Health Aide',role:'HHA',city:'Richmond',state:'VA',zip:'',
+      employmentType:'',payMin:null,payMax:null,descriptionText:'',classifierReason:'',confidence:95,datePosted:'',validThrough:''};
+    expect(publicationDecision(job)).toEqual({publish:true,reason:'explicit_state_location'});
+    expect(publicationDecision({...job,state:'',zip:'23219'}).publish).toBe(true);
+    expect(publicationDecision({...job,state:'',zip:''})).toEqual({publish:false,reason:'missing_state_evidence'});
   });
 });
