@@ -62,7 +62,7 @@ export async function sendReactivationBatch(env:OutreachEnv,limit:number){
       await env.DB.prepare("UPDATE caregivers SET activation_token_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(await sha256Hex(token),row.id).run();
       const unsubscribe=await unsubscribeLink(env.DB,email,'caregiver_reactivation');
       const body=withUnsubscribe(caregiverActivationEmail(firstName,'https://carejoys.com/activate?token='+encodeURIComponent(token)),unsubscribe.link);
-      const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
+      const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
       await env.DB.prepare("UPDATE caregivers SET activation_sent_at=CURRENT_TIMESTAMP,activation_message_id=?,activation_delivery_status='sent',activation_delivery_error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?")
         .bind(result.messageId||null,row.id).run();
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,channel,direction,event_type,provider_message_id) VALUES (?,?,'email','outbound','reactivation_request',?)")
@@ -97,7 +97,7 @@ export async function sendOutreachTest(env:OutreachEnv,kind:OutreachKind,to:stri
     ?caregiverActivationEmail('there','https://carejoys.com/activate?token=test-preview')
     :await agencyTeaserTestEmail(env);
   const body=withUnsubscribe(message,'https://carejoys.com/api/unsubscribe?token=test-preview');
-  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to,subject:'[Test] '+body.subject,html:body.html,text:body.text});
+  await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:'[Test] '+body.subject,html:body.html,text:body.text});
   return {sent:true,to,subject:body.subject};
 }
 

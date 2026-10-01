@@ -182,7 +182,7 @@ export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|
   }
   if(!emailLooksValid(to))return 'skipped';
   try{
-    const result=await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to,subject:body.subject,html:body.html,text:body.text,...(headers?{headers}:{})});
+    const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text,...(headers?{headers}:{})});
     await env.DB.prepare("UPDATE agency_interests SET agency_notified_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND agency_notified_at IS NULL").bind(orgId).run();
     await env.DB.prepare('INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)')
       .bind(crypto.randomUUID(),orgId,eventType,to,result.messageId||null,JSON.stringify({count:previews.length})).run();
@@ -271,7 +271,7 @@ async function sendConfirmationEmail(env:FeatureEnv,requestId:string,email:strin
   await env.DB!.prepare("UPDATE interest_requests SET status='awaiting_email',email_token_hash=?,email_expires_at=?,email_sent_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(await sha256Hex(token),expires,requestId).run();
   const body=caregiverInterestConfirmEmail({firstName,targets:payload.targets.map(targetPreview),link:ORIGIN+'/confirm-interest?token='+encodeURIComponent(token),viaAssistant});
-  await env.EMAIL.send({from:'CareJoys <updates@carejoys.com>',replyTo:'hello@carejoys.com',to:email,subject:body.subject,html:body.html,text:body.text});
+  await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text});
 }
 
 // Assistant step 1: check everything and hold it, contacting nobody. The returned token confirms it and then
