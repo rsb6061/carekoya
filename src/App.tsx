@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ComponentType } from 'react';
-import { parseJobsHubPath } from './usStates';
+import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 
 // Each page is its own chunk so a visitor only downloads the page they opened.
@@ -10,7 +10,7 @@ const EmployerAuth=named(()=>import('./EmployerAuth'),'EmployerAuth');
 const CandidateResponse=named(()=>import('./CandidateResponse'),'CandidateResponse');
 const LegalPage=named(()=>import('./LegalPage'),'LegalPage');
 const AgencyClaim=named(()=>import('./AgencyClaim'),'AgencyClaim');
-const MarylandCaregiverPage=named(()=>import('./MarylandCaregiverPage'),'MarylandCaregiverPage');
+const CaregiverJobsHub=named(()=>import('./CaregiverJobsHub'),'CaregiverJobsHub');
 const SchoolProgramPage=named(()=>import('./SchoolPortal'),'SchoolProgramPage');
 const SchoolAuth=named(()=>import('./SchoolPortal'),'SchoolAuth');
 const SchoolDashboard=named(()=>import('./SchoolPortal'),'SchoolDashboard');
@@ -45,7 +45,7 @@ function routePage(path:string){
   if (path.startsWith('/confirm-interest')) return <ConfirmInterest />;
   if (path === '/agent') return <AgentSetupPage />;
   if (path.startsWith('/agency')) return <AgencyClaim />;
-  if (parseJobsHubPath(path) || path.startsWith('/join/')) return <MarylandCaregiverPage />;
+  if (isNationalJobsPath(path) || parseJobsHubPath(path) || path.startsWith('/join/')) return <CaregiverJobsHub />;
   if (path.startsWith('/training-programs/maryland') || path.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
   if (path.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
   if (path.startsWith('/school-auth')) return <SchoolAuth />;
@@ -79,7 +79,7 @@ function NotFound(){
     <main className="section not-found"><div className="wrap">
       <div className="modal-kicker">404</div>
       <h1>Page not found</h1>
-      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs/maryland">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers/maryland">hiring caregivers</a>.</p>
+      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs">caregiver jobs</a>, or <a className="text-link" href="/find-caregivers">hiring caregivers</a>.</p>
     </div></main>
     <SiteFooter/>
   </div>;
@@ -93,10 +93,10 @@ function Home() {
       <section className="hero">
         <div className="wrap">
           <h1>
-            <span className="hero-title-line">Caregiver recruiting in Maryland.</span>{' '}
+            <span className="hero-title-line">Caregiver recruiting near you.</span>{' '}
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
-          <p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p>
+          <p>CareJoys helps home-care agencies and employers match with local caregivers ready to work.</p>
           <form className="search" action="/find-caregivers" method="get">
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
@@ -147,7 +147,7 @@ function Home() {
               <strong>One profile. Better local opportunities.</strong>
               <span>Tell CareJoys where you work, what shifts you want, and when you are looking. Keep your availability current without rebuilding a resume for every employer.</span>
             </div>
-            <a className="btn" href="/caregiver-jobs/maryland">Find jobs</a>
+            <a className="btn" href="/caregiver-jobs">Find jobs</a>
           </div>
         </div>
       </section>

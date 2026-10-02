@@ -63,7 +63,7 @@ export function AgencyClaim(){
         {count>0&&<p className="activation-intro">CareJoys also matched {count} more caregiver profile{count===1?'':'s'} near you.</p>}
       </>:<>
       <h1>{count} caregiver match{count===1?'':'es'} near your agency.</h1>
-      <p className="activation-intro">CareJoys matched these profiles using location, caregiver role, and your Maryland provider record. The previews are intentionally de-identified until your agency is verified.</p>
+      <p className="activation-intro">CareJoys matched these profiles using location, caregiver role, and your state provider record. The previews are intentionally de-identified until your agency is verified.</p>
       </>}
 
       {!interests.length&&<div className="candidate-preview-list">

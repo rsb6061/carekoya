@@ -32,7 +32,7 @@ export function AgentSetupPage(){
       <section className="section"><div className="wrap">
         <h2>What your assistant can and can’t do</h2>
         <div className="jobs">
-          <div className="job"><div><h3>Search jobs and agencies</h3><div className="meta">Jobs come from each agency’s own careers page, with the date CareJoys last checked them. Coverage is Maryland today.</div></div></div>
+          <div className="job"><div><h3>Search jobs and agencies</h3><div className="meta">Jobs come from each agency’s own careers page, with the date CareJoys last checked them. Coverage grows as CareJoys checks agencies in more states; search by city or ZIP.</div></div></div>
           <div className="job"><div><h3>Prepare to send your profile</h3><div className="meta">Your assistant collects your name, email, ZIP and role and shows you a summary first.</div></div></div>
           <div className="job"><div><h3>You press Send</h3><div className="meta">CareJoys emails you a link. No agency sees anything until you open it and press Send. The assistant can then check whether each agency has reached out.</div></div></div>
         </div>

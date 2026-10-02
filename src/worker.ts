@@ -1,6 +1,6 @@
 import { accountSession, accountStatus, finishGoogleSignIn, googleSignInConfigured, logoutEverywhere, requestLogin, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
-import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, payText, trimAtWord } from './seo';
+import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
@@ -143,7 +143,7 @@ const htmlEntityDecode=(value:unknown)=>String(value??"")
 const xmlEscape=(value:unknown)=>htmlEscape(value);
 
 // Bump when the static marketing pages change so crawlers see a fresh lastmod.
-const STATIC_CONTENT_UPDATED="2026-10-01";
+const STATIC_CONTENT_UPDATED="2026-10-02";
 const SITEMAP_JOBS_PER_FILE=5000;
 type SitemapEntry={url:string;lastmod?:string|null};
 
@@ -173,6 +173,7 @@ async function careJoysChildSitemap(env:Env,name:string){
       {url:SEO_ORIGIN+"/"},
       {url:SEO_ORIGIN+"/about"},
       {url:SEO_ORIGIN+"/pricing"},
+      {url:SEO_ORIGIN+"/find-caregivers"},
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
@@ -183,10 +184,11 @@ async function careJoysChildSitemap(env:Env,name:string){
   }
   if(name==="locations"){
     const {states,cities}=await hubLocations(env);
-    const entries:SitemapEntry[]=[{url:SEO_ORIGIN+"/caregiver-jobs/maryland"}];
+    const newest=states.map(s=>s.lastmod).filter(Boolean).sort().pop()||null;
+    const entries:SitemapEntry[]=[{url:SEO_ORIGIN+"/caregiver-jobs",lastmod:newest}];
     for(const s of states){
-      if(s.state.code!=="MD")entries.push({url:SEO_ORIGIN+jobsHubPath(s.state),lastmod:s.lastmod});
-      else entries[0].lastmod=s.lastmod;
+      entries.push({url:SEO_ORIGIN+jobsHubPath(s.state),lastmod:s.lastmod});
+      // /hire-caregivers/maryland is listed with the static pages.
       if(s.state.code!=="MD")entries.push({url:SEO_ORIGIN+"/hire-caregivers/"+s.state.slug,lastmod:STATIC_CONTENT_UPDATED});
     }
     for(const c of cities)entries.push({url:SEO_ORIGIN+jobsHubPath(c.state,c.slug),lastmod:c.lastmod});
@@ -251,10 +253,10 @@ Sitemap: https://carejoys.com/sitemap.xml
 function careJoysLlms(){
   return new Response(`# CareJoys
 
-CareJoys is a Maryland caregiver recruiting and placement network for home-care, senior-care, and direct-care hiring.
+CareJoys is a caregiver recruiting and placement network for home-care, senior-care, and direct-care hiring in the United States. It started in Maryland and now lists caregiver jobs and home-care agencies in more states.
 
 ## What CareJoys does
-- Helps Maryland care employers identify local caregivers by role, geography, shift, pay preference, transportation, credentials, experience, and current availability.
+- Helps care employers identify local caregivers by role, geography, shift, pay preference, transportation, credentials, experience, and current availability.
 - Helps employers confirm caregiver interest and move qualified matches toward interviews and hires.
 - Helps caregivers create one reusable work profile and choose which relevant opportunities they want to pursue.
 - Helps CNA/GNA and other caregiver training programs give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.
@@ -271,7 +273,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Home: https://carejoys.com/
 - About CareJoys: https://carejoys.com/about
 - Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
-- Maryland caregiver jobs: https://carejoys.com/caregiver-jobs/maryland
+- Caregiver jobs (search by city, state or ZIP): https://carejoys.com/caregiver-jobs
 - Caregiver jobs by state and city: https://carejoys.com/caregiver-jobs/{state} and https://carejoys.com/caregiver-jobs/{state}/{city} (for example /caregiver-jobs/virginia)
 - Hire caregivers by state: https://carejoys.com/hire-caregivers/{state}
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
@@ -339,13 +341,13 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/"&&url.searchParams.get("hire")==="1")return Response.redirect(new URL("/find-caregivers",url).toString(),301);
   if(url.pathname==="/"){
     return seoAsset(request,env,{
-      title:"CareJoys | Maryland Caregiver Recruiting & Job Matching",
-      description:"CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.",
+      title:"CareJoys | Caregiver Recruiting & Caregiver Jobs Near You",
+      description:"CareJoys helps home-care agencies and employers match with local caregivers ready to work, and helps caregivers find CNA, HHA and PCA jobs by city and state.",
       canonical:"/",
-      snapshot:'<main><h1>Maryland caregiver recruiting and job matching</h1><p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p><p><a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">For caregivers</a> · <a href="/training-programs/maryland">Caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Caregiver recruiting near you. Interviews ready for you.</h1><p>CareJoys helps home-care agencies and employers match with local caregivers ready to work.</p><p><a href="/find-caregivers">Find caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
-        {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A Maryland caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"State","name":"Maryland"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
+        {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
       ]}
     });
   }
@@ -355,7 +357,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Hire Caregivers in Maryland | CareJoys",
       description:"Find CNAs, GNAs, HHAs, PCAs and caregivers in Maryland. CareJoys matches local candidates, confirms interest and helps move qualified caregivers to interview.",
       canonical:"/hire-caregivers/maryland",
-      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/find-caregivers">Find caregivers</a> · <a href="/pricing">Pricing</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys helps Maryland home-care, senior-care and direct-care employers match local candidates by role, geography, shifts, pay preferences, transportation, experience and current availability, then confirm interest before interview.</p>'+pricingHtml(env)+'<p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
+      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/find-caregivers">Find caregivers</a> · <a href="/pricing">Pricing</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys helps Maryland home-care, senior-care and direct-care employers match local candidates by role, geography, shifts, pay preferences, transportation, experience and current availability, then confirm interest before interview.</p>'+pricingHtml(env)+'<p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/caregiver-jobs">Caregiver jobs in other states</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebPage","@id":SEO_ORIGIN+"/hire-caregivers/maryland#webpage","url":SEO_ORIGIN+"/hire-caregivers/maryland","name":"Hire caregivers in Maryland","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Service","@id":SEO_ORIGIN+"/hire-caregivers/maryland#service","name":"Hire caregivers in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
@@ -403,11 +405,51 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   if(url.pathname==="/about"){
     return seoAsset(request,env,{
-      title:"About CareJoys | Maryland Caregiver Recruiting Network",
-      description:"CareJoys connects Maryland care employers, caregivers, and training programs through current availability, interest confirmation, interviews, and hires.",
+      title:"About CareJoys | Caregiver Recruiting Network",
+      description:"CareJoys connects care employers, caregivers, and training programs through current availability, interest confirmation, interviews, and hires.",
       canonical:"/about",
-      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a Maryland caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p></main>',
+      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+    });
+  }
+  if(url.pathname==="/caregiver-jobs"||url.pathname==="/caregiver-jobs/"){
+    const q=clean(url.searchParams.get("q"),120);
+    if(q){
+      // The search box: a state or city opens its page; a ZIP (or no match) stays here and the page lists what it can.
+      const found=await resolveJobsSearch(env,q);
+      if(found&&"path" in found)return Response.redirect(SEO_ORIGIN+found.path,302);
+    }
+    const page=Math.max(1,Math.floor(Number(url.searchParams.get("page")||1))||1);
+    const role=clean(url.searchParams.get("role"),40);
+    const data=await nationalJobsHub(env,{role,page});
+    const canonical="/caregiver-jobs"+(data.page>1&&!role&&!q?"?page="+data.page:"");
+    const itemList:any[]=[];
+    const jobsHtml=data.jobs.map((job,index)=>{
+      const title=normalizeTitle(job.title)||"Caregiver job";
+      const jobUrl="/jobs/"+encodeURIComponent(String(job.id||""));
+      itemList.push({"@type":"ListItem","position":(data.page-1)*JOBS_PER_PAGE+index+1,"name":title,"url":SEO_ORIGIN+jobUrl});
+      const label=[job.employer_name,[job.city,job.state].filter(Boolean).join(", ")||job.zip,payText(job.pay_min,job.pay_max,job.pay_period)].filter(Boolean).join(" · ");
+      return '<li><a href="'+jobUrl+'">'+htmlEscape(title)+'</a> — '+htmlEscape(label)+'</li>';
+    }).join("");
+    const pager=data.pages>1?'<nav aria-label="Pages">'+(data.page>1?'<a href="/caregiver-jobs'+(data.page>2?"?page="+(data.page-1):"")+'">Previous</a> ':'')+'Page '+data.page+' of '+data.pages+(data.page<data.pages?' <a href="/caregiver-jobs?page='+(data.page+1)+'">Next</a>':'')+'</nav>':'';
+    const stateLinks=data.states.map(s=>'<li><a href="'+jobsHubPath(s.state)+'">Caregiver jobs in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join("");
+    const cityLinks=data.cities.map(c=>'<li><a href="'+jobsHubPath(c.state,c.slug)+'">Caregiver jobs in '+htmlEscape(c.city)+', '+c.state.code+'</a> ('+c.count+')</li>').join("");
+    return seoAsset(request,env,{
+      title:"Caregiver Jobs by State and City: CNA, HHA & PCA"+(data.page>1?" (Page "+data.page+")":"")+" | CareJoys",
+      description:trimAtWord((data.total?data.total+" current caregiver jobs":"Caregiver jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city, state or ZIP, upload one resume, and apply to CNA, HHA, PCA, DSP and caregiver openings.",160),
+      canonical,
+      // Searches and role filters are views of this page, not pages of their own.
+      robots:data.total>0&&!role&&!q?undefined:"noindex,follow",
+      ogImage:"/og/caregiver-jobs.png",
+      snapshot:'<main><p><a href="/">CareJoys</a> › Caregiver jobs</p><h1>Caregiver jobs near you</h1><p>Search by city, state or ZIP. Upload your resume once and CareJoys matches you with caregiver jobs and employers near you.</p><form action="/caregiver-jobs" method="get"><input name="q" aria-label="City, state or ZIP" placeholder="City, state or ZIP"><button type="submit">Search jobs</button></form>'+(stateLinks?'<h2>Caregiver jobs by state</h2><ul>'+stateLinks+'</ul>':'')+(cityLinks?'<h2>Popular cities</h2><ul>'+cityLinks+'</ul>':'')+'<h2>Newest caregiver jobs</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages now. Upload your resume and we will match you as openings are confirmed.</p>')+'<p><a href="/caregiver-resume">Upload your caregiver resume</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs by state and city","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        {"@type":"BreadcrumbList","itemListElement":[
+          {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
+          {"@type":"ListItem","position":2,"name":"Caregiver jobs","item":SEO_ORIGIN+"/caregiver-jobs"}
+        ]},
+        ...(itemList.length?[{"@type":"ItemList","name":"Newest caregiver jobs","itemListElement":itemList}]:[])
+      ]}
     });
   }
   const hub=parseJobsHubPath(url.pathname);
@@ -442,13 +484,14 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical,
       robots:indexable?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
-      snapshot:'<main><p><a href="/">CareJoys</a> › '+(data.city?'<a href="'+jobsHubPath(hub.state)+'">'+htmlEscape(hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(hub.state.name))+'</p><h1>Caregiver jobs in '+htmlEscape(place)+'</h1><p>Upload your resume once. CareJoys builds your caregiver profile and matches you with caregiver jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your caregiver resume</a></p><h2>Current caregiver jobs in '+htmlEscape(place)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages in '+htmlEscape(place)+' now. Upload your resume and we will match you as openings are confirmed.</p>')+(cityLinks?'<h2>Caregiver jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › '+(data.city?'<a href="'+jobsHubPath(hub.state)+'">'+htmlEscape(hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(hub.state.name))+'</p><h1>Caregiver jobs in '+htmlEscape(place)+'</h1><p>Upload your resume once. CareJoys builds your caregiver profile and matches you with caregiver jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your caregiver resume</a></p><h2>Current caregiver jobs in '+htmlEscape(place)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages in '+htmlEscape(place)+' now. Upload your resume and we will match you as openings are confirmed.</p>')+(cityLinks?'<h2>Caregiver jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs in "+place,"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
         {"@type":"BreadcrumbList","itemListElement":[
           {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
-          {"@type":"ListItem","position":2,"name":"Caregiver jobs in "+hub.state.name,"item":SEO_ORIGIN+jobsHubPath(hub.state)},
-          ...(data.city?[{"@type":"ListItem","position":3,"name":"Caregiver jobs in "+place,"item":SEO_ORIGIN+basePath}]:[])
+          {"@type":"ListItem","position":2,"name":"Caregiver jobs","item":SEO_ORIGIN+"/caregiver-jobs"},
+          {"@type":"ListItem","position":3,"name":"Caregiver jobs in "+hub.state.name,"item":SEO_ORIGIN+jobsHubPath(hub.state)},
+          ...(data.city?[{"@type":"ListItem","position":4,"name":"Caregiver jobs in "+place,"item":SEO_ORIGIN+basePath}]:[])
         ]},
         ...(itemList.length?[{"@type":"ItemList","name":"Current caregiver jobs in "+place,"itemListElement":itemList}]:[])
       ]}
@@ -465,7 +508,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       const description=htmlEntityDecode(job.description_text||"").replace(/\s+/g," ").trim();
       const pay=payText(job.pay_min,job.pay_max,job.pay_period);
       const state=usState(String(job.state||""));
-      const hubLink=state?'<a href="'+jobsHubPath(state)+'">Caregiver jobs in '+htmlEscape(state.name)+'</a>':'<a href="/caregiver-jobs/maryland">Caregiver jobs</a>';
+      const hubLink=state?'<a href="'+jobsHubPath(state)+'">Caregiver jobs in '+htmlEscape(state.name)+'</a>':'<a href="/caregiver-jobs">Caregiver jobs</a>';
       const context=await jobPageContext(env,job);
       const employerHtml=context.employer?'<h2>About '+htmlEscape(context.employer.name)+'</h2><p>'+htmlEscape([context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(", ")].filter(Boolean).join(" · "))+'</p>'+(context.employer.otherOpenJobs?'<p>'+context.employer.otherOpenJobs+' other current opening'+(context.employer.otherOpenJobs===1?'':'s')+' at this employer on CareJoys.</p>':''):'';
       const payHtml=context.payContext?'<h2>Pay for '+htmlEscape(context.payContext.role)+' jobs in '+htmlEscape(context.payContext.state)+'</h2><p>The median advertised pay across '+context.payContext.count+' current '+htmlEscape(context.payContext.role)+' jobs in '+htmlEscape(context.payContext.state)+' is $'+context.payContext.median.toFixed(2)+'/hr'+(context.payContext.position?'; this job is '+context.payContext.position+' that median.':'.')+'</p>':'';
@@ -487,14 +530,14 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       });
     }
     // 410 tells search engines the listing is gone for good, so it drops out of the index quickly.
-    return seoAsset(request,env,{status:410,title:"Job no longer available | CareJoys",description:"This caregiver job is no longer available. Browse current caregiver jobs.",canonical:"/jobs/"+encodeURIComponent(id),robots:"noindex,follow",snapshot:'<main><h1>This job is no longer available.</h1><p><a href="/caregiver-jobs/maryland">Browse current caregiver jobs</a></p></main>'});
+    return seoAsset(request,env,{status:410,title:"Job no longer available | CareJoys",description:"This caregiver job is no longer available. Browse current caregiver jobs.",canonical:"/jobs/"+encodeURIComponent(id),robots:"noindex,follow",snapshot:'<main><h1>This job is no longer available.</h1><p><a href="/caregiver-jobs">Browse current caregiver jobs</a></p></main>'});
   }
   if(url.pathname==="/caregiver-resume"){
     return seoAsset(request,env,{
       title:"Caregiver Resume: Builder, Example & Job Matching | CareJoys",
       description:"Upload your caregiver resume once. CareJoys builds your profile, asks only for missing information, and matches you with relevant caregiver jobs and employers.",
       canonical:"/caregiver-resume",
-      snapshot:'<main><h1>Add your resume, get matched to the best caregiver jobs near you.</h1><p>Upload your resume once. CareJoys builds your caregiver profile, asks only for anything missing, and matches you with caregiver employers and agencies.</p><h2>Caregiver resume example</h2><p><strong>Professional summary:</strong> Compassionate caregiver with experience supporting older adults with activities of daily living, mobility, meal preparation and companionship. Reliable, patient and comfortable working in private homes.</p><h2>Caregiver resume skills</h2><p>Include skills only when they are true for you: ADLs, dementia care, bathing and dressing, transfers, Hoyer lift, gait belt, vital signs, hospice, companionship, meal preparation, medication reminders, housekeeping, transportation, CPR, BLS and First Aid.</p><h2>Caregiver resume with no experience</h2><p>Do not invent paid experience. Relevant family caregiving, volunteer work, training, certifications, dependable transportation and transferable responsibilities can be included when described accurately.</p><p><a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a> · <a href="/training-programs/maryland">Find caregiver training programs</a></p></main>',
+      snapshot:'<main><h1>Add your resume, get matched to the best caregiver jobs near you.</h1><p>Upload your resume once. CareJoys builds your caregiver profile, asks only for anything missing, and matches you with caregiver employers and agencies.</p><h2>Caregiver resume example</h2><p><strong>Professional summary:</strong> Compassionate caregiver with experience supporting older adults with activities of daily living, mobility, meal preparation and companionship. Reliable, patient and comfortable working in private homes.</p><h2>Caregiver resume skills</h2><p>Include skills only when they are true for you: ADLs, dementia care, bathing and dressing, transfers, Hoyer lift, gait belt, vital signs, hospice, companionship, meal preparation, medication reminders, housekeeping, transportation, CPR, BLS and First Aid.</p><h2>Caregiver resume with no experience</h2><p>Do not invent paid experience. Relevant family caregiving, volunteer work, training, certifications, dependable transportation and transferable responsibilities can be included when described accurately.</p><p><a href="/caregiver-jobs">Find caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Find Maryland caregiver training programs</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebPage","url":SEO_ORIGIN+"/caregiver-resume","name":"Caregiver Resume Builder, Example and Job Matching","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@type":"Thing","name":"Caregiver resume"}},
         {"@type":"WebApplication","name":"CareJoys Caregiver Resume Builder","url":SEO_ORIGIN+"/caregiver-resume","applicationCategory":"BusinessApplication","operatingSystem":"Web","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
@@ -506,7 +549,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"How to Become a Caregiver in Maryland | CareJoys",
       description:"Learn the main paths into caregiver work in Maryland, including PCA and caregiver roles, CNA-I training, current certification rules, training programs and jobs.",
       canonical:"/resources/how-to-become-a-caregiver-in-maryland",
-      snapshot:'<main><h1>How to become a caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs</a></p></main>',
+      snapshot:'<main><h1>How to become a caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"Article","headline":"How to Become a Caregiver in Maryland","mainEntityOfPage":SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland","publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":[{"@type":"Thing","name":"Caregiver careers in Maryland"},{"@type":"Thing","name":"CNA-I training"}]}
     });
   }
@@ -556,7 +599,17 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/find-caregivers"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname==="/find-caregivers"){
+    // The employer sign-up form is the main "Find caregivers" destination, so it is a real landing page.
+    return seoAsset(request,env,{title:"Find Caregivers to Hire: CNA, HHA & PCA | CareJoys",
+      description:"Tell CareJoys who you're hiring and where. See local CNA, HHA, PCA and caregiver matches, confirm who is interested, and book interviews.",
+      canonical:"/find-caregivers",ogImage:"/og/hire-caregivers.png",
+      snapshot:'<main><h1>Find caregivers to hire</h1><p>Tell CareJoys who you are hiring and where. CareJoys matches local CNAs, HHAs, PCAs and caregivers, confirms who is interested, and books interviews.</p><p><a href="/pricing">Pricing</a> · <a href="/caregiver-jobs">Caregiver jobs</a></p></main>'});
+  }
+  if(url.pathname==="/login"||url.pathname==="/signup"){
+    return seoAsset(request,env,{title:(url.pathname==="/login"?"Sign in":"Create your account")+" | CareJoys",description:"Sign in to CareJoys with an email link or Google.",canonical:url.pathname,robots:"noindex,follow"});
+  }
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
@@ -1092,8 +1145,19 @@ async function getJobsHub(url:URL,env:Env){
   const data=await jobsHub(env,{state,citySlug:slugify(clean(url.searchParams.get("city"),120)),role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1)});
   return json({ok:true,state,city:data.city,total:data.total,page:data.page,pages:data.pages,
     cities:data.cities.filter(c=>c.count>=CITY_PAGE_MIN_JOBS).slice(0,40),
-    jobs:data.jobs.map(j=>({id:j.id,title:normalizeTitle(j.title),role:j.role,employerName:j.employer_name,city:j.city,state:j.state,zip:j.zip,
-      employmentType:j.employment_type,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period}))
+    jobs:data.jobs.map(publicHubJob)
+  },{headers:{"cache-control":"public,max-age=300"}});
+}
+
+const publicHubJob=(j:Record<string,unknown>)=>({id:j.id,title:normalizeTitle(j.title),role:j.role,employerName:j.employer_name,city:j.city,state:j.state,zip:j.zip,
+  employmentType:j.employment_type,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period});
+
+async function getNationalJobs(url:URL,env:Env){
+  const data=await nationalJobsHub(env,{role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1)});
+  return json({ok:true,total:data.total,page:data.page,pages:data.pages,
+    states:data.states.map(s=>({code:s.state.code,name:s.state.name,slug:s.state.slug,count:s.count})),
+    cities:data.cities.map(c=>({city:c.city,slug:c.slug,state:c.state.code,stateSlug:c.state.slug,count:c.count})),
+    jobs:data.jobs.map(publicHubJob)
   },{headers:{"cache-control":"public,max-age=300"}});
 }
 
@@ -1444,6 +1508,7 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env,ctx);
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
     if(request.method==="GET"&&url.pathname==="/api/public/jobs-hub") return getJobsHub(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/jobs-national") return getNationalJobs(url,env);
     let publicJobContext=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/context$/);
     if(request.method==="GET"&&publicJobContext) return getPublicJobContext(decodeURIComponent(publicJobContext[1]),env);
     let publicJob=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)$/);
@@ -1552,7 +1617,7 @@ export default {
     if(/\.[a-z0-9]{2,5}$/i.test(url.pathname)) return env.ASSETS.fetch(request);
     // Every page route is handled above, so what is left is a real 404 rather than the homepage with a 200.
     return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist on CareJoys.",canonical:url.pathname,robots:"noindex,follow",
-      snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/hire-caregivers/maryland">Hire caregivers</a></p></main>'});
+      snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a></p></main>'});
   },
   async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     ctx.waitUntil((async()=>{

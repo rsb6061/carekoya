@@ -33,6 +33,9 @@ export function parseJobsHubPath(pathname:string){
   return {state,citySlug:m[2]?slugify(decodeURIComponent(m[2])):''};
 }
 
+/** `/caregiver-jobs`, the all-states jobs page. */
+export const isNationalJobsPath=(pathname:string)=>pathname==='/caregiver-jobs'||pathname==='/caregiver-jobs/';
+
 export const jobsHubPath=(state:UsState,citySlug='')=>'/caregiver-jobs/'+state.slug+(citySlug?'/'+citySlug:'');
 
 // USPS three-digit ZIP prefixes per state (territories and military prefixes are left out).

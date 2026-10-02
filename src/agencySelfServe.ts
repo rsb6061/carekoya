@@ -58,7 +58,8 @@ export async function searchAgencies(url:URL,env:FeatureEnv){
     sql+=" AND (lower(canonical_name) LIKE ? OR lower(COALESCE(primary_domain,'')) LIKE ?)";args.push(like,like);
   }
   if(zip.length===5){sql+=" AND (zip=? OR substr(COALESCE(zip,''),1,3)=?)";args.push(zip,zip.slice(0,3))}
-  if(/^[A-Z]{2}$/.test(state)){sql+=' AND upper(state)=?';args.push(state)}
+  // A ZIP already pins the area, so an agency on the wrong state's page still finds itself by ZIP.
+  if(/^[A-Z]{2}$/.test(state)&&zip.length!==5){sql+=' AND upper(state)=?';args.push(state)}
   sql+=' ORDER BY CASE WHEN zip=? THEN 0 ELSE 1 END,license_count DESC,canonical_name LIMIT 10';args.push(zip);
   const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
   return json({ok:true,agencies:(rows.results||[]).map(publicAgency)});
