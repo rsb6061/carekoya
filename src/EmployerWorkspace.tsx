@@ -3,6 +3,7 @@ import { LoginForm, Shell } from './LoginPage';
 import { useCaregiverAuth } from './caregiverAuth';
 import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
+import { AccountMenu } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
 import './workspace.css';
@@ -267,9 +268,7 @@ export function EmployerWorkspace(){
         <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Pipeline</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')}>Talent network</button>
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring preferences</button>}
-        <CaregiverDashboardLink/>
-        <a className="nav-link" href="/">Public site</a>
-        <button className="nav-button" onClick={logout}>Sign out</button>
+        <WorkspaceAccount logout={logout}/>
       </nav>
     </div></header>
 
@@ -436,8 +435,9 @@ export function EmployerWorkspace(){
   </div>;
 }
 
-/** Same sign-in, other side: an email that is also a caregiver can hop to its caregiver dashboard. */
-function CaregiverDashboardLink(){
+/** The account menu, or a plain Sign out for an older hiring-only session that has no shared sign-in. */
+function WorkspaceAccount({logout}:{logout:()=>void}){
   const auth=useCaregiverAuth();
-  return auth.roles?.caregiver?<a className="nav-link" href="/me">Caregiver dashboard</a>:null;
+  if(auth.loading)return null;
+  return auth.isAuthenticated?<AccountMenu/>:<button className="nav-button" onClick={logout}>Sign out</button>;
 }

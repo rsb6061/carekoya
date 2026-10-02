@@ -17,7 +17,7 @@ import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
-import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -545,10 +545,12 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/me"||url.pathname.startsWith("/me/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
+  // The caregiver dashboard moved from /me; old links and emails keep working.
+  if(url.pathname==="/me"||url.pathname.startsWith("/me/"))return Response.redirect(new URL("/dashboard"+url.pathname.slice(3)+url.search,url).toString(),301);
   if(url.pathname.startsWith("/school/")||url.pathname.startsWith("/join/")){
     return seoAsset(request,env,{
       title:"CareJoys",
@@ -1353,6 +1355,7 @@ export default {
       if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));
       const meApply=url.pathname.match(/^\/api\/me\/apply\/([^/]+)$/);
       if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
+      if(request.method==="POST"&&url.pathname==="/api/me/profile") return updateCaregiverProfile(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_profile"));
       if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
       const invite=url.pathname.match(/^\/api\/me\/invites\/([^/]+)\/(respond|book)$/);
       if(request.method==="POST"&&invite) return invite[2]==="respond"?respondToInvite(request,env,identity,decodeURIComponent(invite[1])):bookInviteInterview(request,env,identity,decodeURIComponent(invite[1]));

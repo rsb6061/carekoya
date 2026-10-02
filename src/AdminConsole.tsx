@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { Shell } from './LoginPage';
 import { rememberDashboard } from './dashboardHome';
+import { AccountMenu } from './AccountLink';
 import './workspace.css';
 
 type Count={count:number};
@@ -141,6 +142,7 @@ export function AdminConsole(){
       <nav className="app-nav">
         {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':`${k} days`}</button>)}
         <a className="nav-link" href="/api/admin/health" target="_blank">Raw health</a>
+        <AccountMenu/>
       </nav>
     </div></header>
     <main className="app-wrap app-content">

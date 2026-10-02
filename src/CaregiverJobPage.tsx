@@ -173,7 +173,7 @@ function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,
         :<p>It’s saved on your CareJoys dashboard. <strong>{employer}</strong> takes applications on their own site, so finish there to make sure they see you.</p>}
       <div className="onboarding-final-action">
         {!onCareJoys&&<button className="btn" onClick={onEmployerSite}>Finish on {employer}’s site</button>}
-        <a className={onCareJoys?'btn':'text-link'} href="/me">See your applications</a>
+        <a className={onCareJoys?'btn':'text-link'} href="/dashboard">See your applications</a>
       </div>
     </div></div>;
   }
@@ -191,7 +191,7 @@ function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,
     <h2>{job.title}</h2>
     <p className="apply-with-profile-sub">{employer} will see this profile. You don’t need to upload your resume again.</p>
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-    <a className="text-link" href="/me">Update your profile first</a>
+    <a className="text-link" href="/dashboard">Update your profile first</a>
     {error&&<div className="notice">{error}</div>}
     {agent}
     <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Sending…':agent?'Just send my CareJoys profile instead':'Send my application'}</button>

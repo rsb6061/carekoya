@@ -8,7 +8,7 @@ import { loginLinkEmail } from './email';
 // person keeps one login whichever side of CareJoys they use.
 
 export type AccountEnv=FeatureEnv&{ADMIN_EMAILS?:string;GOOGLE_CLIENT_ID?:string;GOOGLE_CLIENT_SECRET?:string};
-type Roles={caregiver:boolean;employer:boolean;admin:boolean};
+type Roles={caregiver:boolean;employer:boolean;admin:boolean;school:boolean};
 
 export const LOGIN_LINK_MINUTES=60;
 const ACCOUNT_COOKIE='__Host-cj_account';
@@ -39,11 +39,16 @@ export function safeNext(raw:unknown){
   return next;
 }
 
+/** The training program this email has claimed: training-program staff use the same sign-in as everyone else. */
+export const SCHOOL_FOR_EMAIL=`SELECT tp.id AS training_program_id,sl.id AS school_lead_id FROM training_programs tp
+  JOIN school_leads sl ON sl.id=tp.claimed_school_lead_id WHERE lower(sl.email)=? ORDER BY tp.updated_at DESC LIMIT 1`;
+
 export async function accountRoles(env:AccountEnv,email:string):Promise<Roles>{
-  if(!env.DB||!email)return {caregiver:false,employer:false,admin:false};
+  if(!env.DB||!email)return {caregiver:false,employer:false,admin:false,school:false};
   const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate' LIMIT 1").bind(email).first();
   const employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' LIMIT 1").bind(email).first();
-  return {caregiver:!!caregiver,employer:!!employer,admin:adminEmails(env).includes(email)};
+  const school=await env.DB.prepare(SCHOOL_FOR_EMAIL).bind(email).first();
+  return {caregiver:!!caregiver,employer:!!employer,admin:adminEmails(env).includes(email),school:!!school};
 }
 
 /** Where a fresh sign-in lands: the page they asked for when they can use it, else their own dashboard. */
@@ -73,7 +78,7 @@ export async function requestLogin(request:Request,env:AccountEnv){
   return json({ok:true,message:'Check your email for a secure sign-in link.'});
 }
 
-async function startAccountSession(env:AccountEnv,email:string){
+export async function startAccountSession(env:AccountEnv,email:string){
   const session=crypto.randomUUID()+'-'+crypto.randomUUID();
   const expires=new Date(Date.now()+SESSION_DAYS*86400000).toISOString();
   await env.DB!.prepare('INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES (?,?,?,?)')
@@ -174,7 +179,12 @@ export async function accountSession(request:Request,env:AccountEnv){
 export async function accountStatus(request:Request,env:AccountEnv){
   const session=await accountSession(request,env);
   if(!session)return json({ok:true,signedIn:false});
-  return json({ok:true,signedIn:true,email:session.email,roles:await accountRoles(env,session.email)});
+  const name=await env.DB!.prepare(`SELECT name FROM (
+      SELECT first_name AS name,1 AS rank FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate'
+      UNION ALL SELECT contact_name,2 FROM employer_leads WHERE lower(email)=? AND status!='disabled'
+      UNION ALL SELECT contact_name,3 FROM school_leads WHERE lower(email)=?)
+    WHERE COALESCE(name,'')!='' ORDER BY rank LIMIT 1`).bind(session.email,session.email,session.email).first<{name:string}>();
+  return json({ok:true,signedIn:true,email:session.email,name:clean(name?.name,120).split(/\s+/)[0]||'',roles:await accountRoles(env,session.email)});
 }
 
 /** Signs this browser out of everything: the account session and any employer session. */
@@ -184,9 +194,12 @@ export async function logoutEverywhere(request:Request,env:AccountEnv){
     if(account)await env.DB.prepare('DELETE FROM account_sessions WHERE session_hash=?').bind(await sha256Hex(account)).run();
     const employer=cookie(request,'__Host-cj_session')||cookie(request,'cj_session');
     if(employer)await env.DB.prepare('DELETE FROM employer_sessions WHERE session_hash=?').bind(await sha256Hex(employer)).run();
+    const school=cookie(request,'__Host-cj_school_session');
+    if(school)await env.DB.prepare('DELETE FROM school_sessions WHERE session_hash=?').bind(await sha256Hex(school)).run();
   }
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
   headers.append('Set-Cookie',`${ACCOUNT_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
   headers.append('Set-Cookie','__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  headers.append('Set-Cookie','__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
   return new Response(JSON.stringify({ok:true}),{status:200,headers});
 }

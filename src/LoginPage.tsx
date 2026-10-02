@@ -107,7 +107,7 @@ export function SignInLinkPage(){
   useEffect(()=>{
     if(!token){setError('This sign-in link is missing.');return;}
     post<{redirect?:string}>('/api/login/verify',{token})
-      .then(body=>window.location.replace(body.redirect||'/me'))
+      .then(body=>window.location.replace(body.redirect||'/dashboard'))
       .catch(e=>setError(e instanceof Error?e.message:'This sign-in link is invalid.'));
   },[token]);
   return <Shell><div className="login-card">

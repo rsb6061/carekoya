@@ -1,5 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
+import { useCaregiverAuth } from './caregiverAuth';
+import { LoginForm, Shell } from './LoginPage';
+import { AccountMenu } from './AccountLink';
+import { rememberDashboard } from './dashboardHome';
 import './workspace.css';
 import './activation.css';
 
@@ -80,6 +84,7 @@ export function SchoolAuth(){
 }
 
 export function SchoolDashboard(){
+  const auth=useCaregiverAuth();
   const [data,setData]=useState<any>(null);
   const [error,setError]=useState('');
   const [copied,setCopied]=useState('');
@@ -88,11 +93,11 @@ export function SchoolDashboard(){
   const [message,setMessage]=useState('');
 
   async function load(){
-    try{setData(await api<any>('/api/school/dashboard'));setError('')}
+    try{setData(await api<any>('/api/school/dashboard'));setError('');rememberDashboard('school')}
     catch(e){setError(e instanceof Error?e.message:'Sign in required')}
   }
   useEffect(()=>{void load()},[]);
-  async function logout(){await api('/api/school/logout',{method:'POST'});window.location.href='/'}
+  async function logout(){await api('/api/logout',{method:'POST'});window.location.href='/'}
   async function copy(url:string,key:string){
     if(!url)return;
     await navigator.clipboard.writeText(url);
@@ -115,12 +120,16 @@ export function SchoolDashboard(){
     finally{setSavingCohort(false)}
   }
 
-  if(error)return <div className="app-empty"><div className="app-wrap"><div className="beta-hero app-empty-card"><div className="modal-kicker">School dashboard</div><h1>Sign in required.</h1><p>{error}</p></div></div></div>;
+  if(error&&auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
+  if(error&&!auth.loading&&!auth.isAuthenticated)return <Shell>
+    <LoginForm next="/school-dashboard" kicker="Training programs" title="Sign in to your placement dashboard." google={auth.googleAvailable?()=>void auth.loginGoogle({next:'/school-dashboard'}):undefined}/>
+  </Shell>;
+  if(error)return <div className="app-empty"><div className="app-wrap"><div className="beta-hero app-empty-card"><div className="modal-kicker">Signed in as {auth.email}</div><h1>No training program yet.</h1><p>This email hasn’t claimed a training program on CareJoys. Find your program on the <a className="text-link" href="/training-programs/maryland">training programs page</a> and claim it with your work email.</p><div className="empty-actions"><button className="button secondary" onClick={auth.logout}>Sign out</button></div></div></div></div>;
   if(!data)return <div className="loading-screen">Loading CareJoys…</div>;
   const s=data.stats||{},school=data.school||{},cohorts=data.cohorts||[];
 
   return <div>
-    <header className="app-header"><div className="app-wrap header-inner"><a className="brand" href="/">CareJoys</a><nav className="app-nav"><button className="nav-button" onClick={logout}>Sign out</button></nav></div></header>
+    <header className="app-header"><div className="app-wrap header-inner"><a className="brand" href="/">CareJoys</a><nav className="app-nav">{auth.isAuthenticated?<AccountMenu/>:<button className="nav-button" onClick={logout}>Sign out</button>}</nav></div></header>
     <main className="app-wrap app-content">
       <section className="page-head page-head-row">
         <div><div className="modal-kicker">Caregiver training placement dashboard</div><h1>{school.name}</h1><p>{[school.providerType,school.city,school.state].filter(Boolean).join(' · ')}</p></div>

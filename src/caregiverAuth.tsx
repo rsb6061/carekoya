@@ -4,8 +4,8 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 // Everyone signs in the same way: an emailed link from /login. Auth0 (Google) is an optional extra for
 // caregivers and only appears when its keys are set on the Worker.
 type PublicConfig={auth0Domain?:string|null;auth0ClientId?:string|null;googleSignIn?:boolean};
-export type AccountRoles={caregiver:boolean;employer:boolean;admin:boolean};
-type Account={signedIn:boolean;email?:string;roles?:AccountRoles};
+export type AccountRoles={caregiver:boolean;employer:boolean;admin:boolean;school?:boolean};
+type Account={signedIn:boolean;email?:string;name?:string;roles?:AccountRoles};
 
 type CaregiverAuthValue={
   configured:boolean;
@@ -46,7 +46,7 @@ async function signOut(){
 function emailOnlyValue(account:Account|null,google=false):CaregiverAuthValue{
   return {
     configured:true,googleAvailable:google,loading:account===null,
-    isAuthenticated:!!account?.signedIn,email:account?.email||'',name:'',sub:'',roles:account?.roles||null,
+    isAuthenticated:!!account?.signedIn,email:account?.email||'',name:account?.name||'',sub:'',roles:account?.roles||null,
     loginGoogle:google?goToGoogle:async()=>{},loginEmail:goToLogin,
     logout:()=>{void signOut().then(()=>window.location.assign('/'))},
     getIdToken:async()=>''
@@ -72,7 +72,7 @@ function Bridge({account,children}:{account:Account|null;children:ReactNode}){
       loading:isLoading||account===null,
       isAuthenticated:viaGoogle||!!account?.signedIn,
       email:viaGoogle?user?.email||'':account?.email||'',
-      name:viaGoogle?user?.name||'':'',
+      name:viaGoogle?user?.name||'':account?.name||'',
       sub:viaGoogle?user?.sub||'':'',
       roles:account?.roles||null,
       loginGoogle:()=>login({connection:'google-oauth2',prompt:'select_account'}),
@@ -94,7 +94,7 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
       googleSignIn:data?.googleSignIn===true
     })).catch(()=>setConfig({}));
     fetch('/api/account').then(r=>r.json()).then((data:any)=>setAccount({
-      signedIn:data?.signedIn===true,email:data?.email||'',roles:data?.roles||undefined
+      signedIn:data?.signedIn===true,email:data?.email||'',name:data?.name||'',roles:data?.roles||undefined
     })).catch(()=>setAccount({signedIn:false}));
   },[]);
 
