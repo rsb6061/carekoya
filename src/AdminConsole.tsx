@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
+import { Shell } from './LoginPage';
 import { rememberDashboard } from './dashboardHome';
 import './workspace.css';
 
@@ -44,7 +45,7 @@ function AdminSignIn(){
     try{const body=await api<{message:string}>('/api/admin/auth/request',{method:'POST',body:JSON.stringify({email,turnstileToken})});setMessage(body.message)}
     catch(err){setMessage(err instanceof Error?err.message:'Could not send sign-in link')}
   }
-  return <div className="app-empty"><div className="app-wrap"><div className="beta-hero app-empty-card">
+  return <Shell><div className="login-card">
     <div className="modal-kicker">CareJoys admin</div>
     <h1>Admin sign-in</h1>
     <p>We’ll email a one-time sign-in link to approved admin addresses.</p>
@@ -54,13 +55,13 @@ function AdminSignIn(){
       {message&&<div className="alert-status">{message}</div>}
       <button className="button">Email me a sign-in link</button>
     </form>
-  </div></div></div>;
+  </div></Shell>;
 }
 
 function Stat({label,value,sub}:{label:string;value:number|string;sub?:string}){
   return <div className="settings-card"><div className="job-meta">{label}</div><div style={{fontSize:30,fontWeight:600}}>{value}</div>{sub&&<div className="job-meta">{sub}</div>}</div>;
 }
-const grid={display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(170px,100%),1fr))',gap:12} as const;
+const grid={display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(132px,100%),1fr))',gap:12} as const;
 
 type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;matches:number;claimed:boolean};
 
@@ -152,7 +153,7 @@ export function AdminConsole(){
 
       <section className="section-block">
         <div className="section-heading"><h2>Outreach</h2><p>{data.outreach.enabled?'Daily sends are on (15:41 UTC).':'Daily sends are off. Set OUTREACH_ENABLED to "true" in wrangler.jsonc to turn them on.'} {data.outreach.unsubscribes} unsubscribed.</p></div>
-        <div style={grid}>{data.outreach.today.map(t=><div className="settings-card" key={t.kind}>
+        <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(380px,100%),1fr))',alignItems:'start'}}>{data.outreach.today.map(t=><div className="settings-card" key={t.kind}>
           <div className="job-meta">{KIND_LABELS[t.kind]}</div>
           <div style={{fontSize:30,fontWeight:600}}>{t.sentToday} / {t.cap}</div>
           <div className="job-meta">sent today{t.kind==='reactivation'?` · ${data.outreach.reactivationQueue} still to reach`:''}</div>
@@ -161,12 +162,12 @@ export function AdminConsole(){
             <button className="button secondary" disabled={busy||t.sentToday>=t.cap} onClick={()=>void run(t.kind)}>Send today’s remaining</button>
           </div>
         </div>)}
-          <div className="settings-card">
+          <div className="settings-card" style={{gridColumn:'1/-1'}}>
             <div className="job-meta">Agency walkthrough</div>
             <div style={{fontWeight:600,margin:'6px 0'}}>{sourceAgency?sourceAgency.name+' (test copy)':'CareJoys Test Agency'}</div>
             <div className="job-meta">Pick a real agency below to copy its profile, current jobs and matched caregivers (or none for a generic Baltimore agency). The live teaser comes to you so you can claim it and onboard like that agency would. The real agency is never contacted or changed, and the copy never shows publicly.</div>
             <input style={{width:'100%',marginTop:10}} className="pipeline-select" value={agencyQuery} onChange={e=>setAgencyQuery(e.target.value)} placeholder="Search agencies (blank = most jobs)" />
-            <div style={{display:'grid',gap:4,marginTop:6,maxHeight:220,overflow:'auto'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(300px,100%),1fr))',gap:4,marginTop:6,maxHeight:220,overflow:'auto'}}>
               {agencyOptions.map(a=><button key={a.id} className={'nav-button '+(sourceAgency?.id===a.id?'active':'')} style={{textAlign:'left'}} onClick={()=>setSourceAgency(sourceAgency?.id===a.id?null:a)}>
                 {a.name} · {[a.city,a.state].filter(Boolean).join(', ')} · {a.jobs} jobs · {a.matches} matches{a.claimed?' · claimed':''}
               </button>)}

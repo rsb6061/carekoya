@@ -59,8 +59,8 @@ export function CaregiverActivation(){
     }
   }
 
-  if(status==='loading') return <div className="activation-shell"><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading your profile…</h1></div></div>;
-  if(status==='error') return <div className="activation-shell"><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{error}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
+  if(status==='loading') return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading your profile…</h1></div></div>;
+  if(status==='error') return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{error}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
   if(status==='done'){
     const active=completedStatus==='actively_looking';
     return <div className="activation-shell"><div className="activation-card activation-success">
@@ -111,7 +111,6 @@ export function CaregiverActivation(){
             <label>Commute radius<select name="travelMiles" defaultValue={String(caregiver?.travelMiles||'')}><option value="">Select</option><option value="5">5 miles</option><option value="10">10 miles</option><option value="15">15 miles</option><option value="25">25 miles</option><option value="40">40 miles</option><option value="60">60+ miles</option></select></label>
             <label>Transportation<select name="transportation" defaultValue={caregiver?.transportation||''}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
           </div>
-          <label className="check-row"><input type="checkbox" name="smsConsent" /><span>Text me about relevant caregiver jobs and to confirm my availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
         </div>}
 
         {error&&<div className="notice">{error}</div>}

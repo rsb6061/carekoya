@@ -1,3 +1,4 @@
+import { decodeEntities } from './jobFormat';
 import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { US_STATES, stateForZipPrefix, usState } from './usStates';
@@ -91,11 +92,7 @@ async function fetchJsonPost(url:string,body:unknown,ms=8000){
   }catch{return null}finally{clearTimeout(timer)}
 }
 export function decodeHtml(value:string){
-  return value
-    .replace(/&#x([0-9a-f]+);/gi,(_,hex)=>String.fromCodePoint(parseInt(hex,16)))
-    .replace(/&#(\d+);/g,(_,num)=>String.fromCodePoint(parseInt(num,10)))
-    .replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'")
-    .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ');
+  return decodeEntities(value);
 }
 function stripHtml(value:unknown,max=8000){
   return decodeHtml(clean(value,max*2))

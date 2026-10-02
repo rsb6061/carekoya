@@ -121,3 +121,46 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .login-alt{max-width:760px;margin:16px auto 0}
 .google-button{margin-top:22px;width:100%;max-width:520px}
 .login-or{margin:18px 0 -10px;color:var(--muted);font-size:14px;text-align:center;max-width:520px}
+
+/* Sign-in pages: open centered column (no card), like the rest of our sign-ins */
+.auth-page{min-height:100vh;display:flex;flex-direction:column;background:var(--cream)}
+.app-shell-col{flex:1;width:100%;max-width:480px;margin:0 auto;padding:72px 20px 88px}
+.app-shell-col.wide{max-width:800px}
+.app-shell-col .app-empty-card{max-width:none;margin:0}
+.login-card{text-align:center}
+.login-card h1{font-family:var(--display);font-size:52px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:0 0 12px}
+.login-card>p,.login-sub{font-size:17px;line-height:1.55;color:var(--muted);margin:0}
+.login-card .notice{margin-top:22px;text-align:left}
+.login-card .empty-actions{justify-content:center}
+.login-card .auth-form{max-width:none;margin-top:28px;text-align:left}
+.auth-form{grid-template-columns:minmax(0,1fr)}
+.auth-label{font-size:15px;font-weight:600;color:var(--ink);margin-bottom:-6px}
+.auth-form input{width:100%;min-width:0;height:52px}
+.auth-form input:focus{outline:none;border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
+.app-empty-card .auth-form .button,.login-card .auth-form .button{margin-top:6px;width:100%;min-height:52px;font-size:16px}
+.login-card .auth-form .button{background:var(--ink);border-color:var(--ink);box-shadow:0 8px 20px rgba(27,21,60,.18)}
+.login-card .auth-form .button:hover{background:#2a2257}
+.google-button{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:32px;width:100%;min-height:52px;padding:0 18px;border:1px solid var(--lavender);border-radius:999px;background:#fff;color:var(--ink);font:inherit;font-size:16px;font-weight:600;cursor:pointer;transition:background .15s,box-shadow .15s}
+.google-button:hover{background:#fbfaff;box-shadow:0 2px 8px rgba(41,32,89,.08)}
+.google-mark{flex:0 0 auto}
+.login-or{display:flex;align-items:center;gap:16px;margin:26px 0 -4px;color:var(--muted);font-size:14px}
+.login-or::before,.login-or::after{content:"";flex:1;height:1px;background:var(--lavender)}
+.login-card .login-terms{margin:24px 0 0;font-size:13px;line-height:1.6;color:var(--muted)}
+.login-terms a{text-decoration:underline;text-underline-offset:2px}
+.login-again{margin-top:22px}
+.login-alt{text-align:center;color:var(--muted);font-size:14px;margin-top:20px}
+.welcome-choice .button{width:100%;margin-top:auto}
+@media(max-width:760px){
+ .app-shell-col{padding:44px 16px 64px}
+ .login-card h1{font-size:40px}
+ .job-card{flex-direction:column}
+ .opening-actions .opening-next-step{max-width:none}
+}
+@media(min-width:761px){.section-heading h2{white-space:nowrap}.section-heading p{max-width:620px}}
+@media(max-width:760px){
+ .header-inner{flex-wrap:wrap;gap:4px 12px}
+ .app-nav{flex-wrap:nowrap;overflow-x:auto;max-width:100%;justify-content:flex-start;scrollbar-width:none}
+ .app-nav::-webkit-scrollbar{display:none}
+ .nav-link,.nav-button{white-space:nowrap}
+}
+@media(max-width:760px){.app-shell-col .beta-hero{padding:24px 20px;border-radius:24px}.app-shell-col .beta-hero h1{font-size:40px}}

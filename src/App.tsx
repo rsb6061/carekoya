@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
-import { AccountLink } from './AccountLink';
 import { IntakeModal, type FormKind, type EmployerPreset } from './IntakeModal';
 import { parseJobsHubPath } from './usStates';
+import { SiteFooter, SiteHeader } from './SiteChrome';
 
 // Each page is its own chunk so a visitor only downloads the page they opened.
 const named=<K extends string>(load:()=>Promise<Record<K,ComponentType<any>>>,name:K)=>lazy(()=>load().then(m=>({default:m[name]})));
@@ -70,11 +70,13 @@ export function App() {
 
 function NotFound(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a><AccountLink /></nav></div></header>
-    <main className="section"><div className="wrap">
+    <SiteHeader/>
+    <main className="section not-found"><div className="wrap">
+      <div className="modal-kicker">404</div>
       <h1>Page not found</h1>
       <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs/maryland">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers/maryland">hiring caregivers</a>.</p>
     </div></main>
+    <SiteFooter/>
   </div>;
 }
 
@@ -93,25 +95,13 @@ function Home() {
   }
 
   return <div>
-    <header className="nav">
-      <div className="wrap nav-inner">
-        <a className="brand" href="/">CareJoys</a>
-        <nav className="navlinks">
-          <a className="hide-sm" href="/about">How it works</a>
-          <a className="hide-sm" href="/caregiver-jobs/maryland">Caregiver jobs</a>
-          <a className="hide-sm" href="/training-programs/maryland">Training programs</a>
-          <AccountLink />
-          <a href="/hire-caregivers/maryland">For employers</a>
-          <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
-        </nav>
-      </div>
-    </header>
+    <SiteHeader audience="employer" action={<button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>}/>
 
     <main>
       <section className="hero">
         <div className="wrap">
           <h1>
-            <span className="hero-title-line">Caregiver recruiting in Maryland.</span>
+            <span className="hero-title-line">Caregiver recruiting in Maryland.</span>{' '}
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
           <p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p>
@@ -192,9 +182,7 @@ function Home() {
       </section>
     </main>
 
-    <footer className="footer">
-      <div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/hire-caregivers/maryland">For employers</a> · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div>
-    </footer>
+    <SiteFooter/>
 
     {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
   </div>
