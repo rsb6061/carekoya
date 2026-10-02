@@ -1,6 +1,8 @@
 import { type FeatureEnv, respondToInviteForCaregiver, bookInterviewForCaregiver } from './serverFeatures';
 import { freshnessLabel, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin } from './geo';
+import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
+import { caregiverApplicationEmail } from './email';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -68,9 +70,14 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
 
   const nearbyJobs=await nearbyJobsFor(env,c,12);
 
-  const applications=await env.DB.prepare(`SELECT a.event_type,a.created_at,j.id AS job_id,j.title,j.employer_name,j.source_url
+  // One row per job: whether they applied with their CareJoys profile, and whether that employer reads CareJoys.
+  const applications=await env.DB.prepare(`SELECT j.id AS job_id,j.title,j.employer_name,j.source_url,MAX(a.created_at) AS created_at,
+      MAX(CASE WHEN a.event_type='carejoys_applied' THEN 1 ELSE 0 END) AS applied_on_carejoys,
+      MAX(CASE WHEN a.event_type='external_redirect_clicked' THEN 1 ELSE 0 END) AS opened_employer_site,
+      MAX(CASE WHEN o.claimed_employer_id IS NOT NULL THEN 1 ELSE 0 END) AS employer_on_carejoys
     FROM caregiver_job_apply_events a JOIN caregiver_jobs j ON j.id=a.caregiver_job_id
-    WHERE a.caregiver_id=? ORDER BY a.created_at DESC LIMIT 20`).bind(caregiverId).all<Row>();
+    LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id
+    WHERE a.caregiver_id=? GROUP BY j.id ORDER BY MAX(a.created_at) DESC LIMIT 20`).bind(caregiverId).all<Row>();
 
   return json({ok:true,caregiver:{
     id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:c.city,state:c.state,zip:c.zip,role:c.role,
@@ -84,7 +91,47 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     slots:(slotsByOpening[clean(r.opening_id,100)]||[]).map(s=>({id:s.id,startsAt:s.starts_at,durationMinutes:s.duration_minutes,timezone:s.timezone}))
   })),
   nearbyJobs,
-  applications:(applications.results||[]).map(a=>({jobId:a.job_id,title:a.title,employerName:a.employer_name,event:a.event_type,at:a.created_at,applicationUrl:a.source_url}))});
+  applications:(applications.results||[]).map(a=>({jobId:a.job_id,title:a.title,employerName:a.employer_name,at:a.created_at,applicationUrl:a.source_url,
+    appliedOnCareJoys:asNum(a.applied_on_carejoys)===1,openedEmployerSite:asNum(a.opened_employer_site)===1,employerOnCareJoys:asNum(a.employer_on_carejoys)===1}))});
+}
+
+/**
+ * One-click Apply for a signed-in caregiver: records the application on CareJoys, puts their profile in the
+ * employer's CareJoys Inbox when the employer can receive it, and emails the caregiver a receipt. Employers that
+ * haven't claimed their CareJoys listing only hear about it once outreach is on, so the caregiver is also given
+ * the employer's own application link.
+ */
+export async function applyWithProfile(env:FeatureEnv,identity:CaregiverIdentity|null,jobId:string){
+  if(!identity)return unauthorized();
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return json({ok:false,error:'Add your resume first.',needsProfile:true},{status:404});
+  const job=await env.DB.prepare(`SELECT j.id,COALESCE(NULLIF(j.normalized_title,''),j.title) AS title,j.employer_name,j.source_url,j.agency_organization_id,
+      o.claimed_employer_id,${REACHABLE_AGENCY_SQL} AS reachable
+    FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
+    WHERE j.id=? AND j.is_published=1 AND j.status='current' LIMIT 1`).bind(jobId).first<Row>();
+  if(!job)return json({ok:false,error:'This job is no longer open.'},{status:404});
+  const employerOnCareJoys=!!clean(job.claimed_employer_id,120);
+  const applicationUrl=clean(job.source_url,1000);
+  const already=await env.DB.prepare("SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=? AND event_type='carejoys_applied' LIMIT 1")
+    .bind(caregiverId,jobId).first();
+  const result={ok:true,status:already?'already_applied':'applied',employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
+  if(already)return json(result);
+
+  await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES (?,?,?,'carejoys_applied','carejoys_profile')")
+    .bind(crypto.randomUUID(),jobId,caregiverId).run();
+  const orgId=clean(job.agency_organization_id,120);
+  if(orgId&&asNum(job.reachable)){
+    await createAgencyInterests(env,{caregiverId,source:'job_apply',targets:[{organizationId:orgId,agencyName:clean(job.employer_name,200),city:'',state:'',jobId,jobTitle:clean(job.title,200)}]});
+  }
+  const c=await env.DB.prepare('SELECT first_name,email FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();
+  const to=clean(c?.email,320).toLowerCase();
+  if(env.EMAIL&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){
+    const body=caregiverApplicationEmail({firstName:clean(c?.first_name,80),jobTitle:clean(job.title,200),employerName:clean(job.employer_name,200),
+      employerOnCareJoys,applicationUrl,dashboardLink:'https://carejoys.com/me'});
+    await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text}).catch(()=>null);
+  }
+  return json(result,{status:201});
 }
 
 const WORK_STATUSES=['actively_looking','maybe_later','not_looking'];

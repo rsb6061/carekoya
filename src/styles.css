@@ -270,3 +270,12 @@ a{color:inherit;text-decoration:none}
 @media (max-width:640px){.agency-finder-form{grid-template-columns:1fr}.agency-result{flex-direction:column;align-items:flex-start}}
 .onboarding-final-action .check-row{max-width:420px;text-align:left}
 .onboarding-final-action .check-row span{font-size:14px;color:var(--ink)}
+
+.job-apply-direct{font-size:14px;color:var(--muted);margin:0;display:inline;padding:0}
+.apply-with-profile h2{margin:4px 0 6px}
+.apply-with-profile-sub{color:var(--muted);font-size:14px;margin:0 0 16px}
+.apply-profile-summary{display:grid;gap:8px;margin:0 0 14px;padding:16px;border:1px solid var(--line,#e4e0f5);border-radius:18px}
+.apply-profile-summary div{display:grid;grid-template-columns:120px 1fr;gap:12px;font-size:14px}
+.apply-profile-summary dt{color:var(--muted)}
+.apply-profile-summary dd{margin:0}
+.apply-with-profile .submit-button{width:100%;margin-top:16px}

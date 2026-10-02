@@ -16,7 +16,7 @@ import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
-import { EMAIL_SUB_PREFIX, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -1332,6 +1332,8 @@ export default {
       const identity=await caregiverAuthIdentity(request,env);
       if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
+      const meApply=url.pathname.match(/^\/api\/me\/apply\/([^/]+)$/);
+      if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
       if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
       const invite=url.pathname.match(/^\/api\/me\/invites\/([^/]+)\/(respond|book)$/);
       if(request.method==="POST"&&invite) return invite[2]==="respond"?respondToInvite(request,env,identity,decodeURIComponent(invite[1])):bookInviteInterview(request,env,identity,decodeURIComponent(invite[1]));

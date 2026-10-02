@@ -437,6 +437,34 @@ describe('shared sign-in', ()=>{
     expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
   });
 
+  it('a signed-in caregiver applies in one click; claimed employers get it in their Inbox', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-claimed','org-claimed','Acme Care','acme.test','jobs@acme.test','Baltimore','MD','21201',1,'emp1')").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active) VALUES ('org-open','org-open','Bay Home Care','bay.test','jobs@bay.test','Baltimore','MD','21201',1)").run();
+    for(const [id,org,name] of [['job-claimed','org-claimed','Acme Care'],['job-open','org-open','Bay Home Care']]){
+      await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,?,?,'test',?,'CNA Days','CNA',?,'Baltimore','MD','21201','current',1)")
+        .bind(id,org,id,'https://'+org+'.test/apply',name).run();
+    }
+    expect((await post('/api/me/apply/job-claimed',{})).status).toBe(401);
+    const {cookie}=await signIn('dc@example.com');
+    sent.length=0;
+    const first=await post('/api/me/apply/job-claimed',{},{cookie});
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({status:'applied',employerOnCareJoys:true,applicationUrl:'https://org-claimed.test/apply'});
+    expect(await DB.prepare("SELECT source FROM agency_interests WHERE organization_id='org-claimed' AND caregiver_id='dc'").first()).toEqual({source:'job_apply'});
+    // The caregiver gets a receipt and the claimed agency hears about it.
+    expect(sent.map(m=>m.to).sort()).toEqual(['dc@example.com','pat@acme.test']);
+    sent.length=0;
+    expect(await (await post('/api/me/apply/job-claimed',{},{cookie})).json()).toMatchObject({status:'already_applied'});
+    expect(sent).toEqual([]);
+    // An unclaimed agency is not emailed while outreach is off, so the caregiver is pointed to its own site.
+    const open=await post('/api/me/apply/job-open',{},{cookie});
+    expect(await open.json()).toMatchObject({status:'applied',employerOnCareJoys:false});
+    expect(sent.map(m=>m.to)).toEqual(['dc@example.com']);
+    expect(sent[0].html).toContain('https://org-open.test/apply');
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys]).sort()).toEqual([['job-claimed',true,true],['job-open',true,false]]);
+  });
+
   it('signing out ends every session in the browser', async()=>{
     const {cookie}=await signIn('pat@acme.test');
     const out=await call('/api/logout',{method:'POST',headers:{cookie}});

@@ -9,7 +9,13 @@ type Invite={
   slots:Slot[];
 };
 type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null};
-type Application={jobId:string;title:string;employerName?:string;event:string;at:string;applicationUrl?:string};
+type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean};
+
+function applicationStatus(a:Application){
+  if(a.appliedOnCareJoys&&a.employerOnCareJoys)return 'Sent to the employer through CareJoys';
+  if(a.appliedOnCareJoys)return 'Saved on CareJoys';
+  return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
+}
 type Caregiver={
   id:string;firstName?:string;email?:string;city?:string;state?:string;zip?:string;role?:string;shifts?:string;desiredWage?:string;
   travelMiles?:number|null;profilePhotoUrl?:string|null;workStatus?:string;freshness?:string;
@@ -162,7 +168,8 @@ export function CaregiverDashboard(){
       {(data.applications||[]).length>0&&<section className="section-block">
         <div className="section-heading"><h2>Jobs you applied to</h2></div>
         <div className="settings-card">{(data.applications||[]).map(a=><div key={a.jobId+a.at} className="job-meta">
-          <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {when(a.at)}
+          <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {applicationStatus(a)} · {when(a.at)}
+          {!a.employerOnCareJoys&&a.applicationUrl&&<> · <a className="text-link" href={a.applicationUrl} target="_blank" rel="noreferrer nofollow">Finish on {a.employerName||'the employer'}’s site ↗</a></>}
         </div>)}</div>
       </section>}
 
