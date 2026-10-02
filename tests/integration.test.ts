@@ -483,3 +483,48 @@ describe('agency walkthrough from a real agency', ()=>{
     expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_jobs WHERE agency_organization_id='carejoys-test-agency'").first()).toEqual({n:0});
   });
 });
+
+describe('Continue with Google', ()=>{
+  const keys={GOOGLE_CLIENT_ID:'cid.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'shh'};
+  const idToken=(claims:Record<string,unknown>)=>'h.'+btoa(JSON.stringify(claims)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')+'.s';
+  async function start(next='/me'){
+    const res=await call('/api/auth/google/start?next='+encodeURIComponent(next),{},keys);
+    expect(res.status).toBe(302);
+    const location=new URL(res.headers.get('location')!);
+    expect(location.origin).toBe('https://accounts.google.com');
+    expect(location.searchParams.get('redirect_uri')).toBe('https://carejoys.com/api/auth/google/callback');
+    const stateCookie=res.headers.get('set-cookie')!.match(/__Host-cj_google_state=([^;]+)/)![1];
+    return {state:location.searchParams.get('state')!,cookie:'__Host-cj_google_state='+stateCookie};
+  }
+  async function callback(state:string,cookie:string,claims:Record<string,unknown>){
+    const realFetch=globalThis.fetch;
+    globalThis.fetch=(async(input:RequestInfo|URL)=>String(input).startsWith('https://oauth2.googleapis.com/token')
+      ?new Response(JSON.stringify({id_token:idToken(claims)}),{headers:{'content-type':'application/json'}}):realFetch(input as any)) as typeof fetch;
+    try{return await call('/api/auth/google/callback?code=c0de&state='+encodeURIComponent(state),{headers:{cookie}},keys)}
+    finally{globalThis.fetch=realFetch}
+  }
+  const good={iss:'https://accounts.google.com',aud:keys.GOOGLE_CLIENT_ID,email:'baltimore@example.com',email_verified:true};
+
+  it('is offered only when both keys are set', async()=>{
+    expect(((await (await call('/api/config')).json()) as any).googleSignIn).toBe(false);
+    expect(((await (await call('/api/config',{},keys)).json()) as any).googleSignIn).toBe(true);
+    expect((await call('/api/auth/google/start')).headers.get('location')).toBe('https://carejoys.com/login');
+  });
+
+  it('signs a verified Google email into the same account and lands where it was headed', async()=>{
+    const {state,cookie}=await start('/me');
+    const res=await callback(state,cookie,good);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/me');
+    const account=decodeURIComponent(res.headers.get('set-cookie')!.match(/__Host-cj_account=([^;]+)/)![1]);
+    const me=await (await call('/api/me',{headers:{cookie:'__Host-cj_account='+account}})).json() as any;
+    expect(me.caregiver.id).toBe('baltimore');
+  });
+
+  it('refuses a mismatched state, an unverified email or another app’s token', async()=>{
+    const {state,cookie}=await start();
+    expect((await callback('forged',cookie,good)).headers.get('location')).toBe('/login?error=google_cancelled');
+    expect((await callback(state,cookie,{...good,email_verified:false})).headers.get('location')).toBe('/login?error=google_failed');
+    expect((await callback(state,cookie,{...good,aud:'other-app'})).headers.get('location')).toBe('/login?error=google_failed');
+  });
+});

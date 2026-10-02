@@ -3,7 +3,7 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 
 // Everyone signs in the same way: an emailed link from /login. Auth0 (Google) is an optional extra for
 // caregivers and only appears when its keys are set on the Worker.
-type PublicConfig={auth0Domain?:string|null;auth0ClientId?:string|null};
+type PublicConfig={auth0Domain?:string|null;auth0ClientId?:string|null;googleSignIn?:boolean};
 export type AccountRoles={caregiver:boolean;employer:boolean;admin:boolean};
 type Account={signedIn:boolean;email?:string;roles?:AccountRoles};
 
@@ -16,7 +16,7 @@ type CaregiverAuthValue={
   name:string;
   sub:string;
   roles:AccountRoles|null;
-  loginGoogle:()=>Promise<void>;
+  loginGoogle:(options?:{next?:string})=>Promise<void>;
   loginEmail:(options?:{email?:string;next?:string})=>Promise<void>;
   logout:()=>void;
   getIdToken:()=>Promise<string>;
@@ -34,15 +34,20 @@ function goToLogin(options?:{email?:string;next?:string}){
   window.location.href=loginPath(options?.next??window.location.pathname+window.location.search,options?.email);
   return new Promise<void>(()=>{});
 }
+/** "Continue with Google" through the Worker, landing in the same account an emailed link gives. */
+function goToGoogle(options?:{next?:string}){
+  window.location.href='/api/auth/google/start?next='+encodeURIComponent(options?.next??window.location.pathname+window.location.search);
+  return new Promise<void>(()=>{});
+}
 async function signOut(){
   await fetch('/api/logout',{method:'POST'}).catch(()=>{});
 }
 
-function emailOnlyValue(account:Account|null):CaregiverAuthValue{
+function emailOnlyValue(account:Account|null,google=false):CaregiverAuthValue{
   return {
-    configured:true,googleAvailable:false,loading:account===null,
+    configured:true,googleAvailable:google,loading:account===null,
     isAuthenticated:!!account?.signedIn,email:account?.email||'',name:'',sub:'',roles:account?.roles||null,
-    loginGoogle:async()=>{},loginEmail:goToLogin,
+    loginGoogle:google?goToGoogle:async()=>{},loginEmail:goToLogin,
     logout:()=>{void signOut().then(()=>window.location.assign('/'))},
     getIdToken:async()=>''
   };
@@ -85,14 +90,16 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
   useEffect(()=>{
     fetch('/api/config').then(r=>r.json()).then((data:any)=>setConfig({
       auth0Domain:data?.auth0Domain||null,
-      auth0ClientId:data?.auth0ClientId||null
+      auth0ClientId:data?.auth0ClientId||null,
+      googleSignIn:data?.googleSignIn===true
     })).catch(()=>setConfig({}));
     fetch('/api/account').then(r=>r.json()).then((data:any)=>setAccount({
       signedIn:data?.signedIn===true,email:data?.email||'',roles:data?.roles||undefined
     })).catch(()=>setAccount({signedIn:false}));
   },[]);
 
-  if(config?.auth0Domain&&config?.auth0ClientId){
+  // Direct Google sign-in replaces Auth0 when its keys are set.
+  if(config?.auth0Domain&&config?.auth0ClientId&&!config.googleSignIn){
     return <Auth0Provider
       domain={config.auth0Domain}
       clientId={config.auth0ClientId}
@@ -109,7 +116,7 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
     ><Bridge account={account}>{children}</Bridge></Auth0Provider>;
   }
 
-  const value=emailOnlyValue(config===null?null:account);
+  const value=emailOnlyValue(config===null?null:account,!!config?.googleSignIn);
   return <CaregiverAuthContext.Provider value={value}>{children}</CaregiverAuthContext.Provider>;
 }
 

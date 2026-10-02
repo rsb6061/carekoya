@@ -73,7 +73,7 @@ export function CaregiverDashboard(){
       <p>Sign in to see employer invitations, book interviews, and keep your availability current.</p>
       <div className="empty-actions">
         <button className="button" onClick={()=>void auth.loginEmail({next:'/me'})}>Sign in with email</button>
-        {auth.googleAvailable&&<button className="button secondary" onClick={()=>void auth.loginGoogle()}>Continue with Google</button>}
+        {auth.googleAvailable&&<button className="button secondary" onClick={()=>void auth.loginGoogle({next:'/me'})}>Continue with Google</button>}
       </div>
       <p className="login-alt">New to CareJoys? <a className="text-link" href="/caregiver-resume">Build your profile</a> first.</p>
     </div>

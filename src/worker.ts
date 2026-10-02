@@ -1,4 +1,4 @@
-import { accountSession, accountStatus, logoutEverywhere, requestLogin, verifyLogin } from './accountAuth';
+import { accountSession, accountStatus, finishGoogleSignIn, googleSignInConfigured, logoutEverywhere, requestLogin, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, payText, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
@@ -38,6 +38,8 @@ interface Env {
   TURNSTILE_SECRET_KEY?: string;
   AUTH0_DOMAIN?: string;
   AUTH0_CLIENT_ID?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   ADMIN_EMAILS?: string;
   ADMIN_TOKEN?: string;
   OUTREACH_ENABLED?: string;
@@ -1364,13 +1366,15 @@ export default {
       return json({ok:false,error:"Not found"},{status:404});
     }
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
-    if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env);
+    if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env,googleSignInConfigured(env));
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
     if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake));
     if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
     if(request.method==="POST"&&url.pathname==="/api/login/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestLogin(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/login/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyLogin(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/account") return accountStatus(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/auth/google/start") return startGoogleSignIn(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/auth/google/callback") return finishGoogleSignIn(request,env);
     // Signing out anywhere signs this browser out of CareJoys entirely, whichever dashboard it was on.
     if(request.method==="POST"&&(url.pathname==="/api/logout"||url.pathname==="/api/auth/logout")){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEverywhere(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);

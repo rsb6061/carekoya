@@ -6,7 +6,7 @@ import { loginLinkEmail } from './email';
 // Caregiver profiles and employer/agency workspaces with that email are found from the session, so one
 // person keeps one login whichever side of CareJoys they use.
 
-export type AccountEnv=FeatureEnv&{ADMIN_EMAILS?:string};
+export type AccountEnv=FeatureEnv&{ADMIN_EMAILS?:string;GOOGLE_CLIENT_ID?:string;GOOGLE_CLIENT_SECRET?:string};
 type Roles={caregiver:boolean;employer:boolean;admin:boolean};
 
 export const LOGIN_LINK_MINUTES=60;
@@ -96,20 +96,71 @@ export async function verifyLogin(request:Request,env:AccountEnv){
   const used=await env.DB.prepare('UPDATE login_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL').bind(record.id).run();
   if(Number(used.meta?.changes||0)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
 
-  const email=record.email;
+  const {headers,redirect,roles}=await completeSignIn(env,record.email,safeNext(record.redirect_path));
+  headers.set('content-type','application/json; charset=utf-8');
+  return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
+}
+
+/** Signs a proven email in: the account session, plus the employer session when a hiring workspace exists. */
+async function completeSignIn(env:AccountEnv,email:string,next:string){
   const roles=await accountRoles(env,email);
-  const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
+  const headers=new Headers({'cache-control':'no-store'});
   headers.append('Set-Cookie',await startAccountSession(env,email));
   // Admins sign in to /admin through an employer session, so give a first-time admin that record.
   if(roles.admin&&!roles.employer){
-    await env.DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status) VALUES (?,'CareJoys','Admin',?,'','','CareJoys admin account','active')").bind(crypto.randomUUID(),email).run();
+    await env.DB!.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status) VALUES (?,'CareJoys','Admin',?,'','','CareJoys admin account','active')").bind(crypto.randomUUID(),email).run();
     roles.employer=true;
   }
   if(roles.employer){
-    const employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
+    const employer=await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
     if(employer)headers.append('Set-Cookie',employerSessionCookie(await startEmployerSession(env,employer.id)));
   }
-  return new Response(JSON.stringify({ok:true,redirect:landingPath(roles,safeNext(record.redirect_path)),roles}),{status:200,headers});
+  return {headers,redirect:landingPath(roles,next),roles};
+}
+
+// "Continue with Google": the standard OAuth code flow, run by the Worker. Google proves the email, and the person
+// lands in the same account an emailed link would give them. Shown only when both Google keys are set.
+const GOOGLE_STATE_COOKIE='__Host-cj_google_state';
+export const googleSignInConfigured=(env:AccountEnv)=>!!(env.GOOGLE_CLIENT_ID&&env.GOOGLE_CLIENT_SECRET);
+const googleRedirectUri=(request:Request)=>new URL('/api/auth/google/callback',request.url).toString();
+
+export async function startGoogleSignIn(request:Request,env:AccountEnv){
+  if(!googleSignInConfigured(env))return Response.redirect(new URL('/login',request.url).toString(),302);
+  const url=new URL(request.url);
+  const state=crypto.randomUUID();
+  const next=safeNext(url.searchParams.get('next'));
+  const google=new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  google.search=new URLSearchParams({client_id:env.GOOGLE_CLIENT_ID!,redirect_uri:googleRedirectUri(request),response_type:'code',
+    scope:'openid email profile',state,prompt:'select_account'}).toString();
+  // Lax, so the cookie comes back when Google sends the browser to the callback.
+  return new Response(null,{status:302,headers:{location:google.toString(),'cache-control':'no-store',
+    'Set-Cookie':`${GOOGLE_STATE_COOKIE}=${encodeURIComponent(state+'|'+next)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`}});
+}
+
+export async function finishGoogleSignIn(request:Request,env:AccountEnv){
+  const url=new URL(request.url);
+  const fail=(reason:string)=>new Response(null,{status:302,headers:{location:'/login?error='+reason,'cache-control':'no-store',
+    'Set-Cookie':`${GOOGLE_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`}});
+  if(!env.DB||!googleSignInConfigured(env))return fail('google_unavailable');
+  const [state,...rest]=cookie(request,GOOGLE_STATE_COOKIE).split('|');
+  const code=url.searchParams.get('code')||'';
+  if(!state||state!==url.searchParams.get('state')||!code)return fail('google_cancelled');
+  let claims:Record<string,unknown>|null=null;
+  try{
+    const res=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({code,client_id:env.GOOGLE_CLIENT_ID!,client_secret:env.GOOGLE_CLIENT_SECRET!,redirect_uri:googleRedirectUri(request),grant_type:'authorization_code'})});
+    const token=await res.json() as {id_token?:string};
+    // The ID token came straight from Google's token endpoint over TLS, so its claims can be read without re-checking the signature.
+    const part=token.id_token?.split('.')[1]||'';
+    claims=part?JSON.parse(atob(part.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-part.length%4)%4))):null;
+  }catch{claims=null}
+  const email=clean(claims?.email,320).toLowerCase();
+  const issuerOk=claims?.iss==='https://accounts.google.com'||claims?.iss==='accounts.google.com';
+  if(!claims||!issuerOk||claims.aud!==env.GOOGLE_CLIENT_ID||claims.email_verified!==true||!emailValid(email))return fail('google_failed');
+  const {headers,redirect}=await completeSignIn(env,email,safeNext(rest.join('|')));
+  headers.set('location',redirect);
+  headers.append('Set-Cookie',`${GOOGLE_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+  return new Response(null,{status:302,headers});
 }
 
 /** The proven email behind this browser's CareJoys sign-in, or null. */
