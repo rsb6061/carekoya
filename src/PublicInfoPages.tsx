@@ -10,7 +10,7 @@ export function EmployerRecruitingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
+    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)}/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
@@ -58,7 +58,7 @@ export function EmployerRecruitingPage(){
         </div>
       </div></section>
     </main>
-    <SiteFooter jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
+    <SiteFooter jobsHref={jobsHubPath(state)} showTraining={isMaryland}/>
   </div>;
 }
 
@@ -89,6 +89,45 @@ export function AboutCareJoysPage(){
       <section className="section"><div className="wrap">
         <h2>Current focus</h2>
         <p>CareJoys is currently focused on Maryland care hiring, including CNA, GNA, HHA, PCA, caregiver, and related direct-care roles. The network is designed to expand by role and geography only where there is enough real employer and caregiver activity to make the matching experience useful.</p>
+      </div></section>
+    </main>
+    <SiteFooter/>
+  </div>;
+}
+
+/** /pricing: where "For employers" lands. Price copy follows the live free-contact allowance. */
+export function PricingPage(){
+  const [freeContacts,setFreeContacts]=useState<number|null>(null);
+  useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
+  const free=freeContacts??5;
+  return <div>
+    <SiteHeader audience="employer"/>
+    <main>
+      <section className="hero pricing-hero"><div className="wrap pricing-grid">
+        <div>
+          <div className="modal-kicker">For home-care agencies and employers</div>
+          <h1>Hire caregivers who want the job.</h1>
+          <p>CareJoys matches your opening with local CNAs, GNAs, HHAs, PCAs and caregivers, confirms who is interested, and lets them book your interview times. Already a licensed agency? <a className="text-link" href="/hire-caregivers/maryland#claim-agency">Claim your agency free.</a></p>
+        </div>
+        <div className="plan-card">
+          <div className="plan-head">
+            <div><h2>Hiring</h2><span className="plan-note">Per employer</span></div>
+            <div className="plan-price"><strong>Free</strong><span>to start</span></div>
+          </div>
+          <a className="btn plan-cta" href="/find-caregivers">Find caregivers free</a>
+          <ul className="plan-list">
+            <li>Post openings and see ranked local caregiver matches at no cost.</li>
+            <li>{free>0?`Your first ${free} caregiver contacts are free.`:'Contacting caregivers needs a subscription.'} CareJoys reaches out, confirms interest, and books interviews.</li>
+            <li>After that, a monthly subscription you can start or cancel from your workspace.</li>
+            <li>Keep your own hiring process. No recruiter or placement fees.</li>
+          </ul>
+        </div>
+      </div></section>
+      <section className="section"><div className="wrap">
+        <div className="modal-kicker">Hiring by state</div>
+        <h2>Find caregivers near you</h2>
+        <p className="section-lead">See caregiver hiring in your area, or <a className="text-link" href="/login?next=/app">sign in</a> if you already use CareJoys.</p>
+        <div className="school-home-actions pricing-states"><a className="btn secondary" href="/hire-caregivers/maryland">Hire caregivers in Maryland</a></div>
       </div></section>
     </main>
     <SiteFooter/>

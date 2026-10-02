@@ -340,3 +340,21 @@ a{color:inherit;text-decoration:none}
 .nav .nav-inner,.app-header .header-inner{width:min(1180px,calc(100% - 48px));max-width:none;margin:0 auto;min-height:58px;padding:8px 10px 8px 18px!important}
 .app-nav .account-menu-button,.navlinks .account-menu-button{min-height:38px}
 @media(max-width:760px){.nav .nav-inner,.app-header .header-inner{width:calc(100% - 24px);padding:8px 8px 8px 14px!important;border-radius:24px}}
+
+/* Pricing: copy on the left, plan card on the right (JobPlots layout) */
+.pricing-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(340px,.9fr);gap:56px;align-items:start}
+.pricing-hero h1{max-width:620px}
+.pricing-hero p{max-width:600px}
+.plan-card{border:1px solid var(--lavender);border-radius:26px;padding:28px;background:rgba(255,255,255,.86);box-shadow:0 10px 28px rgba(41,32,89,.055)}
+.plan-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.plan-head h2{font-family:var(--display);font-size:34px;line-height:1.02;font-weight:400;letter-spacing:-.03em;margin:0}
+.plan-note{display:block;margin-top:6px;font-size:14px;font-weight:600;color:var(--green)}
+.plan-price{text-align:right}
+.plan-price strong{font-family:var(--display);font-size:40px;font-weight:400;letter-spacing:-.03em;line-height:1}
+.plan-price span{display:block;font-size:14px;color:var(--muted);margin-top:4px}
+.plan-cta{width:100%;min-height:52px;font-size:16px;margin:24px 0 8px}
+.plan-list{list-style:none;margin:0;padding:0}
+.plan-list li{position:relative;padding:14px 0 14px 34px;border-top:1px solid #e7e1f5;font-size:15px;line-height:1.5}
+.plan-list li::before{content:"✓";position:absolute;left:0;top:14px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;display:grid;place-items:center}
+.pricing-states{flex-direction:row;align-items:flex-start}
+@media(max-width:860px){.pricing-grid{grid-template-columns:1fr;gap:28px}}

@@ -63,7 +63,7 @@ export function MarylandCaregiverPage(){
   const place=hub?.city?hub.city+', '+state.code:state.name;
 
   return <div>
-    <SiteHeader jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
+    <SiteHeader jobsHref={jobsHubPath(state)}/>
 
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
@@ -141,6 +141,6 @@ export function MarylandCaregiverPage(){
       </div></section>
     </main>
 
-    <SiteFooter jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
+    <SiteFooter jobsHref={jobsHubPath(state)}/>
   </div>;
 }

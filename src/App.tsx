@@ -18,6 +18,7 @@ const MarylandSchoolsPage=named(()=>import('./MarylandSchoolsPage'),'MarylandSch
 const TrainingOrganizationPage=named(()=>import('./TrainingOrganizationPage'),'TrainingOrganizationPage');
 const EmployerRecruitingPage=named(()=>import('./PublicInfoPages'),'EmployerRecruitingPage');
 const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage');
+const PricingPage=named(()=>import('./PublicInfoPages'),'PricingPage');
 const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
 const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
@@ -37,6 +38,7 @@ function routePage(path:string){
   if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
   if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
   if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;
+  if (path === '/pricing') return <PricingPage />;
   if (path.startsWith('/activate')) return <CaregiverActivation />;
   if (path.startsWith('/auth')) return <EmployerAuth />;
   if (path.startsWith('/respond')) return <CandidateResponse />;

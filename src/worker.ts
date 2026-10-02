@@ -172,6 +172,7 @@ async function careJoysChildSitemap(env:Env,name:string){
     const entries:SitemapEntry[]=[
       {url:SEO_ORIGIN+"/"},
       {url:SEO_ORIGIN+"/about"},
+      {url:SEO_ORIGIN+"/pricing"},
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
@@ -390,6 +391,14 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:"/agent",
       snapshot:'<main><h1>Use CareJoys from Claude or ChatGPT</h1><p>Add the CareJoys MCP server to your AI assistant to search current caregiver jobs at home-care agencies and send your profile to the ones you pick.</p><p>Server URL: <code>https://carejoys.com/api/mcp</code></p><p>Nothing is sent to an agency until you press Send in the email CareJoys sends you.</p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/agent","name":"CareJoys for Claude and ChatGPT","isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+    });
+  }
+  if(url.pathname==="/pricing"){
+    return seoAsset(request,env,{
+      title:"Pricing for Caregiver Hiring | CareJoys",
+      description:"CareJoys is free to start: post openings and see matched local caregivers at no cost, then contact caregivers with a monthly subscription.",
+      canonical:"/pricing",
+      snapshot:'<main><h1>Hire caregivers who want the job.</h1><p>CareJoys matches your opening with local CNAs, GNAs, HHAs, PCAs and caregivers, confirms who is interested, and lets them book your interview times.</p>'+pricingHtml(env)+'<p><a href="/find-caregivers">Find caregivers free</a> · <a href="/hire-caregivers/maryland">Hire caregivers in Maryland</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
