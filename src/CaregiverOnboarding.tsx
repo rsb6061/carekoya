@@ -39,14 +39,21 @@ function inferState(zip:string){
   return zip&&prefix>=206&&prefix<=219?'MD':'';
 }
 const phoneOk=(value:string)=>{const d=value.replace(/\D/g,'');return d.length===10||(d.length===11&&d.startsWith('1'))};
-// The parsed resume survives a sign-in redirect (popup blocked) in this tab's sessionStorage.
+// The parsed resume survives the trip to the emailed sign-in link, which often opens in a new tab, for up to two hours.
 const DRAFT_KEY='carejoys:onboarding-draft';
-type Draft={form:ResumeForm;parsed:ParsedResume|null;fileMeta:{name:string;type:string;size:number}|null;resubmit:boolean};
+const DRAFT_MS=2*3600000;
+type Draft={form:ResumeForm;parsed:ParsedResume|null;fileMeta:{name:string;type:string;size:number}|null;resubmit:boolean;savedAt?:number};
 function readDraft():Draft|null{
-  try{const raw=sessionStorage.getItem(DRAFT_KEY);return raw?JSON.parse(raw) as Draft:null}catch{return null}
+  try{
+    const raw=localStorage.getItem(DRAFT_KEY);
+    const draft=raw?JSON.parse(raw) as Draft:null;
+    if(draft&&Date.now()-(draft.savedAt||0)<DRAFT_MS)return draft;
+    localStorage.removeItem(DRAFT_KEY);
+    return null;
+  }catch{return null}
 }
 function writeDraft(draft:Draft|null){
-  try{if(draft)sessionStorage.setItem(DRAFT_KEY,JSON.stringify(draft));else sessionStorage.removeItem(DRAFT_KEY)}catch{}
+  try{if(draft)localStorage.setItem(DRAFT_KEY,JSON.stringify({...draft,savedAt:Date.now()}));else localStorage.removeItem(DRAFT_KEY)}catch{}
 }
 function summaryValue(label:string,value:string){
   return value?<span className="onboarding-summary-item"><strong>{label}</strong>{value}</span>:null;
@@ -137,7 +144,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     if(stage!=='success')writeDraft({form,parsed,fileMeta,resubmit:stage==='auth'});
     try{
       if(kind==='google')await auth.loginGoogle();
-      else await auth.loginEmail();
+      else await auth.loginEmail({email:form.email,next:stage==='success'?'/me':window.location.pathname+window.location.search});
       if(stage==='auth')setPendingResubmit(true);
       return true;
     }catch(error){
@@ -246,8 +253,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <strong>Come back to your matches anytime</strong>
           <span>Sign in once to see employer invites, update availability and track applications.</span>
           <div className="auth-choice">
-            <button className="btn secondary auth-google" onClick={async()=>{if(await login('google'))window.location.href='/me'}}>Continue with Google</button>
-            <button className="text-button" onClick={async()=>{if(await login('email'))window.location.href='/me'}}>Use email instead</button>
+            <button className="btn secondary" onClick={()=>void login('email')}>Email me a sign-in link</button>
+            {auth.googleAvailable&&<button className="text-button auth-google" onClick={async()=>{if(await login('google'))window.location.href='/me'}}>Continue with Google</button>}
           </div>
         </div>}
       </div>
@@ -259,11 +266,11 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       <div className="onboarding-auth">
         <div className="modal-kicker">Welcome back</div>
         <h2>You already have a CareJoys profile.</h2>
-        <p>Sign in with the same email to update it. Your answers are saved and will be sent as soon as you’re signed in.</p>
+        <p>Sign in with the same email to update it. We’ll email you a link; your answers are saved and will be sent as soon as you’re signed in.</p>
         {fileMeta&&<div className="resume-file-meta">{fileMeta.name} · {foundCount} profile details found</div>}
         <div className="auth-choice">
-          <button className="btn auth-google" onClick={()=>login('google')}>Continue with Google</button>
-          <button className="btn secondary" onClick={()=>login('email')}>Continue with email</button>
+          <button className="btn" onClick={()=>login('email')}>Email me a sign-in link</button>
+          {auth.googleAvailable&&<button className="btn secondary auth-google" onClick={()=>login('google')}>Continue with Google</button>}
         </div>
         <button className="text-button" onClick={()=>{setStage('profile');setEditParsed(true);setMessage('')}}>Use a different email</button>
         {status==='error'&&<div className="notice">{message}</div>}

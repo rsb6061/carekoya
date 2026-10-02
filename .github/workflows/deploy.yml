@@ -77,7 +77,10 @@ jobs:
           echo "CareJoys favicon:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/favicon.png >/dev/null
           HOME_HEAD=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
-          echo "$HOME_HEAD" | grep -q '/favicon.png?v=2'
+          echo "$HOME_HEAD" | grep -q 'rel="icon" type="image/png" sizes="96x96" href="/favicon.png'
+          echo "Shared sign-in:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/login >/dev/null
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/account | jq -e '.ok == true and .signedIn == false' >/dev/null
           echo "Legal routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null

@@ -1,8 +1,9 @@
+import { accountSession, accountStatus, logoutEverywhere, requestLogin, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, payText, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
-import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, logoutEmployer, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
+import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
@@ -15,7 +16,7 @@ import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
-import { bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -70,7 +71,14 @@ function base64UrlBytes(value:string){
 function base64UrlJson(value:string){
   try{return JSON.parse(new TextDecoder().decode(base64UrlBytes(value))) as Record<string,unknown>}catch{return null}
 }
+/** The signed-in caregiver identity: an Auth0 token when one is sent, otherwise the CareJoys email sign-in. */
 async function caregiverAuthIdentity(request:Request,env:Env){
+  const viaAuth0=await auth0Identity(request,env);
+  if(viaAuth0)return viaAuth0;
+  const account=await accountSession(request,env);
+  return account?{sub:EMAIL_SUB_PREFIX+account.email,email:account.email,emailVerified:true,name:""}:null;
+}
+async function auth0Identity(request:Request,env:Env){
   if(!env.AUTH0_DOMAIN||!env.AUTH0_CLIENT_ID)return null;
   const auth=request.headers.get('authorization')||'';
   const token=auth.startsWith('Bearer ')?auth.slice(7).trim():'';
@@ -533,7 +541,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/me"||url.pathname.startsWith("/me/")||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/me"||url.pathname.startsWith("/me/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
@@ -708,6 +716,22 @@ async function handleEmployer(request: Request, env: Env) {
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   const state=await stateForZip(env.DB,intake.zip);
   const outOfArea=!!state&&state!=="MD";
+  // Already signed in with this email (e.g. from /welcome): the email is proven, so open the workspace now instead of emailing a link.
+  const account=await accountSession(request,env);
+  if(account&&account.email===email){
+    let employerId=existing?.id;
+    let redirect:string|null;
+    if(employerId){
+      redirect=await applyPendingEmployerIntake(env,employerId,{kind:"employer_intake",...intake});
+    }else{
+      employerId=crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
+        .bind(employerId,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes).run();
+      redirect="/app?opening="+encodeURIComponent(await createIntakeOpening(env,employerId,intake))+"&match=1";
+    }
+    const session=await startEmployerSession(env,employerId);
+    return json({ok:true,email,outOfArea,redirect:redirect||"/app"},{status:201,headers:{"Set-Cookie":employerSessionCookie(session)}});
+  }
   if(existing){
     // Anyone can type an existing employer's email, so nothing changes on that account until the emailed link is clicked.
     await sendEmployerMagicLink(env,existing.id,"/app",{kind:"employer_intake",...intake});
@@ -848,7 +872,7 @@ async function handleCaregiver(request: Request, env: Env) {
   const smsAt=smsConsent?new Date().toISOString():null;
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   // This form has no sign-in, so it may create a profile but never change one that already exists.
-  if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/me to update it."},{status:409});
+  if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/login to update it."},{status:409});
   const proposedId=crypto.randomUUID();
 
   if(!initiallyExisting){
@@ -926,8 +950,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const state=(clean(data!.state,2).toUpperCase()||await stateForZip(env.DB,zip)||"").slice(0,2);
   if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
 
-  const authExisting=authIdentity?.sub
-    ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? LIMIT 1").bind(authIdentity.sub).first<{id:string}>()
+  const auth0Sub=auth0SubOf(authIdentity);
+  const authExisting=auth0Sub
+    ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? LIMIT 1").bind(auth0Sub).first<{id:string}>()
     :null;
   const emailExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const initiallyExisting=authExisting||emailExisting;
@@ -937,7 +962,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   }
   const proposedId=initiallyExisting?.id||crypto.randomUUID();
   // Only attach this Auth0 login to an existing email-matched profile when Auth0 verified the email; the sub unlocks /me.
-  const linkSub=authIdentity?.sub&&(authExisting||!emailExisting||authIdentity.emailVerified)?authIdentity.sub:null;
+  const linkSub=auth0Sub&&(authExisting||!emailExisting||authIdentity?.emailVerified)?auth0Sub:null;
 
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
@@ -956,12 +981,12 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   if(!initiallyExisting){
     await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt,authIdentity?.sub||null,authIdentity?.emailVerified?1:0).run();
+        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
 
-  const canonical=authIdentity?.sub
+  const canonical=auth0Sub
     ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? OR lower(trim(email))=? ORDER BY CASE WHEN auth0_sub=? THEN 0 ELSE 1 END LIMIT 1")
-      .bind(authIdentity.sub,email,authIdentity.sub).first<{id:string}>()
+      .bind(auth0Sub,email,auth0Sub).first<{id:string}>()
     :await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
@@ -1342,7 +1367,11 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
     if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake));
     if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/auth/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEmployer(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/login/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestLogin(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/login/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyLogin(request,env); }
+    if(request.method==="GET"&&url.pathname==="/api/account") return accountStatus(request,env);
+    // Signing out anywhere signs this browser out of CareJoys entirely, whichever dashboard it was on.
+    if(request.method==="POST"&&(url.pathname==="/api/logout"||url.pathname==="/api/auth/logout")){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return logoutEverywhere(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env,ctx);

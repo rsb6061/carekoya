@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
-import { TurnstileField } from './TurnstileField';
+import { IntakeModal, type FormKind, type EmployerPreset } from './IntakeModal';
 import { parseJobsHubPath } from './usStates';
 
 // Each page is its own chunk so a visitor only downloads the page they opened.
@@ -25,110 +25,9 @@ const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
 const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
 const CaregiverDashboard=named(()=>import('./CaregiverDashboard'),'CaregiverDashboard');
 const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
-
-type FormKind = 'employer' | 'school' | null;
-
-type EmployerPreset = { role?: string; zip?: string };
-
-async function submitJson(path: string, data: Record<string, unknown>) {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  const body = await response.json() as {
-    ok?: boolean;
-    error?: string;
-    workspaceId?: string;
-    workspaceUrl?: string;
-    matchedOrganizations?: number;
-    matchedOpenings?: number;
-    existing?: boolean;
-    outOfArea?: boolean;
-  };
-  if (!response.ok) throw new Error(body.error || 'Something went wrong');
-  return body;
-}
-
-function IntakeModal({
-  kind,
-  onClose,
-  employerPreset
-}: {
-  kind: Exclude<FormKind, null>;
-  onClose: () => void;
-  employerPreset?: EmployerPreset;
-}) {
-  const [status, setStatus] = useState<'idle'|'saving'|'success'|'error'>('idle');
-  const [message, setMessage] = useState('');
-  const [turnstileToken, setTurnstileToken] = useState('');
-
-  const titles = {
-    employer: ['Find caregivers', 'Tell us who you need. CareJoys will create the opening, match local caregivers, and email you a secure link to review matches.'],
-    school: ['Request program addition', 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.']
-  } as const;
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus('saving');
-    setMessage('');
-    const fd = new FormData(event.currentTarget);
-    const data = Object.fromEntries(fd.entries()) as Record<string, unknown>;
-    data.turnstileToken = turnstileToken;
-
-    try {
-      const result = await submitJson(
-        kind === 'employer' ? '/api/employers' : '/api/schools',
-        data
-      );
-      if (kind === 'employer') {
-        setMessage('Check your email. The secure link takes you straight to your matches.'+(result.outOfArea?' CareJoys is newest outside Maryland, so your first matches may be fewer while caregivers in your area join.':''));
-      }
-      setStatus('success');
-    } catch (error) {
-      setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Something went wrong');
-    }
-  }
-
-  return <div className="modal-backdrop" onMouseDown={onClose}>
-    <div className="modal-panel" onMouseDown={e => e.stopPropagation()}>
-      <button className="modal-close" onClick={onClose} aria-label="Close">×</button>
-      {status === 'success' ? <div className="modal-success">
-        <div className="success-mark">✓</div>
-        <h2>{kind === 'employer' ? 'Check your email.' : 'Thanks, we have it.'}</h2>
-        <p>{kind === 'employer' ? (message || 'We sent a secure sign-in link to your email.')  : 'We received your information. CareJoys will use it to start the right next step for you.'}</p>
-        <button className="btn" onClick={onClose}>Done</button>
-      </div> : <>
-        <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
-        <h2>{titles[kind][0]}</h2>
-        <p className="modal-intro">{titles[kind][1]}</p>
-        <form className="intake-form" onSubmit={handleSubmit}>
-          {kind === 'employer' && <>
-            <label>Company name<input name="companyName" required /></label>
-            <label>Your name<input name="contactName" required /></label>
-            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
-            <div className="form-grid"><label>Hiring ZIP<input name="zip" inputMode="numeric" required defaultValue={employerPreset?.zip || ''} /></label><label>Role needed<select name="rolesNeeded" required defaultValue={employerPreset?.role || ''}><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>DSP</option></select></label></div>
-            <div className="form-grid"><label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Transportation<select name="transportationRequired" defaultValue=""><option value="">Not specified</option><option value="yes">Required</option><option value="no">Not required</option></select></label></div>
-            <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" min="0" /></label><label>Max pay / hr<input type="number" name="payMax" min="0" /></label></div>
-            <label>Must-have requirements<textarea name="hiringNotes" rows={3} placeholder="Experience, credential, schedule, client requirements..." /></label>
-          </>}
-          {kind === 'school' && <>
-            <label>School / program name<input name="organizationName" required /></label>
-            <label>Your name<input name="contactName" required /></label>
-            <div className="form-grid"><label>Email<input type="email" name="email" required /></label><label>Phone<input name="phone" /></label></div>
-            <div className="form-grid"><label>City<input name="city" /></label><label>State<input name="state" /></label></div>
-            <div className="form-grid"><label>Programs<input name="programTypes" placeholder="CNA, HHA..." /></label><label>Graduates per year<input name="graduatingCount" inputMode="numeric" /></label></div>
-            <label>Notes<textarea name="notes" rows={4} placeholder="Cohort timing, placement process, employer partners..." /></label>
-          </>}
-          <TurnstileField onToken={setTurnstileToken} />
-          {status === 'error' && <div className="notice">{message}</div>}
-          <button className="btn submit-button" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : 'Request addition'}</button>
-        </form>
-      </>}
-    </div>
-  </div>;
-}
+const LoginPage=named(()=>import('./LoginPage'),'LoginPage');
+const SignInLinkPage=named(()=>import('./LoginPage'),'SignInLinkPage');
+const WelcomePage=named(()=>import('./LoginPage'),'WelcomePage');
 
 function routePage(path:string){
   if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
@@ -153,6 +52,9 @@ function routePage(path:string){
   if (path.startsWith('/app')) return <EmployerWorkspace />;
   if (path === '/me' || path.startsWith('/me/')) return <CaregiverDashboard />;
   if (path.startsWith('/admin')) return <AdminConsole />;
+  if (path === '/login' || path === '/signup') return <LoginPage />;
+  if (path === '/signin') return <SignInLinkPage />;
+  if (path === '/welcome') return <WelcomePage />;
   return null;
 }
 
@@ -197,7 +99,7 @@ function Home() {
           <a className="hide-sm" href="/about">How it works</a>
           <a className="hide-sm" href="/caregiver-jobs/maryland">Caregiver jobs</a>
           <a className="hide-sm" href="/training-programs/maryland">Training programs</a>
-          <a className="hide-sm" href="/me">Caregiver sign in</a>
+          <a href="/login">Sign in</a>
           <a href="/hire-caregivers/maryland">For employers</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>

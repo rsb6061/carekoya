@@ -31,7 +31,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing']){
+  for(const t of ['candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -370,5 +370,78 @@ describe('DataForSEO pull in the Worker', ()=>{
     const row=await status('nocreds') as any;
     expect(row.status).toBe('failed');
     expect(row.error).toMatch(/DATAFORSEO_LOGIN/);
+  });
+});
+
+describe('shared sign-in', ()=>{
+  const ACCOUNT=/__Host-cj_account=([^;]+)/;
+  async function signIn(email:string,next=''){
+    sent.length=0;
+    const requested=await post('/api/login/request',{email,next});
+    expect(requested.status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual([email]);
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token});
+    expect(verified.status).toBe(200);
+    const cookies=verified.headers.get('set-cookie')||'';
+    const account=decodeURIComponent(cookies.match(ACCOUNT)![1]);
+    const employer=cookies.match(/__Host-cj_session=([^;]+)/);
+    const cookie='__Host-cj_account='+account+(employer?'; __Host-cj_session='+employer[1]:'');
+    return {body:await verified.json() as any,cookie,token};
+  }
+
+  it('a caregiver signs in by email and lands on their dashboard', async()=>{
+    const {body,cookie,token}=await signIn('baltimore@example.com');
+    expect(body.redirect).toBe('/me');
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.caregiver.id).toBe('baltimore');
+    // An email sign-in is not an Auth0 subject, so nothing is written there.
+    expect(await DB.prepare("SELECT auth0_sub FROM caregivers WHERE id='baltimore'").first()).toEqual({auth0_sub:null});
+    // Links work once.
+    expect((await post('/api/login/verify',{token})).status).toBe(400);
+  });
+
+  it('a signed-in caregiver can update the profile that blocked an anonymous resubmit', async()=>{
+    const {cookie}=await signIn('towson@example.com');
+    const res=await post('/api/caregiver-resume',{firstName:'Tia',lastName:'Test',email:'towson@example.com',phone:'4105550101',zip:'21204',role:'GNA'},{cookie});
+    expect(res.status).toBe(200);
+    expect(await DB.prepare("SELECT first_name,role FROM caregivers WHERE id='towson'").first()).toEqual({first_name:'Tia',role:'GNA'});
+  });
+
+  it('an agency or employer lands in the hiring workspace with the same sign-in', async()=>{
+    const {body,cookie}=await signIn('pat@acme.test');
+    expect(body.redirect).toBe('/app');
+    expect(body.roles).toEqual({caregiver:false,employer:true,admin:false});
+    const session=await (await call('/api/session',{headers:{cookie}})).json() as any;
+    expect(session.employer.id).toBe('emp1');
+  });
+
+  it('a new email lands on the welcome page and can set up hiring without a second email', async()=>{
+    const {body,cookie}=await signIn('new.owner@homecare.test','/app');
+    expect(body.redirect).toBe('/welcome');
+    const account=await (await call('/api/account',{headers:{cookie}})).json() as any;
+    expect(account).toMatchObject({signedIn:true,email:'new.owner@homecare.test',roles:{caregiver:false,employer:false}});
+    sent.length=0;
+    const res=await post('/api/employers',{companyName:'Home Care Co',contactName:'Nia',email:'new.owner@homecare.test',zip:'21201',rolesNeeded:'CNA'},{cookie});
+    expect(res.status).toBe(201);
+    const created=await res.json() as any;
+    expect(created.redirect).toContain('/app?opening=');
+    expect(sent.length).toBe(0);
+    expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.employer).toBe(true);
+  });
+
+  it('never sends anyone off-site or into /admin without being an admin', async()=>{
+    expect((await signIn('ada.new@example.com','//evil.example/x')).body.redirect).toBe('/me');
+    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/welcome');
+    expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
+  });
+
+  it('signing out ends every session in the browser', async()=>{
+    const {cookie}=await signIn('pat@acme.test');
+    const out=await call('/api/logout',{method:'POST',headers:{cookie}});
+    expect(out.headers.get('set-cookie')).toContain('__Host-cj_account=;');
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).signedIn).toBe(false);
+    expect((await call('/api/session',{headers:{cookie}})).status).toBe(401);
   });
 });

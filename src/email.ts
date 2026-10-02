@@ -55,6 +55,19 @@ export function employerMagicLinkEmail(name:string, link:string) {
   };
 }
 
+export function loginLinkEmail(link: string) {
+  const url=esc(link);
+  return {
+    subject:'Your CareJoys sign-in link',
+    html:shell('Sign in to CareJoys',`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi there,</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Use this secure link to sign in to CareJoys. It expires in 60 minutes and can only be used once.</p>
+      <p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Sign in to CareJoys</a></p>
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">If you did not request this link, you can ignore this email.</p>`),
+    text:`Hi there,\n\nUse this secure link to sign in to CareJoys. It expires in 60 minutes and can only be used once:\n\n${link}\n\nIf you did not request this link, ignore this email.\n\nCareJoys · carejoys.com`
+  };
+}
+
 export function caregiverActivationEmail(firstName: string, link: string) {
   const name=esc(firstName||'there');
   const url=esc(link);

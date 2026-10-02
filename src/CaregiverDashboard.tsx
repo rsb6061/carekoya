@@ -39,7 +39,7 @@ export function CaregiverDashboard(){
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const token=await auth.getIdToken();
-    const res=await fetch(path,{...init,headers:{'content-type':'application/json',authorization:'Bearer '+token,...(init?.headers||{})}});
+    const res=await fetch(path,{...init,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),...(init?.headers||{})}});
     const body=await res.json() as T&{error?:string};
     if(!res.ok)throw new Error(body.error||'Request failed');
     return body;
@@ -65,16 +65,17 @@ export function CaregiverDashboard(){
 
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
 
-  if(!auth.configured||!auth.isAuthenticated)return <div className="app-empty"><div className="app-wrap">
+  if(!auth.isAuthenticated)return <div className="app-empty"><div className="app-wrap">
     <a href="/" className="text-link">← Back to CareJoys</a>
     <div className="beta-hero app-empty-card">
       <div className="modal-kicker">For caregivers</div>
       <h1>Your CareJoys jobs.</h1>
       <p>Sign in to see employer invitations, book interviews, and keep your availability current.</p>
-      {auth.configured?<div className="empty-actions">
-        <button className="button" onClick={()=>void auth.loginGoogle()}>Continue with Google</button>
-        <button className="button secondary" onClick={()=>void auth.loginEmail()}>Sign in with email</button>
-      </div>:<p className="notice">Caregiver sign-in is not available right now.</p>}
+      <div className="empty-actions">
+        <button className="button" onClick={()=>void auth.loginEmail({next:'/me'})}>Sign in with email</button>
+        {auth.googleAvailable&&<button className="button secondary" onClick={()=>void auth.loginGoogle()}>Continue with Google</button>}
+      </div>
+      <p className="login-alt">New to CareJoys? <a className="text-link" href="/caregiver-resume">Build your profile</a> first.</p>
     </div>
   </div></div>;
 
