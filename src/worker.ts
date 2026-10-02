@@ -17,7 +17,7 @@ import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
-import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -1175,7 +1175,11 @@ async function searchCandidates(url: URL, env: Env) {
     rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
     rows.sort((a,b)=>(ageDays(a.c.last_confirmed_at)??9999)-(ageDays(b.c.last_confirmed_at)??9999)||(a.distanceMiles!-b.distanceMiles!));
   }
-  return json({ok:true,total:rows.length,radiusMiles:center?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>({
+  return json({ok:true,total:rows.length,radiusMiles:center?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
+}
+/** One caregiver as employers see them in Talent network search. The caregiver's own preview uses the same shape. */
+function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
+  return {
     id:c.id,
     name:publicName(c.first_name,c.last_name,c.display_name),
     city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:c.certifications,specialties:c.specialties,languages:c.languages,
@@ -1183,7 +1187,16 @@ async function searchCandidates(url: URL, env: Env) {
     shifts:c.shift_preferences,travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
     distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
-  }))});
+  };
+}
+/** The signed-in caregiver's own card exactly as employers see it, and whether search shows it at all. */
+async function myEmployerView(env:Env,identity:Parameters<typeof caregiverForIdentity>[1]){
+  if(!identity)return json({ok:false,error:"Sign in required"},{status:401});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
+  const c=await env.DB!.prepare(`SELECT c.*,(${SEARCHABLE_CAREGIVER}) AS searchable FROM caregivers c WHERE c.id=?`).bind(caregiverId).first<Record<string,unknown>>();
+  if(!c)return json({ok:false,error:"No caregiver profile yet"},{status:404});
+  return json({ok:true,visible:Number(c.searchable)===1,candidate:talentCandidate(c,null)});
 }
 async function getWorkspace(id:string, env:Env) {
   const workspace=await requireWorkspace(env,id);
@@ -1355,6 +1368,7 @@ export default {
       if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));
       const meApply=url.pathname.match(/^\/api\/me\/apply\/([^/]+)$/);
       if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
+      if(request.method==="GET"&&url.pathname==="/api/me/employer-view") return myEmployerView(env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/profile") return updateCaregiverProfile(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_profile"));
       if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
       const invite=url.pathname.match(/^\/api\/me\/invites\/([^/]+)\/(respond|book)$/);

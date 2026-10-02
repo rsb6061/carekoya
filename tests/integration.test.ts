@@ -474,6 +474,16 @@ describe('shared sign-in', ()=>{
     expect(me.caregiver.workConditions).toEqual(['pets']);
   });
 
+  it('a caregiver previews their card exactly as employers see it, without contact details', async()=>{
+    expect((await call('/api/me/employer-view')).status).toBe(401);
+    const {cookie}=await signIn('baltimore@example.com');
+    const view=await (await call('/api/me/employer-view',{headers:{cookie}})).json() as any;
+    expect(view.visible).toBe(true);
+    expect(view.candidate.name).toBe('Bea M.');
+    expect(view.candidate.shifts).toBe('Mornings, Overnights, Weekends, Live-in');
+    expect(JSON.stringify(view)).not.toMatch(/4105550123|baltimore@example\.com/);
+  });
+
   it('old /me links redirect to the caregiver dashboard at /dashboard', async()=>{
     const res=await call('/me/profile?x=1',{redirect:'manual'});
     expect(res.status).toBe(301);

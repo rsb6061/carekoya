@@ -39,6 +39,7 @@ export function AccountMenu(){
       <div className="account-menu-email">{auth.email}</div>
       {roles.caregiver?<>
         {item('/dashboard','My dashboard')}
+        {item('/dashboard/profile/preview','View my profile')}
         {item('/dashboard/profile','Edit my profile')}
       </>:!roles.employer&&!roles.school&&!roles.admin&&item(homePath(roles,lastDashboard()),'My dashboard')}
       {roles.employer&&item('/app','Hiring workspace')}

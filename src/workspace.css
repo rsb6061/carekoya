@@ -13,7 +13,8 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .page-head p,.beta-hero p{font-size:17px;line-height:1.5;color:#615b74;margin:0}
 .page-head a,.text-link{color:var(--blue);text-decoration-thickness:1px;text-underline-offset:3px}
 .page-head-row{display:flex;justify-content:space-between;align-items:flex-start;gap:24px}
-.header-action{padding-top:2px;flex-shrink:0}
+.header-action{padding-top:2px;flex-shrink:0;display:flex;gap:10px;flex-wrap:wrap}.profile-visibility{margin-top:18px}.profile-visibility p{margin:10px 0 0}
+.profile-save-bar.profile-preview-actions{position:static;background:none;box-shadow:none}
 .alert-status{display:inline-flex;align-items:center;gap:6px;border:1px solid #cfe7d8;background:#edf8f1;color:#286e47;border-radius:999px;font-size:14px;padding:10px 15px;font-weight:600}
 .result-summary{display:flex;gap:10px;align-items:center;margin:34px 0 18px;font-size:16px;flex-wrap:wrap}
 .result-summary span{color:#514b65}
@@ -59,7 +60,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .loading-screen{min-height:100vh;display:grid;place-items:center;color:var(--muted);font-weight:600}
 @media(max-width:760px){
  .app-header{padding:12px 0}.header-inner{border-radius:24px;padding:10px 12px;align-items:center}.app-nav{gap:0;font-size:13px;flex-wrap:wrap;justify-content:flex-end}
- .nav-link,.nav-button{padding:8px 9px}.app-content{padding-top:40px}.page-head h1,.beta-hero h1{font-size:44px}.page-head-row{flex-direction:column}.header-action{width:100%}.header-action .button{width:100%}
+ .nav-link,.nav-button{padding:8px 9px}.app-content{padding-top:40px}.page-head h1,.beta-hero h1{font-size:44px}.page-head-row{flex-direction:column}.header-action{width:100%;flex-direction:column}.header-action .button{width:100%}
  .job-card{border-radius:22px;padding:18px}.job-card-side{align-items:stretch}.job-card-action{width:100%}.talent-filters{grid-template-columns:1fr}.pipeline-select{width:100%}
  .app-empty-card{margin-top:8vh}
 }

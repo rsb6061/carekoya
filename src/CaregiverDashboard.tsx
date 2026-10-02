@@ -7,6 +7,7 @@ import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
+import { TalentCard, type TalentCandidate } from './TalentCard';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -107,11 +108,18 @@ export function CaregiverDashboard(){
   const open=invites.filter(i=>!i.response&&i.stage==='contacted');
   const gaps=profileGaps(c,!!data.resume);
   const editing=window.location.pathname==='/dashboard/profile';
+  const previewing=window.location.pathname==='/dashboard/profile/preview';
+
+  if(previewing)return <div>{header}
+    <main className="app-wrap app-content profile-page">
+      <EmployerViewPreview/>
+    </main>
+  </div>;
 
   if(editing)return <div>{header}
     <main className="app-wrap app-content profile-page">
       <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
-      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/me?saved=1')}}/>
+      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
     </main>
   </div>;
 
@@ -122,7 +130,7 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="header-action"><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
+        <div className="header-action"><a className="button secondary" href="/dashboard/profile/preview">View my profile</a><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
@@ -191,4 +199,32 @@ export function CaregiverDashboard(){
 
     </main>
   </div>;
+}
+
+/** "View my profile": the caregiver's card exactly as employers see it in search. Private, never a public page. */
+function EmployerViewPreview(){
+  const [view,setView]=useState<{visible:boolean;candidate:TalentCandidate}|null>(null);
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    fetch('/api/me/employer-view',{credentials:'include'}).then(async r=>{
+      const body=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(body.error||'Could not load your profile.');
+      setView(body);
+    }).catch(e=>setError(e instanceof Error?e.message:'Could not load your profile.'));
+  },[]);
+  return <>
+    <div className="page-head"><h1>How employers see you</h1><p>This is your card when an approved employer searches CareJoys or you’re matched to their opening. Your profile is not a public web page and doesn’t appear on Google.</p></div>
+    {error&&<div className="notice">{error}</div>}
+    {!view&&!error&&<div className="empty">Loading…</div>}
+    {view&&<>
+      {!view.visible&&<div className="notice">You’re hidden from employer search because your profile says you’re not looking for work. Turn on “Show me to employers as looking” in <a className="text-link" href="/dashboard/profile">your profile</a> to appear again.</div>}
+      <div className="job-list profile-preview"><TalentCard candidate={view.candidate} tone="job-card-sky"/></div>
+      <section className="settings-card profile-visibility">
+        <h3>Who sees what</h3>
+        <p><strong>Employers searching CareJoys</strong> see the card above: your first name and last initial, photo, role, city, shifts, pay and certifications. They can’t see your phone, email or resume.</p>
+        <p><strong>Employers you apply to or say yes to</strong> also get your full name, phone, email and resume, so they can reach you.</p>
+      </section>
+    </>}
+    <div className="profile-save-bar profile-preview-actions"><a className="button" href="/dashboard/profile">Edit my profile</a><a className="text-link" href="/dashboard">Back to dashboard</a></div>
+  </>;
 }
