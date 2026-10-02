@@ -395,6 +395,8 @@ describe('shared sign-in', ()=>{
     expect(body.redirect).toBe('/me');
     const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
     expect(me.caregiver.id).toBe('baltimore');
+    // The whole saved profile comes back, so applying to a job doesn't ask for it again.
+    for(const key of ['firstName','lastName','phone','zip','role','shifts','transportation','specialties'])expect(me.caregiver).toHaveProperty(key);
     // An email sign-in is not an Auth0 subject, so nothing is written there.
     expect(await DB.prepare("SELECT auth0_sub FROM caregivers WHERE id='baltimore'").first()).toEqual({auth0_sub:null});
     // Links work once.

@@ -1,4 +1,5 @@
 import './styles.css';
+import { AccountLink } from './AccountLink';
 
 type Kind='privacy'|'terms';
 
@@ -7,7 +8,7 @@ const updated='October 2, 2026';
 export function LegalPage({kind}:{kind:Kind}){
   const privacy=kind==='privacy';
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/privacy-policy">Privacy</a><a href="/terms-of-service">Terms</a><a id="nav-primary" href="/app">Employer workspace</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/privacy-policy">Privacy</a><a href="/terms-of-service">Terms</a><AccountLink/></nav></div></header>
     <main className="legal-shell"><div className="wrap legal-wrap">
       <div className="legal-kicker">CareJoys</div>
       <h1>{privacy?'Privacy Policy':'Terms of Service'}</h1>

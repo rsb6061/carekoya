@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountLink } from './AccountLink';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { useCaregiverAuth } from './caregiverAuth';
 import { jobsHubPath, usState } from './usStates';
@@ -107,7 +108,7 @@ export function CaregiverJobPage(){
   const hubHref=state?jobsHubPath(state):'/caregiver-jobs/maryland';
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={hubHref}>Caregiver jobs</a><a href="/me">Caregiver sign in</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={hubHref}>Caregiver jobs</a><AccountLink/></nav></div></header>
     <main className="job-detail-shell">
       <div className="wrap job-detail-wrap">
         <a className="text-link job-back-link" href={hubHref}>← All {state?state.name:''} caregiver jobs</a>

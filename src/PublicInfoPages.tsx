@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountLink } from './AccountLink';
 import { AgencyFinder } from './AgencyFinder';
 import { jobsHubPath, usState } from './usStates';
 import './styles.css';
@@ -9,7 +10,7 @@ export function EmployerRecruitingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={jobsHubPath(state)}>Caregiver jobs</a>{isMaryland&&<a href="/training-programs/maryland">Training programs</a>}<a href="/about">About</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={jobsHubPath(state)}>Caregiver jobs</a>{isMaryland&&<a href="/training-programs/maryland">Training programs</a>}<a href="/about">About</a><AccountLink/></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
@@ -63,7 +64,7 @@ export function EmployerRecruitingPage(){
 
 export function AboutCareJoysPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/hire-caregivers/maryland">For employers</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/hire-caregivers/maryland">For employers</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><AccountLink/></nav></div></header>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">About CareJoys</div>
