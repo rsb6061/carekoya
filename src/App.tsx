@@ -28,7 +28,7 @@ const CaregiverDashboard=named(()=>import('./CaregiverDashboard'),'CaregiverDash
 const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
 const LoginPage=named(()=>import('./LoginPage'),'LoginPage');
 const SignInLinkPage=named(()=>import('./LoginPage'),'SignInLinkPage');
-const WelcomePage=named(()=>import('./LoginPage'),'WelcomePage');
+const WelcomeRedirect=named(()=>import('./LoginPage'),'WelcomeRedirect');
 
 function routePage(path:string){
   if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
@@ -55,7 +55,7 @@ function routePage(path:string){
   if (path.startsWith('/admin')) return <AdminConsole />;
   if (path === '/login' || path === '/signup') return <LoginPage />;
   if (path === '/signin') return <SignInLinkPage />;
-  if (path === '/welcome') return <WelcomePage />;
+  if (path === '/welcome') return <WelcomeRedirect />;
   return null;
 }
 
