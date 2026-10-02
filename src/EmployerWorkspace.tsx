@@ -6,6 +6,7 @@ import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
+import { TalentCard, type TalentCandidate } from './TalentCard';
 import './workspace.css';
 
 type Opening={
@@ -19,11 +20,7 @@ type AgencyMatch={
   fitScore:number;freshness?:string;
 };
 type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]};
-type Candidate={
-  id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
-  certifications?:string;specialties?:string;yearsExperience?:number;desiredWage?:string;
-  shifts?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;distanceMiles?:number|null;
-};
+type Candidate=TalentCandidate;
 type PipelineRow={
   id:string;opening_id:string;title:string;opening_role:string;caregiver_id:string;
   name:string;city?:string;state?:string;role?:string;certifications?:string;
@@ -361,11 +358,7 @@ export function EmployerWorkspace(){
           <button className="button">Search</button>
         </form>
         {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Confirmed candidates rank higher in matching.</div></div>:
-        <div className="job-list">{candidates.map((candidate,i)=><article className={'job-card '+cardTone(i)} key={candidate.id}>
-          <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3></div><div className="job-meta">{[candidate.role,candidate.city,candidate.state,candidate.distanceMiles!=null?candidate.distanceMiles+' mi away':''].filter(Boolean).join(' · ')}</div>
-          <div className="job-badges"><span className={candidate.workStatus==='actively_looking'?'status applied':'status'}>{candidate.freshness}</span>{candidate.shifts&&<span className="badge">{candidate.shifts}</span>}{candidate.desiredWage&&<span className="badge">{candidate.desiredWage}</span>}</div>
-          {candidate.certifications&&<div className="job-card-cue">{candidate.certifications}</div>}</div>
-        </article>)}</div>}
+        <div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div>}
       </section>}
 
       {!loading&&workspace&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
