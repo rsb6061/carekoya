@@ -30,23 +30,50 @@ export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIden
   return byEmail.id;
 }
 
-/** Current published jobs within the caregiver's commute radius (or their state when the ZIP has no centroid), newest first. */
+const CREDENTIALS=['cna','gna','hha','pca','dsp','cmt','lpn','rn'];
+const LICENSED=['cna','gna','cmt','lpn','rn'];
+const credentialsIn=(text:string)=>new Set(CREDENTIALS.filter(k=>new RegExp('\\b'+k+'\\b').test(text)));
+
+/** How well a job fits a caregiver (higher is better): credentials first, then pay, distance, hours and freshness. */
+export function jobFit(c:Row,j:Row,distanceMiles:number|null,radius:number,now=Date.now()){
+  let score=0;
+  const mine=credentialsIn([clean(c.role),clean(c.certifications)].join(' ').toLowerCase());
+  const jobText=[clean(j.role),clean(j.title)].join(' ').toLowerCase();
+  const needs=credentialsIn(jobText);
+  if([...needs].some(k=>mine.has(k)))score+=40;
+  else if([...needs].some(k=>LICENSED.includes(k)))score-=30;
+  else score+=20;
+  const myMin=Number(c.hourly_rate_min||0);
+  const jobTop=Number(j.pay_max||j.pay_min||0);
+  const hourly=!clean(j.pay_period)||/hour/i.test(clean(j.pay_period));
+  if(myMin>0&&jobTop>0&&hourly)score+=jobTop>=myMin?15:-15;
+  if(distanceMiles!==null)score+=Math.round(25*Math.max(0,1-distanceMiles/Math.max(radius,1)));
+  const wantHours=clean(c.employment_types).split(',').filter(Boolean);
+  const jobHours=clean(j.employment_type).toLowerCase().replace(/[^a-z]+/g,'_');
+  if(wantHours.length&&jobHours&&wantHours.some(h=>jobHours.includes(h)))score+=5;
+  const posted=Date.parse(clean(j.date_posted)||clean(j.last_seen_at));
+  if(Number.isFinite(posted)){const days=(now-posted)/86400000;score+=days<=7?10:days<=30?5:0}
+  return score;
+}
+
+/** Current published jobs within the caregiver's commute radius (or their state when the ZIP has no centroid), best fit first. */
 export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   if(!env.DB)return [];
   const geo=rowGeo(c);
   const radius=commuteRadiusMiles(c);
-  let jobsSql=`SELECT j.id,j.title,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.date_posted,zg.lat AS geo_lat,zg.lng AS geo_lng
-    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
+  let jobsSql=`SELECT j.id,j.title,j.role,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.employment_type,j.date_posted,j.last_seen_at,o.claimed_employer_id,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0 ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
   const jobArgs:unknown[]=[];
   if(geo){
     const box=boundingBox(geo,radius);
     jobsSql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';jobArgs.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
   }else if(clean(c.state)){jobsSql+=' AND j.state=?';jobArgs.push(clean(c.state))}
-  jobsSql+=" ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted='' THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT 60";
+  jobsSql+=" ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted='' THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT 200";
   const jobRows=await env.DB.prepare(jobsSql).bind(...jobArgs).all<Row>();
-  return (jobRows.results||[]).map(j=>{const g=rowGeo(j);return {j,d:geo&&g?haversineMiles(geo,g):null}})
-    .filter(x=>!geo||(x.d!==null&&x.d<=radius)).slice(0,limit)
-    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,distanceMiles:d===null?null:Math.round(d*10)/10}));
+  return (jobRows.results||[]).map((j,i)=>{const g=rowGeo(j);const d=geo&&g?haversineMiles(geo,g):null;return {j,d,i,fit:jobFit(c,j,d,radius)}})
+    .filter(x=>!geo||(x.d!==null&&x.d<=radius))
+    .sort((a,b)=>b.fit-a.fit||a.i-b.i).slice(0,limit)
+    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:!!clean(j.claimed_employer_id),distanceMiles:d===null?null:Math.round(d*10)/10}));
 }
 
 export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIdentity|null){

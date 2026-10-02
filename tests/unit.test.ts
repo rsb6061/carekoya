@@ -1,3 +1,4 @@
+import { jobFit } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -307,5 +308,20 @@ describe('job pay cleanup', () => {
     expect(tidyTitle('CNA Caregiver in MaryLand')).toBe('CNA Caregiver in Maryland');
     expect(tidyTitle('HOME HEALTH AIDE - HHA')).toBe('Home Health Aide - HHA');
     expect(tidyTitle('Certified Nursing Assistant (CNA)')).toBe('Certified Nursing Assistant (CNA)');
+  });
+});
+
+describe('jobFit', ()=>{
+  const cna={role:'CNA',certifications:'CNA, CPR / First Aid',hourly_rate_min:18,employment_types:'full_time'};
+  it('ranks jobs the caregiver is credentialed for above licensed jobs they are not', ()=>{
+    const cnaJob=jobFit(cna,{role:'CNA',title:'CNA Days',pay_max:20},10,25);
+    const rnJob=jobFit(cna,{role:'RN',title:'RN Case Manager',pay_max:45},2,25);
+    const companion=jobFit(cna,{role:'Caregiver',title:'Companion Caregiver',pay_max:19},10,25);
+    expect(cnaJob).toBeGreaterThan(companion);
+    expect(companion).toBeGreaterThan(rnJob);
+  });
+  it('prefers jobs that meet the minimum pay and are closer', ()=>{
+    expect(jobFit(cna,{role:'CNA',title:'CNA',pay_max:20},10,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA',pay_max:15},10,25));
+    expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
   });
 });
