@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountLink } from './AccountLink';
 import './styles.css';
 
 async function api<T>(path:string):Promise<T>{
@@ -29,7 +30,7 @@ export function TrainingOrganizationPage(){
   const programs=data.programs||[];
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/training-programs/maryland">Maryland programs</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/training-programs/maryland">Maryland programs</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a><AccountLink/></nav></div></header>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Caregiver Training Program · {org.credentialCategories||'CNA/GNA'}</div>

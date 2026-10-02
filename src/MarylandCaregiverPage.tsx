@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountLink } from './AccountLink';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { jobsHubPath, parseJobsHubPath, usState } from './usStates';
 import './styles.css';
@@ -77,7 +78,7 @@ export function MarylandCaregiverPage(){
   return <div>
     <header className="nav"><div className="wrap nav-inner">
       <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="/me">Caregiver sign in</a><a href="/training-programs/maryland">Training programs</a><a href={'/hire-caregivers/'+state.slug}>For employers</a></nav>
+      <nav className="navlinks"><a href="/training-programs/maryland">Training programs</a><a href={'/hire-caregivers/'+state.slug}>For employers</a><AccountLink/></nav>
     </div></header>
 
     <main className="maryland-caregiver-page">
