@@ -45,7 +45,7 @@ const tokenHelp='The requestToken returned by confirm_job_interest.';
 
 export const MCP_TOOLS=[
   tool('search_caregiver_jobs','Search caregiver jobs',
-    'Find current caregiver, CNA, GNA, HHA and PCA jobs at home-care agencies that CareJoys checked on the agency\'s own careers page. Coverage is Maryland today. Each job has the CareJoys page and the agency\'s own application link; canSendProfile says whether CareJoys can send the caregiver\'s profile to that agency. Show the caregiver the options; pass the job ids they pick to prepare_job_interest.',
+    'Find current caregiver, CNA, GNA, HHA and PCA jobs at home-care agencies that CareJoys checked on the agency\'s own careers page. Coverage is the US states where CareJoys has checked agencies; filter by city or ZIP. Each job has the CareJoys page and the agency\'s own application link; canSendProfile says whether CareJoys can send the caregiver\'s profile to that agency. Show the caregiver the options; pass the job ids they pick to prepare_job_interest.',
     {
       role:{type:'string',description:'CNA, GNA, HHA, PCA, DSP or Caregiver.'},
       city:{type:'string',description:'City name, e.g. "Baltimore".'},
@@ -88,7 +88,7 @@ export const MCP_TOOLS=[
     'Whether the caregiver has pressed Send yet, and then each agency\'s progress: waiting, reached out, interview, hired, or not moving forward.',
     {request_token:{type:'string',description:tokenHelp}},['request_token'],READ)
 ];
-export const MCP_INSTRUCTIONS='CareJoys lists current caregiver jobs (CNA, GNA, HHA, PCA) at home-care agencies, checked on each agency\'s own careers page; coverage is Maryland today. Search jobs or agencies and show the options. To send the caregiver\'s profile, collect their name, email, ZIP and role, call prepare_job_interest, show the summary, and call confirm_job_interest only after they say yes. CareJoys then emails the caregiver; no agency is contacted until they press Send. Each job also has the agency\'s own application link if the caregiver prefers to apply directly.';
+export const MCP_INSTRUCTIONS='CareJoys lists current caregiver jobs (CNA, GNA, HHA, PCA) at home-care agencies, checked on each agency\'s own careers page; coverage is the US states where CareJoys has checked agencies, so filter by city or ZIP. Search jobs or agencies and show the options. To send the caregiver\'s profile, collect their name, email, ZIP and role, call prepare_job_interest, show the summary, and call confirm_job_interest only after they say yes. CareJoys then emails the caregiver; no agency is contacted until they press Send. Each job also has the agency\'s own application link if the caregiver prefers to apply directly.';
 
 const payText=(min:unknown,max:unknown,period:unknown)=>payLabel({payMin:min,payMax:max,payPeriod:period})||null;
 function compactJob(r:Row){
@@ -121,7 +121,7 @@ const toolHandlers:Record<string,(env:FeatureEnv,args:Row,ctx:Ctx)=>Promise<unkn
     binds.push(limit);
     const rows=await db.prepare(sql).bind(...binds).all<Row>();
     const jobs=(rows.results||[]).map(compactJob);
-    return {count:jobs.length,jobs,coverage:'Maryland',
+    return {count:jobs.length,jobs,coverage:'US states where CareJoys has checked agencies',
       note:jobs.length?undefined:'No current jobs match. Try fewer filters, a nearby city, or find_hiring_agencies to reach agencies that are hiring without a posted job.'};
   },
   async get_caregiver_job(env,args){
@@ -151,7 +151,7 @@ const toolHandlers:Record<string,(env:FeatureEnv,args:Row,ctx:Ctx)=>Promise<unkn
       openJobs:asNum(r.open_jobs),hiringSignal:clean(r.current_hiring_signal,40)||'unknown',
       respondsOnCareJoys:!!r.claimed_employer_id,canSendProfile:!!asNum(r.reachable),website:clean(r.primary_website,500)||null,careersUrl:clean(r.primary_careers_url,500)||null
     }));
-    return {count:agencies.length,agencies,coverage:'Maryland',
+    return {count:agencies.length,agencies,coverage:'US states where CareJoys has checked agencies',
       note:agencies.length?undefined:'No hiring agencies found there. Try a nearby city or leave out the role.'};
   },
   async prepare_job_interest(env,args,{request}){
@@ -178,7 +178,7 @@ function toolErrorMessage(error:unknown,name:string){
   const message=error instanceof Error?error.message:'';
   if(message&&!INTERNAL_ERROR.test(message))return message;
   console.error('MCP tool failed',name,error);
-  return 'Something went wrong at CareJoys. Try again, or use https://carejoys.com/caregiver-jobs/maryland.';
+  return 'Something went wrong at CareJoys. Try again, or use https://carejoys.com/caregiver-jobs.';
 }
 export function negotiateProtocol(requested:unknown){
   return MCP_PROTOCOL_VERSIONS.includes(String(requested||''))?String(requested):MCP_PROTOCOL_VERSIONS[0];

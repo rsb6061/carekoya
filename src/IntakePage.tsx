@@ -49,7 +49,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     try {
       const result = await submitJson(kind === 'employer' ? '/api/employers' : '/api/schools', data);
       if (result.redirect) { window.location.assign(result.redirect); return; }
-      if (kind === 'employer') setMessage('The secure link in your email takes you straight to your matches.'+(result.outOfArea?' CareJoys is newest outside Maryland, so your first matches may be fewer while caregivers in your area join.':''));
+      if (kind === 'employer') setMessage('The secure link in your email takes you straight to your matches.'+(result.outOfArea?' CareJoys is still growing in your area, so your first matches may be fewer while caregivers near you join.':''));
       setStatus('success');
     } catch (error) {
       setStatus('error');

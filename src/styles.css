@@ -361,3 +361,13 @@ a{color:inherit;text-decoration:none}
 .plan-list li{position:relative;padding:14px 0 14px 34px;border-bottom:1px solid #e7e1f5;font-size:15px;line-height:1.45;font-weight:500}
 .plan-list li::before{content:"✓";position:absolute;left:0;top:15px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;display:grid;place-items:center}
 @media(max-width:900px){.pricing-grid{grid-template-columns:1fr;gap:32px}.plan-card{padding:24px}}
+.search.jobs-search{grid-template-columns:1fr auto;max-width:560px}
+.hub-quick-states{margin-top:16px}
+.hub-quick-states .pill,.hub-other-states a{text-decoration:none}
+.hub-quick-states .pill{color:var(--ink)}
+.hub-other-states{margin:22px 0 0}
+.state-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.state-card{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:14px 16px;border:1px solid var(--lavender);border-radius:16px;background:rgba(255,255,255,.82);color:var(--ink);text-decoration:none}
+.state-card:hover{border-color:var(--blue)}
+.state-card span{font-size:14px;color:var(--muted);white-space:nowrap}
+@media(max-width:760px){.search.jobs-search{grid-template-columns:1fr}.state-grid{grid-template-columns:1fr 1fr}}

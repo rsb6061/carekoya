@@ -271,6 +271,32 @@ describe('audit fixes: SEO responses', ()=>{
     const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
     expect(hub.total).toBeGreaterThan(0);
   });
+  it('/caregiver-jobs lists every state with jobs and the search box resolves places', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-tx','org-test','job-tx','test','https://sunrisecare.test/jobs/2','HHA Weekends','HHA','Sunrise Home Care','San Antonio','TX','78201','current',1)").run();
+    const page=await call('/caregiver-jobs',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<link rel="canonical" href="https://carejoys.com/caregiver-jobs" />');
+    expect(html).toContain('href="/caregiver-jobs/maryland"');
+    expect(html).toContain('href="/caregiver-jobs/texas"');
+    const api=await (await call('/api/public/jobs-national')).json() as any;
+    expect(api.states.map((s:any)=>s.code).sort()).toEqual(['MD','TX']);
+    const go=async(q:string)=>(await call('/caregiver-jobs?q='+encodeURIComponent(q),{},htmlAssets));
+    expect((await go('Texas')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas');
+    expect((await go('md')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/maryland');
+    expect((await go('san antonio')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas/san-antonio');
+    expect((await go('Baltimore, MD')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/maryland/baltimore');
+    expect((await go('Austin TX')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas');
+    // A ZIP or an unknown place stays on the page, out of the index.
+    const zip=await go('21201');
+    expect(zip.status).toBe(200);
+    expect(await zip.text()).toContain('noindex');
+    expect((await go('Nowhereville')).status).toBe(200);
+    const sitemap=await (await call('/sitemaps/locations.xml')).text();
+    expect(sitemap).toContain('<loc>https://carejoys.com/caregiver-jobs</loc>');
+    expect(sitemap).toContain('/caregiver-jobs/texas<');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-tx'").run();
+  });
 });
 
 describe('audit fixes: agency self-serve', ()=>{

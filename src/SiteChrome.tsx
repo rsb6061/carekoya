@@ -7,7 +7,7 @@ type Links={jobsHref?:string;showTraining?:boolean};
 /** Phones only have room for one section link: caregiver pages keep jobs, employer pages keep employers. */
 type Audience={audience?:'caregiver'|'employer'};
 
-export function SiteHeader({jobsHref='/caregiver-jobs/maryland',audience='caregiver'}:Omit<Links,'showTraining'>&Audience){
+export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver'}:Omit<Links,'showTraining'>&Audience){
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
@@ -18,12 +18,12 @@ export function SiteHeader({jobsHref='/caregiver-jobs/maryland',audience='caregi
   </div></header>;
 }
 
-export function SiteFooter({jobsHref='/caregiver-jobs/maryland',showTraining=true}:Links){
+export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links){
   return <footer className="footer"><div className="wrap footer-inner">
     <div className="footer-brand"><strong>CareJoys</strong><span>Caregivers ready to work. Interviews ready for you.</span></div>
     <nav className="footer-links">
       <a href={jobsHref}>Caregiver jobs</a>
-      {showTraining&&<a href="/training-programs/maryland">Training programs</a>}
+      {showTraining&&<a href="/training-programs/maryland">Maryland training programs</a>}
       <a href="/pricing">For employers</a>
       <a href="/about">About</a>
       <a href="/privacy-policy">Privacy</a>

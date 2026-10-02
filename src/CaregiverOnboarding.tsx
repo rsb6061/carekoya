@@ -3,7 +3,7 @@ import { parseResumeFile, type ParsedResume } from './resumeParser';
 import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
-import { jobsHubPath, usState } from './usStates';
+import { jobsHubPath, stateForZipPrefix, usState } from './usStates';
 
 type ResumeForm={
   firstName:string;lastName:string;email:string;phone:string;zip:string;state:string;role:string;
@@ -38,10 +38,7 @@ function splitName(name:string){
   return {firstName:parts[0]||'',lastName:parts.length>1?parts[parts.length-1]:''};
 }
 // Only used for display; the server works out the state from any US ZIP.
-function inferState(zip:string){
-  const prefix=Number(zip.slice(0,3));
-  return zip&&prefix>=206&&prefix<=219?'MD':'';
-}
+const inferState=(zip:string)=>stateForZipPrefix(zip);
 const phoneOk=(value:string)=>{const d=value.replace(/\D/g,'');return d.length===10||(d.length===11&&d.startsWith('1'))};
 // The parsed resume survives the trip to the emailed sign-in link, which often opens in a new tab, for up to two hours.
 const DRAFT_KEY='carejoys:onboarding-draft';
@@ -288,7 +285,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           </div>
           :auth.isAuthenticated
             ?<a className="btn" href="/dashboard">Open your dashboard</a>
-            :<a className="btn" href={jobsHubPath(usState(form.state)||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
+            :<a className="btn" href={jobsHubPath(usState(form.state)||usState(inferState(form.zip))||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
         {!auth.isAuthenticated&&auth.configured&&<div className="onboarding-save-login">
           <strong>Come back to your matches anytime</strong>
           <span>Sign in once to see employer invites, update availability and track applications.</span>

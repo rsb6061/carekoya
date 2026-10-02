@@ -45,7 +45,7 @@ export function EmployerRecruitingPage(){
 
       <section className="section"><div className="wrap">
         <h2>Caregiver roles CareJoys supports</h2>
-        <div className="jobcta"><div><strong>CNA · {isMaryland?'GNA · ':''}HHA · PCA · Caregiver</strong><span>CareJoys models credentials, experience, work preferences, transportation, and current availability separately from job title so employers can match the actual requirements of the role.</span></div><a className="btn secondary" href="/caregiver-jobs/maryland">Caregiver network</a></div>
+        <div className="jobcta"><div><strong>CNA · {isMaryland?'GNA · ':''}HHA · PCA · Caregiver</strong><span>CareJoys models credentials, experience, work preferences, transportation, and current availability separately from job title so employers can match the actual requirements of the role.</span></div><a className="btn secondary" href={jobsHubPath(state)}>Caregiver jobs in {state.name}</a></div>
       </div></section>
 
       <section className="section"><div className="wrap">
@@ -68,15 +68,15 @@ export function AboutCareJoysPage(){
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">About CareJoys</div>
         <h1>Caregiver recruiting built around current interest, not stale profiles.</h1>
-        <p><strong>CareJoys is a Maryland caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so a hiring need can move from relevant local match to confirmed interest to interview with less manual chasing.</p>
+        <p><strong>CareJoys is a caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so a hiring need can move from relevant local match to confirmed interest to interview with less manual chasing.</p>
       </div></section>
 
       <section className="section"><div className="wrap">
         <h2>What is CareJoys?</h2>
         <div className="jobs">
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/hire-caregivers/maryland">Employer recruiting →</a></div>
-          <div className="job"><div><h3>For caregivers</h3><div className="meta">Create one work profile, keep availability current, and decide which relevant Maryland opportunities you want to pursue.</div></div><a className="text-link" href="/caregiver-jobs/maryland">Find jobs →</a></div>
-          <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.</div></div><a className="text-link" href="/training-programs/maryland">Training programs →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/find-caregivers">Find caregivers →</a></div>
+          <div className="job"><div><h3>For caregivers</h3><div className="meta">Create one work profile, keep availability current, and decide which relevant local opportunities you want to pursue.</div></div><a className="text-link" href="/caregiver-jobs">Find jobs →</a></div>
+          <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.</div></div><a className="text-link" href="/training-programs/maryland">Maryland training programs →</a></div>
         </div>
       </div></section>
 
@@ -87,7 +87,7 @@ export function AboutCareJoysPage(){
 
       <section className="section"><div className="wrap">
         <h2>Current focus</h2>
-        <p>CareJoys is currently focused on Maryland care hiring, including CNA, GNA, HHA, PCA, caregiver, and related direct-care roles. The network is designed to expand by role and geography only where there is enough real employer and caregiver activity to make the matching experience useful.</p>
+        <p>CareJoys started in Maryland and now lists caregiver jobs and home-care agencies in more states, for CNA, GNA, HHA, PCA, caregiver, and related direct-care roles. <a className="text-link" href="/caregiver-jobs">See caregiver jobs by state</a>. The network grows by role and geography where there is enough real employer and caregiver activity to make matching useful; caregiver training-program listings cover Maryland today.</p>
       </div></section>
     </main>
     <SiteFooter/>

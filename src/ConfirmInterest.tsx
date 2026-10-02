@@ -40,7 +40,7 @@ export function ConfirmInterest(){
   }
 
   if(status==='loading')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading…</h1></div></div>;
-  if(status==='error'||!data)return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/caregiver-jobs/maryland">See caregiver jobs</a></div></div>;
+  if(status==='error'||!data)return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/caregiver-jobs">See caregiver jobs</a></div></div>;
   const one=data.targets.length===1;
 
   return <div className="activation-shell">
@@ -51,7 +51,7 @@ export function ConfirmInterest(){
         <div className="activation-kicker">Profile sent</div>
         <h2>{one?data.targets[0].label+' has':'The agencies have'} your profile.</h2>
         <p>They’ll contact you at {data.email}{data.profile?.phone?' or by phone':''}. You can also apply on {one?'their':'each agency’s'} own site.</p>
-        <a className="btn" href="/caregiver-jobs/maryland">See more caregiver jobs</a>
+        <a className="btn" href="/caregiver-jobs">See more caregiver jobs</a>
       </div>:<>
         <div className="activation-kicker">{data.viaAssistant?'Requested through your AI assistant':'Your CareJoys profile'}</div>
         <h1>Send your profile to {one?data.targets[0].label:data.targets.length+' agencies'}?</h1>

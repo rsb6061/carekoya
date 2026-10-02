@@ -89,13 +89,13 @@ export function CaregiverJobPage(){
   }
 
   if(loading)return <main className="job-detail-shell"><div className="wrap"><div className="empty">Loading job…</div></div></main>;
-  if(!job)return <main className="job-detail-shell"><div className="wrap"><a className="text-link" href="/caregiver-jobs/maryland">← Caregiver jobs</a><div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
+  if(!job)return <main className="job-detail-shell"><div className="wrap"><a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a><div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
 
   const location=[job.city,job.state,job.zip].filter(Boolean).join(', ');
   const payText=payLabel(job);
   const description=job.description?descriptionBlocks(job.description):null;
   const state=usState(job.state||'');
-  const hubHref=state?jobsHubPath(state):'/caregiver-jobs/maryland';
+  const hubHref=state?jobsHubPath(state):'/caregiver-jobs';
 
   return <div>
     <SiteHeader jobsHref={hubHref}/>
