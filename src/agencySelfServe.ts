@@ -1,5 +1,6 @@
 import { FREE_MAIL } from './employerApproval';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
+import { TEST_JOB_REASON } from './agencyFeatures';
 
 // Self-serve agency claiming: find your agency, prove you work there, and link it to a CareJoys workspace.
 type Row=Record<string,unknown>;
@@ -185,10 +186,10 @@ export async function agencyJobs(request:Request,env:FeatureEnv){
   if(!org)return json({ok:true,jobs:[]});
   const rows=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.is_published,j.publication_reason,j.last_seen_at,
       (SELECT COUNT(*) FROM caregiver_job_apply_events a WHERE a.caregiver_job_id=j.id) AS apply_clicks
-    FROM caregiver_jobs j WHERE j.agency_organization_id=? AND j.status='current' AND (j.is_published=1 OR j.publication_reason='hidden_by_employer')
-    ORDER BY j.is_published DESC,j.last_seen_at DESC LIMIT 200`).bind(org.id).all<Row>();
+    FROM caregiver_jobs j WHERE j.agency_organization_id=? AND j.status='current' AND (j.is_published=1 OR j.publication_reason IN ('hidden_by_employer',?))
+    ORDER BY j.is_published DESC,j.last_seen_at DESC LIMIT 200`).bind(org.id,TEST_JOB_REASON).all<Row>();
   return json({ok:true,jobs:(rows.results||[]).map(r=>({id:r.id,title:r.title,role:r.role,city:r.city,state:r.state,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,
-    sourceUrl:r.source_url,published:asNum(r.is_published)===1,hidden:r.publication_reason==='hidden_by_employer',lastSeenAt:r.last_seen_at,applyClicks:asNum(r.apply_clicks)}))});
+    sourceUrl:r.source_url,published:asNum(r.is_published)===1||r.publication_reason===TEST_JOB_REASON,hidden:r.publication_reason==='hidden_by_employer',lastSeenAt:r.last_seen_at,applyClicks:asNum(r.apply_clicks)}))});
 }
 
 /** Hide or re-show one of the agency's jobs on CareJoys. Edits belong on the agency's own careers page, which CareJoys re-reads. */
@@ -196,7 +197,7 @@ export async function updateAgencyJob(request:Request,env:FeatureEnv,jobId:strin
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
-  const job=await env.DB.prepare(`SELECT j.id,j.publication_reason FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
+  const job=await env.DB.prepare(`SELECT j.id,j.publication_reason,COALESCE(ao.is_test,0) AS is_test FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
     WHERE j.id=? AND ao.claimed_employer_id=? AND j.status='current' LIMIT 1`).bind(jobId,employer.id).first<Row>();
   if(!job)return json({ok:false,error:'Job not found'},{status:404});
   const data=await request.json().catch(()=>null) as Row|null;
@@ -205,7 +206,9 @@ export async function updateAgencyJob(request:Request,env:FeatureEnv,jobId:strin
     await env.DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='hidden_by_employer',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
   }else if(action==='show'){
     if(job.publication_reason!=='hidden_by_employer')return json({ok:true});
-    await env.DB.prepare("UPDATE caregiver_jobs SET is_published=1,publication_reason='employer_restored',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
+    // A test agency's copied jobs go back to looking live in its panel but are never published.
+    if(asNum(job.is_test)===1)await env.DB.prepare("UPDATE caregiver_jobs SET publication_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(TEST_JOB_REASON,jobId).run();
+    else await env.DB.prepare("UPDATE caregiver_jobs SET is_published=1,publication_reason='employer_restored',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
   }else return json({ok:false,error:'Choose hide or show'},{status:400});
   return json({ok:true});
 }

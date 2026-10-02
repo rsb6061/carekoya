@@ -1162,7 +1162,7 @@ export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal
     FROM agency_job_scan_state scan
     JOIN agency_organizations ao ON ao.id=scan.organization_id
-    WHERE ao.is_active=1
+    WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
       AND scan.last_status IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles')
       AND datetime(scan.last_scanned_at)<datetime("now","-30 minutes")
     ORDER BY CASE scan.last_status WHEN 'job_links_no_relevant_roles' THEN 0 WHEN 'no_job_board_found' THEN 1 ELSE 2 END,
@@ -1211,7 +1211,7 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at
     FROM agency_organizations ao
     LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
-    WHERE ao.is_active=1
+    WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
       AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="")
         OR (ao.primary_website IS NOT NULL AND ao.primary_website!="")
         OR (ao.primary_domain IS NOT NULL AND ao.primary_domain!=""))

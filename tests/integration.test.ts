@@ -445,3 +445,41 @@ describe('shared sign-in', ()=>{
     expect((await call('/api/session',{headers:{cookie}})).status).toBe(401);
   });
 });
+
+describe('agency walkthrough from a real agency', ()=>{
+  const admin=(path:string,body?:object)=>call(path,body?{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify(body)}:{headers:{cookie:'cj_session='+SESSION}},{ADMIN_EMAILS:'pat@acme.test'});
+  beforeAll(async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,primary_email,city,state,zip,provider_types,is_active) VALUES ('org-real','org-real','Harbor Home Health','harbor.test','https://harbor.test','jobs@harbor.test','Towson','MD','21204','Residential Service Agency',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published) VALUES ('job-real','org-real','job-real','test','https://harbor.test/jobs/1','HHA - Weekends','HHA','Harbor Home Health','Towson','MD','21204',17,20,'hour','current',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status) VALUES ('m-real','org-real','towson',80,40,10,15,15,'{}','matched')").run();
+    await DB.prepare("INSERT OR REPLACE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-walk','Walk','Rebecca','rebecca+agency@example.com','21204','HHA','active')").run();
+    await DB.prepare("INSERT OR REPLACE INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-walk','emp-walk',?,?)").bind(await sha256Hex('walk-session'),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('lists real agencies with data and copies one into the hidden test agency', async()=>{
+    const list=await (await admin('/api/admin/agencies?q=harbor')).json() as any;
+    expect(list.agencies[0]).toMatchObject({id:'org-real',name:'Harbor Home Health',jobs:1,matches:1});
+    sent.length=0;
+    const res=await admin('/api/admin/agency-test',{sourceId:'org-real',to:'rebecca+agency@example.com'});
+    expect(res.status).toBe(200);
+    expect((await res.json() as any).result).toMatchObject({agencyName:'Harbor Home Health (test copy)',candidateCount:1,jobCount:1,email:'rebecca+agency@example.com'});
+    // Only the admin's chosen inbox hears about it; the real agency is untouched.
+    expect(sent.map(m=>m.to)).toEqual(['rebecca+agency@example.com']);
+    expect(await DB.prepare("SELECT claimed_employer_id,teaser_send_count FROM agency_organizations WHERE id='org-real'").first()).toEqual({claimed_employer_id:null,teaser_send_count:0});
+    // The copied job never goes public.
+    expect(await DB.prepare("SELECT is_published FROM caregiver_jobs WHERE agency_organization_id='carejoys-test-agency'").first()).toEqual({is_published:0});
+    expect((await call('/jobs/test-job-real',{},htmlAssets)).status).not.toBe(200);
+  });
+
+  it('the claimed copy shows its jobs as live, and hide/show never publishes them', async()=>{
+    await DB.prepare("UPDATE agency_organizations SET claimed_employer_id='emp-walk' WHERE id='carejoys-test-agency'").run();
+    const auth={cookie:'cj_session=walk-session'};
+    const jobs=(await (await call('/api/agency/jobs',{headers:auth})).json() as any).jobs;
+    expect(jobs.map((j:any)=>[j.id,j.published])).toEqual([['test-job-real',true]]);
+    expect((await post('/api/agency/jobs/test-job-real',{action:'hide'},auth)).status).toBe(200);
+    expect((await post('/api/agency/jobs/test-job-real',{action:'show'},auth)).status).toBe(200);
+    expect(await DB.prepare("SELECT is_published,publication_reason FROM caregiver_jobs WHERE id='test-job-real'").first()).toEqual({is_published:0,publication_reason:'test_agency_copy'});
+    expect((await admin('/api/admin/agency-test',{reset:true})).status).toBe(200);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_jobs WHERE agency_organization_id='carejoys-test-agency'").first()).toEqual({n:0});
+  });
+});

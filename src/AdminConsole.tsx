@@ -61,6 +61,8 @@ function Stat({label,value,sub}:{label:string;value:number|string;sub?:string}){
 }
 const grid={display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(170px,100%),1fr))',gap:12} as const;
 
+type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;matches:number;claimed:boolean};
+
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
@@ -102,12 +104,26 @@ export function AdminConsole(){
     finally{setBusy(false)}
   }
 
+  // Walkthrough source: a real agency to copy (its profile, jobs and matches), and the inbox the teaser goes to.
+  const [agencyQuery,setAgencyQuery]=useState('');
+  const [agencyOptions,setAgencyOptions]=useState<AgencyOption[]>([]);
+  const [sourceAgency,setSourceAgency]=useState<AgencyOption|null>(null);
+  const [testEmail,setTestEmail]=useState('');
+  useEffect(()=>{
+    if(needsLogin||!data)return;
+    const t=window.setTimeout(()=>{
+      api<{agencies:AgencyOption[]}>('/api/admin/agencies?q='+encodeURIComponent(agencyQuery)).then(b=>setAgencyOptions(b.agencies)).catch(()=>{});
+    },250);
+    return ()=>window.clearTimeout(t);
+  },[agencyQuery,!!data,needsLogin]);
+
   async function agencyTest(reset=false){
     if(reset&&!window.confirm('Reset the test agency? This removes its claim, hiring profile and pipeline so you can start over.'))return;
     setBusy(true);setNotice('');
     try{
-      const body=await api<{result?:{to?:string;email:string;candidateCount:number}}>('/api/admin/agency-test',{method:'POST',body:JSON.stringify({reset})});
-      setNotice(reset?'Test agency reset.':`Live teaser for CareJoys Test Agency (${body.result!.candidateCount} matched caregivers) sent to ${body.result!.email}.`);
+      const body=await api<{result?:{to?:string;email:string;candidateCount:number;agencyName?:string;jobCount?:number}}>('/api/admin/agency-test',{method:'POST',body:JSON.stringify({reset,sourceId:sourceAgency?.id||'',to:testEmail.trim()})});
+      const r=body.result!;
+      setNotice(reset?'Test agency reset.':`Live teaser for ${r.agencyName||'CareJoys Test Agency'} (${r.candidateCount} matched caregivers, ${r.jobCount||0} jobs) sent to ${r.email}.`);
     }catch(err){setNotice(err instanceof Error?err.message:'Test agency failed')}
     finally{setBusy(false)}
   }
@@ -146,8 +162,15 @@ export function AdminConsole(){
         </div>)}
           <div className="settings-card">
             <div className="job-meta">Agency walkthrough</div>
-            <div style={{fontWeight:600,margin:'6px 0'}}>CareJoys Test Agency</div>
-            <div className="job-meta">A hidden Baltimore agency. Its live teaser comes to you so you can claim it and onboard like a real agency. Never sent to anyone else.</div>
+            <div style={{fontWeight:600,margin:'6px 0'}}>{sourceAgency?sourceAgency.name+' (test copy)':'CareJoys Test Agency'}</div>
+            <div className="job-meta">Pick a real agency below to copy its profile, current jobs and matched caregivers (or none for a generic Baltimore agency). The live teaser comes to you so you can claim it and onboard like that agency would. The real agency is never contacted or changed, and the copy never shows publicly.</div>
+            <input style={{width:'100%',marginTop:10}} className="pipeline-select" value={agencyQuery} onChange={e=>setAgencyQuery(e.target.value)} placeholder="Search agencies (blank = most jobs)" />
+            <div style={{display:'grid',gap:4,marginTop:6,maxHeight:220,overflow:'auto'}}>
+              {agencyOptions.map(a=><button key={a.id} className={'nav-button '+(sourceAgency?.id===a.id?'active':'')} style={{textAlign:'left'}} onClick={()=>setSourceAgency(sourceAgency?.id===a.id?null:a)}>
+                {a.name} · {[a.city,a.state].filter(Boolean).join(', ')} · {a.jobs} jobs · {a.matches} matches{a.claimed?' · claimed':''}
+              </button>)}
+            </div>
+            <input style={{width:'100%',marginTop:8}} className="pipeline-select" type="email" value={testEmail} onChange={e=>setTestEmail(e.target.value)} placeholder="Send to (blank = your admin email), e.g. you+agency@gmail.com" />
             <div className="empty-actions" style={{marginTop:10}}>
               <button className="button secondary" disabled={busy} onClick={()=>void agencyTest()}>Send me a live agency teaser</button>
               <button className="button secondary" disabled={busy} onClick={()=>void agencyTest(true)}>Reset test agency</button>

@@ -79,6 +79,11 @@ jobs:
           HOME_HEAD=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
           echo "$HOME_HEAD" | grep -q 'rel="icon" type="image/png" sizes="96x96" href="/favicon.png'
           echo "Shared sign-in:"
+          # The new version can take a minute to reach every edge, so a new route may still 404 at first.
+          for i in $(seq 1 24); do
+            if curl --connect-timeout 3 --max-time 15 -s -o /dev/null -w '%{http_code}' https://carejoys.com/login | grep -q '^200$'; then break; fi
+            sleep 5
+          done
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/login >/dev/null
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/account | jq -e '.ok == true and .signedIn == false' >/dev/null
           echo "Legal routes:"
