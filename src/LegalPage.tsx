@@ -2,7 +2,7 @@ import './styles.css';
 
 type Kind='privacy'|'terms';
 
-const updated='September 25, 2026';
+const updated='October 2, 2026';
 
 export function LegalPage({kind}:{kind:Kind}){
   const privacy=kind==='privacy';
@@ -27,9 +27,10 @@ function Privacy(){
     <section><h2>5. How we share information</h2><p>We share relevant caregiver profile information with care employers using CareJoys for recruiting. When you ask CareJoys to send your profile to an agency, that agency receives your name, contact details, role and work preferences so it can contact you. We may share information with service providers that help us host, secure, communicate, or operate the platform. We may also disclose information when required by law or to protect the rights, safety, and security of CareJoys, our users, or others. We do not sell personal information to advertisers.</p></section>
     <section><h2>6. Communications</h2><p>We may email you about account access, profile activity, relevant jobs, interview scheduling, or service updates. We send SMS recruiting messages only when you provide SMS consent. Message and data rates may apply, and SMS users can reply STOP to opt out.</p></section>
     <section><h2>7. AI assistants</h2><p>You can use CareJoys through an AI assistant such as Claude or ChatGPT. An assistant can search public job and agency information and prepare to send your profile, but CareJoys sends your profile to an agency only after you press Send in an email we send to your address. Details your assistant gives us, such as your name, email, ZIP, role and work preferences, are used for your CareJoys profile under this policy. The assistant provider's own privacy terms cover what you share with the assistant itself.</p></section>
-    <section><h2>8. Data choices and retention</h2><p>You may ask us to access, correct, or delete information associated with your profile, subject to legal and operational retention requirements. You may update your current availability through CareJoys communications. We retain information for as long as reasonably necessary to provide the service, protect the platform, resolve disputes, and meet legal obligations.</p></section>
-    <section><h2>9. Security</h2><p>We use reasonable administrative and technical safeguards, including protected employer sessions, one-time sign-in links, hashed authentication tokens, rate limiting, and service-provider security controls. No online service can guarantee absolute security.</p></section>
-    <section><h2>10. Contact</h2><p>Questions or privacy requests can be sent to <a href="mailto:privacy@carejoys.com">privacy@carejoys.com</a>.</p></section>
+    <section><h2>8. Signing in with Google</h2><p>If you choose Continue with Google, Google shares your name, email address and whether Google has verified that email with CareJoys. We use them only to sign you in to your CareJoys account and to match you to the profile or workspace that uses the same email. We do not receive your Google password, contacts, calendar, files or any other Google data, and we do not sell or share Google user data or use it for advertising. You can remove CareJoys's access at any time in your Google Account under Security, Third-party apps, and you can still sign in with an emailed link instead.</p></section>
+    <section><h2>9. Data choices and retention</h2><p>You may ask us to access, correct, or delete information associated with your profile, subject to legal and operational retention requirements. You may update your current availability through CareJoys communications. We retain information for as long as reasonably necessary to provide the service, protect the platform, resolve disputes, and meet legal obligations.</p></section>
+    <section><h2>10. Security</h2><p>We use reasonable administrative and technical safeguards, including protected employer sessions, one-time sign-in links, Google sign-in, hashed authentication tokens, rate limiting, and service-provider security controls. No online service can guarantee absolute security.</p></section>
+    <section><h2>11. Contact</h2><p>Questions or privacy requests can be sent to <a href="mailto:privacy@carejoys.com">privacy@carejoys.com</a>.</p></section>
   </div>;
 }
 
