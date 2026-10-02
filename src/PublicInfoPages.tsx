@@ -17,7 +17,6 @@ export function EmployerRecruitingPage(){
         <h1>Hire caregivers in {state.name}.</h1>
         <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
         <div className="hero-actions"><a className="btn" href="/find-caregivers">Find caregivers</a></div>
-        <div className="employer-signin-note">Already use CareJoys? <a className="text-link" href="/login?next=/app">Sign in</a></div>
       </div></section>
 
       <section className="section" id="claim-agency"><div className="wrap">
@@ -126,7 +125,7 @@ export function PricingPage(){
       <section className="section"><div className="wrap">
         <div className="modal-kicker">Hiring by state</div>
         <h2>Find caregivers near you</h2>
-        <p className="section-lead">See caregiver hiring in your area, or <a className="text-link" href="/login?next=/app">sign in</a> if you already use CareJoys.</p>
+        <p className="section-lead">See caregiver hiring in your area.</p>
         <div className="school-home-actions pricing-states"><a className="btn secondary" href="/hire-caregivers/maryland">Hire caregivers in Maryland</a></div>
       </div></section>
     </main>
