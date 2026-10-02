@@ -146,19 +146,7 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
   if(!record)return json({ok:false,error:'This sign-in link is invalid or has expired.'},{status:400});
   const used=await env.DB.prepare("UPDATE employer_auth_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(record.id).run();
   if(asNumber(used.meta?.changes)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
-  const session=crypto.randomUUID()+'-'+crypto.randomUUID();
-  const sessionHash=await sha256Hex(session);
-  const expires=new Date(Date.now()+30*86400000).toISOString();
-  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(),record.employer_id,sessionHash,expires).run();
-  await env.DB.prepare('UPDATE employer_leads SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(record.employer_id).run();
-  const pendingClaims=await env.DB.prepare("SELECT id,organization_id FROM agency_teaser_tokens WHERE employer_id=? AND claim_requested_at IS NOT NULL AND claimed_at IS NULL AND datetime(expires_at)>datetime('now')").bind(record.employer_id).all<{id:string;organization_id:string}>();
-  for(const claim of pendingClaims.results||[]){
-    await env.DB.prepare("UPDATE agency_organizations SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND claimed_employer_id IS NULL").bind(record.employer_id,claim.organization_id).run();
-    await env.DB.prepare("UPDATE agencies SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND claimed_employer_id IS NULL").bind(record.employer_id,claim.organization_id).run();
-    await env.DB.prepare("UPDATE agency_teaser_tokens SET claimed_at=CURRENT_TIMESTAMP WHERE id=?").bind(claim.id).run();
-    await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) SELECT ?,organization_id,'agency_claim_verified',recipient_email,? FROM agency_teaser_tokens WHERE id=?")
-      .bind(crypto.randomUUID(),JSON.stringify({employerId:record.employer_id}),claim.id).run();
-  }
+  const session=await startEmployerSession(env,record.employer_id);
   let redirect=clean(record.redirect_path,500)||'/app';
   if(record.pending_intake&&applyPendingIntake){
     try{redirect=(await applyPendingIntake(record.employer_id,JSON.parse(record.pending_intake)))||redirect}
@@ -166,8 +154,29 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
   }
   return json({ok:true,redirect},{
     status:200,
-    headers:{'Set-Cookie':`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`}
+    headers:{'Set-Cookie':employerSessionCookie(session)}
   });
+}
+
+export const employerSessionCookie=(session:string)=>`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`;
+
+/** Opens a 30-day employer session for a proven email and finishes any agency claims that were waiting on it. Returns the cookie value. */
+export async function startEmployerSession(env:FeatureEnv,employerId:string){
+  if(!env.DB)throw new Error('Database not configured');
+  const session=crypto.randomUUID()+'-'+crypto.randomUUID();
+  const sessionHash=await sha256Hex(session);
+  const expires=new Date(Date.now()+30*86400000).toISOString();
+  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(),employerId,sessionHash,expires).run();
+  await env.DB.prepare('UPDATE employer_leads SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(employerId).run();
+  const pendingClaims=await env.DB.prepare("SELECT id,organization_id FROM agency_teaser_tokens WHERE employer_id=? AND claim_requested_at IS NOT NULL AND claimed_at IS NULL AND datetime(expires_at)>datetime('now')").bind(employerId).all<{id:string;organization_id:string}>();
+  for(const claim of pendingClaims.results||[]){
+    await env.DB.prepare("UPDATE agency_organizations SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND claimed_employer_id IS NULL").bind(employerId,claim.organization_id).run();
+    await env.DB.prepare("UPDATE agencies SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND claimed_employer_id IS NULL").bind(employerId,claim.organization_id).run();
+    await env.DB.prepare("UPDATE agency_teaser_tokens SET claimed_at=CURRENT_TIMESTAMP WHERE id=?").bind(claim.id).run();
+    await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) SELECT ?,organization_id,'agency_claim_verified',recipient_email,? FROM agency_teaser_tokens WHERE id=?")
+      .bind(crypto.randomUUID(),JSON.stringify({employerId}),claim.id).run();
+  }
+  return session;
 }
 
 export async function employerSession(request:Request,env:FeatureEnv){

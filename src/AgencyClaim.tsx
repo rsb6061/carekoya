@@ -89,7 +89,7 @@ export function AgencyClaim(){
         {message&&<div className="notice">{message}</div>}
         <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Sending verification…':interests.length?'Verify and open your Inbox':'Claim agency and review matches'}</button>
       </>}
-      {agency.claimed&&<a className="btn" href="/app">Sign in to CareJoys</a>}
+      {agency.claimed&&<a className="btn" href="/login?next=/app">Sign in to CareJoys</a>}
     </main>
   </div>;
 }

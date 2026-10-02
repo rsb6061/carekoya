@@ -4,6 +4,9 @@ import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZ
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
+/** Email sign-ins carry this subject prefix; only real Auth0 subjects are stored on a caregiver. */
+export const EMAIL_SUB_PREFIX='email|';
+export const auth0SubOf=(identity:CaregiverIdentity|null|undefined)=>identity?.sub&&!identity.sub.startsWith(EMAIL_SUB_PREFIX)?identity.sub:null;
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -18,9 +21,9 @@ export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIden
   const bySub=await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? AND COALESCE(work_status,'')!='merged_duplicate' LIMIT 1").bind(identity.sub).first<{id:string}>();
   if(bySub)return bySub.id;
   if(!identity.emailVerified||!identity.email)return null;
-  const byEmail=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(identity.email).first<{id:string}>();
+  const byEmail=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate' LIMIT 1").bind(identity.email).first<{id:string}>();
   if(!byEmail)return null;
-  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(identity.sub,byEmail.id).run();
+  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(auth0SubOf(identity),byEmail.id).run();
   return byEmail.id;
 }
 

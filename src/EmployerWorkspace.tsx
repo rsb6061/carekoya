@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { TurnstileField } from './TurnstileField';
+import { LoginForm } from './LoginPage';
+import { useCaregiverAuth } from './caregiverAuth';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
 import './workspace.css';
@@ -36,34 +37,18 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
 
 function EmployerSignIn(){
-  const [email,setEmail]=useState('');
-  const [turnstileToken,setTurnstileToken]=useState('');
-  const [status,setStatus]=useState<'idle'|'sending'|'sent'|'error'>('idle');
-  const [message,setMessage]=useState('');
-
-  async function submit(e:FormEvent){
-    e.preventDefault();setStatus('sending');setMessage('');
-    try{
-      await api('/api/auth/request',{method:'POST',body:JSON.stringify({email,turnstileToken})});
-      setStatus('sent');setMessage('Check your email for a secure CareJoys sign-in link.');
-    }catch(error){
-      setStatus('error');setMessage(error instanceof Error?error.message:'Could not send sign-in link.');
-    }
-  }
-
+  const auth=useCaregiverAuth();
+  if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
   return <div className="app-empty"><div className="app-wrap">
     <a href="/" className="text-link">← Back to CareJoys</a>
-    <div className="beta-hero app-empty-card">
-      <div className="modal-kicker">Employer access</div>
-      <h1>Sign in to CareJoys.</h1>
-      <p>Enter the email you used with CareJoys. We’ll send a secure one-time sign-in link.</p>
-      <form className="auth-form" onSubmit={submit}>
-        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@company.com" required />
-        <TurnstileField onToken={setTurnstileToken}/>
-        {message&&<div className={status==='error'?'notice':'alert-status'}>{message}</div>}
-        {status!=='sent'&&<button className="button" disabled={status==='sending'}>{status==='sending'?'Sending…':'Email me a sign-in link'}</button>}
-      </form>
-    </div>
+    {auth.isAuthenticated
+      ?<div className="beta-hero app-empty-card">
+        <div className="modal-kicker">Signed in as {auth.email}</div>
+        <h1>No hiring workspace yet.</h1>
+        <p>This email doesn’t have an agency or employer workspace on CareJoys. Set one up in a minute, or sign out and use your agency email.</p>
+        <div className="empty-actions"><a className="button" href="/welcome">Set up hiring</a><button className="button secondary" onClick={auth.logout}>Sign out</button></div>
+      </div>
+      :<LoginForm next={window.location.pathname+window.location.search} kicker="Agencies and employers" title="Sign in to CareJoys."/>}
   </div></div>;
 }
 

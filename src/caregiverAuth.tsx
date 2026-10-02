@@ -1,28 +1,55 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 
+// Everyone signs in the same way: an emailed link from /login. Auth0 (Google) is an optional extra for
+// caregivers and only appears when its keys are set on the Worker.
 type PublicConfig={auth0Domain?:string|null;auth0ClientId?:string|null};
+export type AccountRoles={caregiver:boolean;employer:boolean;admin:boolean};
+type Account={signedIn:boolean;email?:string;roles?:AccountRoles};
 
 type CaregiverAuthValue={
   configured:boolean;
+  googleAvailable:boolean;
   loading:boolean;
   isAuthenticated:boolean;
   email:string;
   name:string;
   sub:string;
+  roles:AccountRoles|null;
   loginGoogle:()=>Promise<void>;
-  loginEmail:()=>Promise<void>;
+  loginEmail:(options?:{email?:string;next?:string})=>Promise<void>;
   logout:()=>void;
   getIdToken:()=>Promise<string>;
 };
 
-const fallback:CaregiverAuthValue={
-  configured:false,loading:false,isAuthenticated:false,email:'',name:'',sub:'',
-  loginGoogle:async()=>{},loginEmail:async()=>{},logout:()=>{},getIdToken:async()=>''
-};
-const CaregiverAuthContext=createContext<CaregiverAuthValue>(fallback);
+export function loginPath(next?:string,email?:string){
+  const params=new URLSearchParams();
+  if(next)params.set('next',next);
+  if(email)params.set('email',email);
+  const query=params.toString();
+  return '/login'+(query?'?'+query:'');
+}
+/** Sends the browser to the shared sign-in page; resolves never, because the page is leaving. */
+function goToLogin(options?:{email?:string;next?:string}){
+  window.location.href=loginPath(options?.next??window.location.pathname+window.location.search,options?.email);
+  return new Promise<void>(()=>{});
+}
+async function signOut(){
+  await fetch('/api/logout',{method:'POST'}).catch(()=>{});
+}
 
-function Bridge({children}:{children:ReactNode}){
+function emailOnlyValue(account:Account|null):CaregiverAuthValue{
+  return {
+    configured:true,googleAvailable:false,loading:account===null,
+    isAuthenticated:!!account?.signedIn,email:account?.email||'',name:'',sub:'',roles:account?.roles||null,
+    loginGoogle:async()=>{},loginEmail:goToLogin,
+    logout:()=>{void signOut().then(()=>window.location.assign('/'))},
+    getIdToken:async()=>''
+  };
+}
+const CaregiverAuthContext=createContext<CaregiverAuthValue>(emailOnlyValue({signedIn:false}));
+
+function Bridge({account,children}:{account:Account|null;children:ReactNode}){
   const {isLoading,isAuthenticated,user,loginWithPopup,loginWithRedirect,logout,getIdTokenClaims}=useAuth0();
   // Mobile browsers often block popups; fall back to a full-page redirect that comes back to this page.
   const login=async(authorizationParams:Record<string,string>)=>{
@@ -32,28 +59,37 @@ function Bridge({children}:{children:ReactNode}){
       await loginWithRedirect({authorizationParams,appState:{returnTo:window.location.pathname+window.location.search}});
     }
   };
-  const value=useMemo<CaregiverAuthValue>(()=>({
-    configured:true,
-    loading:isLoading,
-    isAuthenticated:!!isAuthenticated,
-    email:user?.email||'',
-    name:user?.name||'',
-    sub:user?.sub||'',
-    loginGoogle:()=>login({connection:'google-oauth2',prompt:'select_account'}),
-    loginEmail:()=>login({prompt:'login'}),
-    logout:()=>logout({logoutParams:{returnTo:window.location.origin}}),
-    getIdToken:async()=>((await getIdTokenClaims())?.__raw||'')
-  }),[isLoading,isAuthenticated,user?.email,user?.name,user?.sub,loginWithPopup,loginWithRedirect,logout,getIdTokenClaims]);
+  const value=useMemo<CaregiverAuthValue>(()=>{
+    const viaGoogle=!!isAuthenticated;
+    return {
+      configured:true,
+      googleAvailable:true,
+      loading:isLoading||account===null,
+      isAuthenticated:viaGoogle||!!account?.signedIn,
+      email:viaGoogle?user?.email||'':account?.email||'',
+      name:viaGoogle?user?.name||'':'',
+      sub:viaGoogle?user?.sub||'':'',
+      roles:account?.roles||null,
+      loginGoogle:()=>login({connection:'google-oauth2',prompt:'select_account'}),
+      loginEmail:goToLogin,
+      logout:()=>{void signOut().then(()=>viaGoogle?logout({logoutParams:{returnTo:window.location.origin}}):window.location.assign('/'))},
+      getIdToken:async()=>viaGoogle?((await getIdTokenClaims())?.__raw||''):''
+    };
+  },[isLoading,isAuthenticated,user?.email,user?.name,user?.sub,account,loginWithPopup,loginWithRedirect,logout,getIdTokenClaims]);
   return <CaregiverAuthContext.Provider value={value}>{children}</CaregiverAuthContext.Provider>;
 }
 
 export function CaregiverAuthProvider({children}:{children:ReactNode}){
   const [config,setConfig]=useState<PublicConfig|null>(null);
+  const [account,setAccount]=useState<Account|null>(null);
   useEffect(()=>{
     fetch('/api/config').then(r=>r.json()).then((data:any)=>setConfig({
       auth0Domain:data?.auth0Domain||null,
       auth0ClientId:data?.auth0ClientId||null
     })).catch(()=>setConfig({}));
+    fetch('/api/account').then(r=>r.json()).then((data:any)=>setAccount({
+      signedIn:data?.signedIn===true,email:data?.email||'',roles:data?.roles||undefined
+    })).catch(()=>setAccount({signedIn:false}));
   },[]);
 
   if(config?.auth0Domain&&config?.auth0ClientId){
@@ -70,10 +106,11 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
         if(returnTo!==window.location.pathname)window.location.replace(returnTo);
         else window.history.replaceState(null,'',returnTo);
       }}
-    ><Bridge>{children}</Bridge></Auth0Provider>;
+    ><Bridge account={account}>{children}</Bridge></Auth0Provider>;
   }
 
-  return <CaregiverAuthContext.Provider value={{...fallback,loading:config===null}}>{children}</CaregiverAuthContext.Provider>;
+  const value=emailOnlyValue(config===null?null:account);
+  return <CaregiverAuthContext.Provider value={value}>{children}</CaregiverAuthContext.Provider>;
 }
 
 export function useCaregiverAuth(){
