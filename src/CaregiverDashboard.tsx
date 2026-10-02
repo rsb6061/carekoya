@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { LoginForm, Shell } from './LoginPage';
 import { ResumeFileInput } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
 import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
+import { AccountMenu } from './AccountLink';
+import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -22,9 +24,8 @@ function applicationStatus(a:Application){
   if(a.appliedOnCareJoys)return 'Saved on CareJoys';
   return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
 }
-type Caregiver={
-  id:string;firstName?:string;email?:string;city?:string;state?:string;zip?:string;role?:string;shifts?:string;desiredWage?:string;
-  travelMiles?:number|null;profilePhotoUrl?:string|null;workStatus?:string;freshness?:string;
+type Caregiver=CaregiverProfileData&{
+  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;
 };
 type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
 
@@ -70,12 +71,6 @@ export function CaregiverDashboard(){
     finally{setBusy('')}
   }
 
-  async function savePreferences(e:FormEvent<HTMLFormElement>){
-    e.preventDefault();
-    const fd=new FormData(e.currentTarget);
-    await act('prefs','/api/me/preferences',{zip:fd.get('zip'),shifts:fd.get('shifts'),desiredWage:fd.get('desiredWage'),travelMiles:Number(fd.get('travelMiles')||0)},'Preferences saved. Your matches were refreshed.');
-  }
-
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
 
   if(!auth.isAuthenticated)return <Shell>
@@ -87,8 +82,7 @@ export function CaregiverDashboard(){
     <a className="brand" href="/">CareJoys</a>
     <nav className="app-nav">
       <a className="nav-link" href={jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Jobs</a>
-      {auth.roles?.employer&&<a className="nav-link" href="/app">Hiring workspace</a>}
-      <button className="nav-button" onClick={auth.logout}>Sign out</button>
+      <AccountMenu/>
     </nav>
   </div></header>;
 
@@ -111,7 +105,15 @@ export function CaregiverDashboard(){
   const c=data.caregiver;
   const invites=data.invites||[];
   const open=invites.filter(i=>!i.response&&i.stage==='contacted');
-  const looking=c.workStatus==='actively_looking';
+  const gaps=profileGaps(c,!!data.resume);
+  const editing=window.location.pathname==='/me/profile';
+
+  if(editing)return <div>{header}
+    <main className="app-wrap app-content profile-page">
+      <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
+      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/me?saved=1')}}/>
+    </main>
+  </div>;
 
   return <div>{header}
     <main className="app-wrap app-content">
@@ -120,21 +122,24 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
+        <div className="header-action"><a className="button secondary" href="/me/profile">Edit my profile</a></div>
       </div>
-      {notice&&<div className="alert-status workspace-alert" role="status">{notice}</div>}
+      {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
-      <section className="section-block">
-        <div className="settings-card">
-          <div className="modal-kicker">Availability</div>
-          <h3 style={{margin:'4px 0 6px'}}>{looking?'You’re shown as looking for work.':'You’re not shown as looking right now.'}</h3>
-          <div className="job-meta">{c.freshness}. Employers see recently confirmed caregivers first.</div>
-          <div className="empty-actions">
-            <button className="button" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'actively_looking'},'Thanks! Your availability is confirmed for today.')}>{looking?'Still looking':'I’m looking for work'}</button>
-            <button className="button secondary" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'maybe_later'},'Got it. We’ll check back later.')}>Maybe later</button>
-            <button className="button secondary" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'not_looking'},'You’re hidden from employer search until you turn this back on.')}>Not looking</button>
+      {c.workStatus==='not_looking'||c.workStatus==='maybe_later'
+        ?<section className="section-block"><div className="settings-card profile-checklist">
+          <div><div className="modal-kicker">Hidden from employers</div><h3>You’re not shown as looking for work.</h3><div className="job-meta">Turn it back on whenever you’re ready.</div></div>
+          <button className="button" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'actively_looking'},'You’re shown to employers again.')}>I’m looking again</button>
+        </div></section>
+        :gaps.length>0&&<section className="section-block"><div className="settings-card profile-checklist">
+          <div>
+            <div className="modal-kicker">Your profile is {Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)}% complete</div>
+            <h3>Finish your profile to get better matches.</h3>
+            <div className="profile-progress"><span style={{width:Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)+'%'}}/></div>
+            <ul>{gaps.slice(0,4).map(g=><li key={g.key}>{g.label}</li>)}{gaps.length>4&&<li>and {gaps.length-4} more</li>}</ul>
           </div>
-        </div>
-      </section>
+          <a className="button" href="/me/profile">Finish my profile</a>
+        </div></section>}
 
       <section className="section-block">
         <div className="section-heading"><h2>Employer invitations</h2><p>{open.length?`${open.length} waiting on your answer.`:'Employers who want to interview you will show up here.'}</p></div>
@@ -158,7 +163,7 @@ export function CaregiverDashboard(){
 
       <section className="section-block">
         <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
-        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try widening your travel distance below.</div></div>:
+        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/me/profile">your profile</a>.</div></div>:
         <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
           <div className="job-card-main">
             <h3>{job.title}</h3>
@@ -184,20 +189,6 @@ export function CaregiverDashboard(){
         </div>
       </section>
 
-      <section className="section-block">
-        <div className="section-heading"><h2>Match preferences</h2><p>Used to find openings within your commute.</p></div>
-        <form className="settings-card intake-form" onSubmit={savePreferences} key={c.zip+String(c.travelMiles)}>
-          <div className="form-grid">
-            <label>Home ZIP<input name="zip" defaultValue={c.zip||''} inputMode="numeric" required /></label>
-            <label>Travel distance<select name="travelMiles" defaultValue={String(c.travelMiles||25)}>{[5,10,15,25,35,50].map(m=><option key={m} value={m}>{m} miles</option>)}</select></label>
-          </div>
-          <div className="form-grid">
-            <label>Preferred shifts<input name="shifts" defaultValue={c.shifts||''} placeholder="Days, nights, weekends" /></label>
-            <label>Desired pay<input name="desiredWage" defaultValue={c.desiredWage||''} placeholder="$20–24/hr" /></label>
-          </div>
-          <button className="button" disabled={!!busy}>{busy==='prefs'?'Saving…':'Save preferences'}</button>
-        </form>
-      </section>
     </main>
   </div>;
 }

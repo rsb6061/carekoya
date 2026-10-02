@@ -1,5 +1,6 @@
 import { schoolMagicLinkEmail, schoolPlacementInviteEmail, type EmailBinding } from './email';
 import { publicFormGuard, type FeatureEnv } from './serverFeatures';
+import { SCHOOL_FOR_EMAIL, accountSession, startAccountSession } from './accountAuth';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -180,15 +181,27 @@ export async function verifySchoolMagic(request:Request,env:FeatureEnv){
   await env.DB.prepare("UPDATE training_programs SET claimed_school_lead_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND claimed_school_lead_id IS NULL")
     .bind(record.school_lead_id,record.training_program_id).run();
   await env.DB.prepare("UPDATE school_leads SET status='claimed',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(record.school_lead_id).run();
-  return json({ok:true},{
-    headers:{'Set-Cookie':`__Host-cj_school_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`}
-  });
+  const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
+  headers.append('Set-Cookie',`__Host-cj_school_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
+  // The claim link also signs them in to the shared CareJoys account, so later visits use the normal sign-in.
+  const lead=await env.DB.prepare('SELECT email FROM school_leads WHERE id=? LIMIT 1').bind(record.school_lead_id).first<{email:string}>();
+  const email=clean(lead?.email,320).toLowerCase();
+  if(emailValid(email))headers.append('Set-Cookie',await startAccountSession(env,email));
+  return new Response(JSON.stringify({ok:true}),{status:200,headers});
 }
 
 export async function schoolSession(request:Request,env:FeatureEnv){
   if(!env.DB)return null;
   const token=cookie(request,'__Host-cj_school_session');
-  if(!token)return null;
+  if(!token){
+    // Signed in through the shared CareJoys sign-in with the email that claimed a training program.
+    const account=await accountSession(request,env);
+    const claim=account?await env.DB.prepare(SCHOOL_FOR_EMAIL).bind(account.email).first<{training_program_id:string;school_lead_id:string}>():null;
+    if(!claim)return null;
+    return env.DB.prepare(`SELECT sl.id AS school_lead_id,tp.id AS training_program_id,sl.organization_name,sl.contact_name,sl.email,
+        tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip
+      FROM training_programs tp JOIN school_leads sl ON sl.id=? WHERE tp.id=? LIMIT 1`).bind(claim.school_lead_id,claim.training_program_id).first<Row>();
+  }
   const hash=await sha256Hex(token);
   return env.DB.prepare(`SELECT s.school_lead_id,s.training_program_id,sl.organization_name,sl.contact_name,sl.email,
       tp.program_name,tp.provider_type,tp.city,tp.state,tp.zip

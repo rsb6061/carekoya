@@ -165,3 +165,26 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 }
 @media(max-width:760px){.app-shell-col .beta-hero{padding:24px 20px;border-radius:24px}.app-shell-col .beta-hero h1{font-size:40px}}
 .resume-card{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+
+/* Caregiver profile checklist and editor */
+.profile-checklist{display:flex;gap:24px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.profile-checklist h3{margin:4px 0 10px}
+.profile-checklist ul{margin:10px 0 0;padding-left:18px;color:#514b65;line-height:1.7}
+.profile-progress{height:8px;border-radius:999px;background:#eee9fa;max-width:360px;overflow:hidden}
+.profile-progress span{display:block;height:100%;background:var(--blue);border-radius:999px}
+.profile-editor{display:flex;flex-direction:column;gap:18px;max-width:860px}
+.profile-section h3{margin:0 0 4px}
+.profile-section>label,.profile-section .chip-field,.profile-section .form-grid{margin-top:14px}
+.chip-field>span{display:block;font-weight:600;margin-bottom:8px}
+.chip-row{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid #ddd6f3;background:#fff;border-radius:999px;padding:8px 14px;font:inherit;font-size:14px;cursor:pointer;color:inherit}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.availability-grid{display:grid;grid-template-columns:minmax(110px,1.4fr) repeat(7,minmax(34px,1fr));gap:6px;margin-top:14px;align-items:stretch}
+.availability-day{text-align:center;font-size:13px;font-weight:600;color:#514b65;align-self:end}
+.availability-block{text-align:left;border:0;background:transparent;font:inherit;cursor:pointer;padding:4px 0;display:flex;flex-direction:column}
+.availability-block small{color:#7a7490;font-size:12px}
+.availability-cell{border:1px solid #ddd6f3;border-radius:10px;background:#fff;min-height:40px;cursor:pointer;font:inherit;color:#fff;font-weight:700}
+.availability-cell.on{background:var(--blue);border-color:var(--blue)}
+.profile-save-bar{display:flex;gap:16px;align-items:center;position:sticky;bottom:0;padding:14px 0;background:linear-gradient(transparent,var(--bg,#f7f1ea) 40%)}
+@media (max-width:640px){.availability-grid{grid-template-columns:72px repeat(7,1fr);gap:4px}.availability-block strong{font-size:12px}.availability-block small{display:none}.availability-day{font-size:11px}.availability-cell{min-height:34px}}
+.profile-page .page-head{margin-bottom:24px}

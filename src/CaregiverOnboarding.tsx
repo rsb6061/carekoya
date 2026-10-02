@@ -317,7 +317,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         </div>
         <div className="auth-choice">
           <a className="btn" href="/me">Open my dashboard</a>
-          <button className="btn secondary" onClick={()=>setStage('profile')}>Update my profile</button>
+          <a className="btn secondary" href="/me/profile">Update my profile</a>
         </div>
       </div>
     </div>;

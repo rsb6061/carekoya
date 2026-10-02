@@ -55,6 +55,11 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   if(!caregiverId)return json({ok:true,caregiver:null});
   const c=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Row>();
   if(!c)return json({ok:true,caregiver:null});
+  // Signing in counts as looking for work unless they said otherwise, so there's no availability box to click.
+  const refreshed=await env.DB.prepare(`UPDATE caregivers SET work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1
+    WHERE id=? AND COALESCE(work_status,'unknown') IN ('unknown','actively_looking')
+      AND (last_confirmed_at IS NULL OR datetime(last_confirmed_at)<datetime('now','-1 day'))`).bind(caregiverId).run();
+  if(Number(refreshed.meta?.changes||0)>0){c.work_status='actively_looking';c.last_confirmed_at=new Date().toISOString()}
 
   const invites=await env.DB.prepare(`SELECT cp.id,cp.stage,cp.response_value,cp.contacted_at,cp.interview_at,cp.interview_booked_at,cp.opening_id,
       o.title,o.role,o.city,o.state,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,e.company_name
@@ -87,7 +92,9 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     certifications:c.certifications,specialties:c.specialties,languages:c.languages,yearsExperience:c.years_experience,phone:c.phone,
     shifts:c.shift_preferences,desiredWage:c.desired_wage,transportation:c.transportation,travelMiles:c.travel_distance_miles,
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
-    freshness:freshnessLabel(c.work_status,c.last_confirmed_at)
+    freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,
+    availability:parseAvailability(c.availability_json),employmentTypes:listOf(c.employment_types),startAvailability:c.start_availability,
+    careSettings:listOf(c.care_settings),workConditions:listOf(c.work_conditions),licenseNumber:c.license_number,licenseState:c.license_state
   },
   invites:(invites.results||[]).map(r=>({
     id:r.id,stage:r.stage,response:r.response_value,contactedAt:r.contacted_at,interviewAt:r.interview_at,interviewBooked:!!r.interview_booked_at,
@@ -155,6 +162,71 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
 }
 
 const WORK_STATUSES=['actively_looking','maybe_later','not_looking'];
+
+// The weekly availability grid: which blocks of which days a caregiver can work, plus live-in.
+export const DAYS=['mon','tue','wed','thu','fri','sat','sun'] as const;
+export const BLOCKS=['morning','afternoon','evening','overnight'] as const;
+type Availability={days:Record<string,string[]>;liveIn:boolean};
+const listOf=(v:unknown)=>clean(v,2000).split(',').map(x=>x.trim()).filter(Boolean);
+function parseAvailability(v:unknown):Availability{
+  let raw:any=null;
+  try{raw=JSON.parse(clean(v,4000)||'null')}catch{raw=null}
+  const days:Record<string,string[]>={};
+  for(const d of DAYS){const blocks=Array.isArray(raw?.days?.[d])?raw.days[d]:[];days[d]=BLOCKS.filter(b=>blocks.includes(b))}
+  return {days,liveIn:raw?.liveIn===true};
+}
+/** Plain-words summary of the grid, kept in shift_preferences so matching and employers read it as before. */
+export function availabilitySummary(a:Availability){
+  const label:Record<string,string>={morning:'Mornings',afternoon:'Afternoons',evening:'Evenings',overnight:'Overnights'};
+  const parts=BLOCKS.filter(b=>DAYS.some(d=>a.days[d].includes(b))).map(b=>label[b]);
+  const weekdays=DAYS.slice(0,5).some(d=>a.days[d].length),weekends=a.days.sat.length>0||a.days.sun.length>0;
+  if(weekends&&!weekdays)parts.push('Weekends only');else if(weekends)parts.push('Weekends');
+  if(a.liveIn)parts.push('Live-in');
+  return parts.join(', ');
+}
+
+/** The full caregiver profile editor at /me/profile. Saving also counts as confirming they're available. */
+export async function updateCaregiverProfile(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null,rematch:(caregiverId:string)=>Promise<number>){
+  if(!identity)return unauthorized();
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return unauthorized();
+  const d=await request.json().catch(()=>null) as Row|null;
+  const first=clean(d?.firstName,120),last=clean(d?.lastName,120);
+  if(!first||!last)return json({ok:false,error:'Enter your first and last name'},{status:400});
+  const phoneDigits=clean(d?.phone,40).replace(/\D/g,'');
+  if(phoneDigits&&!(phoneDigits.length===10||(phoneDigits.length===11&&phoneDigits.startsWith('1'))))return json({ok:false,error:'Enter a 10-digit mobile phone number'},{status:400});
+  const zip=normalizeZip(d?.zip);
+  if(!zip)return json({ok:false,error:'Enter a valid 5-digit ZIP code'},{status:400});
+  const zipInfo=await lookupZip(env.DB,zip);
+  const state=zipInfo?.state||await stateForZip(env.DB,zip);
+  const pick=(v:unknown,allowed:readonly string[])=>(Array.isArray(v)?v:[]).map(x=>clean(x,60)).filter(x=>allowed.includes(x));
+  const freeList=(v:unknown,max=40)=>[...new Set((Array.isArray(v)?v:[]).map(x=>clean(x,80)).filter(Boolean))].slice(0,max).join(', ');
+  const availability=parseAvailability(JSON.stringify(d?.availability||{}));
+  const workStatus=WORK_STATUSES.includes(clean(d?.workStatus,40))?clean(d?.workStatus,40):'actively_looking';
+  const years=Math.max(0,Math.min(60,asNum(d?.yearsExperience)));
+  const travel=Math.max(0,Math.min(100,asNum(d?.travelMiles)));
+  const payMin=Math.max(0,Math.min(200,asNum(d?.payMin)));
+  await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),
+      role=?,certifications=?,license_number=?,license_state=?,years_experience=?,specialties=?,care_settings=?,languages=?,bio=?,
+      availability_json=?,shift_preferences=?,employment_types=?,start_availability=?,work_conditions=?,
+      hourly_rate_min=?,desired_wage=?,transportation=?,travel_distance_miles=?,
+      work_status=?,is_active=?,last_confirmed_at=CURRENT_TIMESTAMP,profile_updated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(first,last,(first+' '+last).trim(),clean(d?.phone,40),zip,zipInfo?.city||'',state||'',
+      clean(d?.role,80)||'Caregiver',freeList(d?.certifications),clean(d?.licenseNumber,60),clean(d?.licenseState,2).toUpperCase(),years||null,
+      freeList(d?.specialties),freeList(d?.careSettings),freeList(d?.languages),clean(d?.bio,1200),
+      JSON.stringify(availability),availabilitySummary(availability),pick(d?.employmentTypes,['full_time','part_time','per_diem']).join(','),
+      ['now','2_weeks','1_month','later'].includes(clean(d?.startAvailability,20))?clean(d?.startAvailability,20):null,
+      pick(d?.workConditions,['pets','smokers']).join(','),
+      payMin||null,payMin?'$'+payMin+'+/hr':'',clean(d?.transportation,80),travel||null,
+      workStatus,workStatus==='actively_looking'?1:0,caregiverId).run();
+  if(workStatus!=='actively_looking'){
+    await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
+      .bind(crypto.randomUUID(),caregiverId,workStatus).run();
+  }
+  const matchedOpenings=await rematch(caregiverId);
+  return json({ok:true,matchedOpenings});
+}
 
 export async function updateCaregiverAvailability(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!identity)return unauthorized();
