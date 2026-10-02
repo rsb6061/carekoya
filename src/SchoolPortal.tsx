@@ -1,3 +1,4 @@
+import { SiteHeader } from './SiteChrome';
 import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -41,11 +42,11 @@ export function SchoolProgramPage(){
     }
   }
 
-  if(status==='loading')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading program…</h1></div></div>;
-  if(status==='error'||!program)return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Program not found.</h1><p>{message}</p></div></div>;
+  if(status==='loading')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading program…</h1></div></div>;
+  if(status==='error'||!program)return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Program not found.</h1><p>{message}</p></div></div>;
 
   return <div className="activation-shell">
-    <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
+    <SiteHeader/>
     <main className="activation-card">
       <div className="activation-kicker">Caregiver training program · {program.credentialCategory||"CNA/GNA"}</div>
       <h1>{program.name}</h1>
@@ -80,7 +81,7 @@ export function SchoolAuth(){
       .then(()=>{window.location.href='/school-dashboard'})
       .catch(error=>{setMessage(error instanceof Error?error.message:'Could not sign in');setStatus('error')});
   },[token]);
-  return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>{status==='loading'?'Signing you in…':'We couldn’t sign you in.'}</h1>{message&&<p>{message}</p>}</div></div>;
+  return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>{status==='loading'?'Signing you in…':'We couldn’t sign you in.'}</h1>{message&&<p>{message}</p>}</div></div>;
 }
 
 export function SchoolDashboard(){

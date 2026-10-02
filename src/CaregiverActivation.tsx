@@ -1,3 +1,4 @@
+import { SiteHeader } from './SiteChrome';
 import { useEffect, useState, type FormEvent } from 'react';
 import './activation.css';
 
@@ -59,8 +60,8 @@ export function CaregiverActivation(){
     }
   }
 
-  if(status==='loading') return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading your profile…</h1></div></div>;
-  if(status==='error') return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{error}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
+  if(status==='loading') return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading your profile…</h1></div></div>;
+  if(status==='error') return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{error}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
   if(status==='done'){
     const active=completedStatus==='actively_looking';
     return <div className="activation-shell"><div className="activation-card activation-success">
@@ -74,7 +75,7 @@ export function CaregiverActivation(){
 
   const first=caregiver?.firstName||'there';
   return <div className="activation-shell">
-    <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
+    <SiteHeader/>
     <main className="activation-card">
       <div className="activation-kicker">Welcome back, {first}</div>
       <h1>Are you looking for caregiver work right now?</h1>

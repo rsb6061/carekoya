@@ -95,7 +95,7 @@ function Home() {
   }
 
   return <div>
-    <SiteHeader audience="employer" action={<button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>}/>
+    <SiteHeader audience="employer"/>
 
     <main>
       <section className="hero">

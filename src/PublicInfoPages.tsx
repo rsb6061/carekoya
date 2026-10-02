@@ -10,7 +10,7 @@ export function EmployerRecruitingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
+    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>

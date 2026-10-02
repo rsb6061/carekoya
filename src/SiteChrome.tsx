@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { AccountLink } from './AccountLink';
 
 // The one header and footer for every public page, so the nav doesn't change from page to page.
@@ -8,15 +7,13 @@ type Links={jobsHref?:string;employersHref?:string;showTraining?:boolean};
 /** Phones only have room for one section link: caregiver pages keep jobs, employer pages keep employers. */
 type Audience={audience?:'caregiver'|'employer'};
 
-export function SiteHeader({jobsHref='/caregiver-jobs/maryland',employersHref='/hire-caregivers/maryland',showTraining=true,audience='caregiver',action}:Links&Audience&{action?:ReactNode}){
+export function SiteHeader({jobsHref='/caregiver-jobs/maryland',employersHref='/hire-caregivers/maryland',audience='caregiver'}:Omit<Links,'showTraining'>&Audience){
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
       <a className={audience==='caregiver'?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
-      {showTraining&&<a className="hide-sm" href="/training-programs/maryland">Training programs</a>}
       <a className={audience==='employer'?undefined:'hide-sm'} href={employersHref}>For employers</a>
-      <AccountLink/>
-      {action}
+      <AccountLink className="nav-signin"/>
     </nav>
   </div></header>;
 }

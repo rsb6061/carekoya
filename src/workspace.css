@@ -1,7 +1,7 @@
 :root{--ink:#1b153c;--muted:#6e6882;--line:#d9d3ef;--blue:#4255ff;--bg:#f7f0e6;--soft:#f0ecff;--cream:#f7f0e6;--paper:#fffdf9;--green:#2f8c56;--orange:#ff6b3d;--pink:#e574c6;--lavender:#d8d2ff;--display:"Iowan Old Style","Palatino Linotype","Book Antiqua",Palatino,Georgia,serif}
 body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,system-ui,sans-serif;background:var(--cream);color:var(--ink);letter-spacing:-.01em}
 .app-wrap{max-width:1180px;margin:0 auto;padding:0 24px}
-.app-header{height:auto;padding:16px 0;border-bottom:0;background:var(--cream);position:sticky;top:0;z-index:20}
+.app-header{height:auto;padding:16px 0;border-bottom:0;background:rgba(247,240,230,.92);backdrop-filter:blur(12px);position:sticky;top:0;z-index:20}
 .header-inner{height:auto;min-height:58px;padding:8px 10px 8px 18px;background:rgba(255,255,255,.72);border:1px solid var(--lavender);border-radius:999px;box-shadow:0 8px 24px rgba(41,32,89,.06);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;gap:28px}
 .brand{font-size:20px;font-weight:550;letter-spacing:-.03em}
 .app-nav{display:flex;align-items:center;gap:4px;font-size:14px}
@@ -191,3 +191,4 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .profile-page .page-head{margin-bottom:24px}
 .invite-banner{background:#eef1ff;border:2px solid var(--blue);border-radius:24px;padding:22px 22px 24px;margin-top:8px}.invite-banner .section-heading h2{font-size:32px}@media(max-width:640px){.invite-banner{padding:16px}.invite-banner .section-heading h2{font-size:26px}}
 .job-card-apply{display:flex;flex-direction:column;justify-content:space-between;gap:14px}.job-card-link{color:inherit;text-decoration:none;display:block}.job-card-link:hover h3{text-decoration:underline}.job-card-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+

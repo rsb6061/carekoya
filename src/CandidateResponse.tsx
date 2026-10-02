@@ -1,3 +1,4 @@
+import { SiteHeader } from './SiteChrome';
 import { useEffect, useState, type FormEvent } from 'react';
 import './activation.css';
 import { payLabel } from './jobFormat';
@@ -82,8 +83,8 @@ export function CandidateResponse(){
     }
   }
 
-  if(status==='loading')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading opportunity…</h1></div></div>;
-  if(status==='error')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this job.</h1><p>{message}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
+  if(status==='loading')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading opportunity…</h1></div></div>;
+  if(status==='error')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this job.</h1><p>{message}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
   if(!opportunity)return null;
 
   const location=[opportunity.city,opportunity.state,opportunity.zip].filter(Boolean).join(', ');
@@ -92,7 +93,7 @@ export function CandidateResponse(){
   const declined=opportunity.response==='not_interested'||opportunity.stage==='rejected';
 
   return <div className="activation-shell">
-    <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
+    <SiteHeader/>
     <main className="activation-card">
       <div className="activation-kicker">Job opportunity</div>
       <h1>{opportunity.title}</h1>

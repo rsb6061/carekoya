@@ -23,7 +23,7 @@ export function TrainingOrganizationPage(){
       .catch(err=>setError(err instanceof Error?err.message:'Could not load training program'));
   },[slug]);
 
-  if(error)return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Training program not found.</h1><p>{error}</p></div></div>;
+  if(error)return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Training program not found.</h1><p>{error}</p></div></div>;
   if(!data)return <div className="loading-screen">Loading CareJoys…</div>;
 
   const org=data.organization||{};

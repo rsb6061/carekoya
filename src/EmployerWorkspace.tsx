@@ -259,7 +259,7 @@ export function EmployerWorkspace(){
 
   return <div>
     <header className="app-header"><div className="app-wrap header-inner">
-      <a className="brand" href="/app">CareJoys</a>
+      <a className="brand" href="/">CareJoys</a>
       <nav className="app-nav">
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='inbox'?'active':'')} onClick={()=>setTab('inbox')}>Inbox{inboxWaiting?` (${inboxWaiting})`:''}</button>}
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>

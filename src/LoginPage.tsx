@@ -1,3 +1,4 @@
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { loginPath, useCaregiverAuth } from './caregiverAuth';
@@ -72,18 +73,12 @@ function GoogleMark(){
   </svg>;
 }
 
-/** Sign-in pages: a quiet header and footer around one centered column. */
+/** Sign-in pages: the site header and footer around one centered column. */
 export function Shell({children,wide=false}:{children:ReactNode;wide?:boolean}){
   return <div className="auth-page">
-    <header className="nav"><div className="wrap nav-inner">
-      <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="mailto:hello@carejoys.com">Need help?</a></nav>
-    </div></header>
+    <SiteHeader/>
     <main className={'app-shell-col'+(wide?' wide':'')}>{children}</main>
-    <footer className="footer"><div className="wrap footer-inner">
-      <span>© {new Date().getFullYear()} CareJoys. All rights reserved.</span>
-      <nav className="footer-links"><a href="/terms-of-service">Terms</a><a href="/privacy-policy">Privacy</a></nav>
-    </div></footer>
+    <SiteFooter/>
   </div>;
 }
 
