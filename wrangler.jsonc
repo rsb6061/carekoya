@@ -3,6 +3,8 @@
   "name": "carekoya",
   "main": "./src/worker.ts",
   "compatibility_date": "2026-09-25",
+  // Playwright for "Apply for me" (src/applyAgentBrowser.ts) needs Node APIs.
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "routes": [
     {
@@ -33,6 +35,10 @@
       "database_id": "bad7e436-d8af-4c90-b365-54411349c662"
     }
   ],
+  // Cloudflare Browser Rendering: fills in employer application forms for "Apply for me".
+  "browser": {
+    "binding": "BROWSER"
+  },
   "send_email": [
     {
       "name": "EMAIL",

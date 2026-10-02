@@ -31,7 +31,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -451,6 +451,67 @@ describe('shared sign-in', ()=>{
     expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
   });
 
+  it('a signed-in caregiver applies in one click; claimed employers get it in their Inbox', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-claimed','org-claimed','Acme Care','acme.test','jobs@acme.test','Baltimore','MD','21201',1,'emp1')").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active) VALUES ('org-open','org-open','Bay Home Care','bay.test','jobs@bay.test','Baltimore','MD','21201',1)").run();
+    for(const [id,org,name] of [['job-claimed','org-claimed','Acme Care'],['job-open','org-open','Bay Home Care']]){
+      await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,?,?,'test',?,'CNA Days','CNA',?,'Baltimore','MD','21201','current',1)")
+        .bind(id,org,id,'https://'+org+'.test/apply',name).run();
+    }
+    expect((await post('/api/me/apply/job-claimed',{})).status).toBe(401);
+    const {cookie}=await signIn('dc@example.com');
+    sent.length=0;
+    const first=await post('/api/me/apply/job-claimed',{},{cookie});
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({status:'applied',employerOnCareJoys:true,applicationUrl:'https://org-claimed.test/apply'});
+    expect(await DB.prepare("SELECT source FROM agency_interests WHERE organization_id='org-claimed' AND caregiver_id='dc'").first()).toEqual({source:'job_apply'});
+    // The caregiver gets a receipt and the claimed agency hears about it.
+    expect(sent.map(m=>m.to).sort()).toEqual(['dc@example.com','pat@acme.test']);
+    sent.length=0;
+    expect(await (await post('/api/me/apply/job-claimed',{},{cookie})).json()).toMatchObject({status:'already_applied'});
+    expect(sent).toEqual([]);
+    // An unclaimed agency is not emailed while outreach is off, so the caregiver is pointed to its own site.
+    const open=await post('/api/me/apply/job-open',{},{cookie});
+    expect(await open.json()).toMatchObject({status:'applied',employerOnCareJoys:false});
+    expect(sent.map(m=>m.to)).toEqual(['dc@example.com']);
+    expect(sent[0].html).toContain('https://org-open.test/apply');
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys]).sort()).toEqual([['job-claimed',true,true],['job-open',true,false]]);
+  });
+
+  it('stores the resume file and only starts Apply for me where it can', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-paylocity','org-open','job-paylocity','test','https://recruiting.paylocity.com/Recruiting/Jobs/Details/1','HHA Days','HHA','Bay Home Care','Baltimore','MD','21201','current',1)").run();
+    expect(((await (await call('/api/public/caregiver-jobs/job-paylocity')).json()) as any).job.applyForMe).toBe(true);
+    expect(((await (await call('/api/public/caregiver-jobs/job-open')).json()) as any).job.applyForMe).toBe(false);
+    const {cookie}=await signIn('dc@example.com');
+    const pdf=new TextEncoder().encode('%PDF-1.4 test resume for apply for me');
+    const upload=(path:string,headers:Record<string,string>)=>call(path,{method:'POST',headers:{'content-type':'application/pdf','x-file-name':'Dee%20Resume.pdf',...headers},body:pdf});
+    // Not signed in, or not a PDF: refused.
+    expect((await upload('/api/me/resume',{})).status).toBe(401);
+    expect((await call('/api/me/resume',{method:'POST',headers:{cookie,'content-type':'application/pdf'},body:new TextEncoder().encode('not really a pdf file')})).status).toBe(400);
+    // Without a resume file, Apply for me asks for one... once Browser Rendering is bound.
+    expect((await post('/api/me/apply-agent/job-paylocity',{},{cookie})).status).toBe(503);
+    expect((await post('/api/me/apply-agent/job-open',{},{cookie})).status).toBe(422);
+    expect((await upload('/api/me/resume',{cookie})).status).toBe(200);
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.resume).toMatchObject({fileName:'Dee Resume.pdf'});
+    const download=await call('/api/me/resume',{headers:{cookie}});
+    expect(download.headers.get('content-type')).toBe('application/pdf');
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(pdf);
+  });
+
+  it('a new caregiver’s resume file is stored with the one-time token from saving the profile', async()=>{
+    const saved=await post('/api/caregiver-resume',{firstName:'Rae',lastName:'New',email:'rae.new@example.com',phone:'4105550111',zip:'21201',role:'CNA'});
+    const body=await saved.json() as any;
+    expect(body.resumeUploadToken).toBeTruthy();
+    const send=(token:string)=>call('/api/caregivers/'+body.id+'/resume-file',{method:'POST',headers:{'content-type':'application/pdf','x-carejoys-profile-token':token},body:new TextEncoder().encode('%PDF-1.4 rae resume for the test')});
+    expect((await send('wrong')).status).toBe(401);
+    expect((await send(body.resumeUploadToken)).status).toBe(200);
+    // Works once.
+    expect((await send(body.resumeUploadToken)).status).toBe(401);
+    expect(await DB.prepare("SELECT file_name,content_type FROM caregiver_resume_files WHERE caregiver_id=?").bind(body.id).first()).toEqual({file_name:'resume.pdf',content_type:'application/pdf'});
+  });
+
   it('signing out ends every session in the browser', async()=>{
     const {cookie}=await signIn('pat@acme.test');
     const out=await call('/api/logout',{method:'POST',headers:{cookie}});
@@ -468,6 +529,13 @@ describe('agency walkthrough from a real agency', ()=>{
     await DB.prepare("INSERT OR REPLACE INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status) VALUES ('m-real','org-real','towson',80,40,10,15,15,'{}','matched')").run();
     await DB.prepare("INSERT OR REPLACE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-walk','Walk','Rebecca','rebecca+agency@example.com','21204','HHA','active')").run();
     await DB.prepare("INSERT OR REPLACE INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-walk','emp-walk',?,?)").bind(await sha256Hex('walk-session'),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('admin sees which job sites current jobs use', async()=>{
+    const body=await (await admin('/api/admin/job-sites')).json() as any;
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.sites.find((s:any)=>s.site==='Paylocity')).toMatchObject({supported:true,sampleJobId:'job-paylocity'});
+    expect((await call('/api/admin/job-sites')).status).toBe(401);
   });
 
   it('lists real agencies with data and copies one into the hidden test agency', async()=>{

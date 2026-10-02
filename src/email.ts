@@ -252,6 +252,27 @@ export function caregiverInterestConfirmEmail(input:{firstName:string;targets:In
   };
 }
 
+/** Sent to a caregiver right after they apply with their CareJoys profile. */
+export function caregiverApplicationEmail(input:{firstName:string;jobTitle:string;employerName:string;employerOnCareJoys:boolean;applicationUrl:string;dashboardLink:string;submittedOnEmployerSite?:boolean}) {
+  const employer=input.employerName||'the employer';
+  const next=input.submittedOnEmployerSite
+    ?`CareJoys submitted your application on ${employer}'s own job site with your resume. They'll contact you directly.`
+    :input.employerOnCareJoys
+    ?`We sent your CareJoys profile to ${employer}. When they reply, you'll get an email and see it on your dashboard.`
+    :`${employer} isn't on CareJoys yet, so they take applications on their own site. If you haven't already, finish there so they see you.`;
+  const finishLink=!input.submittedOnEmployerSite&&!input.employerOnCareJoys&&input.applicationUrl;
+  return {
+    subject:`You applied: ${input.jobTitle} at ${employer}`,
+    html:shell('Application saved',`
+      <p style="${P}">Hi ${esc(input.firstName||'there')},</p>
+      <p style="${P}">You applied to <strong>${esc(input.jobTitle)}</strong> at <strong>${esc(employer)}</strong> with your CareJoys profile.</p>
+      <p style="${P}">${esc(next)}</p>
+      ${finishLink?`<p style="margin:26px 0"><a href="${esc(input.applicationUrl)}" style="${BUTTON}">Finish on ${esc(employer)}'s site</a></p>`:''}
+      <p style="${P}"><a href="${esc(input.dashboardLink)}" style="color:#4255ff">See your applications</a></p>`),
+    text:`Hi ${input.firstName||'there'},\n\nYou applied to ${input.jobTitle} at ${employer} with your CareJoys profile.\n\n${next}\n\n${finishLink?'Finish on their site: '+input.applicationUrl+'\n\n':''}See your applications: ${input.dashboardLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
   const url=esc(unsubscribeLink);

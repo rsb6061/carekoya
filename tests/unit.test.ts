@@ -6,6 +6,7 @@ import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
+import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
 import { locationStringParts, mentionsOtherStates, mentionsState, normalizeCity, publicationDecision } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
@@ -257,5 +258,32 @@ describe('job location by agency state', ()=>{
     expect(publicationDecision(job)).toEqual({publish:true,reason:'explicit_state_location'});
     expect(publicationDecision({...job,state:'',zip:'23219'}).publish).toBe(true);
     expect(publicationDecision({...job,state:'',zip:''})).toEqual({publish:false,reason:'missing_state_evidence'});
+  });
+});
+
+describe('apply for me rules', ()=>{
+  it('recognizes only the job sites it can fill in, and stays on them', ()=>{
+    expect(detectApplyProvider('https://recruiting.paylocity.com/Recruiting/Jobs/Details/123')).toBe('paylocity');
+    expect(detectApplyProvider('https://careers-acme.icims.com/jobs/55/cna/job')).toBe('icims');
+    expect(detectApplyProvider('https://acme.wd1.myworkdayjobs.com/x')).toBeNull();
+    expect(detectApplyProvider('https://www.homecare.example/careers')).toBeNull();
+    expect(allowedApplyNavigation('icims','https://careers-acme.icims.com/apply','https://careers-acme.icims.com/jobs/55')).toBe(true);
+    expect(allowedApplyNavigation('icims','https://careers-other.icims.com/apply','https://careers-acme.icims.com/jobs/55')).toBe(false);
+    expect(applyStartUrl('lever','https://jobs.lever.co/acme/abc')).toBe('https://jobs.lever.co/acme/abc/apply');
+    expect(jobSiteName('https://acme.wd1.myworkdayjobs.com/x')).toBe('Workday');
+  });
+  it('never answers demographic, background or signature questions', ()=>{
+    for(const q of ['Have you ever been convicted of a crime?','Race / ethnicity','Electronic signature','Do you consent to a background check?','Date of birth'])
+      expect(classifyApplicationQuestion(q).reusePolicy).toBe('never_auto');
+    expect(classifyApplicationQuestion('First name').key).toBe('firstName');
+    expect(classifyApplicationQuestion('Do you have an active CNA certification?').key).toBe('cnaCertified');
+    expect(classifyApplicationQuestion('Do you have reliable transportation?').key).toBe('reliableTransportation');
+    expect(classifyApplicationQuestion('Desired pay').reusePolicy).toBe('confirm_each_time');
+  });
+  it('builds answers from the profile and remembered answers, never guessing a no', ()=>{
+    const p=applyProfileFromCaregiver({first_name:'Ana',last_name:'Lee',email:'ana@x.test',phone:'4105550100',zip:'21201',city:'Baltimore',state:'MD',certifications:'CNA, CPR',transportation:'Own car',years_experience:4},
+      {workAuthorizationUs:'true',streetAddress:'1 Main St',cnaCertified:'false'});
+    expect(p).toMatchObject({firstName:'Ana',cnaCertified:true,cprCertified:true,reliableTransportation:true,workAuthorizationUs:true,streetAddress:'1 Main St',yearsExperience:4});
+    expect(applyProfileFromCaregiver({certifications:''},{}).cnaCertified).toBeNull();
   });
 });

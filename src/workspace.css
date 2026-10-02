@@ -164,3 +164,4 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
  .nav-link,.nav-button{white-space:nowrap}
 }
 @media(max-width:760px){.app-shell-col .beta-hero{padding:24px 20px;border-radius:24px}.app-shell-col .beta-hero h1{font-size:40px}}
+.resume-card{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap}

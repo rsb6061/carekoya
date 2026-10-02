@@ -2,6 +2,7 @@ import { decodeEntities } from './jobFormat';
 import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { US_STATES, stateForZipPrefix, usState } from './usStates';
+import { detectApplyProvider } from './applyAgentRules';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -1300,6 +1301,7 @@ export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
     city:row.city,state:row.state,zip:row.zip,employmentType:row.employment_type,
     payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:decodeHtml(clean(row.description_text,8000)),
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
-    firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at
+    firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
+    applyForMe:!!detectApplyProvider(clean(row.source_url,1000))
   }});
 }
