@@ -16,7 +16,7 @@ export function EmployerRecruitingPage(){
         <div className="modal-kicker">Hire caregivers</div>
         <h1>Hire caregivers in {state.name}.</h1>
         <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
-        <div className="hero-actions"><a className="btn" href="/?hire=1">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
+        <div className="hero-actions"><a className="btn" href="/find-caregivers">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
         <div className="employer-signin-note">Already use CareJoys? <a className="text-link" href="/login?next=/app">Sign in</a></div>
       </div></section>
 

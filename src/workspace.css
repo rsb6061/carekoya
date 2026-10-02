@@ -192,3 +192,14 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .invite-banner{background:#eef1ff;border:2px solid var(--blue);border-radius:24px;padding:22px 22px 24px;margin-top:8px}.invite-banner .section-heading h2{font-size:32px}@media(max-width:640px){.invite-banner{padding:16px}.invite-banner .section-heading h2{font-size:26px}}
 .job-card-apply{display:flex;flex-direction:column;justify-content:space-between;gap:14px}.job-card-link{color:inherit;text-decoration:none;display:block}.job-card-link:hover h3{text-decoration:underline}.job-card-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
+
+/* Employer and training-program request pages, in the sign-in layout */
+.intake-page{max-width:560px;margin:0 auto;text-align:left}
+.intake-page h1,.intake-page .modal-kicker{text-align:left}
+.intake-page .intake-form{margin-top:26px}
+.intake-page .login-continue{width:100%;min-height:52px;font-size:16px;margin-top:4px;background:var(--ink);border-color:var(--ink);box-shadow:0 8px 20px rgba(27,21,60,.18)}
+.intake-page .login-continue:hover{background:#2a2257}
+.intake-more{border:1px solid var(--lavender);border-radius:16px;padding:12px 14px;background:rgba(255,255,255,.6)}
+.intake-more summary{cursor:pointer;font-size:15px;font-weight:550;color:var(--ink)}
+.intake-more[open] summary{margin-bottom:14px}
+.intake-page .intake-form input,.intake-page .intake-form select,.intake-page .intake-form textarea{font-weight:400}

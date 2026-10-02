@@ -1,5 +1,4 @@
-import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
-import { IntakeModal, type FormKind, type EmployerPreset } from './IntakeModal';
+import { lazy, Suspense, type ComponentType } from 'react';
 import { parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 
@@ -29,6 +28,8 @@ const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
 const LoginPage=named(()=>import('./LoginPage'),'LoginPage');
 const SignInLinkPage=named(()=>import('./LoginPage'),'SignInLinkPage');
 const WelcomeRedirect=named(()=>import('./LoginPage'),'WelcomeRedirect');
+const FindCaregiversPage=named(()=>import('./IntakePage'),'FindCaregiversPage');
+const AddTrainingProgramPage=named(()=>import('./IntakePage'),'AddTrainingProgramPage');
 
 function routePage(path:string){
   if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
@@ -56,6 +57,8 @@ function routePage(path:string){
   if (path === '/login' || path === '/signup') return <LoginPage />;
   if (path === '/signin') return <SignInLinkPage />;
   if (path === '/welcome') return <WelcomeRedirect />;
+  if (path === '/find-caregivers') return <FindCaregiversPage />;
+  if (path === '/add-training-program') return <AddTrainingProgramPage />;
   return null;
 }
 
@@ -81,19 +84,6 @@ function NotFound(){
 }
 
 function Home() {
-  const [form, setForm] = useState<FormKind>(() => new URLSearchParams(window.location.search).get('hire') === '1' ? 'employer' : null);
-  const [employerPreset, setEmployerPreset] = useState<EmployerPreset>({});
-
-  function handleHeroSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const fd = new FormData(event.currentTarget);
-    setEmployerPreset({
-      role: String(fd.get('role') || ''),
-      zip: String(fd.get('location') || '')
-    });
-    setForm('employer');
-  }
-
   return <div>
     <SiteHeader audience="employer"/>
 
@@ -105,7 +95,7 @@ function Home() {
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
           <p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p>
-          <form className="search" onSubmit={handleHeroSearch}>
+          <form className="search" action="/find-caregivers" method="get">
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
               <option value="CNA">CNA</option>
@@ -114,7 +104,7 @@ function Home() {
               <option value="PCA">PCA</option>
               <option value="Caregiver">Caregiver</option>
             </select>
-            <input name="location" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
+            <input name="zip" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
             <button className="btn" type="submit">Find caregivers</button>
           </form>
         </div>
@@ -166,7 +156,7 @@ function Home() {
           <div className="jobs">
             <div className="job">
               <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
-              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><button className="text-button" onClick={() => setForm('school')}>Program not listed? Request addition</button></div>
+              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><a className="text-button" href="/add-training-program">Program not listed? Request addition</a></div>
             </div>
           </div>
         </div>
@@ -191,6 +181,5 @@ function Home() {
 
     <SiteFooter/>
 
-    {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
   </div>
 }

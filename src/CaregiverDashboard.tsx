@@ -4,7 +4,6 @@ import { LoginForm, Shell } from './LoginPage';
 import { ResumeFileInput } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
 import { payLabel, tidyTitle } from './jobFormat';
-import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
@@ -51,7 +50,6 @@ export function CaregiverDashboard(){
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [notice,setNotice]=useState('');
-  const [hiring,setHiring]=useState(false);
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const token=await auth.getIdToken();
@@ -109,10 +107,9 @@ export function CaregiverDashboard(){
       <p>Caregivers: upload your resume once and we’ll match you with local care jobs. Agencies and employers: describe the role and see matched local caregivers.</p>
       <div className="empty-actions">
         <a className="button" href="/caregiver-resume">I’m a caregiver</a>
-        <button className="button secondary" onClick={()=>setHiring(true)}>I’m hiring caregivers</button>
+        <a className="button secondary" href="/find-caregivers">I’m hiring caregivers</a>
       </div>
     </div>
-    {hiring&&<IntakeModal kind="employer" lockedEmail={auth.email} onClose={()=>setHiring(false)}/>}
   </main></div>;
 
   const c=data.caregiver;
