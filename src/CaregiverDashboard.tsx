@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { LoginForm, Shell } from './LoginPage';
+import { jobsHubPath, usState } from './usStates';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -74,7 +75,8 @@ export function CaregiverDashboard(){
   const header=<header className="app-header"><div className="app-wrap header-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="app-nav">
-      <a className="nav-link" href="/caregiver-jobs/maryland">Jobs</a>
+      <a className="nav-link" href={jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Jobs</a>
+      {auth.roles?.employer&&<a className="nav-link" href="/app">Hiring workspace</a>}
       <button className="nav-button" onClick={auth.logout}>Sign out</button>
     </nav>
   </div></header>;

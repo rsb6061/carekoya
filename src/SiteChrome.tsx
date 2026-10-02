@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AccountLink } from './AccountLink';
 
 // The one header and footer for every public page, so the nav doesn't change from page to page.
 
@@ -14,7 +15,7 @@ export function SiteHeader({jobsHref='/caregiver-jobs/maryland',employersHref='/
       <a className={audience==='caregiver'?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
       {showTraining&&<a className="hide-sm" href="/training-programs/maryland">Training programs</a>}
       <a className={audience==='employer'?undefined:'hide-sm'} href={employersHref}>For employers</a>
-      <a href="/login">Sign in</a>
+      <AccountLink/>
       {action}
     </nav>
   </div></header>;

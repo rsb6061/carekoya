@@ -16,6 +16,10 @@ type MatchResult={
   topJobs?:{id:string;title:string;employerName?:string;city?:string;state?:string;distanceMiles?:number|null}[];
   targetJob?:{id:string;title?:string;employerName?:string;applicationUrl?:string}|null;
 };
+type SavedProfile={
+  firstName?:string;lastName?:string;phone?:string;zip?:string;state?:string;role?:string;certifications?:string;specialties?:string;
+  languages?:string;yearsExperience?:number|null;shifts?:string;desiredWage?:string;transportation?:string;travelMiles?:number|null;
+};
 type Props={
   referralSlug?:string;
   targetJobId?:string;
@@ -62,7 +66,9 @@ function summaryValue(label:string,value:string){
 export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=false,heading='Upload your resume',subheading='We’ll build your CareJoys profile and ask only for anything missing.'}:Props){
   const auth=useCaregiverAuth();
   const [draft]=useState(readDraft);
-  const [stage,setStage]=useState<'upload'|'auth'|'profile'|'success'>(draft?'profile':'upload');
+  const [stage,setStage]=useState<'upload'|'known'|'auth'|'profile'|'success'>(draft?'profile':'upload');
+  // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
+  const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
   const [form,setForm]=useState<ResumeForm>(draft?.form||empty);
   const [parsed,setParsed]=useState<ParsedResume|null>(draft?.parsed||null);
   const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(draft?.fileMeta||null);
@@ -95,6 +101,31 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     }));
     if(stage==='auth')setStage('profile');
   },[auth.isAuthenticated,auth.email,auth.name,stage]);
+
+  useEffect(()=>{
+    if(auth.loading)return;
+    if(!auth.isAuthenticated||draft){setSaved(null);return;}
+    let live=true;
+    (async()=>{
+      const token=await auth.getIdToken();
+      const res=await fetch('/api/me',{headers:token?{authorization:'Bearer '+token}:{}});
+      const c=res.ok?(await res.json() as {caregiver?:SavedProfile|null}).caregiver:null;
+      if(!live)return;
+      setSaved(c||null);
+      if(!c)return;
+      const text=(v:unknown)=>v==null?'':String(v);
+      setForm(prev=>({...prev,
+        firstName:prev.firstName||text(c.firstName),lastName:prev.lastName||text(c.lastName),phone:prev.phone||text(c.phone),
+        zip:prev.zip||text(c.zip),state:prev.state||text(c.state),role:prev.role||text(c.role),
+        certifications:prev.certifications||text(c.certifications),specialties:prev.specialties||text(c.specialties),
+        languages:prev.languages||text(c.languages),yearsExperience:prev.yearsExperience||text(c.yearsExperience),
+        shifts:prev.shifts||text(c.shifts),desiredWage:prev.desiredWage||text(c.desiredWage),
+        transportation:prev.transportation||text(c.transportation),travelMiles:c.travelMiles?String(c.travelMiles):prev.travelMiles
+      }));
+      setStage(s=>s==='upload'?(targetJobId?'profile':'known'):s);
+    })().catch(()=>{if(live)setSaved(null)});
+    return ()=>{live=false};
+  },[auth.loading,auth.isAuthenticated]);
 
   // After signing in to claim an existing profile, send the same answers again automatically.
   useEffect(()=>{
@@ -261,6 +292,28 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     </div>;
   }
 
+  if(auth.loading||saved===undefined)return <div className={'caregiver-onboarding '+(compact?'compact':'')}><div className="onboarding-file-note">Loading your profile…</div></div>;
+
+  if(stage==='known'){
+    return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
+      <div className="onboarding-auth">
+        <div className="modal-kicker">Signed in as {auth.email}</div>
+        <h2>Welcome back{form.firstName?', '+form.firstName:''}.</h2>
+        <p>Your CareJoys profile is saved. Open any job and apply with it in one step, or update your details.</p>
+        <div className="onboarding-summary">
+          {summaryValue('Role',form.role)}
+          {summaryValue('ZIP',form.zip)}
+          {summaryValue('Shifts',form.shifts)}
+          {summaryValue('Credentials',form.certifications)}
+        </div>
+        <div className="auth-choice">
+          <a className="btn" href="/me">Open my dashboard</a>
+          <button className="btn secondary" onClick={()=>setStage('profile')}>Update my profile</button>
+        </div>
+      </div>
+    </div>;
+  }
+
   if(stage==='auth'){
     return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-auth">
@@ -280,10 +333,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   if(stage==='profile'){
     return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
-      <div className="modal-kicker">{parsed?'Resume parsed':'CareJoys profile'}</div>
-      <h2>{parsed?'Just a few things left.':'Tell us what fits.'}</h2>
+      <div className="modal-kicker">{parsed?'Resume parsed':saved?'Your CareJoys profile':'CareJoys profile'}</div>
+      <h2>{parsed?'Just a few things left.':saved?(targetJobId?'Apply with your saved profile.':'Update your profile.'):'Tell us what fits.'}</h2>
       {auth.isAuthenticated&&<div className="auth-signed-in">Signed in as <strong>{auth.email}</strong></div>}
-      {parsed&&<div className="onboarding-summary">
+      {(parsed||saved)&&<div className="onboarding-summary">
         {summaryValue('Role',form.role)}
         {summaryValue('ZIP',form.zip)}
         {summaryValue('Credentials',form.certifications)}
@@ -321,7 +374,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <label>Certifications<input value={form.certifications} onChange={e=>patch('certifications',e.target.value)} /></label>
           <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} /></label>
         </>}
-        {parsed&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide resume details':'Review or edit resume details'}</button>}
+        {(parsed||saved)&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide details':parsed?'Review or edit resume details':'Review or edit all details'}</button>}
         <TurnstileField onToken={setTurnstileToken}/>
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
