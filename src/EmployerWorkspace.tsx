@@ -263,6 +263,7 @@ export function EmployerWorkspace(){
         <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Pipeline</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')}>Talent network</button>
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring preferences</button>}
+        <CaregiverDashboardLink/>
         <a className="nav-link" href="/">Public site</a>
         <button className="nav-button" onClick={logout}>Sign out</button>
       </nav>
@@ -428,4 +429,10 @@ export function EmployerWorkspace(){
     </main>
     <footer className="app-footer"><div className="app-wrap">CareJoys · Caregivers ready to work. Interviews ready for you.</div></footer>
   </div>;
+}
+
+/** Same sign-in, other side: an email that is also a caregiver can hop to its caregiver dashboard. */
+function CaregiverDashboardLink(){
+  const auth=useCaregiverAuth();
+  return auth.roles?.caregiver?<a className="nav-link" href="/me">Caregiver dashboard</a>:null;
 }

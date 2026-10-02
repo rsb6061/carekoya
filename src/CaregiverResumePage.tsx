@@ -1,11 +1,12 @@
 import { CaregiverOnboarding } from './CaregiverOnboarding';
+import { AccountLink } from './AccountLink';
 import './styles.css';
 
 export function CaregiverResumePage(){
   return <div>
     <header className="nav"><div className="wrap nav-inner">
       <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/hire-caregivers/maryland">For employers</a></nav>
+      <nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/hire-caregivers/maryland">For employers</a><AccountLink/></nav>
     </div></header>
 
     <main>

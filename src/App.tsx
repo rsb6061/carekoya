@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
+import { AccountLink } from './AccountLink';
 import { IntakeModal, type FormKind, type EmployerPreset } from './IntakeModal';
 import { parseJobsHubPath } from './usStates';
 
@@ -69,7 +70,7 @@ export function App() {
 
 function NotFound(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a><AccountLink /></nav></div></header>
     <main className="section"><div className="wrap">
       <h1>Page not found</h1>
       <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs/maryland">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers/maryland">hiring caregivers</a>.</p>
@@ -99,7 +100,7 @@ function Home() {
           <a className="hide-sm" href="/about">How it works</a>
           <a className="hide-sm" href="/caregiver-jobs/maryland">Caregiver jobs</a>
           <a className="hide-sm" href="/training-programs/maryland">Training programs</a>
-          <a href="/login">Sign in</a>
+          <AccountLink />
           <a href="/hire-caregivers/maryland">For employers</a>
           <button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>
         </nav>
