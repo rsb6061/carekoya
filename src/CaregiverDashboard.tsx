@@ -131,7 +131,6 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="header-action"><a className="button secondary" href="/dashboard/profile/preview">View my profile</a><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
@@ -172,7 +171,16 @@ export function CaregiverDashboard(){
           <div><div className="modal-kicker">Hidden from employers</div><h3>You’re not shown as looking for work.</h3><div className="job-meta">Turn it back on whenever you’re ready.</div></div>
           <button className="button" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'actively_looking'},'You’re shown to employers again.')}>I’m looking again</button>
         </div></section>
-        :gaps.length>0&&<section className="section-block"><div className="settings-card profile-checklist">
+        :gaps.length===0?<section className="section-block"><div className="settings-card profile-checklist">
+          <div>
+            <div className="modal-kicker">Your profile is complete</div>
+            <h3>Employers see your full profile.</h3>
+            <div className="profile-progress"><span style={{width:'100%'}}/></div>
+            <div className="job-meta">Keep your availability and pay current so your matches stay accurate.</div>
+          </div>
+          <a className="button" href="/dashboard/profile">Edit my profile</a>
+        </div></section>
+        :<section className="section-block"><div className="settings-card profile-checklist">
           <div>
             <div className="modal-kicker">Your profile is {Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)}% complete</div>
             <h3>Finish your profile to get better matches.</h3>
