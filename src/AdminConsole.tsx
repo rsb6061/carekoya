@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
+import { rememberDashboard } from './dashboardHome';
 import './workspace.css';
 
 type Count={count:number};
@@ -71,7 +72,7 @@ export function AdminConsole(){
   const [busy,setBusy]=useState(false);
 
   async function load(key=windowKey){
-    try{setData(await api<Overview>('/api/admin/overview?window='+key))}
+    try{setData(await api<Overview>('/api/admin/overview?window='+key));rememberDashboard('admin')}
     catch(err){if((err as {status?:number}).status===401)setNeedsLogin(true);else setNotice(err instanceof Error?err.message:'Could not load')}
   }
   useEffect(()=>{void load(windowKey)},[windowKey]);

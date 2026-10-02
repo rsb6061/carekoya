@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { TurnstileField } from './TurnstileField';
-import { IntakeModal } from './IntakeModal';
 import { loginPath, useCaregiverAuth } from './caregiverAuth';
+import { homePath, lastDashboard } from './dashboardHome';
 import './workspace.css';
 
 // The one sign-in and sign-up for caregivers, agencies and employers: enter an email, click the link.
@@ -70,7 +70,7 @@ export function LoginPage(){
   const next=new URLSearchParams(window.location.search).get('next')||'';
   // Already signed in: go straight on to where they were headed, or their dashboards.
   useEffect(()=>{
-    if(!auth.loading&&auth.isAuthenticated)window.location.replace(next&&next.startsWith('/')&&!next.startsWith('//')?next:'/welcome');
+    if(!auth.loading&&auth.isAuthenticated)window.location.replace(next&&next.startsWith('/')&&!next.startsWith('//')&&next!=='/welcome'?next:homePath(auth.roles,lastDashboard()));
   },[auth.loading,auth.isAuthenticated]);
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
   return <Shell>
@@ -85,7 +85,7 @@ export function SignInLinkPage(){
   useEffect(()=>{
     if(!token){setError('This sign-in link is missing.');return;}
     post<{redirect?:string}>('/api/login/verify',{token})
-      .then(body=>window.location.replace(body.redirect||'/welcome'))
+      .then(body=>window.location.replace(body.redirect||'/me'))
       .catch(e=>setError(e instanceof Error?e.message:'This sign-in link is invalid.'));
   },[token]);
   return <Shell><div className="beta-hero app-empty-card">
@@ -95,37 +95,12 @@ export function SignInLinkPage(){
   </div></Shell>;
 }
 
-/** The account home: links to each dashboard this email has, and a way to start the other side. */
-export function WelcomePage(){
+/** Old /welcome links: straight on to this account's dashboard. */
+export function WelcomeRedirect(){
   const auth=useCaregiverAuth();
-  const [hiring,setHiring]=useState(false);
   useEffect(()=>{
-    if(!auth.loading&&!auth.isAuthenticated)window.location.replace(loginPath('/welcome'));
+    if(auth.loading)return;
+    window.location.replace(auth.isAuthenticated?homePath(auth.roles,lastDashboard()):loginPath());
   },[auth.loading,auth.isAuthenticated]);
-  if(auth.loading||!auth.isAuthenticated)return <div className="loading-screen">Loading CareJoys…</div>;
-  const roles=auth.roles||{caregiver:false,employer:false,admin:false};
-  const fresh=!roles.caregiver&&!roles.employer;
-
-  return <Shell>
-    <div className="beta-hero app-empty-card">
-      <div className="modal-kicker">Signed in as {auth.email}</div>
-      <h1>{fresh?'What brings you to CareJoys?':'Where to?'}</h1>
-      {fresh&&<p>Pick one to set up your account. You can add the other later with the same sign-in.</p>}
-      <div className="welcome-choices">
-        <div className="welcome-choice">
-          <strong>I’m a caregiver</strong>
-          <span>{roles.caregiver?'See invitations, book interviews and keep your availability current.':'Upload your resume once and get matched with local care jobs.'}</span>
-          <a className="button" href={roles.caregiver?'/me':'/caregiver-resume'}>{roles.caregiver?'Open my caregiver dashboard':'Build my caregiver profile'}</a>
-        </div>
-        <div className="welcome-choice">
-          <strong>I’m hiring caregivers</strong>
-          <span>{roles.employer?'Your openings, matched caregivers, agency inbox and interviews.':'For home-care agencies and employers. Describe the role and see matched local caregivers.'}</span>
-          {roles.employer?<a className="button" href="/app">Open my hiring workspace</a>:<button className="button" onClick={()=>setHiring(true)}>Set up hiring</button>}
-        </div>
-        {roles.admin&&<div className="welcome-choice"><strong>CareJoys admin</strong><span>Funnel, employers and outreach.</span><a className="button secondary" href="/admin">Open admin</a></div>}
-      </div>
-      <div className="empty-actions"><button className="text-button" onClick={auth.logout}>Sign out</button></div>
-    </div>
-    {hiring&&<IntakeModal kind="employer" lockedEmail={auth.email} onClose={()=>setHiring(false)}/>}
-  </Shell>;
+  return <div className="loading-screen">Loading CareJoys…</div>;
 }
