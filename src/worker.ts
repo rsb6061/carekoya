@@ -11,7 +11,7 @@ import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
-import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
+import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
@@ -1360,6 +1360,7 @@ export default {
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/run") return runAdminOutreach(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/test") return sendAdminOutreachTest(request,env,admin);
       if(request.method==="POST"&&url.pathname==="/api/admin/agency-test") return sendAdminAgencyTest(request,env,admin);
+      if(request.method==="GET"&&url.pathname==="/api/admin/agencies") return adminAgencySearch(env,url.searchParams.get("q")||"");
       return json({ok:false,error:"Not found"},{status:404});
     }
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);

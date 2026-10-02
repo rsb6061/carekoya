@@ -86,7 +86,7 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
   if(!env.DB)return {processed:0,enriched:0};
   const rows=await env.DB.prepare(`SELECT id,canonical_name,primary_domain,primary_website,primary_careers_url,primary_email
     FROM agency_organizations
-    WHERE is_active=1 AND primary_domain IS NOT NULL AND primary_domain!=''
+    WHERE is_active=1 AND COALESCE(is_test,0)=0 AND primary_domain IS NOT NULL AND primary_domain!=''
       AND (last_enriched_at IS NULL OR datetime(last_enriched_at)<datetime('now','-30 days'))
     ORDER BY CASE WHEN last_enriched_at IS NULL THEN 0 ELSE 1 END, updated_at ASC
     LIMIT ?`).bind(limit).all<Row>();
@@ -457,32 +457,65 @@ export async function resetTestAgency(env:FeatureEnv){
   }
   for(const table of ['agency_teaser_tokens','agency_org_candidate_matches','agency_org_hiring_profiles','agency_outreach_events'])
     await db.prepare(`DELETE FROM ${table} WHERE organization_id=?`).bind(TEST_AGENCY_ID).run();
+  // Jobs copied from a real agency for the walkthrough (never published).
+  await db.prepare('DELETE FROM caregiver_job_apply_events WHERE caregiver_job_id IN (SELECT id FROM caregiver_jobs WHERE agency_organization_id=?)').bind(TEST_AGENCY_ID).run();
+  await db.prepare('DELETE FROM caregiver_jobs WHERE agency_organization_id=?').bind(TEST_AGENCY_ID).run();
   await db.prepare('UPDATE agency_organizations SET claimed_employer_id=NULL,teaser_last_sent_at=NULL,teaser_send_count=0 WHERE id=?').bind(TEST_AGENCY_ID).run();
 }
 
+/** Copies of real jobs on the test agency carry this reason; they stay unpublished but show as live in its jobs panel. */
+export const TEST_JOB_REASON='test_agency_copy';
+const ORG_PROFILE_COLUMNS=['primary_domain','primary_website','primary_careers_url','primary_phone','primary_contact_name','city','state','zip','provider_types','license_count',
+  'website_source','careers_source','inferred_roles','current_hiring_signal','hiring_signal_source','caregiver_relevance_score','npi','google_place_id','rating','review_count','sources'];
+
 /**
- * Admin walkthrough: a hidden "CareJoys Test Agency" in Baltimore, matched to real Maryland caregivers,
- * whose live teaser goes to `email`. It never appears in agency search, the MCP or real outreach.
+ * Admin walkthrough: a hidden test agency whose live teaser goes to `email`. With `sourceId` it is a copy of that real
+ * agency (profile, caregiver matches, current jobs) so the walkthrough shows real data; otherwise a generic Baltimore
+ * agency matched to Maryland caregivers. It never appears in agency search, the MCP, job pages, scans or real outreach.
  */
-export async function startTestAgency(env:FeatureEnv,email:string){
+export async function startTestAgency(env:FeatureEnv,email:string,sourceId=''){
   if(!env.DB||!env.EMAIL)throw new Error('Email is not configured');
+  const source=sourceId?await env.DB.prepare('SELECT * FROM agency_organizations WHERE id=? AND COALESCE(is_test,0)=0 LIMIT 1').bind(sourceId).first<Row>():null;
+  if(sourceId&&!source)throw new Error('Agency not found');
   await resetTestAgency(env);
   await env.DB.prepare(`INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,zip,provider_types,caregiver_relevance_score,current_hiring_signal,is_active,is_test)
     VALUES (?,?,'CareJoys Test Agency',?,'Baltimore','MD','21201','Residential Service Agency',90,'unknown',1,1)
-    ON CONFLICT(id) DO UPDATE SET primary_email=excluded.primary_email,is_active=1,is_test=1,updated_at=CURRENT_TIMESTAMP`)
+    ON CONFLICT(id) DO UPDATE SET canonical_name='CareJoys Test Agency',primary_email=excluded.primary_email,is_active=1,is_test=1,updated_at=CURRENT_TIMESTAMP`)
     .bind(TEST_AGENCY_ID,TEST_AGENCY_ID,email).run();
-  await env.DB.prepare(`INSERT INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
-    SELECT ?||':'||c.id,?,c.id,g+f+20,g,5,f,15,json_object('geography',g,'role',5,'freshness',f,'provider',15),'matched',CURRENT_TIMESTAMP FROM (
-      SELECT c.id,
-        CASE WHEN c.zip='21201' THEN 50 WHEN lower(coalesce(c.city,''))='baltimore' THEN 35 ELSE 15 END AS g,
-        CASE WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
-          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8 ELSE 0 END AS f
-      FROM caregivers c
-      WHERE c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
-        AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
-      ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
+  // Every profile column is reset, so a generic run after a copy does not keep the copied agency's details.
+  await env.DB.prepare(`UPDATE agency_organizations SET ${ORG_PROFILE_COLUMNS.map(c=>c+'=?').join(',')},canonical_name=? WHERE id=?`)
+    .bind(...ORG_PROFILE_COLUMNS.map(c=>source?source[c]??null:({city:'Baltimore',state:'MD',zip:'21201',provider_types:'Residential Service Agency',license_count:0,caregiver_relevance_score:90,current_hiring_signal:'unknown'} as Row)[c]??null),
+      source?clean(source.canonical_name,170)+' (test copy)':'CareJoys Test Agency',TEST_AGENCY_ID).run();
+  if(source){
+    await env.DB.prepare(`INSERT INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
+      SELECT ?||':'||caregiver_id,?,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,'matched',CURRENT_TIMESTAMP
+      FROM agency_org_candidate_matches WHERE organization_id=?`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID,source.id).run();
+    const profile=await env.DB.prepare('SELECT * FROM agency_org_hiring_profiles WHERE organization_id=?').bind(source.id).first<Row>();
+    if(profile){
+      const cols=Object.keys(profile).filter(c=>c!=='organization_id'&&c!=='employer_confirmed_at');
+      await env.DB.prepare(`INSERT INTO agency_org_hiring_profiles(organization_id,${cols.join(',')}) VALUES (?,${cols.map(()=>'?').join(',')})`)
+        .bind(TEST_AGENCY_ID,...cols.map(c=>profile[c]??null)).run();
+    }
+    const jobCols=['source_provider','source_job_id','source_url','source_listing_url','title','role','employer_name','city','state','zip','employment_type','pay_min','pay_max','pay_currency',
+      'description_text','classifier_reason','confidence','date_posted','valid_through','first_seen_at','last_seen_at','last_checked_at','normalized_title','roles_json','pay_period','location_source'];
+    await env.DB.prepare(`INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,status,is_published,publication_reason,${jobCols.join(',')})
+      SELECT 'test-'||id,?,'test-copy:'||dedupe_key,'current',0,?,${jobCols.join(',')} FROM caregiver_jobs
+      WHERE agency_organization_id=? AND status='current' AND is_published=1 LIMIT 200`).bind(TEST_AGENCY_ID,TEST_JOB_REASON,source.id).run();
+  }else{
+    await env.DB.prepare(`INSERT INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
+      SELECT ?||':'||c.id,?,c.id,g+f+20,g,5,f,15,json_object('geography',g,'role',5,'freshness',f,'provider',15),'matched',CURRENT_TIMESTAMP FROM (
+        SELECT c.id,
+          CASE WHEN c.zip='21201' THEN 50 WHEN lower(coalesce(c.city,''))='baltimore' THEN 35 ELSE 15 END AS g,
+          CASE WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
+            WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8 ELSE 0 END AS f
+        FROM caregivers c
+        WHERE c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
+          AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
+        ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
+  }
   const org=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o LEFT JOIN agency_org_candidate_matches m ON m.organization_id=o.id WHERE o.id=? GROUP BY o.id`).bind(TEST_AGENCY_ID).first<Row>();
   await deliverTeaser(env,org!,true);
-  return {email,candidateCount:asNum(org?.candidate_count)};
+  const jobs=await env.DB.prepare('SELECT COUNT(*) AS n FROM caregiver_jobs WHERE agency_organization_id=?').bind(TEST_AGENCY_ID).first<Row>();
+  return {email,agencyName:clean(org?.canonical_name,200),candidateCount:asNum(org?.candidate_count),jobCount:asNum(jobs?.n)};
 }

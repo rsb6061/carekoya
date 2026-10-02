@@ -133,10 +133,23 @@ export async function sendAdminOutreachTest(request:Request,env:AdminEnv,admin:{
 export async function sendAdminAgencyTest(request:Request,env:AdminEnv,admin:{email:string}){
   const data=await request.json().catch(()=>null) as Row|null;
   if(data?.reset){await resetTestAgency(env);return json({ok:true,reset:true})}
-  const to=(admin.email||clean(data?.to,320)).toLowerCase();
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return json({ok:false,error:'No admin email to send the test to'},{status:400});
-  try{return json({ok:true,result:await startTestAgency(env,to)})}
+  // Admins may send the walkthrough to another inbox they own (e.g. you+agency@gmail.com) to keep it apart from their admin account.
+  const to=(clean(data?.to,320)||admin.email).toLowerCase();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to))return json({ok:false,error:'No email to send the test to'},{status:400});
+  try{return json({ok:true,result:await startTestAgency(env,to,clean(data?.sourceId,120))})}
   catch(error){return json({ok:false,error:error instanceof Error?error.message:'Test send failed'},{status:502})}
+}
+
+/** Real agencies an admin can copy into the walkthrough, richest data first (current jobs, then matched caregivers). */
+export async function adminAgencySearch(env:AdminEnv,q:string){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const term=clean(q,120).toLowerCase();
+  const rows=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.city,o.state,o.claimed_employer_id,
+      (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=o.id AND j.status='current' AND j.is_published=1) AS jobs,
+      (SELECT COUNT(*) FROM agency_org_candidate_matches m WHERE m.organization_id=o.id) AS matches
+    FROM agency_organizations o WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 ${term?'AND lower(o.canonical_name) LIKE ?':"AND o.id IN (SELECT agency_organization_id FROM caregiver_jobs WHERE status='current' AND is_published=1)"}
+    ORDER BY jobs DESC,matches DESC LIMIT 12`).bind(...(term?['%'+term+'%']:[])).all<Row>();
+  return json({ok:true,agencies:(rows.results||[]).map(r=>({id:r.id,name:r.canonical_name,city:r.city,state:r.state,jobs:asNum(r.jobs),matches:asNum(r.matches),claimed:!!r.claimed_employer_id}))});
 }
 
 export { outreachStatus };
