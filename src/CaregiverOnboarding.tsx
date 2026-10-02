@@ -143,7 +143,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     // Keep the answers in case the browser blocks the popup and sign-in falls back to a full-page redirect.
     if(stage!=='success')writeDraft({form,parsed,fileMeta,resubmit:stage==='auth'});
     try{
-      if(kind==='google')await auth.loginGoogle();
+      if(kind==='google')await auth.loginGoogle({next:stage==='success'?'/me':window.location.pathname+window.location.search});
       else await auth.loginEmail({email:form.email,next:stage==='success'?'/me':window.location.pathname+window.location.search});
       if(stage==='auth')setPendingResubmit(true);
       return true;

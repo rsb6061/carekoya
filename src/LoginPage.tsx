@@ -14,12 +14,18 @@ async function post<T>(path:string,data:Record<string,unknown>):Promise<T>{
 }
 
 /** Email-link sign-in form. `next` is where to land afterwards (when this account can use it). */
-export function LoginForm({next='',kicker='Sign in or sign up',title='Welcome to CareJoys.'}:{next?:string;kicker?:string;title?:string}){
+const GOOGLE_ERRORS:Record<string,string>={
+  google_cancelled:'Google sign-in was cancelled. Try again, or use your email.',
+  google_failed:'Google couldn’t confirm that account. Try again, or use your email.',
+  google_unavailable:'Google sign-in isn’t available right now. Use your email instead.'
+};
+
+export function LoginForm({next='',kicker='Sign in or sign up',title='Welcome to CareJoys.',google}:{next?:string;kicker?:string;title?:string;google?:()=>void}){
   const params=new URLSearchParams(window.location.search);
   const [email,setEmail]=useState(params.get('email')||'');
   const [turnstileToken,setTurnstileToken]=useState('');
   const [status,setStatus]=useState<'idle'|'sending'|'sent'|'error'>('idle');
-  const [message,setMessage]=useState('');
+  const [message,setMessage]=useState(GOOGLE_ERRORS[params.get('error')||'']||'');
 
   async function submit(e:FormEvent){
     e.preventDefault();setStatus('sending');setMessage('');
@@ -39,7 +45,9 @@ export function LoginForm({next='',kicker='Sign in or sign up',title='Welcome to
       <button className="text-button" onClick={()=>setStatus('idle')}>Use a different email</button>
     </>:<>
       <h1>{title}</h1>
-      <p>One account for caregivers, agencies and employers. Enter your email and we’ll send a secure link. No password needed, and new emails get an account automatically.</p>
+      <p>One account for caregivers, agencies and employers. No password needed, and new emails get an account automatically.</p>
+      {status==='idle'&&message&&<div className="notice">{message}</div>}
+      {google&&<><button type="button" className="button google-button" onClick={google}>Continue with Google</button><div className="login-or">or get a link by email</div></>}
       <form className="auth-form" onSubmit={submit}>
         <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required />
         <TurnstileField onToken={setTurnstileToken}/>
@@ -66,8 +74,7 @@ export function LoginPage(){
   },[auth.loading,auth.isAuthenticated]);
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
   return <Shell>
-    <LoginForm next={next}/>
-    {auth.googleAvailable&&!auth.isAuthenticated&&<p className="login-alt">Caregiver with a Google account? <button className="text-button" onClick={()=>void auth.loginGoogle().then(()=>window.location.assign(next||'/me'))}>Continue with Google</button></p>}
+    <LoginForm next={next} google={auth.googleAvailable?()=>void auth.loginGoogle({next}):undefined}/>
   </Shell>;
 }
 

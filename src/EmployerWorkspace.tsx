@@ -48,7 +48,7 @@ function EmployerSignIn(){
         <p>This email doesn’t have an agency or employer workspace on CareJoys. Set one up in a minute, or sign out and use your agency email.</p>
         <div className="empty-actions"><a className="button" href="/welcome">Set up hiring</a><button className="button secondary" onClick={auth.logout}>Sign out</button></div>
       </div>
-      :<LoginForm next={window.location.pathname+window.location.search} kicker="Agencies and employers" title="Sign in to CareJoys."/>}
+      :<LoginForm next={window.location.pathname+window.location.search} kicker="Agencies and employers" title="Sign in to CareJoys." google={auth.googleAvailable?()=>void auth.loginGoogle():undefined}/>}
   </div></div>;
 }
 

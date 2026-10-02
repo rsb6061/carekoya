@@ -214,12 +214,13 @@ export async function employerOwnsWorkspace(request:Request,env:FeatureEnv,works
   return employer&&clean(employer.id,100)===workspaceId?employer:null;
 }
 
-export function publicConfig(env:FeatureEnv){
+export function publicConfig(env:FeatureEnv,googleSignIn=false){
   return json({
     ok:true,
     turnstileSiteKey:env.TURNSTILE_SITE_KEY||null,
     auth0Domain:env.AUTH0_DOMAIN||null,
-    auth0ClientId:env.AUTH0_CLIENT_ID||null
+    auth0ClientId:env.AUTH0_CLIENT_ID||null,
+    googleSignIn
   });
 }
 
