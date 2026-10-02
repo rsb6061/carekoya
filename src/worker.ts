@@ -398,7 +398,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Pricing for Caregiver Hiring | CareJoys",
       description:"CareJoys Hiring is $35/month per location, or $350/year: local caregiver matches, interest confirmation and interview booking, with no recruiter or placement fees.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Hire caregivers who want the job.</h1><p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested.</p><h2>Hiring: $35/month per location</h2><p>Or $350/year. Ranked local caregiver matches, interest confirmation, interview booking and one inbox. No recruiter or placement fees.</p><p><a href="/find-caregivers">Start hiring</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Hire caregivers who want the job.</h1><p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested.</p><h2>Hiring: $35/month per location</h2><p>Or $350/year.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver contacts are free.':'')+' Ranked local caregiver matches, interest confirmation, interview booking and one inbox. No recruiter or placement fees.</p><p><a href="/find-caregivers">Start hiring</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){

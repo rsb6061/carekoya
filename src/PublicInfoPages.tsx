@@ -100,6 +100,9 @@ const PLANS={monthly:{price:'$35',per:'/month',cta:'Start hiring for $35/month'}
 export function PricingPage(){
   const [plan,setPlan]=useState<keyof typeof PLANS>('monthly');
   const p=PLANS[plan];
+  const [freeContacts,setFreeContacts]=useState<number|null>(null);
+  useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
+  const free=freeContacts??5;
   return <div>
     <SiteHeader audience="employer"/>
     <main>
@@ -120,6 +123,7 @@ export function PricingPage(){
             </div>
             <a className="btn plan-cta" href={'/find-caregivers?plan='+plan}>{p.cta}</a>
             {plan==='yearly'&&<div className="plan-save">Save $70 per year</div>}
+            {free>0&&<div className="plan-free">Your first {free} caregiver contacts are free.</div>}
             <ul className="plan-list">
               <li>Post openings and get ranked local caregiver matches by role, ZIP, shift and pay.</li>
               <li>CareJoys contacts matched caregivers, confirms interest, and lets them book your interview times.</li>
