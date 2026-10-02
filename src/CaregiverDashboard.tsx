@@ -3,6 +3,7 @@ import { useCaregiverAuth } from './caregiverAuth';
 import { LoginForm, Shell } from './LoginPage';
 import { ResumeFileInput } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
+import { payLabel, tidyTitle } from './jobFormat';
 import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
@@ -30,7 +31,7 @@ type Caregiver=CaregiverProfileData&{
 type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
 
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
-const pay=(min?:number|null,max?:number|null,period='hour')=>min||max?`$${min||'—'}–$${max||'—'}/${period==='year'?'yr':'hr'}`:'';
+const pay=(min?:number|null,max?:number|null,period='hour')=>payLabel({payMin:min,payMax:max,payPeriod:period});
 function when(iso?:string|null,timeZone?:string){
   if(!iso)return '';
   try{return new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:timeZone||undefined}).format(new Date(iso))}catch{return iso}
@@ -166,7 +167,7 @@ export function CaregiverDashboard(){
         {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
         <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
           <div className="job-card-main">
-            <h3>{job.title}</h3>
+            <h3>{tidyTitle(job.title)}</h3>
             <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
             {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
           </div>

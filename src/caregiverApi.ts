@@ -3,6 +3,7 @@ import { freshnessLabel, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin } from './geo';
 import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
 import { caregiverApplicationEmail } from './email';
+import { normalizeTitle } from './jobDiscovery';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -45,7 +46,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   const jobRows=await env.DB.prepare(jobsSql).bind(...jobArgs).all<Row>();
   return (jobRows.results||[]).map(j=>{const g=rowGeo(j);return {j,d:geo&&g?haversineMiles(geo,g):null}})
     .filter(x=>!geo||(x.d!==null&&x.d<=radius)).slice(0,limit)
-    .map(({j,d})=>({id:j.id,title:j.title,employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,distanceMiles:d===null?null:Math.round(d*10)/10}));
+    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,distanceMiles:d===null?null:Math.round(d*10)/10}));
 }
 
 export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIdentity|null){
@@ -127,7 +128,7 @@ export async function applyWithProfile(env:FeatureEnv,identity:CaregiverIdentity
  * employer can receive it, and an email receipt. Also used after "Apply for me" submits on the employer's site.
  */
 export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:string,jobId:string,opts:{submittedOnEmployerSite:boolean}){
-  const job=await env.DB!.prepare(`SELECT j.id,COALESCE(NULLIF(j.normalized_title,''),j.title) AS title,j.employer_name,j.source_url,j.agency_organization_id,
+  const job=await env.DB!.prepare(`SELECT j.id,j.title AS title,j.employer_name,j.source_url,j.agency_organization_id,
       o.claimed_employer_id,${REACHABLE_AGENCY_SQL} AS reachable
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.id=? AND j.is_published=1 AND j.status='current' LIMIT 1`).bind(jobId).first<Row>();

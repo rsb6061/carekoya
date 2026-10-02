@@ -1,4 +1,4 @@
-import { decodeEntities } from './jobFormat';
+import { decodeEntities, normalizePay, tidyTitle } from './jobFormat';
 import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { US_STATES, stateForZipPrefix, usState } from './usStates';
@@ -158,12 +158,12 @@ function escapeRegex(value:string){
   return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
 }
 export function normalizeTitle(value:unknown){
-  return decodeHtml(clean(value,320))
+  return tidyTitle(decodeHtml(clean(value,320))
     .replace(/\u00a0/g,' ')
     .replace(/[‐‑‒–—]+/g,' – ')
     .replace(/\s*\+\s*/g,' + ')
     .replace(/\s+/g,' ')
-    .trim()
+    .trim())
     .slice(0,220);
 }
 const ROLE_RULES:[string,RegExp][]=[
@@ -228,7 +228,7 @@ function payPeriod(raw:unknown){
   return '';
 }
 function payFromText(text:string){
-  const normalized=text.replace(/,/g,' ');
+  const normalized=text.replace(/(\d),(?=\d{3}\b)/g,'$1').replace(/,/g,' ');
   const range=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
   if(range)return {min:Number(range[1]),max:Number(range[2]),period:payPeriod(range[3])};
   const single=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
@@ -770,9 +770,9 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   }
   const employmentType=normalizeEmploymentType(input.employmentType,title,input.descriptionText);
   const textPay=payFromText(input.descriptionText);
-  const payMin=input.payMin??textPay.min;
-  const payMax=input.payMax??textPay.max;
-  const payUnit=input.payPeriod||textPay.period;
+  const sourcePay=input.payMin!=null||input.payMax!=null?normalizePay(input.payMin,input.payMax,input.payPeriod):null;
+  const pay=sourcePay?.period?sourcePay:normalizePay(textPay.min,textPay.max,textPay.period);
+  const payMin=pay.min,payMax=pay.max,payUnit=pay.period;
   const roles=cls.roles||[cls.role];
   const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   const fingerprint=await sha256Hex([clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip].join('|'));
@@ -1189,9 +1189,9 @@ export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
     if(!cls)continue;
     const employmentType=normalizeEmploymentType(clean(row.employment_type,200),title,description);
     const textPay=payFromText(description);
-    const payMin=row.pay_min==null?textPay.min:Number(row.pay_min);
-    const payMax=row.pay_max==null?textPay.max:Number(row.pay_max);
-    const payUnit=clean(row.pay_period,30)||textPay.period;
+    const sourcePay=row.pay_min!=null||row.pay_max!=null?normalizePay(row.pay_min,row.pay_max,row.pay_period):null;
+    const pay=sourcePay?.period?sourcePay:normalizePay(textPay.min,textPay.max,textPay.period);
+    const payMin=pay.min,payMax=pay.max,payUnit=pay.period;
     const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
     const fingerprint=await sha256Hex([
       clean(row.agency_organization_id,100),normalizedTitle,normalizeCity(row.city).toLowerCase(),normalizeState(row.state),clean(row.zip,20)
@@ -1202,6 +1202,28 @@ export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
   }
   for(const orgId of orgs)if(orgId)await reconcileOrgDuplicates(env,orgId);
   return {processed:(rows.results||[]).length};
+}
+
+const PAY_BAND_SQL:[string,number,number][]=[['hour',7.25,100],['day',60,1200],['week',250,5000],['month',1000,20000],['year',15000,250000]];
+const outOfBand=(col:string)=>'('+col+' IS NOT NULL AND (CASE pay_period '+PAY_BAND_SQL.map(([p,lo,hi])=>"WHEN '"+p+"' THEN "+col+'<'+lo+' OR '+col+'>'+hi).join(' ')+' ELSE 1 END))';
+/** Rows whose stored pay normalizePay would change: implausible amounts, wrong or missing periods, reversed ranges. */
+export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pay_max>pay_min*4 OR '+outOfBand('pay_min')+' OR '+outOfBand('pay_max')+')';
+
+/** Re-applies the pay rules to jobs stored before them, a few hundred rows per run until none are left. */
+export async function repairJobPayBatch(env:FeatureEnv,limit=500){
+  const counts={checked:0,relabeled:0,trimmed:0,cleared:0};
+  if(!env.DB)return counts;
+  const rows=await env.DB.prepare('SELECT id,pay_min,pay_max,pay_period FROM caregiver_jobs WHERE '+SUSPECT_PAY_SQL+' LIMIT ?').bind(limit).all<Row>();
+  for(const row of rows.results||[]){
+    counts.checked++;
+    const pay=normalizePay(row.pay_min,row.pay_max,row.pay_period);
+    if(!pay.period)counts.cleared++;
+    else if(pay.period!==clean(row.pay_period,20))counts.relabeled++;
+    else counts.trimmed++;
+    await env.DB.prepare('UPDATE caregiver_jobs SET pay_min=?,pay_max=?,pay_period=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      .bind(pay.min,pay.max,pay.period||null,row.id).run();
+  }
+  return counts;
 }
 
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){

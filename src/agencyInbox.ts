@@ -85,7 +85,7 @@ export async function resolveTargets(env:FeatureEnv,input:{jobIds?:unknown;agenc
   if(jobIds.length+agencyIds.length>MAX_TARGETS)throw new Error(`Choose at most ${MAX_TARGETS} jobs or agencies at once.`);
   const out:ResolvedTarget[]=[];
   for(const id of jobIds){
-    const row=await env.DB.prepare(`SELECT j.id,COALESCE(NULLIF(j.normalized_title,''),j.title) AS title,j.agency_organization_id,o.canonical_name,o.city,o.state,
+    const row=await env.DB.prepare(`SELECT j.id,j.title AS title,j.agency_organization_id,o.canonical_name,o.city,o.state,
         ${REACHABLE_AGENCY_SQL} AS reachable
       FROM caregiver_jobs j JOIN agency_organizations o ON o.id=j.agency_organization_id
       WHERE j.id=? AND j.is_published=1 AND j.status='current' AND o.is_active=1 LIMIT 1`).bind(id).first<Row>();
@@ -133,7 +133,7 @@ export async function createAgencyInterests(env:FeatureEnv,input:{caregiverId:st
 }
 
 async function interestPreviews(env:FeatureEnv,orgId:string,identified:boolean){
-  const rows=await env.DB!.prepare(`SELECT c.first_name,c.role,c.city,c.state,c.years_experience,COALESCE(NULLIF(j.normalized_title,''),j.title) AS job_title
+  const rows=await env.DB!.prepare(`SELECT c.first_name,c.role,c.city,c.state,c.years_experience,j.title AS job_title
     FROM agency_interests ai JOIN caregivers c ON c.id=ai.caregiver_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id
     WHERE ai.organization_id=? AND ai.agency_notified_at IS NULL ORDER BY ai.created_at DESC LIMIT 20`).bind(orgId).all<Row>();
   return (rows.results||[]).map(r=>{
@@ -336,7 +336,7 @@ export async function interestRequestStatus(env:FeatureEnv,token:string){
   const ids=(JSON.parse(clean(row.result,20000)||'[]') as InterestResult[]).map(r=>r.interestId);
   const agencies=[];
   for(const id of ids){
-    const r=await env.DB.prepare(`SELECT ai.agency_stage,ai.created_at,o.canonical_name,COALESCE(NULLIF(j.normalized_title,''),j.title) AS job_title
+    const r=await env.DB.prepare(`SELECT ai.agency_stage,ai.created_at,o.canonical_name,j.title AS job_title
       FROM agency_interests ai JOIN agency_organizations o ON o.id=ai.organization_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id WHERE ai.id=?`).bind(id).first<Row>();
     if(r)agencies.push({agency:clean(r.canonical_name,200),job:clean(r.job_title,200)||null,status:CAREGIVER_STAGE_LABELS[interestStage(r)],sentAt:clean(r.created_at,40)});
   }
@@ -461,7 +461,7 @@ export async function getAgencyInbox(request:Request,env:FeatureEnv){
   if(!org)return json({ok:true,agency:null,items:[],stages:STAGE_LABELS});
   const rows=await env.DB.prepare(`SELECT ai.*,c.first_name,c.last_name,c.display_name,c.email,c.phone,c.city,c.state,c.zip,c.role,c.certifications,c.years_experience,
       c.shift_preferences,c.desired_wage,c.transportation,c.work_status,c.last_confirmed_at,c.profile_photo_url,
-      COALESCE(NULLIF(j.normalized_title,''),j.title) AS job_title
+      j.title AS job_title
     FROM agency_interests ai JOIN caregivers c ON c.id=ai.caregiver_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id
     WHERE ai.organization_id=? ORDER BY ai.created_at DESC LIMIT 300`).bind(org.id).all<Row>();
   const items=(rows.results||[]).map(inboxItem);
@@ -497,7 +497,7 @@ export async function updateAgencyInterest(request:Request,env:FeatureEnv,intere
 // De-identified waiting caregivers for the claim page an activation email links to.
 export async function waitingInterestPreviews(env:FeatureEnv,orgId:string){
   if(!env.DB)return [];
-  const rows=await env.DB.prepare(`SELECT c.role,c.city,c.state,c.years_experience,COALESCE(NULLIF(j.normalized_title,''),j.title) AS job_title
+  const rows=await env.DB.prepare(`SELECT c.role,c.city,c.state,c.years_experience,j.title AS job_title
     FROM agency_interests ai JOIN caregivers c ON c.id=ai.caregiver_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id
     WHERE ai.organization_id=? ORDER BY ai.created_at DESC LIMIT 10`).bind(orgId).all<Row>();
   return (rows.results||[]).map(r=>({
