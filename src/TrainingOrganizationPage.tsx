@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import './styles.css';
 
 async function api<T>(path:string):Promise<T>{
@@ -22,14 +23,14 @@ export function TrainingOrganizationPage(){
       .catch(err=>setError(err instanceof Error?err.message:'Could not load training program'));
   },[slug]);
 
-  if(error)return <div className="activation-shell"><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Training program not found.</h1><p>{error}</p></div></div>;
+  if(error)return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Training program not found.</h1><p>{error}</p></div></div>;
   if(!data)return <div className="loading-screen">Loading CareJoys…</div>;
 
   const org=data.organization||{};
   const programs=data.programs||[];
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/training-programs/maryland">Maryland programs</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/hire-caregivers/maryland">For employers</a></nav></div></header>
+    <SiteHeader audience="employer"/>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Caregiver Training Program · {org.credentialCategories||'CNA/GNA'}</div>
@@ -65,6 +66,6 @@ export function TrainingOrganizationPage(){
         </div>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · Caregiver Training Programs · CNA/GNA graduate placement · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter/>
   </div>;
 }

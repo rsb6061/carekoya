@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import './styles.css';
 
 const SERVER_URL='https://carejoys.com/api/mcp';
@@ -10,7 +11,7 @@ export function AgentSetupPage(){
     try{await navigator.clipboard.writeText(SERVER_URL);setCopied(true);setTimeout(()=>setCopied(false),2000)}catch{}
   }
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/about">About</a></nav></div></header>
+    <SiteHeader/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">For Claude and ChatGPT</div>
@@ -37,6 +38,6 @@ export function AgentSetupPage(){
         </div>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter/>
   </div>;
 }

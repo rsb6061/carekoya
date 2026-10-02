@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AgencyFinder } from './AgencyFinder';
 import { jobsHubPath, usState } from './usStates';
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import './styles.css';
 
 export function EmployerRecruitingPage(){
@@ -9,7 +10,7 @@ export function EmployerRecruitingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={jobsHubPath(state)}>Caregiver jobs</a>{isMaryland&&<a href="/training-programs/maryland">Training programs</a>}<a href="/about">About</a></nav></div></header>
+    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
@@ -57,13 +58,13 @@ export function EmployerRecruitingPage(){
         </div>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · {state.name} caregiver recruiting and placement · <a href="/about">About</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
   </div>;
 }
 
 export function AboutCareJoysPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/hire-caregivers/maryland">For employers</a><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a></nav></div></header>
+    <SiteHeader audience="employer"/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">About CareJoys</div>
@@ -90,6 +91,6 @@ export function AboutCareJoysPage(){
         <p>CareJoys is currently focused on Maryland care hiring, including CNA, GNA, HHA, PCA, caregiver, and related direct-care roles. The network is designed to expand by role and geography only where there is enough real employer and caregiver activity to make the matching experience useful.</p>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · Maryland caregiver recruiting and placement · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter/>
   </div>;
 }

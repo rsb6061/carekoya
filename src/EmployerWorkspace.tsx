@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { LoginForm } from './LoginPage';
+import { LoginForm, Shell } from './LoginPage';
 import { useCaregiverAuth } from './caregiverAuth';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
@@ -39,17 +39,16 @@ const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac',
 function EmployerSignIn(){
   const auth=useCaregiverAuth();
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
-  return <div className="app-empty"><div className="app-wrap">
-    <a href="/" className="text-link">← Back to CareJoys</a>
+  return <Shell>
     {auth.isAuthenticated
-      ?<div className="beta-hero app-empty-card">
+      ?<div className="login-card">
         <div className="modal-kicker">Signed in as {auth.email}</div>
         <h1>No hiring workspace yet.</h1>
         <p>This email doesn’t have an agency or employer workspace on CareJoys. Set one up in a minute, or sign out and use your agency email.</p>
         <div className="empty-actions"><a className="button" href="/welcome">Set up hiring</a><button className="button secondary" onClick={auth.logout}>Sign out</button></div>
       </div>
       :<LoginForm next={window.location.pathname+window.location.search} kicker="Agencies and employers" title="Sign in to CareJoys." google={auth.googleAvailable?()=>void auth.loginGoogle():undefined}/>}
-  </div></div>;
+  </Shell>;
 }
 
 export function EmployerWorkspace(){
@@ -305,7 +304,8 @@ export function EmployerWorkspace(){
             </div>
           </div>
           <div className="job-card-side opening-actions">
-            <button className="job-card-action" onClick={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}}>View matches</button>
+            {/* One primary button per card: the next step when interview times are missing, otherwise matches. */}
+            <button className={Number(o.available_interview_slots||0)>0?'button':'button secondary'} onClick={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}}>View matches</button>
             {Number(o.available_interview_slots||0)>0
               ?<><button className="button secondary" onClick={()=>setSlotsFor(o)}>Edit interview times</button><button className="button secondary" onClick={()=>contact(o.id)}>Contact top 5</button></>
               // Contacting needs a time interested caregivers can book, so the first step is the button itself, not a disabled one.

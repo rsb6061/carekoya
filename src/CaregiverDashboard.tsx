@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
+import { LoginForm, Shell } from './LoginPage';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -65,19 +66,10 @@ export function CaregiverDashboard(){
 
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
 
-  if(!auth.isAuthenticated)return <div className="app-empty"><div className="app-wrap">
-    <a href="/" className="text-link">← Back to CareJoys</a>
-    <div className="beta-hero app-empty-card">
-      <div className="modal-kicker">For caregivers</div>
-      <h1>Your CareJoys jobs.</h1>
-      <p>Sign in to see employer invitations, book interviews, and keep your availability current.</p>
-      <div className="empty-actions">
-        <button className="button" onClick={()=>void auth.loginEmail({next:'/me'})}>Sign in with email</button>
-        {auth.googleAvailable&&<button className="button secondary" onClick={()=>void auth.loginGoogle({next:'/me'})}>Continue with Google</button>}
-      </div>
-      <p className="login-alt">New to CareJoys? <a className="text-link" href="/caregiver-resume">Build your profile</a> first.</p>
-    </div>
-  </div></div>;
+  if(!auth.isAuthenticated)return <Shell>
+    <LoginForm next="/me" kicker="For caregivers" title="Your CareJoys jobs." google={auth.googleAvailable?()=>void auth.loginGoogle({next:'/me'}):undefined}/>
+    <p className="login-alt">New to CareJoys? <a className="text-link" href="/caregiver-resume">Build your profile</a> first.</p>
+  </Shell>;
 
   const header=<header className="app-header"><div className="app-wrap header-inner">
     <a className="brand" href="/">CareJoys</a>

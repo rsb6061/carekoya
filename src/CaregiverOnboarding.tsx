@@ -312,7 +312,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           </div>
           <div className="form-grid">
             <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
-            <label>Travel radius<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /> miles</label>
+            <label>Travel radius (miles)<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /></label>
           </div>
         </div>
 
@@ -322,7 +322,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} /></label>
         </>}
         {parsed&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide resume details':'Review or edit resume details'}</button>}
-        <label className="check-row"><input type="checkbox" name="smsConsent" /><span>I agree to receive CareJoys texts about job opportunities and availability. Message/data rates may apply. Reply STOP to opt out.</span></label>
         <TurnstileField onToken={setTurnstileToken}/>
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>

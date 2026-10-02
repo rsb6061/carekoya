@@ -1,12 +1,10 @@
 import { CaregiverOnboarding } from './CaregiverOnboarding';
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import './styles.css';
 
 export function CaregiverResumePage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner">
-      <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/hire-caregivers/maryland">For employers</a></nav>
-    </div></header>
+    <SiteHeader/>
 
     <main>
       <section className="resume-hero"><div className="wrap resume-hero-grid">
@@ -37,6 +35,6 @@ export function CaregiverResumePage(){
       </div></section>
     </main>
 
-    <footer className="footer"><div className="wrap">CareJoys · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter/>
   </div>;
 }

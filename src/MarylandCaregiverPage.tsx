@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { jobsHubPath, parseJobsHubPath, usState } from './usStates';
+import { SiteFooter, SiteHeader } from './SiteChrome';
+import { payLabel, pillLabel } from './jobFormat';
 import './styles.css';
 
 // Serves every /caregiver-jobs/{state}[/{city}] hub and /join/{referral}; the file keeps its original name.
@@ -11,20 +13,6 @@ type PublicCaregiverJob={
 type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];jobs:PublicCaregiverJob[]};
 
 const ROLES=['CNA','GNA','HHA','PCA','DSP','Caregiver'];
-
-function payLabel(job:PublicCaregiverJob){
-  const min=Number(job.payMin||0),max=Number(job.payMax||0);
-  const suffix=job.payPeriod==='year'?'/yr':job.payPeriod==='week'?'/wk':job.payPeriod==='day'?'/day':job.payPeriod==='month'?'/mo':job.payPeriod==='hour'?'/hr':'';
-  if(min&&max)return '$'+min+'–$'+max+suffix;
-  if(min)return 'From $'+min+suffix;
-  if(max)return 'Up to $'+max+suffix;
-  return '';
-}
-
-function pillLabel(value:string){
-  const normalized=value.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
-  return normalized?normalized.charAt(0).toUpperCase()+normalized.slice(1):'';
-}
 
 function employmentPills(value?:string){
   return (value||'').split(/[,;|]+/).map(v=>pillLabel(v)).filter(Boolean);
@@ -75,10 +63,7 @@ export function MarylandCaregiverPage(){
   const place=hub?.city?hub.city+', '+state.code:state.name;
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner">
-      <a className="brand" href="/">CareJoys</a>
-      <nav className="navlinks"><a href="/me">Caregiver sign in</a><a href="/training-programs/maryland">Training programs</a><a href={'/hire-caregivers/'+state.slug}>For employers</a></nav>
-    </div></header>
+    <SiteHeader jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
 
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
@@ -156,6 +141,6 @@ export function MarylandCaregiverPage(){
       </div></section>
     </main>
 
-    <footer className="footer"><div className="wrap">CareJoys · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug}/>
   </div>;
 }

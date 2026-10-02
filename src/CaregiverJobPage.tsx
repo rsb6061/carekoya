@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { jobsHubPath, usState } from './usStates';
+import { SiteFooter, SiteHeader } from './SiteChrome';
+import { descriptionBlocks, payLabel, pillLabel } from './jobFormat';
 import './styles.css';
 
 type Job={
@@ -14,20 +16,6 @@ type JobContext={
   employer:{name:string;city:string;state:string;providerTypes:string;website:string;otherOpenJobs:number}|null;
   payContext:{role:string;state:string;median:number;count:number;unit:string;position:'above'|'near'|'below'|null}|null;
 };
-
-function pay(job:Job){
-  const min=Number(job.payMin||0),max=Number(job.payMax||0);
-  const suffix=job.payPeriod==='year'?'/yr':job.payPeriod==='week'?'/wk':job.payPeriod==='day'?'/day':job.payPeriod==='month'?'/mo':job.payPeriod==='hour'?'/hr':'';
-  if(min&&max)return '$'+min+'–$'+max+suffix;
-  if(min)return 'From $'+min+suffix;
-  if(max)return 'Up to $'+max+suffix;
-  return '';
-}
-
-function pillLabel(value:string){
-  const normalized=value.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim().toLowerCase();
-  return normalized?normalized.charAt(0).toUpperCase()+normalized.slice(1):'';
-}
 
 function employmentPills(value?:string){
   return (value||'').split(/[,;|]+/).map(v=>pillLabel(v)).filter(Boolean);
@@ -65,12 +53,13 @@ export function CaregiverJobPage(){
   if(!job)return <main className="job-detail-shell"><div className="wrap"><a className="text-link" href="/caregiver-jobs/maryland">← Caregiver jobs</a><div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
 
   const location=[job.city,job.state,job.zip].filter(Boolean).join(', ');
-  const payText=pay(job);
+  const payText=payLabel(job);
+  const description=job.description?descriptionBlocks(job.description):null;
   const state=usState(job.state||'');
   const hubHref=state?jobsHubPath(state):'/caregiver-jobs/maryland';
 
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href={hubHref}>Caregiver jobs</a><a href="/me">Caregiver sign in</a></nav></div></header>
+    <SiteHeader jobsHref={hubHref}/>
     <main className="job-detail-shell">
       <div className="wrap job-detail-wrap">
         <a className="text-link job-back-link" href={hubHref}>← All {state?state.name:''} caregiver jobs</a>
@@ -91,7 +80,7 @@ export function CaregiverJobPage(){
           <div className="job-detail-source">CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</div>
         </section>
 
-        {job.description&&<section className="section job-description-section"><h2>About this job</h2><p>{job.description}</p></section>}
+        {description&&<section className="section job-description-section"><h2>About this job</h2>{description.lead&&<p>{description.lead}</p>}{description.bullets.length>0&&<ul className="job-description-list">{description.bullets.map((b,i)=><li key={i}>{b}</li>)}</ul>}</section>}
         {context?.payContext&&<section className="section job-description-section"><h2>Pay for {context.payContext.role} jobs in {context.payContext.state}</h2><p>The median advertised pay across {context.payContext.count} current {context.payContext.role} jobs in {context.payContext.state} is ${context.payContext.median.toFixed(2)}/hr{context.payContext.position?<>; this job is <strong>{context.payContext.position}</strong> that median.</>:'.'}</p></section>}
         {context?.employer&&<section className="section job-description-section"><h2>About {context.employer.name}</h2>
           <p>{[context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</p>
@@ -117,6 +106,6 @@ export function CaregiverJobPage(){
       </div>
     </div>}
 
-    <footer className="footer"><div className="wrap">CareJoys · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/privacy-policy">Privacy</a> · <a href="/terms-of-service">Terms</a></div></footer>
+    <SiteFooter/>
   </div>;
 }
