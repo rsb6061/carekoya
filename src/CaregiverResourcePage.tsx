@@ -1,9 +1,9 @@
+import { SiteFooter, SiteHeader } from './SiteChrome';
 import './styles.css';
-import { AccountLink } from './AccountLink';
 
 export function HowToBecomeCaregiverMarylandPage(){
   return <div>
-    <header className="nav"><div className="wrap nav-inner"><a className="brand" href="/">CareJoys</a><nav className="navlinks"><a href="/caregiver-jobs/maryland">Caregiver jobs</a><a href="/training-programs/maryland">Training programs</a><a href="/hire-caregivers/maryland">For employers</a><AccountLink/></nav></div></header>
+    <SiteHeader/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver career guide</div>
@@ -42,6 +42,6 @@ export function HowToBecomeCaregiverMarylandPage(){
         <p className="meta">CareJoys is not a credentialing body. For current rules, use the <a className="text-link" href="https://health.maryland.gov/mbon/Documents/new-cna-faqs-final.pdf" target="_blank" rel="noreferrer">Maryland Board of Nursing CNA guidance</a> and the <a className="text-link" href="https://health.maryland.gov/ohcq/Pages/Residential-Service-Agencies.aspx" target="_blank" rel="noreferrer">Maryland OHCQ Residential Service Agency guidance</a>.</p>
       </div></section>
     </main>
-    <footer className="footer"><div className="wrap">CareJoys · Maryland caregiver jobs and training · <a href="/caregiver-jobs/maryland">Caregiver jobs</a> · <a href="/training-programs/maryland">Training programs</a> · <a href="/privacy-policy">Privacy</a></div></footer>
+    <SiteFooter/>
   </div>;
 }

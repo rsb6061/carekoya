@@ -418,9 +418,9 @@ describe('shared sign-in', ()=>{
     expect(session.employer.id).toBe('emp1');
   });
 
-  it('a new email lands on the welcome page and can set up hiring without a second email', async()=>{
+  it('a new agency lands in the hiring workspace and can set it up without a second email', async()=>{
     const {body,cookie}=await signIn('new.owner@homecare.test','/app');
-    expect(body.redirect).toBe('/welcome');
+    expect(body.redirect).toBe('/app');
     const account=await (await call('/api/account',{headers:{cookie}})).json() as any;
     expect(account).toMatchObject({signedIn:true,email:'new.owner@homecare.test',roles:{caregiver:false,employer:false}});
     sent.length=0;
@@ -433,9 +433,21 @@ describe('shared sign-in', ()=>{
     expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.employer).toBe(true);
   });
 
+  it('an email with both roles returns to the dashboard it used last', async()=>{
+    await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('pat-cg','Pat','Lee','pat@acme.test','21201','MD','CNA')").run();
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
+    sent.length=0;
+    await post('/api/login/request',{email:'pat@acme.test'});
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token},{cookie:'cj_last_dashboard=me'});
+    expect(((await verified.json()) as any).redirect).toBe('/me');
+    await DB.prepare("DELETE FROM caregivers WHERE id='pat-cg'").run();
+  });
+
   it('never sends anyone off-site or into /admin without being an admin', async()=>{
     expect((await signIn('ada.new@example.com','//evil.example/x')).body.redirect).toBe('/me');
-    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/welcome');
+    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/me');
+    expect((await signIn('ada.new@example.com','/welcome')).body.redirect).toBe('/me');
     expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
   });
 

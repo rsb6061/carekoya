@@ -1,4 +1,5 @@
 import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie } from './serverFeatures';
+import { homePath, LAST_DASHBOARD_COOKIE } from './dashboardHome';
 import { adminEmails } from './admin';
 import { loginLinkEmail } from './email';
 
@@ -46,17 +47,12 @@ export async function accountRoles(env:AccountEnv,email:string):Promise<Roles>{
 }
 
 /** Where a fresh sign-in lands: the page they asked for when they can use it, else their own dashboard. */
-export function landingPath(roles:Roles,next:string){
-  if(next){
-    if(next.startsWith('/admin')&&!roles.admin)return '/welcome';
-    if(next.startsWith('/app')&&!roles.employer)return '/welcome';
-    return next;
-  }
-  if(roles.admin)return '/admin';
-  if(roles.employer&&roles.caregiver)return '/welcome';
-  if(roles.employer)return '/app';
-  if(roles.caregiver)return '/me';
-  return '/welcome';
+export function landingPath(roles:Roles,next:string,last=''){
+  const home=homePath(roles,last);
+  if(!next||next==='/welcome')return home;
+  if(next.startsWith('/admin')&&!roles.admin)return home;
+  // /app is honored without a workspace: it offers hiring setup to a new agency.
+  return next;
 }
 
 export async function requestLogin(request:Request,env:AccountEnv){
@@ -96,13 +92,13 @@ export async function verifyLogin(request:Request,env:AccountEnv){
   const used=await env.DB.prepare('UPDATE login_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL').bind(record.id).run();
   if(Number(used.meta?.changes||0)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
 
-  const {headers,redirect,roles}=await completeSignIn(env,record.email,safeNext(record.redirect_path));
+  const {headers,redirect,roles}=await completeSignIn(env,record.email,safeNext(record.redirect_path),cookie(request,LAST_DASHBOARD_COOKIE));
   headers.set('content-type','application/json; charset=utf-8');
   return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
 }
 
 /** Signs a proven email in: the account session, plus the employer session when a hiring workspace exists. */
-async function completeSignIn(env:AccountEnv,email:string,next:string){
+async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
   const roles=await accountRoles(env,email);
   const headers=new Headers({'cache-control':'no-store'});
   headers.append('Set-Cookie',await startAccountSession(env,email));
@@ -115,7 +111,7 @@ async function completeSignIn(env:AccountEnv,email:string,next:string){
     const employer=await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
     if(employer)headers.append('Set-Cookie',employerSessionCookie(await startEmployerSession(env,employer.id)));
   }
-  return {headers,redirect:landingPath(roles,next),roles};
+  return {headers,redirect:landingPath(roles,next,last),roles};
 }
 
 // "Continue with Google": the standard OAuth code flow, run by the Worker. Google proves the email, and the person
@@ -157,7 +153,7 @@ export async function finishGoogleSignIn(request:Request,env:AccountEnv){
   const email=clean(claims?.email,320).toLowerCase();
   const issuerOk=claims?.iss==='https://accounts.google.com'||claims?.iss==='accounts.google.com';
   if(!claims||!issuerOk||claims.aud!==env.GOOGLE_CLIENT_ID||claims.email_verified!==true||!emailValid(email))return fail('google_failed');
-  const {headers,redirect}=await completeSignIn(env,email,safeNext(rest.join('|')));
+  const {headers,redirect}=await completeSignIn(env,email,safeNext(rest.join('|')),cookie(request,LAST_DASHBOARD_COOKIE));
   headers.set('location',redirect);
   headers.append('Set-Cookie',`${GOOGLE_STATE_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   return new Response(null,{status:302,headers});
