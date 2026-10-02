@@ -545,10 +545,12 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/me"||url.pathname.startsWith("/me/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
+  // The caregiver dashboard moved from /me; old links and emails keep working.
+  if(url.pathname==="/me"||url.pathname.startsWith("/me/"))return Response.redirect(new URL("/dashboard"+url.pathname.slice(3)+url.search,url).toString(),301);
   if(url.pathname.startsWith("/school/")||url.pathname.startsWith("/join/")){
     return seoAsset(request,env,{
       title:"CareJoys",

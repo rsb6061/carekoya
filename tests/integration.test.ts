@@ -392,7 +392,7 @@ describe('shared sign-in', ()=>{
 
   it('a caregiver signs in by email and lands on their dashboard', async()=>{
     const {body,cookie,token}=await signIn('baltimore@example.com');
-    expect(body.redirect).toBe('/me');
+    expect(body.redirect).toBe('/dashboard');
     const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
     expect(me.caregiver.id).toBe('baltimore');
     // The whole saved profile comes back, so applying to a job doesn't ask for it again.
@@ -440,7 +440,7 @@ describe('shared sign-in', ()=>{
     await post('/api/login/request',{email:'pat@acme.test'});
     const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
     const verified=await post('/api/login/verify',{token},{cookie:'cj_last_dashboard=me'});
-    expect(((await verified.json()) as any).redirect).toBe('/me');
+    expect(((await verified.json()) as any).redirect).toBe('/dashboard');
     await DB.prepare("DELETE FROM caregivers WHERE id='pat-cg'").run();
   });
 
@@ -474,10 +474,16 @@ describe('shared sign-in', ()=>{
     expect(me.caregiver.workConditions).toEqual(['pets']);
   });
 
+  it('old /me links redirect to the caregiver dashboard at /dashboard', async()=>{
+    const res=await call('/me/profile?x=1',{redirect:'manual'});
+    expect(res.status).toBe(301);
+    expect(new URL(res.headers.get('location')!).pathname+new URL(res.headers.get('location')!).search).toBe('/dashboard/profile?x=1');
+  });
+
   it('never sends anyone off-site or into /admin without being an admin', async()=>{
-    expect((await signIn('ada.new@example.com','//evil.example/x')).body.redirect).toBe('/me');
-    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/me');
-    expect((await signIn('ada.new@example.com','/welcome')).body.redirect).toBe('/me');
+    expect((await signIn('ada.new@example.com','//evil.example/x')).body.redirect).toBe('/dashboard');
+    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/dashboard');
+    expect((await signIn('ada.new@example.com','/welcome')).body.redirect).toBe('/dashboard');
     expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
   });
 
@@ -599,7 +605,7 @@ describe('agency walkthrough from a real agency', ()=>{
 describe('Continue with Google', ()=>{
   const keys={GOOGLE_CLIENT_ID:'cid.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'shh'};
   const idToken=(claims:Record<string,unknown>)=>'h.'+btoa(JSON.stringify(claims)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')+'.s';
-  async function start(next='/me'){
+  async function start(next='/dashboard'){
     const res=await call('/api/auth/google/start?next='+encodeURIComponent(next),{},keys);
     expect(res.status).toBe(302);
     const location=new URL(res.headers.get('location')!);
@@ -624,10 +630,10 @@ describe('Continue with Google', ()=>{
   });
 
   it('signs a verified Google email into the same account and lands where it was headed', async()=>{
-    const {state,cookie}=await start('/me');
+    const {state,cookie}=await start('/dashboard');
     const res=await callback(state,cookie,good);
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/me');
+    expect(res.headers.get('location')).toBe('/dashboard');
     const account=decodeURIComponent(res.headers.get('set-cookie')!.match(/__Host-cj_account=([^;]+)/)![1]);
     const me=await (await call('/api/me',{headers:{cookie:'__Host-cj_account='+account}})).json() as any;
     expect(me.caregiver.id).toBe('baltimore');

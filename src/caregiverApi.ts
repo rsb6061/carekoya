@@ -155,7 +155,7 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
   const to=clean(c?.email,320).toLowerCase();
   if(env.EMAIL&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){
     const body=caregiverApplicationEmail({firstName:clean(c?.first_name,80),jobTitle:clean(job.title,200),employerName:clean(job.employer_name,200),
-      employerOnCareJoys,applicationUrl,dashboardLink:'https://carejoys.com/me',submittedOnEmployerSite:opts.submittedOnEmployerSite});
+      employerOnCareJoys,applicationUrl,dashboardLink:'https://carejoys.com/dashboard',submittedOnEmployerSite:opts.submittedOnEmployerSite});
     await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text}).catch(()=>null);
   }
   return result;
@@ -185,7 +185,7 @@ export function availabilitySummary(a:Availability){
   return parts.join(', ');
 }
 
-/** The full caregiver profile editor at /me/profile. Saving also counts as confirming they're available. */
+/** The full caregiver profile editor at /dashboard/profile. Saving also counts as confirming they're available. */
 export async function updateCaregiverProfile(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null,rematch:(caregiverId:string)=>Promise<number>){
   if(!identity)return unauthorized();
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});

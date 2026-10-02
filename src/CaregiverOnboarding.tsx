@@ -177,8 +177,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     // Keep the answers in case the browser blocks the popup and sign-in falls back to a full-page redirect.
     if(stage!=='success')writeDraft({form,parsed,fileMeta,resubmit:stage==='auth'});
     try{
-      if(kind==='google')await auth.loginGoogle({next:stage==='success'?'/me':window.location.pathname+window.location.search});
-      else await auth.loginEmail({email:form.email,next:stage==='success'?'/me':window.location.pathname+window.location.search});
+      if(kind==='google')await auth.loginGoogle({next:stage==='success'?'/dashboard':window.location.pathname+window.location.search});
+      else await auth.loginEmail({email:form.email,next:stage==='success'?'/dashboard':window.location.pathname+window.location.search});
       if(stage==='auth')setPendingResubmit(true);
       return true;
     }catch(error){
@@ -287,14 +287,14 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
             <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue application'}</button><span>You’ll finish on {result.targetJob.employerName||'the employer'}’s site.</span>
           </div>
           :auth.isAuthenticated
-            ?<a className="btn" href="/me">Open your dashboard</a>
+            ?<a className="btn" href="/dashboard">Open your dashboard</a>
             :<a className="btn" href={jobsHubPath(usState(form.state)||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
         {!auth.isAuthenticated&&auth.configured&&<div className="onboarding-save-login">
           <strong>Come back to your matches anytime</strong>
           <span>Sign in once to see employer invites, update availability and track applications.</span>
           <div className="auth-choice">
             <button className="btn secondary" onClick={()=>void login('email')}>Email me a sign-in link</button>
-            {auth.googleAvailable&&<button className="text-button auth-google" onClick={async()=>{if(await login('google'))window.location.href='/me'}}>Continue with Google</button>}
+            {auth.googleAvailable&&<button className="text-button auth-google" onClick={async()=>{if(await login('google'))window.location.href='/dashboard'}}>Continue with Google</button>}
           </div>
         </div>}
       </div>
@@ -316,8 +316,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           {summaryValue('Credentials',form.certifications)}
         </div>
         <div className="auth-choice">
-          <a className="btn" href="/me">Open my dashboard</a>
-          <a className="btn secondary" href="/me/profile">Update my profile</a>
+          <a className="btn" href="/dashboard">Open my dashboard</a>
+          <a className="btn secondary" href="/dashboard/profile">Update my profile</a>
         </div>
       </div>
     </div>;

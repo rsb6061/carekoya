@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
-// (what's missing) and the editor at /me/profile.
+// (what's missing) and the editor at /dashboard/profile.
 
 export const DAYS=[['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']] as const;
 export const BLOCKS=[['morning','Mornings','7am–3pm'],['afternoon','Afternoons','11am–7pm'],['evening','Evenings','3pm–11pm'],['overnight','Overnights','11pm–7am']] as const;
@@ -140,6 +140,6 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
     </Section>
 
     {error&&<div className="notice">{error}</div>}
-    <div className="profile-save-bar"><button className="button" disabled={saving}>{saving?'Saving…':'Save my profile'}</button><a className="text-link" href="/me">Cancel</a></div>
+    <div className="profile-save-bar"><button className="button" disabled={saving}>{saving?'Saving…':'Save my profile'}</button><a className="text-link" href="/dashboard">Cancel</a></div>
   </form>;
 }

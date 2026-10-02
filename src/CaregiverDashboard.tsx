@@ -74,7 +74,7 @@ export function CaregiverDashboard(){
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
 
   if(!auth.isAuthenticated)return <Shell>
-    <LoginForm next="/me" kicker="For caregivers" title="Your CareJoys jobs." google={auth.googleAvailable?()=>void auth.loginGoogle({next:'/me'}):undefined}/>
+    <LoginForm next="/dashboard" kicker="For caregivers" title="Your CareJoys jobs." google={auth.googleAvailable?()=>void auth.loginGoogle({next:'/dashboard'}):undefined}/>
     <p className="login-alt">New to CareJoys? <a className="text-link" href="/caregiver-resume">Build your profile</a> first.</p>
   </Shell>;
 
@@ -106,7 +106,7 @@ export function CaregiverDashboard(){
   const invites=data.invites||[];
   const open=invites.filter(i=>!i.response&&i.stage==='contacted');
   const gaps=profileGaps(c,!!data.resume);
-  const editing=window.location.pathname==='/me/profile';
+  const editing=window.location.pathname==='/dashboard/profile';
 
   if(editing)return <div>{header}
     <main className="app-wrap app-content profile-page">
@@ -122,7 +122,7 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="header-action"><a className="button secondary" href="/me/profile">Edit my profile</a></div>
+        <div className="header-action"><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
@@ -138,7 +138,7 @@ export function CaregiverDashboard(){
             <div className="profile-progress"><span style={{width:Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)+'%'}}/></div>
             <ul>{gaps.slice(0,4).map(g=><li key={g.key}>{g.label}</li>)}{gaps.length>4&&<li>and {gaps.length-4} more</li>}</ul>
           </div>
-          <a className="button" href="/me/profile">Finish my profile</a>
+          <a className="button" href="/dashboard/profile">Finish my profile</a>
         </div></section>}
 
       <section className="section-block">
@@ -163,7 +163,7 @@ export function CaregiverDashboard(){
 
       <section className="section-block">
         <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
-        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/me/profile">your profile</a>.</div></div>:
+        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
         <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
           <div className="job-card-main">
             <h3>{job.title}</h3>

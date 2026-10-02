@@ -38,8 +38,8 @@ export function AccountMenu(){
     {open&&<div className="account-menu-panel" role="menu">
       <div className="account-menu-email">{auth.email}</div>
       {roles.caregiver?<>
-        {item('/me','My dashboard')}
-        {item('/me/profile','Edit my profile')}
+        {item('/dashboard','My dashboard')}
+        {item('/dashboard/profile','Edit my profile')}
       </>:!roles.employer&&!roles.school&&!roles.admin&&item(homePath(roles,lastDashboard()),'My dashboard')}
       {roles.employer&&item('/app','Hiring workspace')}
       {roles.school&&item('/school-dashboard','School dashboard')}
