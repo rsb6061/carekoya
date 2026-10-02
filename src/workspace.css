@@ -189,3 +189,4 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .profile-save-bar{display:flex;gap:16px;align-items:center;position:sticky;bottom:0;padding:14px 0;background:linear-gradient(transparent,var(--bg,#f7f1ea) 40%)}
 @media (max-width:640px){.availability-grid{grid-template-columns:72px repeat(7,1fr);gap:4px}.availability-block strong{font-size:12px}.availability-block small{display:none}.availability-day{font-size:11px}.availability-cell{min-height:34px}}
 .profile-page .page-head{margin-bottom:24px}
+.invite-banner{background:#eef1ff;border:2px solid var(--blue);border-radius:24px;padding:22px 22px 24px;margin-top:8px}.invite-banner .section-heading h2{font-size:32px}@media(max-width:640px){.invite-banner{padding:16px}.invite-banner .section-heading h2{font-size:26px}}

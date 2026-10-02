@@ -134,6 +134,38 @@ export function CaregiverDashboard(){
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
+      {invites.length>0&&<section className="section-block invite-banner">
+        <div className="section-heading"><h2>{open.length?'An employer wants to interview you':'Your employer invitations'}</h2><p>{open.length?`${open.length} waiting on your answer.`:'Interviews and replies from employers who reached out to you.'}</p></div>
+        <div className="job-list">{invites.map((invite,i)=><article className={'job-card '+cardTone(i)} key={invite.id}>
+          <div className="job-card-main">
+            <h3>{invite.title||invite.role||'Caregiver opening'}</h3>
+            <div className="job-meta">{[invite.company,[invite.city,invite.state].filter(Boolean).join(', '),pay(invite.payMin,invite.payMax),invite.shifts].filter(Boolean).join(' · ')}</div>
+            <div className="job-badges"><span className={invite.interviewBooked||invite.response==='interested'?'status applied':'status'}>{inviteStatus(invite)}</span>{invite.interviewAt&&<span className="badge">{when(invite.interviewAt)}</span>}</div>
+            {invite.requirements&&<div className="job-card-cue">{invite.requirements}</div>}
+            {!invite.response&&invite.stage==='contacted'&&<div className="empty-actions">
+              <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
+              <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
+            </div>}
+            {invite.response==='interested'&&!invite.interviewBooked&&(invite.slots.length?<div className="empty-actions">
+              {invite.slots.map(slot=><button key={slot.id} className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/book`,{slotId:slot.id},'Interview booked. Check your email for the calendar invite.')}>{when(slot.startsAt,slot.timezone)}</button>)}
+            </div>:<div className="job-meta" style={{marginTop:12}}>The employer will add interview times soon.</div>)}
+          </div>
+        </article>)}</div>
+      </section>}
+
+
+      <section className="section-block">
+        <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
+        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
+        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
+          <div className="job-card-main">
+            <h3>{job.title}</h3>
+            <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
+            {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
+          </div>
+        </a>)}</div>}
+      </section>
+
       {c.workStatus==='not_looking'||c.workStatus==='maybe_later'
         ?<section className="section-block"><div className="settings-card profile-checklist">
           <div><div className="modal-kicker">Hidden from employers</div><h3>You’re not shown as looking for work.</h3><div className="job-meta">Turn it back on whenever you’re ready.</div></div>
@@ -149,37 +181,6 @@ export function CaregiverDashboard(){
           <a className="button" href="/dashboard/profile">Finish my profile</a>
         </div></section>}
 
-      <section className="section-block">
-        <div className="section-heading"><h2>Employer invitations</h2><p>{open.length?`${open.length} waiting on your answer.`:'Employers who want to interview you will show up here.'}</p></div>
-        {invites.length===0?<div className="empty"><strong>No invitations yet.</strong><div>Keep your availability current to rank higher in employer matches.</div></div>:
-        <div className="job-list">{invites.map((invite,i)=><article className={'job-card '+cardTone(i)} key={invite.id}>
-          <div className="job-card-main">
-            <h3>{invite.title||invite.role||'Caregiver opening'}</h3>
-            <div className="job-meta">{[invite.company,[invite.city,invite.state].filter(Boolean).join(', '),pay(invite.payMin,invite.payMax),invite.shifts].filter(Boolean).join(' · ')}</div>
-            <div className="job-badges"><span className={invite.interviewBooked||invite.response==='interested'?'status applied':'status'}>{inviteStatus(invite)}</span>{invite.interviewAt&&<span className="badge">{when(invite.interviewAt)}</span>}</div>
-            {invite.requirements&&<div className="job-card-cue">{invite.requirements}</div>}
-            {!invite.response&&invite.stage==='contacted'&&<div className="empty-actions">
-              <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
-              <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
-            </div>}
-            {invite.response==='interested'&&!invite.interviewBooked&&(invite.slots.length?<div className="empty-actions">
-              {invite.slots.map(slot=><button key={slot.id} className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/book`,{slotId:slot.id},'Interview booked. Check your email for the calendar invite.')}>{when(slot.startsAt,slot.timezone)}</button>)}
-            </div>:<div className="job-meta" style={{marginTop:12}}>The employer will add interview times soon.</div>)}
-          </div>
-        </article>)}</div>}
-      </section>
-
-      <section className="section-block">
-        <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
-        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
-        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
-          <div className="job-card-main">
-            <h3>{job.title}</h3>
-            <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
-            {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
-          </div>
-        </a>)}</div>}
-      </section>
 
       {(data.applications||[]).length>0&&<section className="section-block">
         <div className="section-heading"><h2>Jobs you applied to</h2></div>
