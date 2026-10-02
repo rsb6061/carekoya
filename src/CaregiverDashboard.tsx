@@ -17,7 +17,7 @@ type Invite={
   company?:string;title?:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;shifts?:string;requirements?:string;
   slots:Slot[];
 };
-type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null};
+type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;employerOnCareJoys?:boolean;distanceMiles?:number|null};
 type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean;submittedOnEmployerSite?:boolean};
 
 function applicationStatus(a:Application){
@@ -70,6 +70,17 @@ export function CaregiverDashboard(){
     setBusy(key);setNotice('');
     try{await api(path,{method:'POST',body:JSON.stringify(body)});setNotice(message);await load()}
     catch(e){setNotice(e instanceof Error?e.message:'Something went wrong')}
+    finally{setBusy('')}
+  }
+
+  async function apply(job:NearbyJob){
+    setBusy('apply:'+job.id);setNotice('');
+    try{
+      const r=await api<{employerOnCareJoys:boolean;employerName?:string}>('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',body:'{}'});
+      const who=r.employerName||job.employerName||'The employer';
+      setNotice(r.employerOnCareJoys?`Applied. ${who} gets your profile and resume in CareJoys.`:`Saved. ${who} takes applications on their own site, so tap Finish applying to send it there.`);
+      await load();
+    }catch(e){setNotice(e instanceof Error?e.message:'Could not send your application.')}
     finally{setBusy('')}
   }
 
@@ -131,7 +142,6 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="header-action"><a className="button secondary" href="/dashboard/profile/preview">View my profile</a><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
@@ -156,15 +166,25 @@ export function CaregiverDashboard(){
 
 
       <section className="section-block">
-        <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
+        <div className="section-heading"><h2>Best matches near you</h2><p>Ranked by your credentials, pay and distance, within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
         {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
-        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
-          <div className="job-card-main">
-            <h3>{tidyTitle(job.title)}</h3>
-            <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
-            {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
-          </div>
-        </a>)}</div>}
+        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=>{
+          const applied=(data.applications||[]).find(a=>a.jobId===job.id&&(a.appliedOnCareJoys||a.submittedOnEmployerSite));
+          const href='/jobs/'+encodeURIComponent(job.id);
+          return <article className={'job-card job-card-apply '+cardTone(i)} key={job.id}>
+            <a className="job-card-main job-card-link" href={href}>
+              <h3>{job.title}</h3>
+              <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
+              {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
+            </a>
+            <div className="job-card-actions">
+              {!applied?(job.employerOnCareJoys
+                ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
+                :<a className="button" href={href+'#apply'}>Apply</a>)
+              :applied.employerOnCareJoys||applied.submittedOnEmployerSite?<span className="status applied">Applied</span>
+              :<><span className="status applied">Saved</span><a className="button secondary" href={href+'#apply'}>Finish applying</a></>}
+            </div>
+          </article>})}</div>}
       </section>
 
       {c.workStatus==='not_looking'||c.workStatus==='maybe_later'
@@ -172,7 +192,16 @@ export function CaregiverDashboard(){
           <div><div className="modal-kicker">Hidden from employers</div><h3>You’re not shown as looking for work.</h3><div className="job-meta">Turn it back on whenever you’re ready.</div></div>
           <button className="button" disabled={!!busy} onClick={()=>void act('avail','/api/me/availability',{workStatus:'actively_looking'},'You’re shown to employers again.')}>I’m looking again</button>
         </div></section>
-        :gaps.length>0&&<section className="section-block"><div className="settings-card profile-checklist">
+        :gaps.length===0?<section className="section-block"><div className="settings-card profile-checklist">
+          <div>
+            <div className="modal-kicker">Your profile is complete</div>
+            <h3>You’re all set for employer matches.</h3>
+            <div className="profile-progress"><span style={{width:'100%'}}/></div>
+            <div className="job-meta">Keep your availability and pay current so your matches stay accurate.</div>
+          </div>
+          <a className="button" href="/dashboard/profile">Edit my profile</a>
+        </div></section>
+        :<section className="section-block"><div className="settings-card profile-checklist">
           <div>
             <div className="modal-kicker">Your profile is {Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)}% complete</div>
             <h3>Finish your profile to get better matches.</h3>
