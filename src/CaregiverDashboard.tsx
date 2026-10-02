@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { jobsHubPath, usState } from './usStates';
+import { IntakeModal } from './IntakeModal';
+import { rememberDashboard } from './dashboardHome';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -37,6 +39,7 @@ export function CaregiverDashboard(){
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [notice,setNotice]=useState('');
+  const [hiring,setHiring]=useState(false);
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const token=await auth.getIdToken();
@@ -46,7 +49,7 @@ export function CaregiverDashboard(){
     return body;
   }
   async function load(){
-    try{setData(await api<Dashboard>('/api/me'));setError('')}
+    try{const body=await api<Dashboard>('/api/me');setData(body);setError('');if(body.caregiver)rememberDashboard('me')}
     catch(e){setError(e instanceof Error?e.message:'Could not load your dashboard')}
   }
   useEffect(()=>{if(auth.isAuthenticated)void load()},[auth.isAuthenticated]);
@@ -95,10 +98,14 @@ export function CaregiverDashboard(){
   if(!data.caregiver)return <div>{header}<main className="app-wrap app-content">
     <div className="beta-hero">
       <div className="modal-kicker">Signed in as {auth.email}</div>
-      <h1>Let’s build your profile.</h1>
-      <p>We couldn’t find a CareJoys profile for this sign-in. Upload your resume once and we’ll match you with local care employers.</p>
-      <div className="empty-actions"><a className="button" href="/caregiver-resume">Add my resume</a></div>
+      <h1>Welcome to CareJoys.</h1>
+      <p>Caregivers: upload your resume once and we’ll match you with local care jobs. Agencies and employers: describe the role and see matched local caregivers.</p>
+      <div className="empty-actions">
+        <a className="button" href="/caregiver-resume">I’m a caregiver</a>
+        <button className="button secondary" onClick={()=>setHiring(true)}>I’m hiring caregivers</button>
+      </div>
     </div>
+    {hiring&&<IntakeModal kind="employer" lockedEmail={auth.email} onClose={()=>setHiring(false)}/>}
   </main></div>;
 
   const c=data.caregiver;

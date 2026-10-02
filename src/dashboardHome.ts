@@ -1,0 +1,24 @@
+// Where "my dashboard" is for an account, shared by the Worker (after sign-in) and the browser (header link).
+// There is no chooser page: one workspace opens directly, and an account with several opens the one it used last.
+export type DashboardRoles={caregiver:boolean;employer:boolean;admin:boolean};
+export type DashboardKind='me'|'app'|'admin';
+export const LAST_DASHBOARD_COOKIE='cj_last_dashboard';
+
+export function homePath(roles:DashboardRoles|null,last=''){
+  if(!roles)return '/me';
+  if(last==='admin'&&roles.admin)return '/admin';
+  if(last==='app'&&roles.employer)return '/app';
+  if(last==='me'&&roles.caregiver)return '/me';
+  if(roles.admin)return '/admin';
+  if(roles.employer)return '/app';
+  // Caregivers, and brand-new emails: /me builds a caregiver profile and offers hiring setup instead.
+  return '/me';
+}
+
+/** Browser only: remember which dashboard this person opened, so the next sign-in returns there. */
+export function rememberDashboard(kind:DashboardKind){
+  try{document.cookie=`${LAST_DASHBOARD_COOKIE}=${kind}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`}catch{}
+}
+export function lastDashboard(){
+  try{return document.cookie.split('; ').find(c=>c.startsWith(LAST_DASHBOARD_COOKIE+'='))?.split('=')[1]||''}catch{return ''}
+}

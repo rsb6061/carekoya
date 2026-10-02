@@ -718,7 +718,7 @@ async function handleEmployer(request: Request, env: Env) {
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   const state=await stateForZip(env.DB,intake.zip);
   const outOfArea=!!state&&state!=="MD";
-  // Already signed in with this email (e.g. from /welcome): the email is proven, so open the workspace now instead of emailing a link.
+  // Already signed in with this email (e.g. setting up hiring from a dashboard): the email is proven, so open the workspace now instead of emailing a link.
   const account=await accountSession(request,env);
   if(account&&account.email===email){
     let employerId=existing?.id;
