@@ -174,7 +174,7 @@ export function CaregiverDashboard(){
         :gaps.length===0?<section className="section-block"><div className="settings-card profile-checklist">
           <div>
             <div className="modal-kicker">Your profile is complete</div>
-            <h3>Employers see your full profile.</h3>
+            <h3>You’re all set for employer matches.</h3>
             <div className="profile-progress"><span style={{width:'100%'}}/></div>
             <div className="job-meta">Keep your availability and pay current so your matches stay accurate.</div>
           </div>
