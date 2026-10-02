@@ -1,3 +1,4 @@
+import { SiteHeader } from './SiteChrome';
 import { useEffect, useState } from 'react';
 import { TurnstileField } from './TurnstileField';
 import './activation.css';
@@ -42,12 +43,12 @@ export function AgencyClaim(){
     }
   }
 
-  if(status==='loading')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading caregiver matches…</h1></div></div>;
-  if(status==='error')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
+  if(status==='loading')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading caregiver matches…</h1></div></div>;
+  if(status==='error')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/">Go to CareJoys</a></div></div>;
   if(!agency)return null;
 
   return <div className="activation-shell">
-    <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
+    <SiteHeader/>
     <main className="activation-card">
       <div className="activation-kicker">{interests.length?'Caregivers waiting for':'Caregiver matches for'} {agency.name}</div>
       {interests.length?<>

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { LoginForm, Shell } from './LoginPage';
 import { useCaregiverAuth } from './caregiverAuth';
-import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
 import { payLabel } from './jobFormat';
 import { AccountMenu } from './AccountLink';
@@ -39,7 +38,6 @@ const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac',
 
 function EmployerSignIn(){
   const auth=useCaregiverAuth();
-  const [hiring,setHiring]=useState(false);
   if(auth.loading)return <div className="loading-screen">Loading CareJoys…</div>;
   return <Shell>
     {auth.isAuthenticated
@@ -47,10 +45,9 @@ function EmployerSignIn(){
         <div className="modal-kicker">Signed in as {auth.email}</div>
         <h1>No hiring workspace yet.</h1>
         <p>This email doesn’t have an agency or employer workspace on CareJoys. Set one up in a minute, or sign out and use your agency email.</p>
-        <div className="empty-actions"><button className="button" onClick={()=>setHiring(true)}>Set up hiring</button><button className="button secondary" onClick={auth.logout}>Sign out</button></div>
+        <div className="empty-actions"><a className="button" href="/find-caregivers">Set up hiring</a><button className="button secondary" onClick={auth.logout}>Sign out</button></div>
       </div>
       :<LoginForm next={window.location.pathname+window.location.search} kicker="Agencies and employers" title="Sign in to CareJoys." google={auth.googleAvailable?()=>void auth.loginGoogle():undefined}/>}
-    {hiring&&<IntakeModal kind="employer" lockedEmail={auth.email} onClose={()=>setHiring(false)}/>}
   </Shell>;
 }
 
@@ -259,7 +256,7 @@ export function EmployerWorkspace(){
 
   return <div>
     <header className="app-header"><div className="app-wrap header-inner">
-      <a className="brand" href="/app">CareJoys</a>
+      <a className="brand" href="/">CareJoys</a>
       <nav className="app-nav">
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='inbox'?'active':'')} onClick={()=>setTab('inbox')}>Inbox{inboxWaiting?` (${inboxWaiting})`:''}</button>}
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>

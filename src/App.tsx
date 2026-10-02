@@ -1,5 +1,4 @@
-import { lazy, Suspense, useState, type ComponentType, type FormEvent } from 'react';
-import { IntakeModal, type FormKind, type EmployerPreset } from './IntakeModal';
+import { lazy, Suspense, type ComponentType } from 'react';
 import { parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 
@@ -19,6 +18,7 @@ const MarylandSchoolsPage=named(()=>import('./MarylandSchoolsPage'),'MarylandSch
 const TrainingOrganizationPage=named(()=>import('./TrainingOrganizationPage'),'TrainingOrganizationPage');
 const EmployerRecruitingPage=named(()=>import('./PublicInfoPages'),'EmployerRecruitingPage');
 const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage');
+const PricingPage=named(()=>import('./PublicInfoPages'),'PricingPage');
 const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
 const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
@@ -29,6 +29,8 @@ const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
 const LoginPage=named(()=>import('./LoginPage'),'LoginPage');
 const SignInLinkPage=named(()=>import('./LoginPage'),'SignInLinkPage');
 const WelcomeRedirect=named(()=>import('./LoginPage'),'WelcomeRedirect');
+const FindCaregiversPage=named(()=>import('./IntakePage'),'FindCaregiversPage');
+const AddTrainingProgramPage=named(()=>import('./IntakePage'),'AddTrainingProgramPage');
 
 function routePage(path:string){
   if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
@@ -36,6 +38,7 @@ function routePage(path:string){
   if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
   if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
   if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;
+  if (path === '/pricing') return <PricingPage />;
   if (path.startsWith('/activate')) return <CaregiverActivation />;
   if (path.startsWith('/auth')) return <EmployerAuth />;
   if (path.startsWith('/respond')) return <CandidateResponse />;
@@ -56,6 +59,8 @@ function routePage(path:string){
   if (path === '/login' || path === '/signup') return <LoginPage />;
   if (path === '/signin') return <SignInLinkPage />;
   if (path === '/welcome') return <WelcomeRedirect />;
+  if (path === '/find-caregivers') return <FindCaregiversPage />;
+  if (path === '/add-training-program') return <AddTrainingProgramPage />;
   return null;
 }
 
@@ -81,21 +86,8 @@ function NotFound(){
 }
 
 function Home() {
-  const [form, setForm] = useState<FormKind>(() => new URLSearchParams(window.location.search).get('hire') === '1' ? 'employer' : null);
-  const [employerPreset, setEmployerPreset] = useState<EmployerPreset>({});
-
-  function handleHeroSearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const fd = new FormData(event.currentTarget);
-    setEmployerPreset({
-      role: String(fd.get('role') || ''),
-      zip: String(fd.get('location') || '')
-    });
-    setForm('employer');
-  }
-
   return <div>
-    <SiteHeader audience="employer" action={<button id="nav-primary" onClick={() => { setEmployerPreset({}); setForm('employer'); }}>Find caregivers</button>}/>
+    <SiteHeader audience="employer"/>
 
     <main>
       <section className="hero">
@@ -105,7 +97,7 @@ function Home() {
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
           <p>CareJoys helps Maryland home-care agencies and employers match with local caregivers ready to work.</p>
-          <form className="search" onSubmit={handleHeroSearch}>
+          <form className="search" action="/find-caregivers" method="get">
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
               <option value="CNA">CNA</option>
@@ -114,7 +106,7 @@ function Home() {
               <option value="PCA">PCA</option>
               <option value="Caregiver">Caregiver</option>
             </select>
-            <input name="location" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
+            <input name="zip" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
             <button className="btn" type="submit">Find caregivers</button>
           </form>
         </div>
@@ -122,19 +114,26 @@ function Home() {
 
       <section className="section" id="how">
         <div className="wrap">
+          <div className="modal-kicker">How CareJoys works</div>
           <h2>From hiring need to interview</h2>
-          <div className="jobs">
-            <div className="job">
-              <div><h3>Find the right local caregivers</h3><div className="meta">Search by role, geography, shift, pay expectations, commute, and availability freshness.</div><div className="job-tags"><span className="pill">Fresh talent network</span></div></div>
-              <div className="meta">01</div>
+          <div className="steps">
+            <div className="step">
+              <div className="modal-kicker">1 · Find</div>
+              <h3>Find the right local caregivers</h3>
+              <p className="meta">Search by role, geography, shift, pay expectations, commute, and availability freshness.</p>
+              <div className="job-tags"><span className="pill">Fresh talent network</span></div>
             </div>
-            <div className="job">
-              <div><h3>Confirm who is actually interested</h3><div className="meta">CareJoys is designed to reactivate candidates and confirm fit before your team spends time chasing them.</div><div className="job-tags"><span className="pill">Automated activation</span></div></div>
-              <div className="meta">02</div>
+            <div className="step">
+              <div className="modal-kicker">2 · Confirm</div>
+              <h3>Confirm who is actually interested</h3>
+              <p className="meta">CareJoys is designed to reactivate candidates and confirm fit before your team spends time chasing them.</p>
+              <div className="job-tags"><span className="pill">Automated activation</span></div>
             </div>
-            <div className="job">
-              <div><h3>Move qualified people into interviews</h3><div className="meta">Track matched, contacted, interested, qualified, interview, and hired stages in one simple recruiting workspace.</div><div className="job-tags"><span className="pill">Interview-ready</span></div></div>
-              <div className="meta">03</div>
+            <div className="step">
+              <div className="modal-kicker">3 · Interview</div>
+              <h3>Move qualified people into interviews</h3>
+              <p className="meta">Track matched, contacted, interested, qualified, interview, and hired stages in one simple recruiting workspace.</p>
+              <div className="job-tags"><span className="pill">Interview-ready</span></div>
             </div>
           </div>
         </div>
@@ -159,7 +158,7 @@ function Home() {
           <div className="jobs">
             <div className="job">
               <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
-              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><button className="text-button" onClick={() => setForm('school')}>Program not listed? Request addition</button></div>
+              <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><a className="text-button" href="/add-training-program">Program not listed? Request addition</a></div>
             </div>
           </div>
         </div>
@@ -184,6 +183,5 @@ function Home() {
 
     <SiteFooter/>
 
-    {form && <IntakeModal kind={form} employerPreset={employerPreset} onClose={() => setForm(null)} />}
   </div>
 }

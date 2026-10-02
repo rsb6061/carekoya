@@ -10,14 +10,13 @@ export function EmployerRecruitingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   return <div>
-    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
+    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)}/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
         <h1>Hire caregivers in {state.name}.</h1>
         <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
-        <div className="hero-actions"><a className="btn" href="/?hire=1">Find caregivers</a><a className="text-link" href="/about">How CareJoys works</a></div>
-        <div className="employer-signin-note">Already use CareJoys? <a className="text-link" href="/login?next=/app">Sign in</a></div>
+        <div className="hero-actions"><a className="btn" href="/find-caregivers">Find caregivers</a></div>
       </div></section>
 
       <section className="section" id="claim-agency"><div className="wrap">
@@ -58,7 +57,7 @@ export function EmployerRecruitingPage(){
         </div>
       </div></section>
     </main>
-    <SiteFooter jobsHref={jobsHubPath(state)} employersHref={'/hire-caregivers/'+state.slug} showTraining={isMaryland}/>
+    <SiteFooter jobsHref={jobsHubPath(state)} showTraining={isMaryland}/>
   </div>;
 }
 
@@ -89,6 +88,50 @@ export function AboutCareJoysPage(){
       <section className="section"><div className="wrap">
         <h2>Current focus</h2>
         <p>CareJoys is currently focused on Maryland care hiring, including CNA, GNA, HHA, PCA, caregiver, and related direct-care roles. The network is designed to expand by role and geography only where there is enough real employer and caregiver activity to make the matching experience useful.</p>
+      </div></section>
+    </main>
+    <SiteFooter/>
+  </div>;
+}
+
+const PLANS={monthly:{price:'$35',per:'/month',cta:'Start hiring for $35/month'},yearly:{price:'$350',per:'/year',cta:'Start hiring for $350/year'}} as const;
+
+/** /pricing: where "For employers" lands, laid out like JobPlots' pricing page. Checkout isn't live yet, so the button starts employer sign-up. */
+export function PricingPage(){
+  const [plan,setPlan]=useState<keyof typeof PLANS>('monthly');
+  const p=PLANS[plan];
+  const [freeContacts,setFreeContacts]=useState<number|null>(null);
+  useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
+  const free=freeContacts??5;
+  return <div>
+    <SiteHeader audience="employer"/>
+    <main>
+      <section className="hero pricing-hero"><div className="wrap pricing-grid">
+        <div>
+          <div className="modal-kicker">For home-care agencies</div>
+          <h1>Hire caregivers who want the job.</h1>
+          <p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested before you spend time on them. Already listed? <a className="text-link" href="/hire-caregivers/maryland#claim-agency">Claim your agency free.</a></p>
+        </div>
+        <div className="pricing-offer">
+          <div className="pricing-toggle" role="group" aria-label="Billing period">
+            {(['monthly','yearly'] as const).map(k=><button key={k} type="button" className={'pricing-toggle-btn'+(plan===k?' active':'')} aria-pressed={plan===k} onClick={()=>setPlan(k)}>{k==='monthly'?'Monthly':'Annually'}</button>)}
+          </div>
+          <article className="plan-card">
+            <div className="plan-head">
+              <div><h2>Hiring</h2><span className="plan-note">Per location</span></div>
+              <div className="plan-price"><strong>{p.price}</strong><span>{p.per}</span></div>
+            </div>
+            <a className="btn plan-cta" href={'/find-caregivers?plan='+plan}>{p.cta}</a>
+            {plan==='yearly'&&<div className="plan-save">Save $70 per year</div>}
+            {free>0&&<div className="plan-free">Your first {free} caregiver contacts are free.</div>}
+            <ul className="plan-list">
+              <li>Post openings and get ranked local caregiver matches by role, ZIP, shift and pay.</li>
+              <li>CareJoys contacts matched caregivers, confirms interest, and lets them book your interview times.</li>
+              <li>Get every interested caregiver by email and in one inbox.</li>
+              <li>Keep your existing hiring process. No recruiter or placement fees.</li>
+            </ul>
+          </article>
+        </div>
       </div></section>
     </main>
     <SiteFooter/>

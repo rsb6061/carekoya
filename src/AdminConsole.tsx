@@ -138,7 +138,7 @@ export function AdminConsole(){
 
   return <div>
     <header className="app-header"><div className="app-wrap header-inner">
-      <a className="brand" href="/admin">CareJoys admin</a>
+      <a className="brand" href="/">CareJoys</a>
       <nav className="app-nav">
         {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':`${k} days`}</button>)}
         <a className="nav-link" href="/api/admin/health" target="_blank">Raw health</a>

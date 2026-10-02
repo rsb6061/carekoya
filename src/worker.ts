@@ -172,6 +172,7 @@ async function careJoysChildSitemap(env:Env,name:string){
     const entries:SitemapEntry[]=[
       {url:SEO_ORIGIN+"/"},
       {url:SEO_ORIGIN+"/about"},
+      {url:SEO_ORIGIN+"/pricing"},
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
@@ -334,6 +335,8 @@ function pricingHtml(env:Env){
 
 async function publicSeoPage(request:Request,url:URL,env:Env){
   if(request.method!=="GET"&&request.method!=="HEAD")return null;
+  // The employer form used to open as a pop-up on the homepage; old links go to its page.
+  if(url.pathname==="/"&&url.searchParams.get("hire")==="1")return Response.redirect(new URL("/find-caregivers",url).toString(),301);
   if(url.pathname==="/"){
     return seoAsset(request,env,{
       title:"CareJoys | Maryland Caregiver Recruiting & Job Matching",
@@ -352,7 +355,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"Hire Caregivers in Maryland | CareJoys",
       description:"Find CNAs, GNAs, HHAs, PCAs and caregivers in Maryland. CareJoys matches local candidates, confirms interest and helps move qualified caregivers to interview.",
       canonical:"/hire-caregivers/maryland",
-      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/?hire=1">Find caregivers</a> · <a href="/about">How CareJoys works</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys helps Maryland home-care, senior-care and direct-care employers match local candidates by role, geography, shifts, pay preferences, transportation, experience and current availability, then confirm interest before interview.</p>'+pricingHtml(env)+'<p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
+      snapshot:'<main><h1>Hire caregivers in Maryland</h1><p>Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/find-caregivers">Find caregivers</a> · <a href="/pricing">Pricing</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys helps Maryland home-care, senior-care and direct-care employers match local candidates by role, geography, shifts, pay preferences, transportation, experience and current availability, then confirm interest before interview.</p>'+pricingHtml(env)+'<p><a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> · <a href="/training-programs/maryland">Caregiver training programs</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebPage","@id":SEO_ORIGIN+"/hire-caregivers/maryland#webpage","url":SEO_ORIGIN+"/hire-caregivers/maryland","name":"Hire caregivers in Maryland","isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Service","@id":SEO_ORIGIN+"/hire-caregivers/maryland#service","name":"Hire caregivers in Maryland","provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":"Maryland"},"serviceType":"Caregiver recruiting and placement","audience":{"@type":"BusinessAudience","audienceType":"Home-care, senior-care, and direct-care employers"}}
@@ -374,7 +377,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:path,
       robots:caregivers>=10||jobs>0?undefined:"noindex,follow",
       ogImage:"/og/hire-caregivers.png",
-      snapshot:'<main><h1>Hire caregivers in '+htmlEscape(hireState.name)+'</h1><p>Find local CNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/?hire=1">Find caregivers</a> · <a href="/about">How CareJoys works</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys matches local candidates by role, distance, shifts, pay preferences, transportation, experience and current availability, then confirms interest before interview.</p>'+pricingHtml(env)+''+(jobs?'<p><a href="'+jobsHubPath(hireState)+'">Caregiver jobs in '+htmlEscape(hireState.name)+'</a></p>':'')+'</main>',
+      snapshot:'<main><h1>Hire caregivers in '+htmlEscape(hireState.name)+'</h1><p>Find local CNAs, HHAs, PCAs and caregivers who are actually interested in your opening.</p><p><a href="/find-caregivers">Find caregivers</a> · <a href="/pricing">Pricing</a></p><h2>Caregiver hiring with current interest</h2><p>CareJoys matches local candidates by role, distance, shifts, pay preferences, transportation, experience and current availability, then confirms interest before interview.</p>'+pricingHtml(env)+''+(jobs?'<p><a href="'+jobsHubPath(hireState)+'">Caregiver jobs in '+htmlEscape(hireState.name)+'</a></p>':'')+'</main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebPage","url":SEO_ORIGIN+path,"name":"Hire caregivers in "+hireState.name,"isPartOf":{"@id":SEO_ORIGIN+"/#website"},"about":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Service","name":"Hire caregivers in "+hireState.name,"provider":{"@id":SEO_ORIGIN+"/#organization"},"areaServed":{"@type":"State","name":hireState.name},"serviceType":"Caregiver recruiting and placement"}
@@ -388,6 +391,14 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:"/agent",
       snapshot:'<main><h1>Use CareJoys from Claude or ChatGPT</h1><p>Add the CareJoys MCP server to your AI assistant to search current caregiver jobs at home-care agencies and send your profile to the ones you pick.</p><p>Server URL: <code>https://carejoys.com/api/mcp</code></p><p>Nothing is sent to an agency until you press Send in the email CareJoys sends you.</p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"WebPage","url":SEO_ORIGIN+"/agent","name":"CareJoys for Claude and ChatGPT","isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
+    });
+  }
+  if(url.pathname==="/pricing"){
+    return seoAsset(request,env,{
+      title:"Pricing for Caregiver Hiring | CareJoys",
+      description:"CareJoys Hiring is $35/month per location, or $350/year: local caregiver matches, interest confirmation and interview booking, with no recruiter or placement fees.",
+      canonical:"/pricing",
+      snapshot:'<main><h1>Hire caregivers who want the job.</h1><p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested.</p><h2>Hiring: $35/month per location</h2><p>Or $350/year.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver contacts are free.':'')+' Ranked local caregiver matches, interest confirmation, interview booking and one inbox. No recruiter or placement fees.</p><p><a href="/find-caregivers">Start hiring</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
@@ -545,7 +556,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/terms-of-service"){
     return seoAsset(request,env,{title:"Terms of Service | CareJoys",description:"CareJoys terms of service.",canonical:"/terms-of-service",robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/login"||url.pathname==="/signup"||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/find-caregivers"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);

@@ -1,3 +1,4 @@
+import { SiteHeader } from './SiteChrome';
 import { useEffect, useState } from 'react';
 import './activation.css';
 
@@ -38,12 +39,12 @@ export function ConfirmInterest(){
     }
   }
 
-  if(status==='loading')return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading…</h1></div></div>;
-  if(status==='error'||!data)return <div className="activation-shell"><header className="activation-nav"><a className="brand" href="/">CareJoys</a></header><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/caregiver-jobs/maryland">See caregiver jobs</a></div></div>;
+  if(status==='loading')return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>Loading…</h1></div></div>;
+  if(status==='error'||!data)return <div className="activation-shell"><SiteHeader/><div className="activation-card"><div className="activation-kicker">CareJoys</div><h1>We couldn’t open this link.</h1><p>{message}</p><a className="btn" href="/caregiver-jobs/maryland">See caregiver jobs</a></div></div>;
   const one=data.targets.length===1;
 
   return <div className="activation-shell">
-    <header className="activation-nav"><a className="brand" href="/">CareJoys</a></header>
+    <SiteHeader/>
     <main className="activation-card">
       {status==='sent'?<div className="activation-success">
         <div className="success-mark">✓</div>

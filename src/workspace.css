@@ -1,7 +1,7 @@
 :root{--ink:#1b153c;--muted:#6e6882;--line:#d9d3ef;--blue:#4255ff;--bg:#f7f0e6;--soft:#f0ecff;--cream:#f7f0e6;--paper:#fffdf9;--green:#2f8c56;--orange:#ff6b3d;--pink:#e574c6;--lavender:#d8d2ff;--display:"Iowan Old Style","Palatino Linotype","Book Antiqua",Palatino,Georgia,serif}
 body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,system-ui,sans-serif;background:var(--cream);color:var(--ink);letter-spacing:-.01em}
 .app-wrap{max-width:1180px;margin:0 auto;padding:0 24px}
-.app-header{height:auto;padding:16px 0;border-bottom:0;background:var(--cream);position:sticky;top:0;z-index:20}
+.app-header{height:auto;padding:16px 0;border-bottom:0;background:rgba(247,240,230,.92);backdrop-filter:blur(12px);position:sticky;top:0;z-index:20}
 .header-inner{height:auto;min-height:58px;padding:8px 10px 8px 18px;background:rgba(255,255,255,.72);border:1px solid var(--lavender);border-radius:999px;box-shadow:0 8px 24px rgba(41,32,89,.06);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;gap:28px}
 .brand{font-size:20px;font-weight:550;letter-spacing:-.03em}
 .app-nav{display:flex;align-items:center;gap:4px;font-size:14px}
@@ -29,7 +29,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .job-card:hover,.job-card:focus{transform:translateY(-3px);box-shadow:0 16px 36px rgba(41,32,89,.095)}
 .job-card-main{min-width:0;display:flex;flex-direction:column}
 .job-card-title-row{display:flex;align-items:center;gap:10px}
-.job-card h3{margin:0 0 8px;font-size:21px;font-weight:600;letter-spacing:-.02em}
+.job-card h3{font-family:var(--display);margin:0 0 8px;font-size:23px;line-height:1.1;font-weight:400;letter-spacing:-.025em}
 .job-meta{font-size:15px;color:#625c75;line-height:1.55}
 .job-badges{margin-top:10px}
 .badge,.status{display:inline-flex;align-items:center;background:rgba(255,255,255,.72);border:1px solid rgba(57,47,95,.09);border-radius:999px;padding:6px 10px;font-size:13px;margin-right:6px}
@@ -51,7 +51,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .talent-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1.3fr auto;gap:8px;margin-bottom:22px}
 .talent-filters input,.talent-filters select,.pipeline-select{height:44px;border:1px solid var(--lavender);border-radius:16px;padding:0 12px;background:rgba(255,255,255,.85);font:inherit;color:var(--ink)}
 .pipeline-select{min-width:150px}
-.app-footer{border-top:0;background:var(--ink);color:#eae7f4;padding:28px 0;font-size:14px}
+.app-footer{border-top:0;background:var(--ink);color:#eae7f4;padding:30px 0;font-size:14px}
 .beta-hero{border:1px solid var(--lavender);border-radius:28px;padding:36px;background:linear-gradient(145deg,#fffdf9 0%,#efebff 100%)}
 .beta-hero h1{font-size:48px}
 .app-empty{min-height:100vh;padding:42px 0}
@@ -129,7 +129,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .app-shell-col.wide{max-width:800px}
 .app-shell-col .app-empty-card{max-width:none;margin:0}
 .login-card{text-align:center}
-.login-card h1{font-family:var(--display);font-size:52px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:0 0 12px}
+.login-card h1{font-family:var(--display);font-size:44px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:0 0 12px}
 .login-card>p,.login-sub{font-size:17px;line-height:1.55;color:var(--muted);margin:0}
 .login-card .notice{margin-top:22px;text-align:left}
 .login-card .empty-actions{justify-content:center}
@@ -191,3 +191,15 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .profile-page .page-head{margin-bottom:24px}
 .invite-banner{background:#eef1ff;border:2px solid var(--blue);border-radius:24px;padding:22px 22px 24px;margin-top:8px}.invite-banner .section-heading h2{font-size:32px}@media(max-width:640px){.invite-banner{padding:16px}.invite-banner .section-heading h2{font-size:26px}}
 .job-card-apply{display:flex;flex-direction:column;justify-content:space-between;gap:14px}.job-card-link{color:inherit;text-decoration:none;display:block}.job-card-link:hover h3{text-decoration:underline}.job-card-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+
+/* Employer and training-program request pages, in the sign-in layout */
+.intake-page{max-width:560px;margin:0 auto;text-align:left}
+.intake-page h1,.intake-page .modal-kicker{text-align:left}
+.intake-page .intake-form{margin-top:26px}
+.intake-page .login-continue{width:100%;min-height:52px;font-size:16px;margin-top:4px;background:var(--ink);border-color:var(--ink);box-shadow:0 8px 20px rgba(27,21,60,.18)}
+.intake-page .login-continue:hover{background:#2a2257}
+.intake-more{border:1px solid var(--lavender);border-radius:16px;padding:12px 14px;background:rgba(255,255,255,.6)}
+.intake-more summary{cursor:pointer;font-size:15px;font-weight:550;color:var(--ink)}
+.intake-more[open] summary{margin-bottom:14px}
+.intake-page .intake-form input,.intake-page .intake-form select,.intake-page .intake-form textarea{font-weight:400}
