@@ -29,7 +29,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .job-card:hover,.job-card:focus{transform:translateY(-3px);box-shadow:0 16px 36px rgba(41,32,89,.095)}
 .job-card-main{min-width:0;display:flex;flex-direction:column}
 .job-card-title-row{display:flex;align-items:center;gap:10px}
-.job-card h3{margin:0 0 8px;font-size:21px;font-weight:600;letter-spacing:-.02em}
+.job-card h3{font-family:var(--display);margin:0 0 8px;font-size:23px;line-height:1.1;font-weight:400;letter-spacing:-.025em}
 .job-meta{font-size:15px;color:#625c75;line-height:1.55}
 .job-badges{margin-top:10px}
 .badge,.status{display:inline-flex;align-items:center;background:rgba(255,255,255,.72);border:1px solid rgba(57,47,95,.09);border-radius:999px;padding:6px 10px;font-size:13px;margin-right:6px}
@@ -51,7 +51,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .talent-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1.3fr auto;gap:8px;margin-bottom:22px}
 .talent-filters input,.talent-filters select,.pipeline-select{height:44px;border:1px solid var(--lavender);border-radius:16px;padding:0 12px;background:rgba(255,255,255,.85);font:inherit;color:var(--ink)}
 .pipeline-select{min-width:150px}
-.app-footer{border-top:0;background:var(--ink);color:#eae7f4;padding:28px 0;font-size:14px}
+.app-footer{border-top:0;background:var(--ink);color:#eae7f4;padding:30px 0;font-size:14px}
 .beta-hero{border:1px solid var(--lavender);border-radius:28px;padding:36px;background:linear-gradient(145deg,#fffdf9 0%,#efebff 100%)}
 .beta-hero h1{font-size:48px}
 .app-empty{min-height:100vh;padding:42px 0}
@@ -129,7 +129,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .app-shell-col.wide{max-width:800px}
 .app-shell-col .app-empty-card{max-width:none;margin:0}
 .login-card{text-align:center}
-.login-card h1{font-family:var(--display);font-size:52px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:0 0 12px}
+.login-card h1{font-family:var(--display);font-size:44px;line-height:1;font-weight:400;letter-spacing:-.04em;margin:0 0 12px}
 .login-card>p,.login-sub{font-size:17px;line-height:1.55;color:var(--muted);margin:0}
 .login-card .notice{margin-top:22px;text-align:left}
 .login-card .empty-actions{justify-content:center}

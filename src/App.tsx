@@ -122,19 +122,26 @@ function Home() {
 
       <section className="section" id="how">
         <div className="wrap">
+          <div className="modal-kicker">How CareJoys works</div>
           <h2>From hiring need to interview</h2>
-          <div className="jobs">
-            <div className="job">
-              <div><h3>Find the right local caregivers</h3><div className="meta">Search by role, geography, shift, pay expectations, commute, and availability freshness.</div><div className="job-tags"><span className="pill">Fresh talent network</span></div></div>
-              <div className="meta">01</div>
+          <div className="steps">
+            <div className="step">
+              <div className="modal-kicker">1 · Find</div>
+              <h3>Find the right local caregivers</h3>
+              <p className="meta">Search by role, geography, shift, pay expectations, commute, and availability freshness.</p>
+              <div className="job-tags"><span className="pill">Fresh talent network</span></div>
             </div>
-            <div className="job">
-              <div><h3>Confirm who is actually interested</h3><div className="meta">CareJoys is designed to reactivate candidates and confirm fit before your team spends time chasing them.</div><div className="job-tags"><span className="pill">Automated activation</span></div></div>
-              <div className="meta">02</div>
+            <div className="step">
+              <div className="modal-kicker">2 · Confirm</div>
+              <h3>Confirm who is actually interested</h3>
+              <p className="meta">CareJoys is designed to reactivate candidates and confirm fit before your team spends time chasing them.</p>
+              <div className="job-tags"><span className="pill">Automated activation</span></div>
             </div>
-            <div className="job">
-              <div><h3>Move qualified people into interviews</h3><div className="meta">Track matched, contacted, interested, qualified, interview, and hired stages in one simple recruiting workspace.</div><div className="job-tags"><span className="pill">Interview-ready</span></div></div>
-              <div className="meta">03</div>
+            <div className="step">
+              <div className="modal-kicker">3 · Interview</div>
+              <h3>Move qualified people into interviews</h3>
+              <p className="meta">Track matched, contacted, interested, qualified, interview, and hired stages in one simple recruiting workspace.</p>
+              <div className="job-tags"><span className="pill">Interview-ready</span></div>
             </div>
           </div>
         </div>
