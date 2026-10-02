@@ -199,6 +199,8 @@ export function AdminConsole(){
         </div>
       </section>
 
+      <JobSites/>
+
       <section className="section-block">
         <div className="section-heading"><h2>Traffic</h2><p>{f.traffic.pageViews} page views. Cookie-less, path only.</p></div>
         <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(320px,100%),1fr))'}}>
@@ -230,4 +232,40 @@ export function AdminConsole(){
       </section>
     </main>
   </div>;
+}
+
+type JobSite={site:string;jobs:number;supported:boolean;sampleJobId:string};
+type FillTest={ok:boolean;error?:string;currentUrl?:string;filled?:{label:string;key:string|null}[];wouldAsk?:{label:string}[];needsCandidateInBrowser?:{text:string}[];nextAction?:string|null;captcha?:boolean;screenshotJpeg?:string|null;job?:{title:string;employerName:string}};
+
+/** Which job sites current jobs use, which ones "Apply for me" can fill in, and a safe fill-only test. */
+function JobSites(){
+  const [data,setData]=useState<{total:number;supportedJobs:number;sites:JobSite[]}|null>(null);
+  const [testing,setTesting]=useState('');
+  const [result,setResult]=useState<FillTest|null>(null);
+  useEffect(()=>{api<{total:number;supportedJobs:number;sites:JobSite[]}>('/api/admin/job-sites').then(setData).catch(()=>{})},[]);
+  async function test(jobId:string){
+    setTesting(jobId);setResult(null);
+    try{setResult(await api<FillTest>('/api/admin/apply-test',{method:'POST',body:JSON.stringify({jobId})}))}
+    catch(e){setResult({ok:false,error:e instanceof Error?e.message:'Test failed'})}
+    finally{setTesting('')}
+  }
+  if(!data)return null;
+  return <section className="section-block">
+    <div className="section-heading"><h2>Apply for me · job sites</h2><p>{data.supportedJobs} of {data.total} current jobs are on a job site CareJoys can fill in for caregivers. A test fills page one with a made-up caregiver and stops; it never submits or attaches a file.</p></div>
+    <div className="settings-card">
+      {data.sites.map(s=><div className="job-meta" key={s.site}>{s.jobs} · {s.site} · {s.supported?'supported':'not yet'}
+        {s.supported&&s.sampleJobId&&<> · <button className="text-button" style={{display:'inline',margin:0}} disabled={!!testing} onClick={()=>void test(s.sampleJobId)}>{testing===s.sampleJobId?'Testing…':'Test fill'}</button></>}
+      </div>)}
+    </div>
+    {result&&<div className="settings-card" style={{marginTop:12}}>
+      {result.ok?<>
+        <div className="modal-kicker">{result.job?.title} · {result.job?.employerName}</div>
+        <div className="job-meta">Filled: {(result.filled||[]).map(f=>f.label).join(', ')||'nothing'}</div>
+        <div className="job-meta">Would ask the caregiver: {(result.wouldAsk||[]).map(q=>q.label).join(', ')||'nothing'}</div>
+        <div className="job-meta">Needs the caregiver in the browser: {(result.needsCandidateInBrowser||[]).map(q=>q.text.slice(0,80)).join(' · ')||'nothing'}{result.captcha?' · CAPTCHA':''}</div>
+        <div className="job-meta">Next button: {result.nextAction||'none found'}</div>
+        {result.screenshotJpeg&&<img alt="Filled application" src={'data:image/jpeg;base64,'+result.screenshotJpeg} style={{width:'100%',marginTop:12,borderRadius:12}}/>}
+      </>:<div className="notice">{result.error}</div>}
+    </div>}
+  </section>;
 }

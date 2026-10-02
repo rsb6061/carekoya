@@ -12,7 +12,7 @@ type ResumeForm={
 };
 type MatchResult={
   ok?:boolean;id?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;
-  existing?:boolean;profilePhotoToken?:string;profilePhotoUrl?:string|null;error?:string;needsVerifiedSignIn?:boolean;authenticated?:boolean;
+  existing?:boolean;profilePhotoToken?:string;resumeUploadToken?:string;profilePhotoUrl?:string|null;error?:string;needsVerifiedSignIn?:boolean;authenticated?:boolean;
   topJobs?:{id:string;title:string;employerName?:string;city?:string;state?:string;distanceMiles?:number|null}[];
   targetJob?:{id:string;title?:string;employerName?:string;applicationUrl?:string}|null;
 };
@@ -78,6 +78,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [status,setStatus]=useState<'idle'|'saving'|'error'>('idle');
   const [message,setMessage]=useState('');
   const [result,setResult]=useState<MatchResult|null>(null);
+  // The resume file itself, kept so it can be stored with the profile once that is saved.
+  const resumeFileRef=useRef<File|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [editParsed,setEditParsed]=useState(false);
   const smsConsentRef=useRef(false);
@@ -163,6 +165,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     try{
       const found=await parseResumeFile(file);
       setFileMeta({name:file.name,type:file.type||'application/octet-stream',size:file.size});
+      resumeFileRef.current=file;
       afterResume(found);
     }catch(error){
       setStatus('error');setMessage(error instanceof Error?error.message:'Could not read that resume.');
@@ -223,6 +226,12 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         throw new Error(body.error||'Could not save your CareJoys profile.');
       }
       writeDraft(null);
+      const file=resumeFileRef.current;
+      if(file&&body.id&&body.resumeUploadToken){
+        // Stored so CareJoys can attach it when it applies for them; a failure here doesn't block the profile.
+        await fetch('/api/caregivers/'+encodeURIComponent(body.id)+'/resume-file',{method:'POST',
+          headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name),'x-carejoys-profile-token':body.resumeUploadToken},body:file}).catch(()=>null);
+      }
       setResult(body);setStage('success');setStatus('idle');
     }catch(error){
       setStatus('error');setMessage(error instanceof Error?error.message:'Could not save your profile.');

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { useCaregiverAuth } from './caregiverAuth';
+import { ApplyForMe } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { descriptionBlocks, payLabel, pillLabel } from './jobFormat';
@@ -9,7 +10,7 @@ import './styles.css';
 type Job={
   id:string;title:string;role:string;roles?:string[];employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;description?:string;sourceUrl:string;
-  datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;
+  datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;applyForMe?:boolean;
 };
 
 type JobContext={
@@ -20,7 +21,8 @@ type JobContext={
 
 type MyProfile={
   caregiver:{firstName?:string;lastName?:string;email?:string;city?:string;state?:string;zip?:string;role?:string;certifications?:string;shifts?:string;desiredWage?:string;freshness?:string}|null;
-  applications?:{jobId:string;appliedOnCareJoys:boolean}[];
+  applications?:{jobId:string;appliedOnCareJoys:boolean;submittedOnEmployerSite?:boolean}[];
+  resume?:{fileName:string}|null;
 };
 type ApplyResult={status:'applied'|'already_applied';employerOnCareJoys:boolean;employerName:string;applicationUrl:string};
 
@@ -134,7 +136,7 @@ export function CaregiverJobPage(){
     {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
-        {profile?<ApplyWithProfile job={job} profile={profile} result={applied} alreadyApplied={alreadyApplied} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
+        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} getToken={auth.getIdToken} result={applied} alreadyApplied={alreadyApplied} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
         :<CaregiverOnboarding
           compact
           targetJobId={job.id}
@@ -149,10 +151,16 @@ export function CaregiverJobPage(){
 }
 
 
-function ApplyWithProfile({job,profile,result,alreadyApplied,applying,error,onApply,onEmployerSite}:{
-  job:Job;profile:NonNullable<MyProfile['caregiver']>;result:ApplyResult|null;alreadyApplied:boolean;applying:boolean;error:string;
+function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,applying,error,onApply,onEmployerSite}:{
+  job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;getToken:()=>Promise<string>;result:ApplyResult|null;alreadyApplied:boolean;applying:boolean;error:string;
   onApply:()=>void;onEmployerSite:()=>void;
 }){
+  const [agentActive,setAgentActive]=useState(false);
+  const [agentSubmitted,setAgentSubmitted]=useState(false);
+  const agent=job.applyForMe&&!result&&!alreadyApplied||agentSubmitted
+    ?<ApplyForMe jobId={job.id} employerName={job.employerName||'the employer'} hasResume={hasResume} getToken={getToken} onActive={setAgentActive} onSubmitted={()=>setAgentSubmitted(true)}/>
+    :null;
+  if(agentActive||agentSubmitted)return <div className="caregiver-onboarding compact apply-with-profile">{agent}</div>;
   const employer=job.employerName||'the employer';
   if(result||alreadyApplied){
     const onCareJoys=!!result?.employerOnCareJoys;
@@ -185,6 +193,7 @@ function ApplyWithProfile({job,profile,result,alreadyApplied,applying,error,onAp
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     <a className="text-link" href="/me">Update your profile first</a>
     {error&&<div className="notice">{error}</div>}
-    <button className="btn submit-button" onClick={onApply} disabled={applying}>{applying?'Sending…':'Send my application'}</button>
+    {agent}
+    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Sending…':agent?'Just send my CareJoys profile instead':'Send my application'}</button>
   </div>;
 }

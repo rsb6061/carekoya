@@ -16,6 +16,7 @@ import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
+import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
 import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
@@ -51,6 +52,7 @@ interface Env {
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
+  BROWSER?: unknown;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -799,15 +801,27 @@ async function getPublicTrainingProgram(slug:string,env:Env){
   }});
 }
 
-async function issueCaregiverProfilePhotoToken(env:Env,caregiverId:string){
+async function issueCaregiverProfilePhotoToken(env:Env,caregiverId:string,purpose:'photo_upload'|'resume_upload'='photo_upload'){
   if(!env.DB)return null;
   const token=crypto.randomUUID()+"-"+crypto.randomUUID();
   const tokenHash=await sha256Hex(token);
   const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
-  await env.DB.prepare("DELETE FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose='photo_upload' AND used_at IS NULL").bind(caregiverId).run();
-  await env.DB.prepare("INSERT INTO caregiver_profile_edit_tokens(id,caregiver_id,token_hash,purpose,expires_at) VALUES (?,?,?,'photo_upload',?)")
-    .bind(crypto.randomUUID(),caregiverId,tokenHash,expiresAt).run();
+  await env.DB.prepare("DELETE FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose=? AND used_at IS NULL").bind(caregiverId,purpose).run();
+  await env.DB.prepare("INSERT INTO caregiver_profile_edit_tokens(id,caregiver_id,token_hash,purpose,expires_at) VALUES (?,?,?,?,?)")
+    .bind(crypto.randomUUID(),caregiverId,tokenHash,purpose,expiresAt).run();
   return token;
+}
+
+/** The resume file right after a caregiver saves their profile, authorized by the one-time upload token. */
+async function handleCaregiverResumeFile(request:Request,env:Env,caregiverId:string){
+  if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+  const token=clean(request.headers.get("x-carejoys-profile-token"),300);
+  const grant=token?await env.DB.prepare("SELECT id FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose='resume_upload' AND token_hash=? AND used_at IS NULL AND datetime(expires_at)>datetime('now') LIMIT 1")
+    .bind(caregiverId,await sha256Hex(token)).first<{id:string}>():null;
+  if(!grant)return json({ok:false,error:"Resume upload session expired."},{status:401});
+  const res=await saveResumeFile(request,env,caregiverId);
+  if(res.ok)await env.DB.prepare("UPDATE caregiver_profile_edit_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=?").bind(grant.id).run();
+  return res;
 }
 
 function validProfileImage(type:string,bytes:Uint8Array){
@@ -1038,10 +1052,11 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
     .bind(id).first<{count:number}>();
   const marylandMatching=state==="MD";
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
+  const resumeUploadToken=await issueCaregiverProfilePhotoToken(env,id,'resume_upload');
 
   return json({
     ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:nearbyJobs.length,topJobs:nearbyJobs.slice(0,3),
-    marylandMatching,existing:existedBefore,profilePhotoToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null,
+    marylandMatching,existing:existedBefore,profilePhotoToken,resumeUploadToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null,
     authenticated:!!authIdentity,
     targetJob:targetJob?{id:targetJob.id,title:targetJob.title,employerName:targetJob.employer_name,applicationUrl:targetJob.source_url}:null
   },{status:existedBefore?200:201});
@@ -1332,6 +1347,10 @@ export default {
       const identity=await caregiverAuthIdentity(request,env);
       if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
+      if(url.pathname==="/api/me/resume") return handleMyResume(request,env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/apply-agent/continue") return continueApplyAgent(request,env,identity);
+      const meAgent=url.pathname.match(/^\/api\/me\/apply-agent\/([^/]+)$/);
+      if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));
       const meApply=url.pathname.match(/^\/api\/me\/apply\/([^/]+)$/);
       if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
       if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
@@ -1364,6 +1383,8 @@ export default {
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/run") return runAdminOutreach(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/outreach/test") return sendAdminOutreachTest(request,env,admin);
       if(request.method==="POST"&&url.pathname==="/api/admin/agency-test") return sendAdminAgencyTest(request,env,admin);
+      if(request.method==="GET"&&url.pathname==="/api/admin/job-sites") return adminJobSites(env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/apply-test") return adminApplyTest(request,env);
       if(request.method==="GET"&&url.pathname==="/api/admin/agencies") return adminAgencySearch(env,url.searchParams.get("q")||"");
       return json({ok:false,error:"Not found"},{status:404});
     }
@@ -1397,6 +1418,8 @@ export default {
     }
     if(request.method==="GET"&&url.pathname==="/api/interest-confirm") return getInterestConfirmation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/interest-confirm"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return confirmInterestRequest(request,env); }
+    const caregiverResumeFile=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/resume-file$/);
+    if(request.method==="POST"&&caregiverResumeFile){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleCaregiverResumeFile(request,env,decodeURIComponent(caregiverResumeFile[1])); }
     let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
     if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { LoginForm, Shell } from './LoginPage';
+import { ResumeFileInput } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
 import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
@@ -13,9 +14,10 @@ type Invite={
   slots:Slot[];
 };
 type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null};
-type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean};
+type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean;submittedOnEmployerSite?:boolean};
 
 function applicationStatus(a:Application){
+  if(a.submittedOnEmployerSite)return 'CareJoys applied for you on the employer’s site';
   if(a.appliedOnCareJoys&&a.employerOnCareJoys)return 'Sent to the employer through CareJoys';
   if(a.appliedOnCareJoys)return 'Saved on CareJoys';
   return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
@@ -24,7 +26,7 @@ type Caregiver={
   id:string;firstName?:string;email?:string;city?:string;state?:string;zip?:string;role?:string;shifts?:string;desiredWage?:string;
   travelMiles?:number|null;profilePhotoUrl?:string|null;workStatus?:string;freshness?:string;
 };
-type Dashboard={caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
+type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
 
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
 const pay=(min?:number|null,max?:number|null,period='hour')=>min||max?`$${min||'—'}–$${max||'—'}/${period==='year'?'yr':'hr'}`:'';
@@ -170,9 +172,17 @@ export function CaregiverDashboard(){
         <div className="section-heading"><h2>Jobs you applied to</h2></div>
         <div className="settings-card">{(data.applications||[]).map(a=><div key={a.jobId+a.at} className="job-meta">
           <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {applicationStatus(a)} · {when(a.at)}
-          {!a.employerOnCareJoys&&a.applicationUrl&&<> · <a className="text-link" href={a.applicationUrl} target="_blank" rel="noreferrer nofollow">Finish on {a.employerName||'the employer'}’s site ↗</a></>}
+          {!a.employerOnCareJoys&&!a.submittedOnEmployerSite&&a.applicationUrl&&<> · <a className="text-link" href={a.applicationUrl} target="_blank" rel="noreferrer nofollow">Finish on {a.employerName||'the employer'}’s site ↗</a></>}
         </div>)}</div>
       </section>}
+
+      <section className="section-block">
+        <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
+        <div className="settings-card resume-card">
+          {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
+          <ResumeFileInput getToken={auth.getIdToken} label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
+        </div>
+      </section>
 
       <section className="section-block">
         <div className="section-heading"><h2>Match preferences</h2><p>Used to find openings within your commute.</p></div>
