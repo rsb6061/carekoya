@@ -157,7 +157,7 @@ describe('seo helpers', ()=>{
     expect(employmentTypeSchema('PRN')).toEqual(['PER_DIEM']);
     expect(employmentTypeSchema('')).toEqual([]);
     expect(payText(18,22,'hour')).toBe('$18–$22/hr');
-    expect(payText(0,40000,'year')).toBe('Up to $40000/yr');
+    expect(payText(0,40000,'year')).toBe('Up to $40,000/yr');
   });
   it('builds Google for Jobs markup', ()=>{
     const posting=jobPostingJsonLd({id:'job_1',title:'CNA &amp; GNA',employer_name:'Acme Care',city:'Baltimore',state:'MD',zip:'21201',
@@ -285,5 +285,27 @@ describe('apply for me rules', ()=>{
       {workAuthorizationUs:'true',streetAddress:'1 Main St',cnaCertified:'false'});
     expect(p).toMatchObject({firstName:'Ana',cnaCertified:true,cprCertified:true,reliableTransportation:true,workAuthorizationUs:true,streetAddress:'1 Main St',yearsExperience:4});
     expect(applyProfileFromCaregiver({certifications:''},{}).cnaCertified).toBeNull();
+  });
+});
+
+import { normalizePay, payLabel, tidyTitle } from '../src/jobFormat';
+describe('job pay cleanup', () => {
+  it('drops paycheck amounts tagged hourly and fixes mislabeled periods', () => {
+    expect(payLabel({payMin:1104.57,payMax:1104.57,payPeriod:'hour'})).toBe('');
+    expect(payLabel({payMin:17.99,payMax:null,payPeriod:'year'})).toBe('$17.99/hr');
+    expect(payLabel({payMin:18,payMax:null,payPeriod:'hour'})).toBe('$18/hr');
+    expect(payLabel({payMin:16,payMax:16,payPeriod:'hour'})).toBe('$16/hr');
+    expect(payLabel({payMin:20,payMax:55,payPeriod:'hour'})).toBe('$20–$55/hr');
+    expect(payLabel({payMin:45000,payMax:52000,payPeriod:'hour'})).toBe('$45,000–$52,000/yr');
+    expect(payLabel({payMin:18,payMax:1800,payPeriod:'hour'})).toBe('$18/hr');
+    expect(payLabel({payMin:22,payMax:18,payPeriod:''})).toBe('$18–$22/hr');
+    expect(payLabel({payMin:900,payMax:1100,payPeriod:'week'})).toBe('$900–$1,100/wk');
+    expect(payLabel({payMin:0,payMax:0,payPeriod:'hour'})).toBe('');
+    expect(normalizePay(3,null,'hour')).toEqual({min:null,max:null,period:''});
+  });
+  it('repairs title casing', () => {
+    expect(tidyTitle('CNA Caregiver in MaryLand')).toBe('CNA Caregiver in Maryland');
+    expect(tidyTitle('HOME HEALTH AIDE - HHA')).toBe('Home Health Aide - HHA');
+    expect(tidyTitle('Certified Nursing Assistant (CNA)')).toBe('Certified Nursing Assistant (CNA)');
   });
 });

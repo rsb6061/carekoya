@@ -1,6 +1,7 @@
 import type { FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, rowGeo, zipGeoJoin } from './geo';
 import { decodeHtml, normalizeTitle } from './jobDiscovery';
+import { normalizePay, payLabel } from './jobFormat';
 import { slugify, usState, type UsState } from './usStates';
 
 type Row=Record<string,unknown>;
@@ -37,12 +38,7 @@ const PAY_UNITS:Record<string,{label:string;schema:string}>={
 export const payUnitLabel=(period:unknown)=>PAY_UNITS[clean(period,20)]?.label||'';
 
 export function payText(min:unknown,max:unknown,period:unknown){
-  const lo=asNum(min),hi=asNum(max),unit=payUnitLabel(period);
-  const fmt=(n:number)=>'$'+(Number.isInteger(n)?String(n):n.toFixed(2));
-  if(lo&&hi)return fmt(lo)+'–'+fmt(hi)+unit;
-  if(lo)return 'From '+fmt(lo)+unit;
-  if(hi)return 'Up to '+fmt(hi)+unit;
-  return '';
+  return payLabel({payMin:min,payMax:max,payPeriod:period});
 }
 
 /** Maps the free-text employment type scraped from careers pages onto schema.org values. */
@@ -80,8 +76,9 @@ export function jobPostingJsonLd(job:Row,org:Row|null){
   const sourceValid=isoDate(job.valid_through);
   const validThrough=sourceValid&&sourceValid.getTime()>Date.now()?sourceValid:new Date(checked.getTime()+30*86400000);
   const description=decodeHtml(clean(job.description_text,8000)).replace(/\s+/g,' ').trim();
-  const unit=PAY_UNITS[clean(job.pay_period,20)]?.schema;
-  const lo=asNum(job.pay_min),hi=asNum(job.pay_max);
+  const pay=normalizePay(job.pay_min,job.pay_max,job.pay_period);
+  const unit=PAY_UNITS[pay.period]?.schema;
+  const lo=pay.min??0,hi=pay.max??0;
   const website=clean(org?.primary_website,500);
   const posting:Record<string,unknown>={
     '@context':'https://schema.org',
@@ -104,7 +101,7 @@ export function jobPostingJsonLd(job:Row,org:Row|null){
   if(types.length)posting.employmentType=types.length===1?types[0]:types;
   if(unit&&(lo||hi)){
     posting.baseSalary={'@type':'MonetaryAmount',currency:clean(job.pay_currency,3)||'USD',value:{'@type':'QuantitativeValue',
-      ...(lo&&hi?{minValue:lo,maxValue:hi}:{value:lo||hi}),unitText:unit}};
+      ...(lo&&hi&&lo!==hi?{minValue:lo,maxValue:hi}:{value:lo||hi}),unitText:unit}};
   }
   return posting;
 }
@@ -151,13 +148,16 @@ export async function jobPageContext(env:FeatureEnv,job:Row){
     providerTypes:clean(org.provider_types,300),website:clean(org.primary_website,500),otherOpenJobs:otherJobs}:null;
 
   let payContext:null|{role:string;state:string;median:number;count:number;unit:string;position:'above'|'near'|'below'|null}=null;
-  if(state&&clean(job.pay_period,20)==='hour'){
-    const pays=((await env.DB.prepare("SELECT pay_min,pay_max FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state=? AND lower(role)=lower(?) AND pay_period='hour' AND (pay_min>0 OR pay_max>0) LIMIT 500").bind(state,role).all<Row>()).results||[])
-      .map(r=>{const lo=asNum(r.pay_min),hi=asNum(r.pay_max);return lo&&hi?(lo+hi)/2:(lo||hi)}).filter(n=>n>5&&n<100);
+  const midpoint=(min:unknown,max:unknown,period:unknown)=>{
+    const p=normalizePay(min,max,period);
+    return p.period==='hour'?(p.min!==null&&p.max!==null?(p.min+p.max)/2:(p.min??p.max??0)):0;
+  };
+  const mine=midpoint(job.pay_min,job.pay_max,job.pay_period);
+  if(state&&mine){
+    const pays=((await env.DB.prepare("SELECT pay_min,pay_max,pay_period FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state=? AND lower(role)=lower(?) AND (pay_min>0 OR pay_max>0) LIMIT 500").bind(state,role).all<Row>()).results||[])
+      .map(r=>midpoint(r.pay_min,r.pay_max,r.pay_period)).filter(n=>n>0);
     if(pays.length>=5){
       const m=Math.round(median(pays)*100)/100;
-      const lo=asNum(job.pay_min),hi=asNum(job.pay_max);
-      const mine=lo&&hi?(lo+hi)/2:(lo||hi);
       payContext={role,state,median:m,count:pays.length,unit:'/hr',position:mine?(mine>m*1.05?'above':mine<m*0.95?'below':'near'):null};
     }
   }

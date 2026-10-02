@@ -1,4 +1,6 @@
 import type { FeatureEnv } from './serverFeatures';
+import { payLabel } from './jobFormat';
+import { normalizeTitle } from './jobDiscovery';
 import {
   MAX_TARGETS, REACHABLE_AGENCY_SQL, confirmPreparedRequest, interestRequestStatus, prepareInterestRequest, resolveTargets, validateProfile
 } from './agencyInbox';
@@ -88,15 +90,10 @@ export const MCP_TOOLS=[
 ];
 export const MCP_INSTRUCTIONS='CareJoys lists current caregiver jobs (CNA, GNA, HHA, PCA) at home-care agencies, checked on each agency\'s own careers page; coverage is Maryland today. Search jobs or agencies and show the options. To send the caregiver\'s profile, collect their name, email, ZIP and role, call prepare_job_interest, show the summary, and call confirm_job_interest only after they say yes. CareJoys then emails the caregiver; no agency is contacted until they press Send. Each job also has the agency\'s own application link if the caregiver prefers to apply directly.';
 
-function payText(min:unknown,max:unknown,period:unknown){
-  const lo=asNum(min),hi=asNum(max),unit=clean(period,20)||'hour';
-  if(!lo&&!hi)return null;
-  const per='/'+(unit==='year'?'yr':unit==='week'?'wk':unit==='month'?'mo':unit==='day'?'day':'hr');
-  return lo&&hi&&lo!==hi?`$${lo}–$${hi}${per}`:`$${lo||hi}${per}`;
-}
+const payText=(min:unknown,max:unknown,period:unknown)=>payLabel({payMin:min,payMax:max,payPeriod:period})||null;
 function compactJob(r:Row){
   return {
-    id:clean(r.id,120),title:clean(r.title,200),role:clean(r.role,80),agency:clean(r.employer_name,200),agencyId:clean(r.agency_organization_id,120),
+    id:clean(r.id,120),title:normalizeTitle(r.title),role:clean(r.role,80),agency:clean(r.employer_name,200),agencyId:clean(r.agency_organization_id,120),
     location:[clean(r.city,120),clean(r.state,20),clean(r.zip,10)].filter(Boolean).join(', ')||null,
     pay:payText(r.pay_min,r.pay_max,r.pay_period),employmentType:clean(r.employment_type,120)||null,
     postedOn:clean(r.date_posted,10)||null,lastCheckedOn:clean(r.last_checked_at||r.last_seen_at,10)||null,
@@ -104,7 +101,7 @@ function compactJob(r:Row){
     canSendProfile:!!asNum(r.reachable)
   };
 }
-const JOB_COLUMNS="(SELECT "+REACHABLE_AGENCY_SQL+" FROM agency_organizations o WHERE o.id=j.agency_organization_id) AS reachable,j.id,COALESCE(NULLIF(j.normalized_title,''),j.title) AS title,j.role,j.roles_json,j.employer_name,j.agency_organization_id,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.last_seen_at,j.last_checked_at";
+const JOB_COLUMNS="(SELECT "+REACHABLE_AGENCY_SQL+" FROM agency_organizations o WHERE o.id=j.agency_organization_id) AS reachable,j.id,j.title AS title,j.role,j.roles_json,j.employer_name,j.agency_organization_id,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.last_seen_at,j.last_checked_at";
 
 type Ctx={request:Request};
 const toolHandlers:Record<string,(env:FeatureEnv,args:Row,ctx:Ctx)=>Promise<unknown>>={

@@ -5,7 +5,7 @@ import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
+import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
@@ -698,7 +698,18 @@ async function handleHealth(env: Env) {
         FROM agency_organizations
         WHERE is_active=1 AND primary_careers_url IS NOT NULL AND primary_careers_url!=''
       ) GROUP BY provider ORDER BY sources DESC`).all<Record<string,unknown>>();
-    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), rejectedCaregiverJobs:Number(rejectedJobCount?.count||0), missingMarylandCaregiverJobs:Number(missingMarylandJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), eligibleJobSources:Number(eligibleJobSourceCount?.count||0), unscannedJobSources:Number(unscannedJobSourceCount?.count||0), discoveredCareersUrls:Number(discoveredCareersUrlCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, jobScanSummary:jobScanRows.results||[], jobScanSamples:jobScanSamples.results||[], jobSourceProviderCandidates:jobSourceProviderCandidates.results||[], jobPublicationReasons:jobPublicationReasons.results||[], timestamp:new Date().toISOString() });
+    const LIVE="FROM caregiver_jobs WHERE is_published=1 AND status='current'";
+    const jobQuality = await env.DB.prepare(`SELECT
+        (SELECT COUNT(*) ${LIVE} AND ${SUSPECT_PAY_SQL}) AS suspect_pay_waiting_for_repair,
+        (SELECT COUNT(*) ${LIVE} AND pay_min IS NULL AND pay_max IS NULL) AS no_pay,
+        (SELECT COUNT(*) ${LIVE} AND COALESCE(city,'')='' AND COALESCE(zip,'')='') AS no_city_or_zip,
+        (SELECT COUNT(*) ${LIVE} AND COALESCE(zip,'')!='' AND zip NOT IN (SELECT zip FROM zip_geo)) AS zip_not_mappable,
+        (SELECT COUNT(*) ${LIVE} AND last_seen_at<datetime('now','-14 days')) AS not_seen_14_days,
+        (SELECT COUNT(*) ${LIVE} AND valid_through IS NOT NULL AND valid_through!='' AND valid_through<date('now')) AS past_valid_through,
+        (SELECT COALESCE(SUM(c-1),0) FROM (SELECT COUNT(*) AS c ${LIVE} GROUP BY agency_organization_id,lower(title),lower(COALESCE(city,'')) HAVING c>1)) AS duplicate_listings,
+        (SELECT COUNT(*) ${LIVE} AND (description_text LIKE '%<p>%' OR description_text LIKE '%<br%' OR description_text LIKE '%&amp;%' OR description_text LIKE '%&#%')) AS html_in_description,
+        (SELECT COUNT(*) ${LIVE} AND COALESCE(length(description_text),0)<80) AS short_description`).first<Record<string,unknown>>();
+    return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), jobQuality, counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), rejectedCaregiverJobs:Number(rejectedJobCount?.count||0), missingMarylandCaregiverJobs:Number(missingMarylandJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), eligibleJobSources:Number(eligibleJobSourceCount?.count||0), unscannedJobSources:Number(unscannedJobSourceCount?.count||0), discoveredCareersUrls:Number(discoveredCareersUrlCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, jobScanSummary:jobScanRows.results||[], jobScanSamples:jobScanSamples.results||[], jobSourceProviderCandidates:jobSourceProviderCandidates.results||[], jobPublicationReasons:jobPublicationReasons.results||[], timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
   }
@@ -1538,6 +1549,7 @@ export default {
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
         await normalizeExistingJobsBatch(env,100);
+        await repairJobPayBatch(env,500);
         await recoverRejectedJobsBatch(env,180);
         await retryFailedAgencyJobSourcesBatch(env,24);
         await discoverAgencyJobsBatch(env,24);

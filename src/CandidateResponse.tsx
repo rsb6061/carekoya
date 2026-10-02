@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import './activation.css';
+import { payLabel } from './jobFormat';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
 type Opportunity={
@@ -86,7 +87,7 @@ export function CandidateResponse(){
   if(!opportunity)return null;
 
   const location=[opportunity.city,opportunity.state,opportunity.zip].filter(Boolean).join(', ');
-  const pay=opportunity.payMin||opportunity.payMax?('$'+(opportunity.payMin||'—')+'–$'+(opportunity.payMax||'—')+'/hr'):'Pay discussed with employer';
+  const pay=payLabel({payMin:opportunity.payMin,payMax:opportunity.payMax,payPeriod:'hour'})||'Pay discussed with employer';
   const interested=opportunity.response==='interested'||opportunity.stage==='interview';
   const declined=opportunity.response==='not_interested'||opportunity.stage==='rejected';
 

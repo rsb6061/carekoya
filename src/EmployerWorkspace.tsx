@@ -3,6 +3,7 @@ import { LoginForm, Shell } from './LoginPage';
 import { useCaregiverAuth } from './caregiverAuth';
 import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
+import { payLabel } from './jobFormat';
 import { AccountMenu } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { AgencyInbox } from './AgencyInboxTab';
@@ -300,7 +301,7 @@ export function EmployerWorkspace(){
             <div className="job-meta">{[o.role,o.city,o.state,o.zip].filter(Boolean).join(' · ')}</div>
             <div className="job-badges">
               {o.shift_preferences&&<span className="badge">{o.shift_preferences}</span>}
-              {(o.pay_min||o.pay_max)&&<span className="badge">{'$'+(o.pay_min||'—')+'–$'+(o.pay_max||'—')+'/hr'}</span>}
+              {payLabel({payMin:o.pay_min,payMax:o.pay_max,payPeriod:'hour'})&&<span className="badge">{payLabel({payMin:o.pay_min,payMax:o.pay_max,payPeriod:'hour'})}</span>}
               <span className="status">{o.source==='agency_profile'?'Always-on':o.source==='employer_intake'?'Created from your request':(o.status||'open')}</span>
               {Number(o.available_interview_slots||0)>0&&<span className="badge">{o.available_interview_slots} interview time{Number(o.available_interview_slots)===1?'':'s'} ready</span>}
             </div>
