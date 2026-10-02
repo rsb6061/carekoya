@@ -8,6 +8,7 @@ import { IntakeModal } from './IntakeModal';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
+import { TalentCard, type TalentCandidate } from './TalentCard';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -108,11 +109,18 @@ export function CaregiverDashboard(){
   const open=invites.filter(i=>!i.response&&i.stage==='contacted');
   const gaps=profileGaps(c,!!data.resume);
   const editing=window.location.pathname==='/dashboard/profile';
+  const previewing=window.location.pathname==='/dashboard/profile/preview';
+
+  if(previewing)return <div>{header}
+    <main className="app-wrap app-content profile-page">
+      <EmployerViewPreview/>
+    </main>
+  </div>;
 
   if(editing)return <div>{header}
     <main className="app-wrap app-content profile-page">
       <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
-      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/me?saved=1')}}/>
+      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
     </main>
   </div>;
 
@@ -123,9 +131,41 @@ export function CaregiverDashboard(){
           <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
-        <div className="header-action"><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
+        <div className="header-action"><a className="button secondary" href="/dashboard/profile/preview">View my profile</a><a className="button secondary" href="/dashboard/profile">Edit my profile</a></div>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
+
+      {invites.length>0&&<section className="section-block invite-banner">
+        <div className="section-heading"><h2>{open.length?'An employer wants to interview you':'Your employer invitations'}</h2><p>{open.length?`${open.length} waiting on your answer.`:'Interviews and replies from employers who reached out to you.'}</p></div>
+        <div className="job-list">{invites.map((invite,i)=><article className={'job-card '+cardTone(i)} key={invite.id}>
+          <div className="job-card-main">
+            <h3>{invite.title||invite.role||'Caregiver opening'}</h3>
+            <div className="job-meta">{[invite.company,[invite.city,invite.state].filter(Boolean).join(', '),pay(invite.payMin,invite.payMax),invite.shifts].filter(Boolean).join(' · ')}</div>
+            <div className="job-badges"><span className={invite.interviewBooked||invite.response==='interested'?'status applied':'status'}>{inviteStatus(invite)}</span>{invite.interviewAt&&<span className="badge">{when(invite.interviewAt)}</span>}</div>
+            {invite.requirements&&<div className="job-card-cue">{invite.requirements}</div>}
+            {!invite.response&&invite.stage==='contacted'&&<div className="empty-actions">
+              <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
+              <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
+            </div>}
+            {invite.response==='interested'&&!invite.interviewBooked&&(invite.slots.length?<div className="empty-actions">
+              {invite.slots.map(slot=><button key={slot.id} className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/book`,{slotId:slot.id},'Interview booked. Check your email for the calendar invite.')}>{when(slot.startsAt,slot.timezone)}</button>)}
+            </div>:<div className="job-meta" style={{marginTop:12}}>The employer will add interview times soon.</div>)}
+          </div>
+        </article>)}</div>
+      </section>}
+
+
+      <section className="section-block">
+        <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
+        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
+        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
+          <div className="job-card-main">
+            <h3>{tidyTitle(job.title)}</h3>
+            <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
+            {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
+          </div>
+        </a>)}</div>}
+      </section>
 
       {c.workStatus==='not_looking'||c.workStatus==='maybe_later'
         ?<section className="section-block"><div className="settings-card profile-checklist">
@@ -142,37 +182,6 @@ export function CaregiverDashboard(){
           <a className="button" href="/dashboard/profile">Finish my profile</a>
         </div></section>}
 
-      <section className="section-block">
-        <div className="section-heading"><h2>Employer invitations</h2><p>{open.length?`${open.length} waiting on your answer.`:'Employers who want to interview you will show up here.'}</p></div>
-        {invites.length===0?<div className="empty"><strong>No invitations yet.</strong><div>Keep your availability current to rank higher in employer matches.</div></div>:
-        <div className="job-list">{invites.map((invite,i)=><article className={'job-card '+cardTone(i)} key={invite.id}>
-          <div className="job-card-main">
-            <h3>{invite.title||invite.role||'Caregiver opening'}</h3>
-            <div className="job-meta">{[invite.company,[invite.city,invite.state].filter(Boolean).join(', '),pay(invite.payMin,invite.payMax),invite.shifts].filter(Boolean).join(' · ')}</div>
-            <div className="job-badges"><span className={invite.interviewBooked||invite.response==='interested'?'status applied':'status'}>{inviteStatus(invite)}</span>{invite.interviewAt&&<span className="badge">{when(invite.interviewAt)}</span>}</div>
-            {invite.requirements&&<div className="job-card-cue">{invite.requirements}</div>}
-            {!invite.response&&invite.stage==='contacted'&&<div className="empty-actions">
-              <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
-              <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
-            </div>}
-            {invite.response==='interested'&&!invite.interviewBooked&&(invite.slots.length?<div className="empty-actions">
-              {invite.slots.map(slot=><button key={slot.id} className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/book`,{slotId:slot.id},'Interview booked. Check your email for the calendar invite.')}>{when(slot.startsAt,slot.timezone)}</button>)}
-            </div>:<div className="job-meta" style={{marginTop:12}}>The employer will add interview times soon.</div>)}
-          </div>
-        </article>)}</div>}
-      </section>
-
-      <section className="section-block">
-        <div className="section-heading"><h2>Jobs near you</h2><p>Current caregiver openings within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
-        {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
-        <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=><a className={'job-card '+cardTone(i)} key={job.id} href={'/jobs/'+encodeURIComponent(job.id)}>
-          <div className="job-card-main">
-            <h3>{tidyTitle(job.title)}</h3>
-            <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
-            {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
-          </div>
-        </a>)}</div>}
-      </section>
 
       {(data.applications||[]).length>0&&<section className="section-block">
         <div className="section-heading"><h2>Jobs you applied to</h2></div>
@@ -192,4 +201,32 @@ export function CaregiverDashboard(){
 
     </main>
   </div>;
+}
+
+/** "View my profile": the caregiver's card exactly as employers see it in search. Private, never a public page. */
+function EmployerViewPreview(){
+  const [view,setView]=useState<{visible:boolean;candidate:TalentCandidate}|null>(null);
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    fetch('/api/me/employer-view',{credentials:'include'}).then(async r=>{
+      const body=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(body.error||'Could not load your profile.');
+      setView(body);
+    }).catch(e=>setError(e instanceof Error?e.message:'Could not load your profile.'));
+  },[]);
+  return <>
+    <div className="page-head"><h1>How employers see you</h1><p>This is your card when an approved employer searches CareJoys or you’re matched to their opening. Your profile is not a public web page and doesn’t appear on Google.</p></div>
+    {error&&<div className="notice">{error}</div>}
+    {!view&&!error&&<div className="empty">Loading…</div>}
+    {view&&<>
+      {!view.visible&&<div className="notice">You’re hidden from employer search because your profile says you’re not looking for work. Turn on “Show me to employers as looking” in <a className="text-link" href="/dashboard/profile">your profile</a> to appear again.</div>}
+      <div className="job-list profile-preview"><TalentCard candidate={view.candidate} tone="job-card-sky"/></div>
+      <section className="settings-card profile-visibility">
+        <h3>Who sees what</h3>
+        <p><strong>Employers searching CareJoys</strong> see the card above: your first name and last initial, photo, role, city, shifts, pay and certifications. They can’t see your phone, email or resume.</p>
+        <p><strong>Employers you apply to or say yes to</strong> also get your full name, phone, email and resume, so they can reach you.</p>
+      </section>
+    </>}
+    <div className="profile-save-bar profile-preview-actions"><a className="button" href="/dashboard/profile">Edit my profile</a><a className="text-link" href="/dashboard">Back to dashboard</a></div>
+  </>;
 }
