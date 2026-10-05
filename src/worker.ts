@@ -948,20 +948,43 @@ async function handleCaregiverProfilePhoto(request:Request,env:Env,caregiverId:s
   const grant=await env.DB.prepare("SELECT id FROM caregiver_profile_edit_tokens WHERE caregiver_id=? AND purpose='photo_upload' AND token_hash=? AND used_at IS NULL AND datetime(expires_at)>datetime('now') LIMIT 1")
     .bind(caregiverId,tokenHash).first<{id:string}>();
   if(!grant)return json({ok:false,error:"Profile upload session expired. Submit your profile again to get a new upload session."},{status:401});
+  const saved=await saveCaregiverPhoto(request,env,caregiverId);
+  if(saved.ok)await env.DB.prepare("UPDATE caregiver_profile_edit_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(grant.id).run();
+  return json(saved,{status:saved.ok?200:400});
+}
+
+/** Stores an already square, resized photo (the browser crops it) for a caregiver. */
+async function saveCaregiverPhoto(request:Request,env:Env,caregiverId:string):Promise<{ok:true;photoUrl:string}|{ok:false;error:string}>{
   const type=(request.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
-  if(!["image/jpeg","image/png","image/webp"].includes(type))return json({ok:false,error:"Use a JPG, PNG, or WebP photo."},{status:400});
+  if(!["image/jpeg","image/png","image/webp"].includes(type))return {ok:false,error:"Use a JPG, PNG, or WebP photo."};
   const body=await request.arrayBuffer();
-  if(body.byteLength<100||body.byteLength>180000)return json({ok:false,error:"Profile photo must be under 180 KB after resizing."},{status:400});
+  if(body.byteLength<100||body.byteLength>180000)return {ok:false,error:"Profile photo must be under 180 KB after resizing."};
   const bytes=new Uint8Array(body);
-  if(!validProfileImage(type,bytes))return json({ok:false,error:"That file does not look like a valid image."},{status:400});
-  await env.DB.prepare(`INSERT INTO caregiver_profile_photos(caregiver_id,image_blob,content_type,byte_size)
+  if(!validProfileImage(type,bytes))return {ok:false,error:"That file does not look like a valid image."};
+  await env.DB!.prepare(`INSERT INTO caregiver_profile_photos(caregiver_id,image_blob,content_type,byte_size)
     VALUES (?,?,?,?)
     ON CONFLICT(caregiver_id) DO UPDATE SET image_blob=excluded.image_blob,content_type=excluded.content_type,byte_size=excluded.byte_size,updated_at=CURRENT_TIMESTAMP`)
     .bind(caregiverId,body,type,body.byteLength).run();
   const photoUrl="/api/caregivers/"+encodeURIComponent(caregiverId)+"/photo";
-  await env.DB.prepare("UPDATE caregivers SET profile_photo_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(photoUrl,caregiverId).run();
-  await env.DB.prepare("UPDATE caregiver_profile_edit_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(grant.id).run();
-  return json({ok:true,photoUrl});
+  await env.DB!.prepare("UPDATE caregivers SET profile_photo_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(photoUrl,caregiverId).run();
+  return {ok:true,photoUrl};
+}
+
+/** The signed-in caregiver's own photo: view it, or replace it from /dashboard/profile. */
+async function handleMyPhoto(request:Request,env:Env,identity:Parameters<typeof caregiverForIdentity>[1]){
+  if(!identity)return json({ok:false,error:"Sign in required"},{status:401});
+  if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
+  if(request.method==="POST"){
+    const saved=await saveCaregiverPhoto(request,env,caregiverId);
+    return json(saved,{status:saved.ok?200:400});
+  }
+  if(request.method!=="GET")return json({ok:false,error:"Method not allowed"},{status:405});
+  const row=await env.DB.prepare("SELECT image_blob,content_type FROM caregiver_profile_photos WHERE caregiver_id=? LIMIT 1")
+    .bind(caregiverId).first<{image_blob:ArrayBuffer;content_type:string}>();
+  if(!row)return json({ok:false,error:"Profile photo not found"},{status:404});
+  return new Response(row.image_blob,{headers:{"content-type":row.content_type||"image/webp","cache-control":"private,no-store","x-content-type-options":"nosniff"}});
 }
 
 async function handleCaregiver(request: Request, env: Env) {
@@ -1301,7 +1324,9 @@ async function myEmployerView(env:Env,identity:Parameters<typeof caregiverForIde
   if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
   const c=await env.DB!.prepare(`SELECT c.*,(${SEARCHABLE_CAREGIVER}) AS searchable FROM caregivers c WHERE c.id=?`).bind(caregiverId).first<Record<string,unknown>>();
   if(!c)return json({ok:false,error:"No caregiver profile yet"},{status:404});
-  return json({ok:true,visible:Number(c.searchable)===1,candidate:talentCandidate(c,null)});
+  const candidate=talentCandidate(c,null);
+  // The employer photo URL needs an employer session; the caregiver previews their own copy.
+  return json({ok:true,visible:Number(c.searchable)===1,candidate:{...candidate,profilePhotoUrl:c.profile_photo_url?"/api/me/photo?v="+encodeURIComponent(String(c.updated_at||"")):candidate.profilePhotoUrl}});
 }
 async function getWorkspace(id:string, env:Env) {
   const workspace=await requireWorkspace(env,id);
@@ -1468,6 +1493,7 @@ export default {
       if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
       if(url.pathname==="/api/me/resume") return handleMyResume(request,env,identity);
+      if(url.pathname==="/api/me/photo") return handleMyPhoto(request,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/apply-agent/continue") return continueApplyAgent(request,env,identity);
       const meAgent=url.pathname.match(/^\/api\/me\/apply-agent\/([^/]+)$/);
       if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));

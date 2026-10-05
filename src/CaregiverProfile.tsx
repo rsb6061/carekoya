@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { ProfilePhotoSection } from './ProfilePhotoSection';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
@@ -15,7 +16,7 @@ export type CaregiverProfileData={
   firstName?:string;lastName?:string;phone?:string;zip?:string;city?:string;state?:string;role?:string;
   certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];languages?:string;bio?:string;
   availability?:Availability;employmentTypes?:string[];startAvailability?:string;workConditions?:string[];
-  desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;
+  desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;profilePhotoUrl?:string|null;
 };
 
 const list=(v?:string|string[])=>(Array.isArray(v)?v:(v||'').split(',')).map(x=>x.trim()).filter(Boolean);
@@ -84,6 +85,8 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
   }
 
   return <form className="profile-editor intake-form" onSubmit={submit}>
+    <ProfilePhotoSection hasPhoto={!!c.profilePhotoUrl}/>
+
     <Section title="When you can work" hint="Tap the shifts you can usually work. Employers match you to openings on these.">
       <div className="availability-grid" role="group" aria-label="Weekly availability">
         <span/>
