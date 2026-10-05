@@ -275,6 +275,16 @@ describe('apply for me rules', ()=>{
     expect(detectApplyProvider('https://careers-acme.icims.com/jobs/55/cna/job')).toBe('icims');
     expect(detectApplyProvider('https://acme.wd1.myworkdayjobs.com/x')).toBeNull();
     expect(detectApplyProvider('https://www.homecare.example/careers')).toBeNull();
+    expect(detectApplyProvider('https://aris-at-home-inc.careerplug.com/jobs/3592578/apps/new')).toBe('careerplug');
+    expect(detectApplyProvider('https://alliance-senior-care.careerplug.com/jobs?locale=en-US')).toBeNull();
+    expect(detectApplyProvider('https://a-t-moore-health-care.careerplug.com/account')).toBeNull();
+    expect(detectApplyProvider('https://affirmedhomecare.applytojob.com/apply/l745UJxX0Q/Home-Health-Aides')).toBe('jazzhr');
+    expect(detectApplyProvider('https://amaraycares.applytojob.com/apply/jobs/details/13VaMRMriJ?&')).toBe('jazzhr');
+    expect(detectApplyProvider('https://amaraycares.applytojob.com/apply')).toBeNull();
+    expect(applyStartUrl('careerplug','https://acme.careerplug.com/jobs/3592578?src=x')).toBe('https://acme.careerplug.com/jobs/3592578/apps/new?src=x');
+    expect(applyStartUrl('careerplug','https://acme.careerplug.com/jobs/3592578/apps/new')).toBe('https://acme.careerplug.com/jobs/3592578/apps/new');
+    expect(allowedApplyNavigation('careerplug','https://acme.careerplug.com/jobs/1/apps/new','https://acme.careerplug.com/jobs/1')).toBe(true);
+    expect(allowedApplyNavigation('jazzhr','https://other.applytojob.com/apply/x','https://acme.applytojob.com/apply/abcdef1/x')).toBe(false);
     expect(allowedApplyNavigation('icims','https://careers-acme.icims.com/apply','https://careers-acme.icims.com/jobs/55')).toBe(true);
     expect(allowedApplyNavigation('icims','https://careers-other.icims.com/apply','https://careers-acme.icims.com/jobs/55')).toBe(false);
     expect(applyStartUrl('lever','https://jobs.lever.co/acme/abc')).toBe('https://jobs.lever.co/acme/abc/apply');

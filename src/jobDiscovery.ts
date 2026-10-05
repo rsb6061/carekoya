@@ -336,6 +336,7 @@ function atsInfo(url:string){
     if(host.includes('ultipro.com')||host.includes('ukg.com'))return {provider:'ukg',account:''};
     if(host.includes('jazz.co')||host.includes('applytojob.com'))return {provider:'jazzhr',account:''};
     if(host.includes('workable.com'))return {provider:'workable',account:''};
+    if(host.endsWith('careerplug.com'))return {provider:'careerplug',account:''};
   }catch{}
   return null;
 }
@@ -800,7 +801,7 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
 function sourceQuality(value:unknown){
   const p=clean(value,50);
   if(['workday','greenhouse','lever','ashby'].includes(p))return 5;
-  if(['icims','paylocity','bamboohr','paycom','ukg','jazzhr','workable'].includes(p))return 4;
+  if(['icims','paylocity','bamboohr','paycom','ukg','jazzhr','workable','careerplug'].includes(p))return 4;
   if(p==='jsonld')return 3;
   return 2;
 }

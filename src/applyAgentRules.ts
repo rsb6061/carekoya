@@ -3,7 +3,7 @@
 // it runs only when the caregiver clicks, stays on the employer's own job site, never answers demographic,
 // criminal-history or legal questions, and hands the browser to the caregiver for CAPTCHAs, logins and signatures.
 
-export type ApplyProvider="paylocity"|"ashby"|"isolved"|"greenhouse"|"lever"|"icims";
+export type ApplyProvider="paylocity"|"ashby"|"isolved"|"greenhouse"|"lever"|"icims"|"careerplug"|"jazzhr";
 
 export type ApplyAnswerKey=
   |"firstName"|"lastName"|"fullName"|"email"|"phone"|"streetAddress"|"city"|"state"|"postalCode"|"country"|"locationText"
@@ -37,13 +37,18 @@ const normalized=(value:string)=>String(value||"").toLowerCase().replace(/[_-]+/
 export function detectApplyProvider(rawUrl:string|null|undefined):ApplyProvider|null{
   if(!rawUrl)return null;
   try{
-    const host=new URL(rawUrl).hostname.toLowerCase();
+    const url=new URL(rawUrl);
+    const host=url.hostname.toLowerCase();
     if(host==="recruiting.paylocity.com")return "paylocity";
     if(host==="jobs.ashbyhq.com")return "ashby";
     if(host.endsWith(".isolvedhire.com"))return "isolved";
     if(host==="boards.greenhouse.io"||host==="job-boards.greenhouse.io")return "greenhouse";
     if(host==="jobs.lever.co")return "lever";
     if(host.endsWith(".icims.com"))return "icims";
+    // Only a single CareerPlug posting (/jobs/123...), not a company's job list or account page.
+    if(host.endsWith(".careerplug.com")&&/^\/jobs\/\d+(\/|$)/.test(url.pathname))return "careerplug";
+    // JazzHR postings: /apply/<code>/<title> or /apply/jobs/details/<code>.
+    if(host.endsWith(".applytojob.com")&&/^\/apply\/(jobs\/details\/)?[A-Za-z0-9]{6,}(\/|$)/.test(url.pathname))return "jazzhr";
   }catch{}
   return null;
 }
@@ -54,7 +59,7 @@ export function jobSiteName(rawUrl:string|null|undefined){
     const host=new URL(String(rawUrl||"")).hostname.toLowerCase();
     const known:[RegExp,string][]=[[/paylocity\.com$/,"Paylocity"],[/ashbyhq\.com$/,"Ashby"],[/isolvedhire\.com$/,"isolved"],[/greenhouse\.io$/,"Greenhouse"],
       [/lever\.co$/,"Lever"],[/icims\.com$/,"iCIMS"],[/myworkdayjobs\.com$|workday\.com$/,"Workday"],[/bamboohr\.com$/,"BambooHR"],[/paycomonline\.net$/,"Paycom"],
-      [/ultipro\.com$|ukg\.com$/,"UKG"],[/applytojob\.com$|jazz\.co$/,"JazzHR"],[/workable\.com$/,"Workable"],[/indeed\.com$/,"Indeed"],
+      [/ultipro\.com$|ukg\.com$/,"UKG"],[/applytojob\.com$|jazz\.co$/,"JazzHR"],[/careerplug\.com$/,"CareerPlug"],[/apploi\.com$/,"Apploi"],[/careconnecthiring\.com$/,"CareConnect"],[/workable\.com$/,"Workable"],[/indeed\.com$/,"Indeed"],
       [/adp\.com$/,"ADP"],[/applicantpro\.com$/,"ApplicantPro"],[/clearcareonline\.com$|wellsky\.com$/,"WellSky"],[/hirebridge\.com$/,"Hirebridge"],[/hiringthing\.com$/,"HiringThing"]];
     for(const [pattern,name] of known)if(pattern.test(host))return name;
     return "Employer's own site";
@@ -72,6 +77,9 @@ export function allowedApplyNavigation(provider:ApplyProvider,rawUrl:string,appl
     if(provider==="lever")return host==="jobs.lever.co";
     // Stay on the employer's own iCIMS portal.
     if(provider==="icims")return host.endsWith(".icims.com")&&(!initialHost||host===initialHost);
+    // CareerPlug and JazzHR give each employer its own subdomain; stay on it.
+    if(provider==="careerplug")return host.endsWith(".careerplug.com")&&(!initialHost||host===initialHost);
+    if(provider==="jazzhr")return host.endsWith(".applytojob.com")&&(!initialHost||host===initialHost);
   }catch{}
   return false;
 }
@@ -86,6 +94,11 @@ export function applyStartUrl(provider:ApplyProvider,rawUrl:string){
   }
   // iCIMS portals render the job inside an iframe; in_iframe=1 loads the content directly.
   if(provider==="icims")url.searchParams.set("in_iframe","1");
+  if(provider==="careerplug"){
+    // careerplug.com/jobs/<id> -> the posting's application form at /jobs/<id>/apps/new.
+    const m=url.pathname.match(/^\/jobs\/(\d+)/);
+    if(m)url.pathname="/jobs/"+m[1]+"/apps/new";
+  }
   if(provider==="ashby"){
     const parts=url.pathname.split("/").filter(Boolean);
     if(parts.length>=2&&parts[parts.length-1]?.toLowerCase()!=="application")url.pathname=url.pathname.replace(/\/$/,"")+"/application";
