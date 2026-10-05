@@ -1232,7 +1232,7 @@ export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pa
 /** Unpublishes stored rows that the not-a-job rule now rejects. */
 export async function unpublishNonJobsBatch(env:FeatureEnv,limit=500){
   if(!env.DB)return {checked:0,unpublished:0};
-  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND (
+  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND COALESCE(publication_reason,'')!='employer_restored' AND (
       source_provider='generic_html' OR lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
       OR lower(title) LIKE '%scholarship%' OR lower(title) LIKE '%tuition%' OR lower(source_url) LIKE '%training%' OR lower(source_url) LIKE '%class%' OR lower(source_url) LIKE '%course%'
     ) LIMIT ?`).bind(limit).all<Row>();
