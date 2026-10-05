@@ -4,6 +4,7 @@ import worker from '../src/worker';
 import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
+import { pullClarityInsights } from '../src/clarity';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -228,6 +229,32 @@ describe('site-owner tags', ()=>{
       expect(html).not.toContain('clarity.ms');
       expect(html).toContain('google-site-verification');
     }
+  });
+});
+
+describe('clarity data export', ()=>{
+  it('saves one row per breakdown, skips a second pull the same day, and stops on quota errors', async()=>{
+    await DB.prepare('DELETE FROM clarity_insights').run();
+    const urls:string[]=[];
+    const ok=async(url:any,init:any)=>{urls.push(String(url));expect(init.headers.authorization).toBe('Bearer tok');
+      return new Response(JSON.stringify([{metricName:'Traffic',information:[{totalSessionCount:'12'}]}]),{status:200});};
+    expect(await pullClarityInsights(env(),{fetcher:ok as any})).toEqual({ok:false,error:'CLARITY_API_TOKEN not set'});
+    const first=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(first.results)).toEqual(['ok','ok','ok','ok','ok']);
+    expect(urls[0]).toBe('https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=1');
+    expect(urls[1]).toContain('&dimension1=URL');
+    const again=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(again.results).every(v=>v==='already pulled')).toBe(true);
+    expect(urls.length).toBe(5);
+    let calls=0;
+    const limited=async()=>{calls++;return new Response('Too many',{status:429});};
+    const forced=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{force:true,fetcher:limited as any}) as any;
+    expect(calls).toBe(1);
+    expect(forced.results.total).toBe('http_429');
+    // A failed re-pull keeps the data already saved.
+    expect(await DB.prepare("SELECT payload IS NOT NULL AS kept FROM clarity_insights WHERE dimension=''").first()).toEqual({kept:1});
+    const view=await (await call('/api/admin/clarity',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(view.rows.find((r:any)=>r.dimension==='URL').data[0].metricName).toBe('Traffic');
   });
 });
 

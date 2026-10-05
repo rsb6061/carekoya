@@ -14,6 +14,7 @@ import { approvalFor, approveEmployer, pendingApprovalResponse } from './employe
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
+import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
@@ -53,6 +54,7 @@ interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
   CLARITY_PROJECT_ID?: string;
+  CLARITY_API_TOKEN?: string;
   GOOGLE_SITE_VERIFICATION?: string;
   BING_SITE_VERIFICATION?: string;
   BROWSER?: unknown;
@@ -1493,6 +1495,8 @@ export default {
       if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
       if(request.method==="GET"&&url.pathname==="/api/admin/session") return json({ok:true,admin});
       if(request.method==="GET"&&url.pathname==="/api/admin/health") return handleHealth(env);
+      if(request.method==="GET"&&url.pathname==="/api/admin/clarity") return json({ok:true,...await clarityInsights(env,Number(url.searchParams.get("days"))||30)});
+      if(request.method==="POST"&&url.pathname==="/api/admin/clarity/pull") return json(await pullClarityInsights(env,{force:true}));
       if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
         const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
@@ -1660,6 +1664,8 @@ export default {
         return;
       }
       if(event.cron==="41 15 * * *"){
+        // The last 24 hours of Clarity insights into D1. No-op until CLARITY_API_TOKEN is set.
+        await pullClarityInsights(env).catch(()=>null);
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
         // School outreach stays manual-only.
         await runScheduledOutreach(env);
