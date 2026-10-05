@@ -215,3 +215,11 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .profile-photo-square img{width:100%;height:100%;object-fit:cover;display:block}
 .profile-photo-section .profile-photo-picker{display:inline-flex;margin-top:8px;font-size:14px;font-weight:600}
 @media(max-width:760px){.profile-photo-section{flex-direction:column;align-items:flex-start}}
+.widget-card{display:grid;gap:12px;margin-bottom:24px}
+.widget-card-head .button{flex:none;white-space:nowrap}
+.widget-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.widget-card-head h3{margin:0 0 4px}.widget-card-head p{margin:0;color:var(--muted)}
+.widget-snippet{margin:0;background:#1b153c;color:#f4f1ff;border-radius:14px;padding:14px 16px;font-size:13px;white-space:pre-wrap;word-break:break-all}
+.widget-preview-label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.widget-preview{border:1px dashed var(--lavender);border-radius:16px;padding:18px;background:#fff}
+@media(max-width:760px){.widget-card-head{flex-direction:column}}
