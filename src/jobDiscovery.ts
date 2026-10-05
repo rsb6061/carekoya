@@ -1260,6 +1260,7 @@ export async function repairJobPayBatch(env:FeatureEnv,limit=500){
   return counts;
 }
 
+const SCAN_CONCURRENCY=4;
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at
@@ -1291,20 +1292,23 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
       ao.caregiver_relevance_score DESC
     LIMIT ?`).bind(limit).all<Row>();
   let seen=0,published=0,rejected=0;
-  for(const org of rows.results||[]){
+  async function scanOne(org:Row){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
-    try{result=await discoverJobsForOrg(env,org)}
+    try{result=await discoverJobsForOrg(env!,org)}
     catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
     seen+=result.seen;
     published+=result.published;
     rejected+=result.rejected;
     const sql='INSERT INTO agency_job_scan_state (organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,job_links_seen,jobs_rejected,last_scanned_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(organization_id) DO UPDATE SET source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,last_status=excluded.last_status,last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,job_links_seen=excluded.job_links_seen,jobs_rejected=excluded.jobs_rejected,last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
-    await env.DB.prepare(sql).bind(
+    await env!.DB!.prepare(sql).bind(
       org.id,result.provider,clean(org.primary_careers_url,1000),result.status,
       result.status==='fetch_failed'||result.provider==='error'?result.status:null,
       result.seen,result.published,result.jobLinksSeen,result.rejected
     ).run();
   }
+  // Sites are slow to answer, so a few are scanned at once rather than one after another.
+  const orgs=rows.results||[];
+  for(let i=0;i<orgs.length;i+=SCAN_CONCURRENCY)await Promise.all(orgs.slice(i,i+SCAN_CONCURRENCY).map(scanOne));
   const statusRows=await env.DB.prepare('SELECT last_status,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published,SUM(jobs_rejected) AS jobs_rejected,SUM(job_links_seen) AS job_links_seen FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY last_status ORDER BY sources DESC').all<Row>();
   const providerRows=await env.DB.prepare('SELECT source_provider,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY source_provider ORDER BY sources DESC').all<Row>();
   return {processed:(rows.results||[]).length,seen,published,rejected,statusBreakdown:statusRows.results||[],providerBreakdown:providerRows.results||[]};
