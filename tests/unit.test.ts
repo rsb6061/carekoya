@@ -8,7 +8,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { locationStringParts, mentionsOtherStates, mentionsState, normalizeCity, publicationDecision } from '../src/jobDiscovery';
+import { locationStringParts, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -259,6 +259,13 @@ describe('job location by agency state', ()=>{
     expect(publicationDecision(job)).toEqual({publish:true,reason:'explicit_state_location'});
     expect(publicationDecision({...job,state:'',zip:'23219'}).publish).toBe(true);
     expect(publicationDecision({...job,state:'',zip:''})).toEqual({publish:false,reason:'missing_state_evidence'});
+  });
+  it('keeps training pages and councils off the jobs list but not jobs that mention training', ()=>{
+    expect(notAJobPosting('Our CNA Leadership Council','https://www.genesiscareers.jobs/nurse-aide-training')).toBe(true);
+    expect(notAJobPosting('Certified Nursing Assistant','https://www.genesiscareers.jobs/nurse-aide-training')).toBe(true);
+    expect(notAJobPosting('CNA Training Program','https://a.test/jobs/123')).toBe(true);
+    expect(notAJobPosting('CNA - Paid Training Provided','https://a.test/jobs/cna-paid-training-4821')).toBe(false);
+    expect(notAJobPosting('Home Health Aide','https://a.test/careers/home-health-aide')).toBe(false);
   });
 });
 

@@ -734,11 +734,19 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
     payMin:null,payMax:null,descriptionText:text.slice(0,8000),classifierReason:cls.reason+(state===st.code?' + '+st.name+' location':' + '+st.name+' agency fallback'),
     confidence:Math.max(0,cls.confidence+locationPenalty),datePosted:'',validThrough:''} as DiscoveredJob;
 }
+/** Training classes, programs and info pages that mention CNA/HHA but are not openings (e.g. a nurse-aide-training page). */
+export function notAJobPosting(title:string,sourceUrl:string){
+  if(/\b(training (program|class(es)?|course)s?|class schedule|course schedule|council|scholarships?|tuition)\b/i.test(title))return true;
+  let last='';
+  try{last=new URL(sourceUrl).pathname.split('/').filter(Boolean).pop()||''}catch{}
+  return !/\d/.test(last)&&/(^|[-_])(training|classes|courses?)$/i.test(last.replace(/\.[a-z]+$/i,''));
+}
 export function publicationDecision(job:DiscoveredJob){
   const explicit=!!usState(normalizeState(job.state))||!!stateForZipPrefix(job.zip);
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
   if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
   if(!notExpired)return {publish:false,reason:'expired'};
+  if(notAJobPosting(job.title,job.sourceUrl))return {publish:false,reason:'not_a_job_posting'};
   if(job.confidence<88)return {publish:false,reason:'low_confidence'};
   if(!TARGET_ROLES.has(job.role))return {publish:false,reason:'non_target_role'};
   if(!explicit)return {publish:false,reason:'missing_state_evidence'};
@@ -1210,6 +1218,21 @@ const outOfBand=(col:string)=>'('+col+' IS NOT NULL AND (CASE pay_period '+PAY_B
 export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pay_max>pay_min*4 OR '+outOfBand('pay_min')+' OR '+outOfBand('pay_max')+')';
 
 /** Re-applies the pay rules to jobs stored before them, a few hundred rows per run until none are left. */
+/** Unpublishes stored rows that the not-a-job rule now rejects. */
+export async function unpublishNonJobsBatch(env:FeatureEnv,limit=500){
+  if(!env.DB)return {checked:0,unpublished:0};
+  const rows=await env.DB.prepare(`SELECT id,title,source_url FROM caregiver_jobs WHERE is_published=1 AND (
+      lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
+      OR lower(title) LIKE '%scholarship%' OR lower(title) LIKE '%tuition%' OR lower(source_url) LIKE '%training%' OR lower(source_url) LIKE '%class%' OR lower(source_url) LIKE '%course%'
+    ) LIMIT ?`).bind(limit).all<Row>();
+  let unpublished=0;
+  for(const row of rows.results||[]){
+    if(!notAJobPosting(clean(row.title,300),clean(row.source_url,1000)))continue;
+    await env.DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='not_a_job_posting',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
+    unpublished++;
+  }
+  return {checked:(rows.results||[]).length,unpublished};
+}
 export async function repairJobPayBatch(env:FeatureEnv,limit=500){
   const counts={checked:0,relabeled:0,trimmed:0,cleared:0};
   if(!env.DB)return counts;
@@ -1314,7 +1337,9 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
 }
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare('SELECT id,title,role,roles_json,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text,source_url,source_listing_url,date_posted,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status="current" LIMIT 1').bind(id).first<Row>();
+  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.description_text,j.source_url,j.source_listing_url,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
+    FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
+    WHERE j.id=? AND j.is_published=1 AND j.status="current" LIMIT 1`).bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
   let roles:string[]=[];
   try{roles=JSON.parse(clean(row.roles_json,1000)||'[]')}catch{roles=[clean(row.role,80)].filter(Boolean)}
@@ -1324,6 +1349,7 @@ export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
     payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:decodeHtml(clean(row.description_text,8000)),
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
     firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
-    applyForMe:!!detectApplyProvider(clean(row.source_url,1000))
+    applyForMe:!!detectApplyProvider(clean(row.source_url,1000)),
+    employerOnCareJoys:!!clean(row.claimed_employer_id,120)
   }});
 }

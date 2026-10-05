@@ -5,7 +5,7 @@ import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
-import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
+import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
@@ -1673,6 +1673,7 @@ export default {
         await runDataForSeoJobs(env).catch(()=>null);
         await normalizeExistingJobsBatch(env,100);
         await repairJobPayBatch(env,500);
+        await unpublishNonJobsBatch(env,500);
         await recoverRejectedJobsBatch(env,180);
         await retryFailedAgencyJobSourcesBatch(env,24);
         await discoverAgencyJobsBatch(env,24);

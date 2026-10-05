@@ -10,7 +10,7 @@ import './styles.css';
 type Job={
   id:string;title:string;role:string;roles?:string[];employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;description?:string;sourceUrl:string;
-  datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;applyForMe?:boolean;
+  datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;applyForMe?:boolean;employerOnCareJoys?:boolean;
 };
 
 type JobContext={
@@ -21,7 +21,7 @@ type JobContext={
 
 type MyProfile={
   caregiver:{firstName?:string;lastName?:string;email?:string;city?:string;state?:string;zip?:string;role?:string;certifications?:string;shifts?:string;desiredWage?:string;freshness?:string}|null;
-  applications?:{jobId:string;appliedOnCareJoys:boolean;submittedOnEmployerSite?:boolean}[];
+  applications?:{jobId:string;appliedOnCareJoys:boolean;submittedOnEmployerSite?:boolean;employerOnCareJoys?:boolean}[];
   resume?:{fileName:string}|null;
 };
 type ApplyResult={status:'applied'|'already_applied';employerOnCareJoys:boolean;employerName:string;applicationUrl:string};
@@ -54,6 +54,9 @@ export function CaregiverJobPage(){
   },[auth.isAuthenticated]);
   const profile=me?.caregiver||null;
   const alreadyApplied=!!applied||!!me?.applications?.some(a=>a.jobId===id&&a.appliedOnCareJoys);
+  const myApplication=me?.applications?.find(a=>a.jobId===id&&a.appliedOnCareJoys);
+  // Only an employer on CareJoys (or an Apply for me submission) actually receives the application.
+  const applicationSent=!!applied?.employerOnCareJoys||!!myApplication?.employerOnCareJoys||!!myApplication?.submittedOnEmployerSite;
 
   async function applyWithProfile(){
     if(!job)return;
@@ -113,7 +116,7 @@ export function CaregiverJobPage(){
             {payText&&<span className="pill">{payText}</span>}
           </div>
           <div className="job-detail-actions">
-            <button className="btn job-apply-primary" onClick={()=>setApplyOpen(true)}>{alreadyApplied?'Applied ✓':'Apply'}</button>
+            <button className="btn job-apply-primary" onClick={()=>setApplyOpen(true)}>{applicationSent?'Applied ✓':alreadyApplied?'Saved ✓':'Apply'}</button>
             <button className="text-button job-apply-direct" onClick={applyOnEmployerSite} disabled={leaving}>{leaving?'Opening…':'Or apply on '+job.employerName+'’s site'}</button>
           </div>
           <div className="job-detail-source">CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</div>
@@ -136,7 +139,7 @@ export function CaregiverJobPage(){
     {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
-        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} getToken={auth.getIdToken} result={applied} alreadyApplied={alreadyApplied} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
+        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} getToken={auth.getIdToken} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
         :<CaregiverOnboarding
           compact
           targetJobId={job.id}
@@ -151,8 +154,8 @@ export function CaregiverJobPage(){
 }
 
 
-function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,applying,error,onApply,onEmployerSite}:{
-  job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;getToken:()=>Promise<string>;result:ApplyResult|null;alreadyApplied:boolean;applying:boolean;error:string;
+function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,applicationSent,applying,error,onApply,onEmployerSite}:{
+  job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;getToken:()=>Promise<string>;result:ApplyResult|null;alreadyApplied:boolean;applicationSent:boolean;applying:boolean;error:string;
   onApply:()=>void;onEmployerSite:()=>void;
 }){
   const [agentActive,setAgentActive]=useState(false);
@@ -163,14 +166,14 @@ function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,
   if(agentActive||agentSubmitted)return <div className="caregiver-onboarding compact apply-with-profile">{agent}</div>;
   const employer=job.employerName||'the employer';
   if(result||alreadyApplied){
-    const onCareJoys=!!result?.employerOnCareJoys;
+    const onCareJoys=applicationSent;
     return <div className="caregiver-onboarding compact"><div className="onboarding-success">
       <div className="success-mark">✓</div>
-      <div className="modal-kicker">Application saved</div>
-      <h2>You applied to {job.title}.</h2>
+      <div className="modal-kicker">{onCareJoys?'Application sent':'Saved, not sent yet'}</div>
+      <h2>{onCareJoys?<>You applied to {job.title}.</>:<>Finish applying on {employer}’s site.</>}</h2>
       {onCareJoys
         ?<p>We sent your CareJoys profile to <strong>{employer}</strong>. When they reply you’ll get an email, and you can follow it on your dashboard.</p>
-        :<p>It’s saved on your CareJoys dashboard. <strong>{employer}</strong> takes applications on their own site, so finish there to make sure they see you.</p>}
+        :<p><strong>{employer}</strong> takes applications on their own site, so they haven’t seen your application yet. We saved {job.title} on your CareJoys dashboard so you can come back to it.</p>}
       <div className="onboarding-final-action">
         {!onCareJoys&&<button className="btn" onClick={onEmployerSite}>Finish on {employer}’s site</button>}
         <a className={onCareJoys?'btn':'text-link'} href="/dashboard">See your applications</a>
@@ -189,11 +192,11 @@ function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,
   return <div className="caregiver-onboarding compact apply-with-profile">
     <div className="modal-kicker">Apply with your CareJoys profile</div>
     <h2>{job.title}</h2>
-    <p className="apply-with-profile-sub">{employer} will see this profile. You don’t need to upload your resume again.</p>
+    <p className="apply-with-profile-sub">{job.employerOnCareJoys?<>{employer} will see this profile. You don’t need to upload your resume again.</>:<>{employer} takes applications on their own site. We’ll save this job to your dashboard, then you finish on their site.</>}</p>
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     <a className="text-link" href="/dashboard">Update your profile first</a>
     {error&&<div className="notice">{error}</div>}
     {agent}
-    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Sending…':agent?'Just send my CareJoys profile instead':'Send my application'}</button>
+    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Saving…':job.employerOnCareJoys?(agent?'Just send my CareJoys profile instead':'Send my application'):(agent?'Just save it to my dashboard instead':'Save to my dashboard')}</button>
   </div>;
 }
