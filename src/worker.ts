@@ -1674,12 +1674,13 @@ export default {
       if(event.cron==="*/5 * * * *"){
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
-        await normalizeExistingJobsBatch(env,100);
-        await repairJobPayBatch(env,500);
-        await unpublishNonJobsBatch(env,2000);
-        await recoverRejectedJobsBatch(env,180);
-        await retryFailedAgencyJobSourcesBatch(env,24);
-        await discoverAgencyJobsBatch(env,24);
+        await normalizeExistingJobsBatch(env,100).catch(()=>null);
+        await repairJobPayBatch(env,500).catch(()=>null);
+        await unpublishNonJobsBatch(env,2000).catch(()=>null);
+        // New sites before retries, and one step failing never skips the rest.
+        await discoverAgencyJobsBatch(env,24).catch(()=>null);
+        await recoverRejectedJobsBatch(env,180).catch(()=>null);
+        await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
         return;
       }
       if(event.cron==="2,32,47 * * * *"){
