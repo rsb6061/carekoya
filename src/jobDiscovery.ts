@@ -736,7 +736,17 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
     confidence:Math.max(0,cls.confidence+locationPenalty),datePosted:'',validThrough:''} as DiscoveredJob;
 }
 /** Training classes, programs and info pages that mention CNA/HHA but are not openings (e.g. a nurse-aide-training page). */
-export function notAJobPosting(title:string,sourceUrl:string){
+const ROLE_NOUN=/\b(aides?|assistants?|caregivers?|carers?|companions?(?!\s+(care|services?))|cnas?|gnas?|hhas?|chhas?|pcas?|dsps?|cmts?|med(ication)? techs?|technicians?|sitters?|attendants?|professionals?|workers?|nurses?|lpns?|rns?|associates?|specialists?|homemakers?)\b/i;
+const MARKETING_TITLE=/\b(services?|awards?|resources|near you|for (adults|seniors|families|you|your)|finding|find an?|become|becoming|careers?|opportunit(y|ies)|jobs|search|join|make a difference|enjoys|recognize|more than|owned|meet|spotlight|stor(y|ies)|celebrat\w*|application|apply|appy|start (your|an?)|why|how|what|tips|guide|blog|testimonials?|faq|events?|about|our|perfect|training|course|school|certification|classes|ceu|education|description|form|portal|registration|documents|validation|support groups?|caregiver support|program|assistance|coaching|burnout|appreciation|benefits|requirements|responsibilities|eligibility|information|notes|preferences|discounts|deals|week|referrals|click|contact|category|hire|family member|paid caregiver|competency|exchange)\b/i;
+/** A page from an agency's own website reads as a service or marketing page rather than an opening
+ * ("Companion Care Services", "Caregiver of the Year Award", "Caregiver Careers at ..."). */
+export function looksLikeMarketingPage(title:string){
+  const t=normalizeTitle(title);
+  if(!t||t.length>90||/[?<"“]|^\d{2}\s|:\s*$|\.\s+[A-Z]/.test(t))return true;
+  return !ROLE_NOUN.test(t)||MARKETING_TITLE.test(t);
+}
+export function notAJobPosting(title:string,sourceUrl:string,sourceProvider=''){
+  if(sourceProvider==='generic_html'&&looksLikeMarketingPage(title))return true;
   if(/\b(training (program|class(es)?|course)s?|class schedule|course schedule|council|scholarships?|tuition)\b/i.test(title))return true;
   let last='';
   try{last=new URL(sourceUrl).pathname.split('/').filter(Boolean).pop()||''}catch{}
@@ -747,7 +757,7 @@ export function publicationDecision(job:DiscoveredJob){
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
   if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
   if(!notExpired)return {publish:false,reason:'expired'};
-  if(notAJobPosting(job.title,job.sourceUrl))return {publish:false,reason:'not_a_job_posting'};
+  if(notAJobPosting(job.title,job.sourceUrl,job.sourceProvider))return {publish:false,reason:'not_a_job_posting'};
   if(job.confidence<88)return {publish:false,reason:'low_confidence'};
   if(!TARGET_ROLES.has(job.role))return {publish:false,reason:'non_target_role'};
   if(!explicit)return {publish:false,reason:'missing_state_evidence'};
@@ -1222,13 +1232,13 @@ export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pa
 /** Unpublishes stored rows that the not-a-job rule now rejects. */
 export async function unpublishNonJobsBatch(env:FeatureEnv,limit=500){
   if(!env.DB)return {checked:0,unpublished:0};
-  const rows=await env.DB.prepare(`SELECT id,title,source_url FROM caregiver_jobs WHERE is_published=1 AND (
-      lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
+  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND (
+      source_provider='generic_html' OR lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
       OR lower(title) LIKE '%scholarship%' OR lower(title) LIKE '%tuition%' OR lower(source_url) LIKE '%training%' OR lower(source_url) LIKE '%class%' OR lower(source_url) LIKE '%course%'
     ) LIMIT ?`).bind(limit).all<Row>();
   let unpublished=0;
   for(const row of rows.results||[]){
-    if(!notAJobPosting(clean(row.title,300),clean(row.source_url,1000)))continue;
+    if(!notAJobPosting(clean(row.title,300),clean(row.source_url,1000),clean(row.source_provider,40)))continue;
     await env.DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='not_a_job_posting',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
     unpublished++;
   }

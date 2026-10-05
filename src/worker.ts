@@ -1673,7 +1673,7 @@ export default {
         await runDataForSeoJobs(env).catch(()=>null);
         await normalizeExistingJobsBatch(env,100);
         await repairJobPayBatch(env,500);
-        await unpublishNonJobsBatch(env,500);
+        await unpublishNonJobsBatch(env,2000);
         await recoverRejectedJobsBatch(env,180);
         await retryFailedAgencyJobSourcesBatch(env,24);
         await discoverAgencyJobsBatch(env,24);

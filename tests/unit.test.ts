@@ -8,7 +8,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { locationStringParts, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision } from '../src/jobDiscovery';
+import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -266,6 +266,15 @@ describe('job location by agency state', ()=>{
     expect(notAJobPosting('CNA Training Program','https://a.test/jobs/123')).toBe(true);
     expect(notAJobPosting('CNA - Paid Training Provided','https://a.test/jobs/cna-paid-training-4821')).toBe(false);
     expect(notAJobPosting('Home Health Aide','https://a.test/careers/home-health-aide')).toBe(false);
+  });
+  it('keeps service and marketing pages from agency websites off the jobs list', ()=>{
+    for(const t of ['Companion Care','Companion Care Services for Adults and Seniors','Caregiver of the Year Award','Finding the Perfect Caregiver',
+      'Caregiver Careers at Village Caregiving','Become a Caregiver','Caregiver Resources','Home Health Aide Services','What Does a CNA Do?'])
+      expect(looksLikeMarketingPage(t),t).toBe(true);
+    for(const t of ['Home Health Aide (HHA)','Certified Nursing Assistant','Direct Support Professional (DSP)','Live-In Caregiver','CNA - Private Duty - Baltimore (Hourly)','Caregiver Needed!'])
+      expect(looksLikeMarketingPage(t),t).toBe(false);
+    expect(notAJobPosting('Companion Care','https://a.test/companion-care','generic_html')).toBe(true);
+    expect(notAJobPosting('Companion Care','https://boards.greenhouse.io/a/jobs/1','greenhouse')).toBe(false);
   });
 });
 
