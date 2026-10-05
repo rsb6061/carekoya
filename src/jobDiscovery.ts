@@ -1181,7 +1181,7 @@ export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
     JOIN agency_organizations ao ON ao.id=scan.organization_id
     WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
       AND scan.last_status IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles')
-      AND datetime(scan.last_scanned_at)<datetime("now","-30 minutes")
+      AND datetime(scan.last_scanned_at)<datetime("now","-3 days")
     ORDER BY CASE scan.last_status WHEN 'job_links_no_relevant_roles' THEN 0 WHEN 'no_job_board_found' THEN 1 ELSE 2 END,
       COALESCE(scan.jobs_seen,0) DESC,scan.last_scanned_at ASC
     LIMIT ?`).bind(limit).all<Row>();
@@ -1272,11 +1272,13 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
       AND (
         scan.last_scanned_at IS NULL
         OR (COALESCE(scan.last_status,'') IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
-          AND datetime(scan.last_scanned_at)<datetime("now","-4 hours"))
+          AND datetime(scan.last_scanned_at)<datetime("now","-7 days"))
         OR (COALESCE(scan.last_status,'') NOT IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
           AND datetime(scan.last_scanned_at)<datetime("now","-24 hours"))
       )
     ORDER BY
+      -- Sites never checked come first; a site that had nothing waits a week before another look.
+      CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,
       CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%"
         OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%"
         OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%"
@@ -1285,7 +1287,6 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
         OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,
       CASE WHEN ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="" THEN 0 ELSE 1 END,
       CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,
-      CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,
       COALESCE(scan.last_scanned_at,"") ASC,
       ao.caregiver_relevance_score DESC
     LIMIT ?`).bind(limit).all<Row>();
