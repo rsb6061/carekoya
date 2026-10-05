@@ -116,6 +116,7 @@ export function CaregiverDashboard(){
   const invites=data.invites||[];
   const open=invites.filter(i=>!i.response&&i.stage==='contacted');
   const gaps=profileGaps(c,!!data.resume);
+  const pctComplete=Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS);
   const editing=window.location.pathname==='/dashboard/profile';
   const previewing=window.location.pathname==='/dashboard/profile/preview';
 
@@ -136,7 +137,13 @@ export function CaregiverDashboard(){
     <main className="app-wrap app-content">
       <div className="page-head page-head-row">
         <div>
-          <h1>Hi {c.firstName||'there'}.</h1>
+          <div className="greeting-row">
+            <h1>Hi {c.firstName||'there'}.</h1>
+            <a className="profile-pill" href="/dashboard/profile">
+              <span className="profile-pill-ring" style={{['--pct' as string]:pctComplete+'%'}} aria-hidden="true"/>
+              View / edit profile<span className="profile-pill-pct">{pctComplete}% complete</span>
+            </a>
+          </div>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
       </div>
@@ -200,9 +207,9 @@ export function CaregiverDashboard(){
         </div></section>
         :<section className="section-block"><div className="settings-card profile-checklist">
           <div>
-            <div className="modal-kicker">Your profile is {Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)}% complete</div>
+            <div className="modal-kicker">Your profile is {pctComplete}% complete</div>
             <h3>Finish your profile to get better matches.</h3>
-            <div className="profile-progress"><span style={{width:Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS)+'%'}}/></div>
+            <div className="profile-progress"><span style={{width:pctComplete+'%'}}/></div>
             <ul>{gaps.slice(0,4).map(g=><li key={g.key}>{g.label}</li>)}{gaps.length>4&&<li>and {gaps.length-4} more</li>}</ul>
           </div>
           <a className="button" href="/dashboard/profile">Finish my profile</a>
