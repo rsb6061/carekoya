@@ -52,6 +52,9 @@ interface Env {
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
+  CLARITY_PROJECT_ID?: string;
+  GOOGLE_SITE_VERIFICATION?: string;
+  BING_SITE_VERIFICATION?: string;
   BROWSER?: unknown;
 }
 function sameOriginWrite(request:Request){
@@ -294,6 +297,19 @@ CareJoys distinguishes regulatory training-program data from employer hiring sig
 `,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
 }
 
+// Site-owner tags, each added only when its setting is present. Clarity skips signed-in pages
+// (their robots meta is "noindex,nofollow") so dashboards, inboxes and admin are never recorded.
+function siteOwnerTags(env:Env,meta:SeoMeta){
+  const tags:string[]=[];
+  const token=(v?:string)=>(v||"").trim().replace(/[^A-Za-z0-9_-]/g,"");
+  const google=token(env.GOOGLE_SITE_VERIFICATION),bing=token(env.BING_SITE_VERIFICATION),clarity=token(env.CLARITY_PROJECT_ID);
+  if(google)tags.push('<meta name="google-site-verification" content="'+google+'" />');
+  if(bing)tags.push('<meta name="msvalidate.01" content="'+bing+'" />');
+  if(clarity&&!/nofollow/i.test(meta.robots||""))
+    tags.push('<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","'+clarity+'");</script>');
+  return tags.join("");
+}
+
 type SeoMeta={title:string;description:string;canonical:string;robots?:string;snapshot?:string;jsonLd?:unknown;status?:number;ogImage?:string};
 
 async function seoAsset(request:Request,env:Env,meta:SeoMeta){
@@ -320,7 +336,8 @@ async function seoAsset(request:Request,env:Env,meta:SeoMeta){
     '<meta property="og:image:alt" content="CareJoys: caregivers ready to work" />',
     '<meta name="twitter:card" content="summary_large_image" />',
     '<meta name="twitter:image" content="'+htmlEscape(ogImage)+'" />',
-    meta.jsonLd?'<script type="application/ld+json">'+JSON.stringify(meta.jsonLd).replace(/</g,"\\u003c")+"</script>":""
+    meta.jsonLd?'<script type="application/ld+json">'+JSON.stringify(meta.jsonLd).replace(/</g,"\\u003c")+"</script>":"",
+    siteOwnerTags(env,meta)
   ].join("");
   body=body.replace("</head>",extra+"</head>");
   if(meta.snapshot)body=body.replace('<div id="root"></div>','<div id="root">'+meta.snapshot+"</div>");

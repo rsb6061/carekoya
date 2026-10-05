@@ -211,6 +211,26 @@ const HTML_SHELL='<!doctype html><html><head><title>CareJoys</title><meta name="
 const htmlAssets={ASSETS:{fetch:async()=>new Response(HTML_SHELL,{headers:{'content-type':'text/html; charset=utf-8'}})}};
 const post=(path:string,body:unknown,headers:Record<string,string>={},extra:Record<string,unknown>={})=>call(path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)},extra);
 
+describe('site-owner tags', ()=>{
+  const ids={CLARITY_PROJECT_ID:'abc123xyz',GOOGLE_SITE_VERIFICATION:'g-token_1',BING_SITE_VERIFICATION:'B1NG'};
+  it('adds Clarity and verification tags to public pages only when configured', async()=>{
+    const plain=await (await call('/privacy-policy',{},htmlAssets)).text();
+    expect(plain).not.toContain('clarity.ms');
+    expect(plain).not.toContain('google-site-verification');
+    const html=await (await call('/privacy-policy',{},{...htmlAssets,...ids})).text();
+    expect(html).toContain('<meta name="google-site-verification" content="g-token_1" />');
+    expect(html).toContain('<meta name="msvalidate.01" content="B1NG" />');
+    expect(html).toContain('"clarity","script","abc123xyz"');
+  });
+  it('never loads Clarity on signed-in pages', async()=>{
+    for(const path of ['/dashboard','/admin','/app']){
+      const html=await (await call(path,{},{...htmlAssets,...ids})).text();
+      expect(html).not.toContain('clarity.ms');
+      expect(html).toContain('google-site-verification');
+    }
+  });
+});
+
 describe('audit fixes: onboarding', ()=>{
   const profile={firstName:'Ada',lastName:'Lane',phone:'4105550100',zip:'21201',role:'CNA'};
   it('caregiver resume creates a new profile without sign-in, but will not overwrite an existing one', async()=>{
