@@ -63,7 +63,9 @@ export function EmployerWorkspace(){
   const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'|'jobs'>(()=>{const t=new URLSearchParams(window.location.search).get('tab');return t==='inbox'?'inbox':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
-  const [message,setMessage]=useState('');
+  const [message,setMessageText]=useState('');
+  const [messageTone,setMessageTone]=useState<'ok'|'info'|'error'>('ok');
+  function setMessage(text:string,tone:'ok'|'info'|'error'='ok'){setMessageText(text);setMessageTone(tone)}
   const [pendingApproval,setPendingApproval]=useState(false);
   const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
   const [filters,setFilters]=useState({role:'',zip:'',radius:'25',state:'',freshness:'all'});
@@ -100,7 +102,7 @@ export function EmployerWorkspace(){
       setBilling(await api<any>('/api/billing').catch(()=>null));
     }catch(e){
       if(e instanceof Error&&e.message==='Sign in required')setSession(null);
-      else setMessage(e instanceof Error?e.message:'Could not load workspace');
+      else setMessage(e instanceof Error?e.message:'Could not load workspace','error');
     }finally{
       setLoading(false);
     }
@@ -148,33 +150,34 @@ export function EmployerWorkspace(){
       await refreshWorkspace();
       await runMatch(result.id);
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not create opening');
+      setMessage(error instanceof Error?error.message:'Could not create opening','error');
     }
   }
 
   async function runMatch(openingId:string){
     if(!session)return;
-    setMessage('Matching caregivers…');
+    setMessage('Matching caregivers…','info');
     try{
       const result=await api<any>('/api/openings/'+openingId+'/match',{method:'POST'});
-      setMessage((result.matched||0)+' caregivers matched. Review the matches, then add interview times before contacting candidates.');
+      if(result.matched)setMessage(result.matched+' caregiver'+(result.matched===1?'':'s')+' matched. Review the matches, then add interview times before contacting candidates.');
+      else setMessage('No caregivers match this opening yet. CareJoys keeps looking and adds matches as caregivers near you join.','info');
       await refreshWorkspace();
       setTab('pipeline');
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not match caregivers');
+      setMessage(error instanceof Error?error.message:'Could not match caregivers','error');
     }
   }
 
   async function contact(openingId:string){
     if(!session)return;
-    setMessage('Contacting top matches…');
+    setMessage('Contacting top matches…','info');
     try{
       const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({limit:5})});
-      setMessage(result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.');
+      setMessage(result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.',result.sent?'ok':'info');
       await refreshWorkspace();
       setTab('pipeline');
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not contact matches');
+      setMessage(error instanceof Error?error.message:'Could not contact matches','error');
     }
   }
 
@@ -182,7 +185,7 @@ export function EmployerWorkspace(){
     try{
       const result=await api<{url:string}>('/api/billing/'+kind,{method:'POST'});
       window.location.href=result.url;
-    }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing')}
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing','error')}
   }
 
   async function moveStage(id:string,stage:string){
@@ -206,7 +209,7 @@ export function EmployerWorkspace(){
       await refreshWorkspace();
       setTab('pipeline');
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not save interview times');
+      setMessage(error instanceof Error?error.message:'Could not save interview times','error');
     }
   }
 
@@ -224,13 +227,13 @@ export function EmployerWorkspace(){
       transportationRequired:fd.get('transportationRequired')==='on',
       requirements:String(fd.get('requirements')||'')
     };
-    setMessage('Saving hiring preferences and refreshing matches…');
+    setMessage('Saving hiring preferences and refreshing matches…','info');
     try{
       await api('/api/agency/hiring-profile',{method:'POST',body:JSON.stringify(data)});
       setMessage('Hiring preferences saved. CareJoys will keep matching your agency to caregivers.');
       await refreshWorkspace();
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not save hiring preferences');
+      setMessage(error instanceof Error?error.message:'Could not save hiring preferences','error');
     }
   }
 
@@ -288,7 +291,7 @@ export function EmployerWorkspace(){
           ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
           :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free candidate contacts left. Matching and browsing are always free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
       </div>}
-      {message&&<div className="alert-status workspace-alert">✓ {message}</div>}
+      {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
       {agencyNetwork.agency&&<div hidden={tab!=='inbox'}><AgencyInbox onCount={setInboxWaiting}/></div>}
 

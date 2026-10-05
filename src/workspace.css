@@ -223,3 +223,5 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .widget-preview-label{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .widget-preview{border:1px dashed var(--lavender);border-radius:16px;padding:18px;background:#fff}
 @media(max-width:760px){.widget-card-head{flex-direction:column}}
+.alert-status.alert-info{border-color:var(--lavender);background:#f6f3ff;color:var(--ink)}
+.alert-status.alert-error{border-color:#f1c8c8;background:#fdf1f1;color:#9b2c2c}
