@@ -12,7 +12,8 @@ async function canvasBlob(canvas:HTMLCanvasElement,type:string,quality:number){
   });
 }
 
-async function preparePhoto(file:File){
+/** Center-crops to a square and shrinks it under the 180 KB upload limit. */
+export async function preparePhoto(file:File){
   if(!file.type.startsWith('image/'))throw new Error('Choose a JPG, PNG, or WebP photo.');
   if(file.size>10*1024*1024)throw new Error('Choose a photo under 10 MB.');
   const bitmap=await createImageBitmap(file);
