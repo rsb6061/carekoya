@@ -14,6 +14,7 @@ import { approvalFor, approveEmployer, pendingApprovalResponse } from './employe
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runScheduledOutreach } from './outreach';
 import { runDataForSeoJobs } from './dataforseo';
+import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
@@ -52,6 +53,10 @@ interface Env {
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
+  CLARITY_PROJECT_ID?: string;
+  CLARITY_API_TOKEN?: string;
+  GOOGLE_SITE_VERIFICATION?: string;
+  BING_SITE_VERIFICATION?: string;
   BROWSER?: unknown;
 }
 function sameOriginWrite(request:Request){
@@ -294,6 +299,19 @@ CareJoys distinguishes regulatory training-program data from employer hiring sig
 `,{headers:{"content-type":"text/plain; charset=utf-8","cache-control":"public,max-age=3600"}});
 }
 
+// Site-owner tags, each added only when its setting is present. Clarity skips signed-in pages
+// (their robots meta is "noindex,nofollow") so dashboards, inboxes and admin are never recorded.
+function siteOwnerTags(env:Env,meta:SeoMeta){
+  const tags:string[]=[];
+  const token=(v?:string)=>(v||"").trim().replace(/[^A-Za-z0-9_-]/g,"");
+  const google=token(env.GOOGLE_SITE_VERIFICATION),bing=token(env.BING_SITE_VERIFICATION),clarity=token(env.CLARITY_PROJECT_ID);
+  if(google)tags.push('<meta name="google-site-verification" content="'+google+'" />');
+  if(bing)tags.push('<meta name="msvalidate.01" content="'+bing+'" />');
+  if(clarity&&!/nofollow/i.test(meta.robots||""))
+    tags.push('<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","'+clarity+'");</script>');
+  return tags.join("");
+}
+
 type SeoMeta={title:string;description:string;canonical:string;robots?:string;snapshot?:string;jsonLd?:unknown;status?:number;ogImage?:string};
 
 async function seoAsset(request:Request,env:Env,meta:SeoMeta){
@@ -320,7 +338,8 @@ async function seoAsset(request:Request,env:Env,meta:SeoMeta){
     '<meta property="og:image:alt" content="CareJoys: caregivers ready to work" />',
     '<meta name="twitter:card" content="summary_large_image" />',
     '<meta name="twitter:image" content="'+htmlEscape(ogImage)+'" />',
-    meta.jsonLd?'<script type="application/ld+json">'+JSON.stringify(meta.jsonLd).replace(/</g,"\\u003c")+"</script>":""
+    meta.jsonLd?'<script type="application/ld+json">'+JSON.stringify(meta.jsonLd).replace(/</g,"\\u003c")+"</script>":"",
+    siteOwnerTags(env,meta)
   ].join("");
   body=body.replace("</head>",extra+"</head>");
   if(meta.snapshot)body=body.replace('<div id="root"></div>','<div id="root">'+meta.snapshot+"</div>");
@@ -1476,6 +1495,8 @@ export default {
       if(!env.DB) return json({ok:false,error:"Database not configured"},{status:503});
       if(request.method==="GET"&&url.pathname==="/api/admin/session") return json({ok:true,admin});
       if(request.method==="GET"&&url.pathname==="/api/admin/health") return handleHealth(env);
+      if(request.method==="GET"&&url.pathname==="/api/admin/clarity") return json({ok:true,...await clarityInsights(env,Number(url.searchParams.get("days"))||30)});
+      if(request.method==="POST"&&url.pathname==="/api/admin/clarity/pull") return json(await pullClarityInsights(env,{force:true}));
       if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
         const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
@@ -1643,6 +1664,8 @@ export default {
         return;
       }
       if(event.cron==="41 15 * * *"){
+        // The last 24 hours of Clarity insights into D1. No-op until CLARITY_API_TOKEN is set.
+        await pullClarityInsights(env).catch(()=>null);
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
         // School outreach stays manual-only.
         await runScheduledOutreach(env);

@@ -4,6 +4,7 @@ import worker from '../src/worker';
 import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
+import { pullClarityInsights } from '../src/clarity';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -210,6 +211,52 @@ describe('analytics', ()=>{
 const HTML_SHELL='<!doctype html><html><head><title>CareJoys</title><meta name="description" content="x" /><link rel="canonical" href="https://carejoys.com/" /></head><body><div id="root"></div></body></html>';
 const htmlAssets={ASSETS:{fetch:async()=>new Response(HTML_SHELL,{headers:{'content-type':'text/html; charset=utf-8'}})}};
 const post=(path:string,body:unknown,headers:Record<string,string>={},extra:Record<string,unknown>={})=>call(path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)},extra);
+
+describe('site-owner tags', ()=>{
+  const ids={CLARITY_PROJECT_ID:'abc123xyz',GOOGLE_SITE_VERIFICATION:'g-token_1',BING_SITE_VERIFICATION:'B1NG'};
+  it('adds Clarity and verification tags to public pages only when configured', async()=>{
+    const plain=await (await call('/privacy-policy',{},htmlAssets)).text();
+    expect(plain).not.toContain('clarity.ms');
+    expect(plain).not.toContain('google-site-verification');
+    const html=await (await call('/privacy-policy',{},{...htmlAssets,...ids})).text();
+    expect(html).toContain('<meta name="google-site-verification" content="g-token_1" />');
+    expect(html).toContain('<meta name="msvalidate.01" content="B1NG" />');
+    expect(html).toContain('"clarity","script","abc123xyz"');
+  });
+  it('never loads Clarity on signed-in pages', async()=>{
+    for(const path of ['/dashboard','/admin','/app']){
+      const html=await (await call(path,{},{...htmlAssets,...ids})).text();
+      expect(html).not.toContain('clarity.ms');
+      expect(html).toContain('google-site-verification');
+    }
+  });
+});
+
+describe('clarity data export', ()=>{
+  it('saves one row per breakdown, skips a second pull the same day, and stops on quota errors', async()=>{
+    await DB.prepare('DELETE FROM clarity_insights').run();
+    const urls:string[]=[];
+    const ok=async(url:any,init:any)=>{urls.push(String(url));expect(init.headers.authorization).toBe('Bearer tok');
+      return new Response(JSON.stringify([{metricName:'Traffic',information:[{totalSessionCount:'12'}]}]),{status:200});};
+    expect(await pullClarityInsights(env(),{fetcher:ok as any})).toEqual({ok:false,error:'CLARITY_API_TOKEN not set'});
+    const first=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(first.results)).toEqual(['ok','ok','ok','ok','ok']);
+    expect(urls[0]).toBe('https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=1');
+    expect(urls[1]).toContain('&dimension1=URL');
+    const again=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(again.results).every(v=>v==='already pulled')).toBe(true);
+    expect(urls.length).toBe(5);
+    let calls=0;
+    const limited=async()=>{calls++;return new Response('Too many',{status:429});};
+    const forced=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{force:true,fetcher:limited as any}) as any;
+    expect(calls).toBe(1);
+    expect(forced.results.total).toBe('http_429');
+    // A failed re-pull keeps the data already saved.
+    expect(await DB.prepare("SELECT payload IS NOT NULL AS kept FROM clarity_insights WHERE dimension=''").first()).toEqual({kept:1});
+    const view=await (await call('/api/admin/clarity',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(view.rows.find((r:any)=>r.dimension==='URL').data[0].metricName).toBe('Traffic');
+  });
+});
 
 describe('audit fixes: onboarding', ()=>{
   const profile={firstName:'Ada',lastName:'Lane',phone:'4105550100',zip:'21201',role:'CNA'};
