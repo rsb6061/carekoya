@@ -203,10 +203,9 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .intake-more summary{cursor:pointer;font-size:15px;font-weight:550;color:var(--ink)}
 .intake-more[open] summary{margin-bottom:14px}
 .intake-page .intake-form input,.intake-page .intake-form select,.intake-page .intake-form textarea{font-weight:400}
-.greeting-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 18px;margin-bottom:14px}
-.greeting-row h1{margin:0}
-.profile-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--lavender);background:var(--paper);border-radius:999px;padding:7px 14px 7px 8px;font-size:14px;font-weight:600;color:var(--ink);text-decoration:none;transition:background .15s ease,border-color .15s ease}
+.profile-pill{flex:none;align-self:flex-start;margin-top:10px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--lavender);background:var(--paper);border-radius:999px;padding:7px 14px 7px 8px;font-size:14px;font-weight:600;color:var(--ink);text-decoration:none;transition:background .15s ease,border-color .15s ease}
 .profile-pill:hover{background:#efeaff;border-color:#c9c1ff}
 .profile-pill-ring{width:20px;height:20px;border-radius:50%;flex:none;background:radial-gradient(closest-side,var(--paper) 62%,transparent 64%),conic-gradient(var(--blue) var(--pct),#e8e3ff 0)}
 .profile-pill-pct{color:var(--muted);font-weight:500}
 .profile-pill-pct::before{content:"·";margin-right:8px}
+@media(max-width:760px){.profile-pill{margin-top:0}}

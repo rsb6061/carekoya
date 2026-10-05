@@ -137,15 +137,13 @@ export function CaregiverDashboard(){
     <main className="app-wrap app-content">
       <div className="page-head page-head-row">
         <div>
-          <div className="greeting-row">
-            <h1>Hi {c.firstName||'there'}.</h1>
-            <a className="profile-pill" href="/dashboard/profile">
-              <span className="profile-pill-ring" style={{['--pct' as string]:pctComplete+'%'}} aria-hidden="true"/>
-              View / edit profile<span className="profile-pill-pct">{pctComplete}% complete</span>
-            </a>
-          </div>
+          <h1>Hi {c.firstName||'there'}.</h1>
           <p>{[c.role,c.city,c.state].filter(Boolean).join(' · ')}</p>
         </div>
+        <a className="profile-pill" href="/dashboard/profile">
+          <span className="profile-pill-ring" style={{['--pct' as string]:pctComplete+'%'}} aria-hidden="true"/>
+          Edit profile<span className="profile-pill-pct">{pctComplete}% complete</span>
+        </a>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
