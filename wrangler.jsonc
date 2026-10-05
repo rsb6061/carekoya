@@ -53,7 +53,9 @@
     // Outreach crons send nothing until this is "true". Caps are emails per UTC day.
     "OUTREACH_ENABLED": "false",
     "REACTIVATION_DAILY_CAP": "50",
-    "AGENCY_TEASER_DAILY_CAP": "10"
+    "AGENCY_TEASER_DAILY_CAP": "10",
+    // Microsoft Clarity tag on public pages (public ID; the Data Export token is the CLARITY_API_TOKEN secret).
+    "CLARITY_PROJECT_ID": "ysz8riafaj"
   },
   "triggers": {
     "crons": [
