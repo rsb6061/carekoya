@@ -25,7 +25,7 @@ export function JobsWidgetCard({agencyId}:{agencyId:string}){
   return <div className="widget-card settings-card">
     <div className="widget-card-head">
       <div><h3>Show these jobs on your website</h3>
-        <p>Paste this where your careers page lists openings. It stays in sync with the jobs below, and caregivers who apply through it land in your CareJoys Inbox.</p></div>
+        <p>Paste this where your careers page lists openings. It stays in sync with the jobs below, and caregivers who apply through it land in your Inbox here.</p></div>
       <button className="button" type="button" onClick={copy}>{copied?'Copied ✓':'Copy code'}</button>
     </div>
     <pre className="widget-snippet"><code>{snippet}</code></pre>

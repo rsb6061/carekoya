@@ -194,7 +194,7 @@ export async function sessionResponse(request:Request,env:FeatureEnv){
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   return json({ok:true,employer:{
-    id:employer.id,companyName:employer.company_name,contactName:employer.contact_name,email:employer.email,zip:employer.zip
+    id:employer.id,companyName:employer.company_name,contactName:employer.contact_name,email:employer.email,phone:employer.phone,zip:employer.zip
   }});
 }
 
