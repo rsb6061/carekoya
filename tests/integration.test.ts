@@ -358,6 +358,12 @@ describe('audit fixes: agency self-serve', ()=>{
     const session=decodeURIComponent(cookieHeader.match(/cj_session=([^;]+)/)![1]);
     const org=await DB.prepare("SELECT claimed_employer_id FROM agency_organizations WHERE id='org-test'").first() as any;
     expect(org.claimed_employer_id).toBeTruthy();
+    // Once claimed, the agency's website widget can read its jobs from any origin.
+    const widget=await call('/api/public/agency-jobs/org-test');
+    expect(widget.headers.get('access-control-allow-origin')).toBe('*');
+    const feed=await widget.json() as any;
+    expect(feed.jobs.map((j:any)=>[j.id,j.url])).toEqual([['job-test','https://carejoys.com/jobs/job-test?ref=widget']]);
+    expect((await call('/api/public/agency-jobs/no-such-org')).status).toBe(404);
     // The new owner can hide a scraped job, and it drops off public pages.
     const auth={cookie:'cj_session='+session};
     expect((await (await call('/api/agency/jobs',{headers:auth})).json() as any).jobs.map((j:any)=>j.id)).toEqual(['job-test']);

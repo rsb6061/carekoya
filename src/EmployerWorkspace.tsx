@@ -5,6 +5,7 @@ import { rememberDashboard } from './dashboardHome';
 import { payLabel } from './jobFormat';
 import { AccountMenu } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
+import { JobsWidgetCard } from './JobsWidgetCard';
 import { AgencyInbox } from './AgencyInboxTab';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import './workspace.css';
@@ -59,7 +60,7 @@ export function EmployerWorkspace(){
   const [pipeline,setPipeline]=useState<PipelineRow[]>([]);
   const [candidates,setCandidates]=useState<Candidate[]>([]);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'>(()=>new URLSearchParams(window.location.search).get('tab')==='inbox'?'inbox':'openings');
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'|'jobs'>(()=>{const t=new URLSearchParams(window.location.search).get('tab');return t==='inbox'?'inbox':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
@@ -108,7 +109,8 @@ export function EmployerWorkspace(){
   useEffect(()=>{void loadSession()},[]);
   // A claim link lands on /app?tab=hiring; open that tab once the linked agency has loaded.
   useEffect(()=>{
-    if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='hiring')setTab('hiring');
+    const t=new URLSearchParams(window.location.search).get('tab');
+    if(agencyNetwork.agency&&(t==='hiring'||t==='jobs'))setTab(t);
   },[agencyNetwork.agency]);
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
 
@@ -262,6 +264,7 @@ export function EmployerWorkspace(){
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>
         <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Pipeline</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')}>Talent network</button>
+        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='jobs'?'active':'')} onClick={()=>setTab('jobs')}>Jobs</button>}
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring preferences</button>}
         <WorkspaceAccount logout={logout}/>
       </nav>
@@ -394,6 +397,10 @@ export function EmployerWorkspace(){
           <div className="job-badges"><span className="badge">{match.fitScore}% fit</span><span className="status">{match.freshness}</span>{match.desiredWage&&<span className="badge">{match.desiredWage}</span>}</div>
           {match.certifications&&<div className="job-card-cue">{match.certifications}</div>}</div>
         </article>)}</div>}
+      </section>}
+
+      {tab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
+        <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
         <AgencyJobsPanel/>
       </section>}
 

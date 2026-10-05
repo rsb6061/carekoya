@@ -1,6 +1,8 @@
 import { FREE_MAIL } from './employerApproval';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
 import { TEST_JOB_REASON } from './agencyFeatures';
+import { payLabel } from './jobFormat';
+import { normalizeTitle, notAJobPosting } from './jobDiscovery';
 
 // Self-serve agency claiming: find your agency, prove you work there, and link it to a CareJoys workspace.
 type Row=Record<string,unknown>;
@@ -212,4 +214,22 @@ export async function updateAgencyJob(request:Request,env:FeatureEnv,jobId:strin
     else await env.DB.prepare("UPDATE caregiver_jobs SET is_published=1,publication_reason='employer_restored',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
   }else return json({ok:false,error:'Choose hide or show'},{status:400});
   return json({ok:true});
+}
+
+const WIDGET_CORS={'access-control-allow-origin':'*','access-control-allow-methods':'GET, OPTIONS','access-control-allow-headers':'content-type'};
+
+/** Public feed behind the embeddable jobs widget (/widget.js) on a claimed agency's own website. */
+export async function agencyJobsFeed(request:Request,env:FeatureEnv,orgId:string){
+  if(request.method==='OPTIONS')return new Response(null,{status:204,headers:WIDGET_CORS});
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503,headers:WIDGET_CORS});
+  // Only agencies that claimed their CareJoys profile get a widget, so applications reach someone.
+  const org=await env.DB.prepare("SELECT id,canonical_name FROM agency_organizations WHERE id=? AND is_active=1 AND COALESCE(is_test,0)=0 AND claimed_employer_id IS NOT NULL LIMIT 1").bind(orgId).first<Row>();
+  if(!org)return json({ok:false,error:'Agency not found'},{status:404,headers:WIDGET_CORS});
+  const rows=await env.DB.prepare(`SELECT id,title,role,city,state,pay_min,pay_max,pay_period,employment_type,source_url,source_provider,publication_reason FROM caregiver_jobs
+    WHERE agency_organization_id=? AND is_published=1 AND status='current' ORDER BY last_seen_at DESC LIMIT 50`).bind(org.id).all<Row>();
+  // Same junk check as the jobs list, unless the agency chose to show the job again.
+  const jobs=(rows.results||[]).filter(r=>r.publication_reason==='employer_restored'||!notAJobPosting(String(r.title||''),String(r.source_url||''),String(r.source_provider||''))).map(r=>({id:clean(r.id,120),title:normalizeTitle(r.title),role:clean(r.role,40),city:clean(r.city,120),state:clean(r.state,20),
+    pay:payLabel({payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period})||'',employmentType:clean(r.employment_type,60),
+    url:'https://carejoys.com/jobs/'+encodeURIComponent(clean(r.id,120))+'?ref=widget'}));
+  return json({ok:true,agency:{id:clean(org.id,100),name:clean(org.canonical_name,200)},jobs},{headers:{...WIDGET_CORS,'cache-control':'public,max-age=300'}});
 }

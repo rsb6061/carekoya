@@ -2,7 +2,7 @@ import { accountSession, accountStatus, finishGoogleSignIn, googleSignInConfigur
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
-import { agencyJobs, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
+import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
@@ -1577,6 +1577,8 @@ export default {
       return handleCaregiverProfilePhoto(request,env,decodeURIComponent(caregiverPhoto[1]));
     }
     if(request.method==="POST"&&url.pathname==="/api/schools") return handleSchool(request,env);
+    const widgetFeed=url.pathname.match(/^\/api\/public\/agency-jobs\/([^/]+)$/);
+    if(widgetFeed&&(request.method==="GET"||request.method==="OPTIONS")) return agencyJobsFeed(request,env,decodeURIComponent(widgetFeed[1]));
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
     let trainingOrg=url.pathname.match(/^\/api\/public\/training-organization\/([^/]+)$/);
     if(request.method==="GET"&&trainingOrg) return publicTrainingOrganization(decodeURIComponent(trainingOrg[1]),env);
