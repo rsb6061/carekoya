@@ -54,6 +54,9 @@
     "OUTREACH_ENABLED": "false",
     "REACTIVATION_DAILY_CAP": "50",
     "AGENCY_TEASER_DAILY_CAP": "10",
+    // "Verify your agency needs" invites to agencies whose jobs CareJoys lists; separate from OUTREACH_ENABLED.
+    "AGENCY_HIRING_INVITES_ENABLED": "true",
+    "AGENCY_HIRING_INVITE_DAILY_CAP": "60",
     // Microsoft Clarity tag on public pages (public ID; the Data Export token is the CLARITY_API_TOKEN secret).
     "CLARITY_PROJECT_ID": "ysz8riafaj"
   },

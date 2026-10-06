@@ -4,7 +4,7 @@ import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPag
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
-import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch } from './agencyFeatures';
+import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -47,6 +47,8 @@ interface Env {
   OUTREACH_ENABLED?: string;
   REACTIVATION_DAILY_CAP?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
+  AGENCY_HIRING_INVITES_ENABLED?: string;
+  AGENCY_HIRING_INVITE_DAILY_CAP?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
   STRIPE_WEBHOOK_SECRET?: string;
@@ -1692,6 +1694,13 @@ export default {
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
+        // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
+        // Up to 15 an hour within the daily cap, so the domain doesn't send hundreds at once.
+        if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
+          const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
+          const counts=await hiringInviteCounts(env);
+          await sendAgencyHiringInvites(env,Math.min(15,cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+        }
         return;
       }
       if(event.cron==="41 15 * * *"){
