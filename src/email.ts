@@ -273,6 +273,24 @@ export function caregiverApplicationEmail(input:{firstName:string;jobTitle:strin
   };
 }
 
+/** Outreach to an agency whose openings CareJoys already lists: confirm hiring needs to get matched caregivers and the jobs widget. */
+export function agencyHiringNeedsEmail(input:{contactName:string;agencyName:string;jobCount:number;city:string;link:string}) {
+  const P='font-size:16px;line-height:1.6;color:#5f5972';
+  const near=input.city?`near ${input.city}`:'near you';
+  const openings=input.jobCount===1?'1 of '+input.agencyName+'’s openings':input.jobCount+' of '+input.agencyName+'’s openings';
+  return {
+    subject:`The most qualified caregivers for ${input.agencyName}, matched to what you need`,
+    html:shell('Qualified caregivers, matched to your needs',`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      <p style="${P}">CareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you’re hiring for, and we match you with caregivers ${esc(near)} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.</p>
+      <p style="${P}">We already list ${esc(openings)} from your careers page. Take a minute to confirm what you’re hiring for and we’ll start matching.</p>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Verify your agency needs</a></p>
+      <p style="${P}">You’ll also get a free widget that shows your jobs on your own website. It’s two lines of code, stays in sync with your careers page, and every application lands in one inbox.</p>
+      <p style="${P}">Rebecca<br>CareJoys</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you're hiring for, and we match you with caregivers ${near} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.\n\nWe already list ${openings.replace('’',"'")} from your careers page. Take a minute to confirm what you're hiring for and we'll start matching.\n\nVerify your agency needs: ${input.link}\n\nYou'll also get a free widget that shows your jobs on your own website. It's two lines of code, stays in sync with your careers page, and every application lands in one inbox.\n\nRebecca\nCareJoys`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
   const url=esc(unsubscribeLink);

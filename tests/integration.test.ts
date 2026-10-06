@@ -5,6 +5,7 @@ import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
+import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -168,6 +169,7 @@ describe('outreach', ()=>{
     const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
     expect(teaser.agency.name).toBe('CareJoys Test Agency');
     expect(teaser.candidateCount).toBeGreaterThan(0);
+    expect(Array.isArray(teaser.jobs)).toBe(true);
     // Hidden from public search and not counted as real outreach.
     expect((await (await call('/api/agency/search?q=carejoys')).json() as any).agencies).toEqual([]);
     expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE event_type='candidate_teaser'").first()).toEqual({n:0});
@@ -733,5 +735,29 @@ describe('Continue with Google', ()=>{
     expect((await callback('forged',cookie,good)).headers.get('location')).toBe('/login?error=google_cancelled');
     expect((await callback(state,cookie,{...good,email_verified:false})).headers.get('location')).toBe('/login?error=google_failed');
     expect((await callback(state,cookie,{...good,aud:'other-app'})).headers.get('location')).toBe('/login?error=google_failed');
+  });
+});
+
+describe('agency hiring-needs invites', ()=>{
+  it('emails each unclaimed agency with live jobs once, and the link opens a page showing its jobs', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,primary_contact_name,city,state,is_active) VALUES ('org-invite','org-invite','Brightway Care, LLC','jobs@brightway.test','Dana Lee','Towson','MD',1)").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-invite','org-invite','job-invite','test','https://brightway.test/jobs/1','Home Health Aide','HHA','Brightway Care','Towson','MD','current',1)").run();
+    sent.length=0;
+    const first=await sendAgencyHiringInvites(env(),50,'hello@carejoys.com');
+    const mine=sent.filter(m=>m.to==='jobs@brightway.test');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].subject).toBe('The most qualified caregivers for Brightway Care, matched to what you need');
+    expect(mine[0].html).toContain('Verify your agency needs');
+    expect(mine[0].headers?.['List-Unsubscribe']).toBeTruthy();
+    expect(sent.filter(m=>m.to==='hello@carejoys.com')).toHaveLength(1);
+    expect(first.sent).toBeGreaterThan(0);
+    const token=decodeURIComponent(mine[0].html!.match(/agency\?token=([^"&\s]+)/)![1]);
+    const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
+    expect(teaser.jobs.map((j:any)=>j.title)).toEqual(['Home Health Aide']);
+    // A second run never emails the same agency again.
+    sent.length=0;
+    await sendAgencyHiringInvites(env(),50);
+    expect(sent.filter(m=>m.to==='jobs@brightway.test')).toHaveLength(0);
+    expect(friendlyAgencyName('Sunrise Home Care Inc.')).toBe('Sunrise Home Care');
   });
 });
