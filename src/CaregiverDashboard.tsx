@@ -124,7 +124,7 @@ export function CaregiverDashboard(){
 
   if(previewing)return <div>{header}
     <main className="app-wrap app-content profile-page">
-      <EmployerViewPreview/>
+      <EmployerViewPreview gaps={gaps}/>
     </main>
   </div>;
 
@@ -238,7 +238,7 @@ export function CaregiverDashboard(){
 }
 
 /** "View my profile": the caregiver's card exactly as employers see it in search. Private, never a public page. */
-function EmployerViewPreview(){
+function EmployerViewPreview({gaps}:{gaps:{key:string;label:string}[]}){
   const [view,setView]=useState<{visible:boolean;candidate:TalentCandidate}|null>(null);
   const [error,setError]=useState('');
   useEffect(()=>{
@@ -255,6 +255,11 @@ function EmployerViewPreview(){
     {view&&<>
       {!view.visible&&<div className="notice">You’re hidden from employer search because your profile says you’re not looking for work. Turn on “Show me to employers as looking” in <a className="text-link" href="/dashboard/profile">your profile</a> to appear again.</div>}
       <div className="job-list profile-preview"><TalentCard candidate={view.candidate} tone="job-card-sky" expanded/></div>
+      {gaps.length>0&&<section className="settings-card profile-checklist profile-preview-gaps">
+        <div><div className="modal-kicker">Missing from your profile</div><h3>Employers look for these before reaching out.</h3>
+          <ul className="profile-gap-list">{gaps.map(g=><li key={g.key}><a className="text-link" href={g.key==='resume'?'/dashboard':'/dashboard/profile'}>{g.label}</a></li>)}</ul></div>
+        <a className="button" href="/dashboard/profile">Add them</a>
+      </section>}
       <section className="settings-card profile-visibility">
         <h3>Who sees what</h3>
         <p><strong>Employers searching CareJoys</strong> see your profile above: your first name and last initial, photo, role, city, shifts, pay, certifications, your note to employers, experience, skills and languages. They can’t see your phone, email, license number or resume.</p>
