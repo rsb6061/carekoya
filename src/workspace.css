@@ -225,3 +225,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 @media(max-width:760px){.widget-card-head{flex-direction:column}}
 .alert-status.alert-info{border-color:var(--lavender);background:#f6f3ff;color:var(--ink)}
 .alert-status.alert-error{border-color:#f1c8c8;background:#fdf1f1;color:#9b2c2c}
+.talent-details{margin-top:16px}
+.talent-bio{margin:0 0 12px;line-height:1.6;color:#4f4962;white-space:pre-line}
+.talent-more{margin-top:12px}
+.talent-more summary{cursor:pointer;font-weight:600;color:#4255ff}

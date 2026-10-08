@@ -1,7 +1,7 @@
 import type { FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, rowGeo, zipGeoJoin } from './geo';
 import { decodeHtml, normalizeTitle } from './jobDiscovery';
-import { normalizePay, payLabel } from './jobFormat';
+import { descriptionBlocks, normalizePay, payLabel } from './jobFormat';
 import { US_STATES, jobsHubPath, slugify, usState, type UsState } from './usStates';
 
 type Row=Record<string,unknown>;
@@ -75,7 +75,8 @@ export function jobPostingJsonLd(job:Row,org:Row|null){
   const checked=isoDate(job.last_checked_at)||isoDate(job.last_seen_at)||posted;
   const sourceValid=isoDate(job.valid_through);
   const validThrough=sourceValid&&sourceValid.getTime()>Date.now()?sourceValid:new Date(checked.getTime()+30*86400000);
-  const description=decodeHtml(clean(job.description_text,8000)).replace(/\s+/g,' ').trim();
+  // CareJoys' own summary, never the employer's posting text.
+  const summary=descriptionBlocks(clean(job.summary_text,4000));
   const pay=normalizePay(job.pay_min,job.pay_max,job.pay_period);
   const unit=PAY_UNITS[pay.period]?.schema;
   const lo=pay.min??0,hi=pay.max??0;
@@ -84,7 +85,7 @@ export function jobPostingJsonLd(job:Row,org:Row|null){
     '@context':'https://schema.org',
     '@type':'JobPosting',
     title:normalizeTitle(job.title)||'Caregiver',
-    description:description?'<p>'+escapeHtml(description)+'</p>':'<p>'+escapeHtml(normalizeTitle(job.title)+' at '+clean(job.employer_name,200))+'.</p>',
+    description:summary.lead?'<p>'+escapeHtml(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+escapeHtml(b)+'</li>').join('')+'</ul>':''):'<p>'+escapeHtml(normalizeTitle(job.title)+' at '+clean(job.employer_name,200))+'.</p>',
     identifier:{'@type':'PropertyValue',name:'CareJoys',value:id},
     datePosted:posted.toISOString().slice(0,10),
     validThrough:validThrough.toISOString(),

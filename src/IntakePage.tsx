@@ -19,7 +19,7 @@ async function submitJson(path: string, data: Record<string, unknown>) {
 
 const ROLES = ['CNA', 'GNA', 'HHA', 'PCA', 'Caregiver', 'DSP'];
 
-/** /find-caregivers: an employer describes the opening on its own page, laid out like sign-in. */
+/** /hire-caregivers: an employer describes the opening on its own page, laid out like sign-in. */
 export function FindCaregiversPage() {
   return <IntakePage kind="employer" />;
 }
@@ -74,7 +74,7 @@ function IntakePage({ kind }: { kind: Kind }) {
 
   return <Shell wide><div className="intake-page login-card">
     <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
-    <h1>{kind === 'employer' ? 'Find caregivers' : 'Add your training program'}</h1>
+    <h1>{kind === 'employer' ? 'Hire caregivers' : 'Add your training program'}</h1>
     <p className="login-sub">{kind === 'employer'
       ? 'Tell us who you need. CareJoys creates the opening, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>

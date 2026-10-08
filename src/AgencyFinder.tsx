@@ -80,7 +80,7 @@ export function AgencyFinder({stateCode}:{stateCode?:string}){
       <button className="btn" disabled={loading||(q.trim().length<2&&zip.trim().length<5)}>{loading?'Searching…':'Find my agency'}</button>
     </form>
     {results&&(results.length?<div className="agency-results">{results.map(a=><AgencyRow key={a.id} agency={a} onClaim={setClaiming}/>)}</div>
-      :<p className="agency-finder-empty">No match yet. <a className="text-link" href="/find-caregivers">Create a workspace</a> and CareJoys will link your agency once it’s in the directory.</p>)}
+      :<p className="agency-finder-empty">No match yet. <a className="text-link" href="/hire-caregivers">Create a workspace</a> and CareJoys will link your agency once it’s in the directory.</p>)}
     {claiming&&<ClaimPanel agency={claiming} onClose={()=>setClaiming(null)}/>}
   </div>;
 }

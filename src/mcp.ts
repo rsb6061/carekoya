@@ -127,9 +127,9 @@ const toolHandlers:Record<string,(env:FeatureEnv,args:Row,ctx:Ctx)=>Promise<unkn
   async get_caregiver_job(env,args){
     const id=clean(args.job_id,120);
     if(!id)throw new Error('job_id is required.');
-    const row=await env.DB!.prepare(`SELECT ${JOB_COLUMNS},j.description_text FROM caregiver_jobs j WHERE j.id=? AND j.is_published=1 AND j.status='current' LIMIT 1`).bind(id).first<Row>();
+    const row=await env.DB!.prepare(`SELECT ${JOB_COLUMNS},j.summary_text FROM caregiver_jobs j WHERE j.id=? AND j.is_published=1 AND j.status='current' LIMIT 1`).bind(id).first<Row>();
     if(!row)throw new Error('That job is not open on CareJoys any more. Search again for current jobs.');
-    return {...compactJob(row),description:clean(row.description_text,4000).replace(/\s+/g,' ')||null};
+    return {...compactJob(row),description:clean(row.summary_text,4000)||null};
   },
   async find_hiring_agencies(env,args){
     const limit=Math.min(20,Math.max(1,Math.round(asNum(args.limit)||10)));

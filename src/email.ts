@@ -83,6 +83,22 @@ export function caregiverActivationEmail(firstName: string, link: string) {
   };
 }
 
+/** Second and last reactivation email, for legacy caregivers who got the first one and haven't confirmed. */
+export function caregiverActivationReminderEmail(firstName: string, link: string) {
+  const name=esc(firstName||'there');
+  const url=esc(link);
+  return {
+    subject:'Still looking for caregiver work? Confirm your CareJoys profile',
+    html:shell('Your caregiver profile is waiting',`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${name},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">A quick reminder: your CareKoya caregiver profile is now on CareJoys, and it still shows your availability as <strong>unconfirmed</strong>.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">CareJoys now lists more than 1,500 caregiver jobs from home care agencies, and once your profile is confirmed you can apply in one click. It takes about a minute.</p>
+      <p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Confirm my availability</a></p>
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">Not looking right now? Use the same link to tell us, and we'll remove your profile from employer search. This link replaces the one we sent in September.</p>`),
+    text:`Hi ${firstName||'there'},\n\nA quick reminder: your CareKoya caregiver profile is now on CareJoys, and it still shows your availability as unconfirmed. CareJoys now lists more than 1,500 caregiver jobs from home care agencies, and once your profile is confirmed you can apply in one click.\n\nConfirm or update your availability:\n${link}\n\nNot looking right now? Use the same link to tell us, and we'll remove your profile from employer search. This link replaces the one we sent in September.\n\nCareJoys · carejoys.com`
+  };
+}
+
 export function caregiverJobInviteEmail(input:{
   firstName:string; company:string; title:string; role:string; location:string; pay:string; shift:string; link:string;
 }) {
