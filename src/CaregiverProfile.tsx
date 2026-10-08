@@ -10,12 +10,13 @@ export const BLOCKS=[['morning','Mornings','7am–3pm'],['afternoon','Afternoons
 const CERTIFICATIONS=['CNA','GNA','HHA','CMT / Med Tech','PCA','DSP','LPN','RN','CPR / First Aid','BLS'];
 const SKILLS=['Dementia / Alzheimer’s','Bathing & personal care','Transfers & mobility','Hoyer lift','Medication reminders','Meal prep','Light housekeeping','Companionship','Hospice / end of life','Diabetes care','Catheter / ostomy care','Developmental disabilities','Pediatric care'];
 const SETTINGS=['Home care','Assisted living','Nursing home','Hospital','Hospice','Group home'];
+const PREFERRED=['Private home care','Assisted living','Nursing home','Hospital','Hospice','Group home','Open to any'];
 const LANGUAGES=['English','Spanish','French','Haitian Creole','Amharic','Tagalog','Yoruba','Igbo','Twi','Vietnamese','Korean','Chinese','Russian','Arabic'];
 
 export type Availability={days:Record<string,string[]>;liveIn:boolean};
 export type CaregiverProfileData={
   firstName?:string;lastName?:string;phone?:string;zip?:string;city?:string;state?:string;role?:string;
-  certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];languages?:string;bio?:string;
+  certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];preferredSettings?:string[];languages?:string;bio?:string;
   availability?:Availability;employmentTypes?:string[];startAvailability?:string;workConditions?:string[];
   desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;profilePhotoUrl?:string|null;
 };
@@ -58,6 +59,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
   const [certs,setCerts]=useState(list(c.certifications));
   const [skills,setSkills]=useState(list(c.specialties));
   const [settings,setSettings]=useState(list(c.careSettings));
+  const [preferred,setPreferred]=useState(list(c.preferredSettings));
   const [languages,setLanguages]=useState(list(c.languages).length?list(c.languages):['English']);
   const [hours,setHours]=useState(list(c.employmentTypes));
   const [conditions,setConditions]=useState(list(c.workConditions));
@@ -76,7 +78,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
       await save({
         firstName:text('firstName'),lastName:text('lastName'),phone:text('phone'),zip:text('zip'),role:text('role'),
         certifications:certs,licenseNumber:text('licenseNumber'),licenseState:text('licenseState'),yearsExperience:Number(text('yearsExperience')||0),
-        specialties:skills,careSettings:settings,languages,bio:text('bio'),
+        specialties:skills,careSettings:settings,preferredSettings:preferred,languages,bio:text('bio'),
         availability:{days,liveIn},employmentTypes:hours,startAvailability:text('startAvailability'),workConditions:conditions,
         payMin:Number(text('payMin')||0),transportation:text('transportation'),travelMiles:Number(text('travelMiles')||0),
         workStatus:looking?'actively_looking':'not_looking'
@@ -119,6 +121,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
       </div>
       <div className="chip-field"><span>Care I’m experienced with</span><Chips options={SKILLS} value={skills} onChange={setSkills}/></div>
       <div className="chip-field"><span>Where I’ve worked</span><Chips options={SETTINGS} value={settings} onChange={setSettings}/></div>
+      <div className="chip-field"><span>Where I want to work</span><Chips options={PREFERRED} value={preferred} onChange={setPreferred}/></div>
       <div className="chip-field"><span>Languages I speak</span><Chips options={LANGUAGES} value={languages} onChange={setLanguages}/></div>
       <div className="chip-field"><span>I’m comfortable with</span><Chips options={['Pets in the home','Smokers in the home']} value={conditions.map(x=>x==='pets'?'Pets in the home':'Smokers in the home')} onChange={v=>setConditions(v.map(x=>x.startsWith('Pets')?'pets':'smokers'))}/></div>
     </Section>
