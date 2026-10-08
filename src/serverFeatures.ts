@@ -136,7 +136,8 @@ export async function requestEmployerMagicLink(request:Request,env:FeatureEnv){
 
 export type PendingIntakeHandler=(employerId:string,intake:Record<string,unknown>)=>Promise<string|null>;
 
-export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,applyPendingIntake?:PendingIntakeHandler){
+/** `accountCookie` also signs the link's email in to the shared CareJoys account, so the rest of the site knows who they are. */
+export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,applyPendingIntake?:PendingIntakeHandler,accountCookie?:(employerId:string)=>Promise<string|null>){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
   const token=clean(data?.token,300);
@@ -152,10 +153,10 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
     try{redirect=(await applyPendingIntake(record.employer_id,JSON.parse(record.pending_intake)))||redirect}
     catch(error){console.error('pending intake failed',error)}
   }
-  return json({ok:true,redirect},{
-    status:200,
-    headers:{'Set-Cookie':employerSessionCookie(session)}
-  });
+  const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store','Set-Cookie':employerSessionCookie(session)});
+  const account=accountCookie?await accountCookie(record.employer_id):null;
+  if(account)headers.append('Set-Cookie',account);
+  return new Response(JSON.stringify({ok:true,redirect}),{status:200,headers});
 }
 
 export const employerSessionCookie=(session:string)=>`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`;

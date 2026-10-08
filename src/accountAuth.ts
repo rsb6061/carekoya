@@ -1,4 +1,4 @@
-import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie } from './serverFeatures';
+import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie, sessionResponse } from './serverFeatures';
 import { homePath, LAST_DASHBOARD_COOKIE } from './dashboardHome';
 import { adminEmails } from './admin';
 import { loginLinkEmail } from './email';
@@ -13,6 +13,8 @@ type Roles={caregiver:boolean;employer:boolean;admin:boolean;school:boolean};
 export const LOGIN_LINK_MINUTES=60;
 const ACCOUNT_COOKIE='__Host-cj_account';
 const SESSION_DAYS=30;
+const CLEAR_EMPLOYER_COOKIE='__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
+const CLEAR_SCHOOL_COOKIE='__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const emailValid=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -112,10 +114,11 @@ async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
     await env.DB!.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status) VALUES (?,'CareJoys','Admin',?,'','','CareJoys admin account','active')").bind(crypto.randomUUID(),email).run();
     roles.employer=true;
   }
-  if(roles.employer){
-    const employer=await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
-    if(employer)headers.append('Set-Cookie',employerSessionCookie(await startEmployerSession(env,employer.id)));
-  }
+  const employer=roles.employer?await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>():null;
+  // Replace any workspace or school session this browser still holds for a different email, so a shared computer never
+  // opens someone else's hiring workspace under this sign-in.
+  headers.append('Set-Cookie',employer?employerSessionCookie(await startEmployerSession(env,employer.id)):CLEAR_EMPLOYER_COOKIE);
+  if(!roles.school)headers.append('Set-Cookie',CLEAR_SCHOOL_COOKIE);
   return {headers,redirect:landingPath(roles,next,last),roles};
 }
 
@@ -187,6 +190,27 @@ export async function accountStatus(request:Request,env:AccountEnv){
   return json({ok:true,signedIn:true,email:session.email,name:clean(name?.name,120).split(/\s+/)[0]||'',roles:await accountRoles(env,session.email)});
 }
 
+/** An account session for the email behind an employer's emailed workspace link, which proved that email. */
+export async function employerAccountCookie(env:AccountEnv,employerId:string){
+  const row=await env.DB!.prepare('SELECT email FROM employer_leads WHERE id=? LIMIT 1').bind(employerId).first<{email:string}>();
+  const email=clean(row?.email,320).toLowerCase();
+  return emailValid(email)?startAccountSession(env,email):null;
+}
+
+/** /api/session: the hiring workspace session, opened from the shared sign-in when this browser doesn't have one yet
+ *  (it expired, or the workspace was set up or claimed after they signed in). */
+export async function hiringSession(request:Request,env:AccountEnv){
+  const existing=await sessionResponse(request,env);
+  if(existing.status!==401)return existing;
+  const account=await accountSession(request,env);
+  const employer=account?await env.DB!.prepare("SELECT id,company_name,contact_name,email,phone,zip FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1")
+    .bind(account.email).first<Record<string,unknown>>():null;
+  if(!employer)return existing;
+  const session=await startEmployerSession(env,String(employer.id));
+  return json({ok:true,employer:{id:employer.id,companyName:employer.company_name,contactName:employer.contact_name,email:employer.email,phone:employer.phone,zip:employer.zip}},
+    {headers:{'Set-Cookie':employerSessionCookie(session)}});
+}
+
 /** Signs this browser out of everything: the account session and any employer session. */
 export async function logoutEverywhere(request:Request,env:AccountEnv){
   if(env.DB){
@@ -199,7 +223,7 @@ export async function logoutEverywhere(request:Request,env:AccountEnv){
   }
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
   headers.append('Set-Cookie',`${ACCOUNT_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
-  headers.append('Set-Cookie','__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
-  headers.append('Set-Cookie','__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  headers.append('Set-Cookie',CLEAR_EMPLOYER_COOKIE);
+  headers.append('Set-Cookie',CLEAR_SCHOOL_COOKIE);
   return new Response(JSON.stringify({ok:true}),{status:200,headers});
 }

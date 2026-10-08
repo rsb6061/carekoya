@@ -1,9 +1,9 @@
-import { accountSession, accountStatus, finishGoogleSignIn, googleSignInConfigured, logoutEverywhere, requestLogin, startGoogleSignIn, verifyLogin } from './accountAuth';
+import { accountSession, accountStatus, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
-import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
+import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
@@ -1544,8 +1544,8 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env,googleSignInConfigured(env));
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake));
-    if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake),employerId=>employerAccountCookie(env,employerId));
+    if(request.method==="GET"&&url.pathname==="/api/session") return hiringSession(request,env);
     if(request.method==="POST"&&url.pathname==="/api/login/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestLogin(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/login/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyLogin(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/account") return accountStatus(request,env);

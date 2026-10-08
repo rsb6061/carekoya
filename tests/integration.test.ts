@@ -514,6 +514,41 @@ describe('shared sign-in', ()=>{
     expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.employer).toBe(true);
   });
 
+  it('the hiring workspace opens from the shared sign-in when its own session is missing', async()=>{
+    const {cookie}=await signIn('pat@acme.test');
+    const accountOnly=cookie.split('; ')[0];
+    const res=await call('/api/session',{headers:{cookie:accountOnly}});
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).employer.id).toBe('emp1');
+    expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
+    // A caregiver-only sign-in still has no workspace.
+    const caregiver=(await signIn('baltimore@example.com')).cookie;
+    expect((await call('/api/session',{headers:{cookie:caregiver}})).status).toBe(401);
+  });
+
+  it('signing in as someone else drops a workspace session left in the browser', async()=>{
+    sent.length=0;
+    await post('/api/login/request',{email:'baltimore@example.com'});
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token},{cookie:'__Host-cj_session='+SESSION});
+    const cookies=verified.headers.get('set-cookie')||'';
+    expect(cookies).toContain('__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+    expect(cookies).toContain('__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  });
+
+  it('an emailed workspace link also signs in to the shared account', async()=>{
+    sent.length=0;
+    await post('/api/auth/request',{email:'pat@acme.test'});
+    const token=decodeURIComponent(sent[0].html!.match(/auth\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    expect(verified.status).toBe(200);
+    const cookies=verified.headers.get('set-cookie')||'';
+    expect(cookies).toContain('__Host-cj_session=');
+    const account=decodeURIComponent(cookies.match(ACCOUNT)![1]);
+    const status=await (await call('/api/account',{headers:{cookie:'__Host-cj_account='+account}})).json() as any;
+    expect(status).toMatchObject({signedIn:true,email:'pat@acme.test',roles:{employer:true}});
+  });
+
   it('an email with both roles returns to the dashboard it used last', async()=>{
     await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('pat-cg','Pat','Lee','pat@acme.test','21201','MD','CNA')").run();
     expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
