@@ -1,4 +1,4 @@
-import { accountSession, accountStatus, closeAccountSide, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
+import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
@@ -322,6 +322,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   // The employer form used to open as a pop-up on the homepage; old links go to its page.
   if(url.pathname==="/"&&url.searchParams.get("hire")==="1")return Response.redirect(new URL("/hire-caregivers",url).toString(),301);
   if(url.pathname==="/"){
+    // The home page is the pitch to agencies; anyone signed in goes to their own dashboard instead.
+    const home=await signedInHome(request,env);
+    if(home)return new Response(null,{status:302,headers:{location:home,"cache-control":"no-store"}});
     return seoAsset(request,env,{
       title:"CareJoys | Caregiver Recruiting & Caregiver Jobs Near You",
       description:"CareJoys helps home-care agencies and employers match with local caregivers ready to work, and helps caregivers find CNA, HHA and PCA jobs by city and state.",

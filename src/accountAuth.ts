@@ -213,6 +213,16 @@ export async function hiringSession(request:Request,env:AccountEnv){
     {headers:{'Set-Cookie':employerSessionCookie(session)}});
 }
 
+/** Where a signed-in visitor to the home page belongs: their own dashboard. Null when not signed in. */
+export async function signedInHome(request:Request,env:AccountEnv){
+  if(!cookie(request,ACCOUNT_COOKIE))return null;
+  const session=await accountSession(request,env);
+  if(!session)return null;
+  let last=cookie(request,LAST_DASHBOARD_COOKIE);
+  if(!last)last=(await env.DB!.prepare('SELECT last_dashboard FROM account_preferences WHERE email=? LIMIT 1').bind(session.email).first<{last_dashboard:string}>())?.last_dashboard||'';
+  return homePath(await accountRoles(env,session.email),last);
+}
+
 /** Saves the dashboard this account opened last, so a sign-in on another device opens it too. */
 export async function saveLastDashboard(request:Request,env:AccountEnv){
   const session=await accountSession(request,env);

@@ -594,6 +594,19 @@ describe('shared sign-in', ()=>{
     expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.caregiver).toBe(true);
   });
 
+  it('signed-in visitors skip the marketing home page for their own dashboard', async()=>{
+    await DB.prepare('DELETE FROM rate_limits').run();
+    const caregiver=(await signIn('baltimore@example.com')).cookie;
+    const res=await call('/',{headers:{cookie:caregiver},redirect:'manual'});
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/dashboard');
+    const agency=(await signIn('pat@acme.test')).cookie.split('; ')[0];
+    expect((await call('/',{headers:{cookie:agency+'; cj_last_dashboard=app'},redirect:'manual'})).headers.get('location')).toBe('/app');
+    // Signed out, or a stale cookie: the normal home page.
+    expect((await call('/',{redirect:'manual'})).status).toBe(200);
+    expect((await call('/',{headers:{cookie:'__Host-cj_account=stale'},redirect:'manual'})).status).toBe(200);
+  });
+
   it('the public config no longer mentions Auth0', async()=>{
     const config=await (await call('/api/config')).json() as any;
     expect(config).not.toHaveProperty('auth0Domain');
