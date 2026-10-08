@@ -367,6 +367,7 @@ describe('job summaries', ()=>{
   it('turns the model output into the lead and bullets the job page renders', async ()=>{
     const { parseSummary } = await import('../src/jobSummary');
     expect(parseSummary('Here is the summary:\nHome care aide role supporting seniors in Rockport.\n- Help with bathing and meals\n* Driver license required\n\n1. Weekend shifts')).toBe('Home care aide role supporting seniors in Rockport. • Help with bathing and meals • Driver license required • Weekend shifts');
-    expect(parseSummary('- only bullets')).toBe('');
+    expect(parseSummary('- only bullets')).toBeNull();
+    expect(parseSummary('NO_DETAILS')).toBe('');
   });
 });

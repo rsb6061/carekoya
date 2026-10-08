@@ -7,6 +7,8 @@ export type AiBinding={run(model:string,input:Record<string,unknown>):Promise<un
 export type SummaryEnv={DB?:DB;AI?:AiBinding;JOB_SUMMARY_MODEL?:string};
 
 export const DEFAULT_SUMMARY_MODEL='@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+/** Stored when the posting has nothing to summarize: the job shows no description, and it isn't retried. */
+export const NO_DETAILS='';
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 
 const SYSTEM=`You write short, original summaries of caregiver job postings for a job board.
@@ -15,13 +17,15 @@ Rules:
 - Only state facts the posting gives. Do not guess or add anything.
 - Leave out pay (shown separately), equal opportunity statements, company slogans and calls to apply.
 - Plain, friendly English a caregiver can scan on a phone.
+- If the text is mostly website navigation or company marketing and does not describe this job's duties, requirements, schedule or setting, reply with exactly NO_DETAILS and nothing else.
 Format exactly:
-First line: one or two sentences (at most 40 words) saying what the job is and who it serves.
-Then 3 to 6 lines, each starting with "- ", covering duties, requirements, schedule and benefits (at most 14 words each).
+First line: one or two sentences (at most 40 words) naming the role, the care setting and the clients served, and the location if given.
+Then up to 6 lines, each starting with "- ", one specific fact each about duties, requirements, schedule or benefits (at most 14 words). Fewer lines are fine; never pad with general caregiving duties.
 No headings, no other text.`;
 
 /** "overview\n- a\n- b" from the model, as the "lead • bullet • bullet" text the job page already renders. */
 export function parseSummary(raw:string){
+  if(/^\s*NO_DETAILS\b/i.test(raw))return NO_DETAILS;
   const lines=raw.replace(/\r/g,'').split('\n').map(l=>l.trim()).filter(Boolean)
     .filter(l=>!/^(here is|here's|summary:?$|overview:?$)/i.test(l));
   const bullets:string[]=[];let lead='';
@@ -30,7 +34,7 @@ export function parseSummary(raw:string){
     if(b){if(b[1].trim())bullets.push(b[1].trim().replace(/[•]/g,''))}
     else if(!lead)lead=line.replace(/[•]/g,'');
   }
-  if(!lead||lead.length<20)return '';
+  if(!lead||lead.length<20)return null;
   return [lead.slice(0,400),...bullets.slice(0,6).map(b=>b.slice(0,160))].join(' • ');
 }
 
@@ -58,7 +62,7 @@ export async function summarizeJobsBatch(env:SummaryEnv,limit:number){
     const description=clean(row.description_text,8000);
     try{
       const summary=await summarizeJob(env,{title:clean(row.title,200),employer:clean(row.employer_name,200),description});
-      if(!summary)throw new Error('empty summary');
+      if(summary===null)throw new Error('empty summary');
       await env.DB.prepare("UPDATE caregiver_jobs SET summary_text=?,summary_source_len=?,summary_error=NULL,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
         .bind(summary,description.length,row.id).run();
       summarized++;
