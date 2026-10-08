@@ -7,12 +7,12 @@
 .activation-card h1{font-family:var(--display);font-size:48px;line-height:.98;font-weight:400;letter-spacing:-.04em;margin:0 0 16px}
 .activation-card>p,.activation-intro{font-size:16px;line-height:1.6;color:var(--muted);margin:0 0 26px}
 .activation-form{display:grid;gap:24px}
-.status-choices{display:grid;gap:10px}
-.status-choice{width:100%;text-align:left;border:1px solid var(--lavender);background:#fffdf9;border-radius:20px;padding:16px 18px;cursor:pointer;display:flex;flex-direction:column;gap:4px;color:var(--ink);box-shadow:none}
+.status-choices{display:grid;gap:6px}
+.status-choice{width:100%;text-align:left;border:1px solid var(--lavender);background:#fffdf9;border-radius:14px;padding:8px 12px;cursor:pointer;display:flex;flex-direction:column;gap:1px;color:var(--ink);box-shadow:none}
 .status-choice:hover{border-color:#bdb2f0}
 .status-choice.selected{background:#eeeaff;border-color:#8f7ff2;box-shadow:0 0 0 3px rgba(216,210,255,.5)}
-.status-choice strong{font-size:16px;font-weight:650}
-.status-choice span{font-size:14px;color:var(--muted);line-height:1.45}
+.status-choice strong{font-size:14px;font-weight:650}
+.status-choice span{font-size:12.5px;color:var(--muted);line-height:1.35}
 .activation-details{display:grid;gap:18px;padding-top:4px}
 .activation-section-head h2{font-family:var(--display);font-size:31px;font-weight:400;letter-spacing:-.03em;margin:0 0 4px}
 .activation-section-head p{margin:0;color:var(--muted);font-size:14px}
