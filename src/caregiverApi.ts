@@ -1,3 +1,4 @@
+import { listText } from './listField';
 import { type FeatureEnv, respondToInviteForCaregiver, bookInterviewForCaregiver } from './serverFeatures';
 import { freshnessLabel, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin } from './geo';
@@ -117,7 +118,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
 
   return json({ok:true,resume:resumeFile?{fileName:resumeFile.file_name,byteSize:resumeFile.byte_size,updatedAt:resumeFile.updated_at}:null,caregiver:{
     id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:c.city,state:c.state,zip:c.zip,role:c.role,
-    certifications:c.certifications,specialties:c.specialties,languages:c.languages,yearsExperience:c.years_experience,phone:c.phone,
+    certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,
     shifts:c.shift_preferences,desiredWage:c.desired_wage,transportation:c.transportation,travelMiles:c.travel_distance_miles,
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
     freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,

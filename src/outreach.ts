@@ -1,4 +1,4 @@
-import { caregiverActivationEmail, withUnsubscribe } from './email';
+import { caregiverActivationEmail, caregiverActivationReminderEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
 import { agencyTeaserTestEmail, sendAgencyTeaserBatch } from './agencyFeatures';
 import { type FeatureEnv } from './serverFeatures';
@@ -9,6 +9,7 @@ export type OutreachEnv=FeatureEnv&{
   OUTREACH_ENABLED?:string;
   REACTIVATION_DAILY_CAP?:string;
   AGENCY_TEASER_DAILY_CAP?:string;
+  REACTIVATION_REMINDER_ENABLED?:string;
 };
 
 export const DEFAULT_DAILY_CAPS:Record<OutreachKind,number>={reactivation:50,agency_teasers:10};
@@ -76,6 +77,53 @@ export async function sendReactivationBatch(env:OutreachEnv,limit:number){
     }
   }
   return {attempted:(rows.results||[]).length,sent,failed};
+}
+
+/**
+ * One reminder to legacy caregivers whose first reactivation email was delivered but who never confirmed.
+ * Each caregiver gets at most one (tracked in outreach_events), so this stops on its own once the list is done.
+ * The new link replaces the old one: the token hash is swapped only after the reminder sends.
+ */
+export async function sendReactivationReminderBatch(env:OutreachEnv,limit:number){
+  if(!env.DB||!env.EMAIL||limit<1)return {attempted:0,sent:0,failed:0};
+  const rows=await env.DB.prepare(`SELECT id,first_name,display_name,lower(trim(email)) AS email FROM caregivers c
+    WHERE c.source='legacy_carekoya' AND c.activation_delivery_status='sent' AND c.activation_completed_at IS NULL
+      AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate')
+      AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(c.email)))
+      AND NOT EXISTS (SELECT 1 FROM outreach_events oe WHERE oe.caregiver_id=c.id AND oe.event_type IN ('reactivation_reminder','reactivation_reminder_failed'))
+    ORDER BY c.updated_at DESC LIMIT ?`).bind(limit).all<Row>();
+  let sent=0,failed=0;
+  for(const row of rows.results||[]){
+    const email=clean(row.email,320);
+    const token=crypto.randomUUID()+'-'+crypto.randomUUID();
+    const firstName=clean(row.first_name,100)||clean(row.display_name,120).split(/\s+/)[0]||'there';
+    try{
+      const unsubscribe=await unsubscribeLink(env.DB,email,'caregiver_reactivation');
+      const body=withUnsubscribe(caregiverActivationReminderEmail(firstName,'https://carejoys.com/activate?token='+encodeURIComponent(token)),unsubscribe.link);
+      const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
+      await env.DB.prepare("UPDATE caregivers SET activation_token_hash=?,activation_message_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(await sha256Hex(token),result.messageId||null,row.id).run();
+      await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,channel,direction,event_type,provider_message_id) VALUES (?,?,'email','outbound','reactivation_reminder',?)")
+        .bind(crypto.randomUUID(),row.id,result.messageId||null).run();
+      sent++;
+    }catch(error){
+      failed++;
+      // Recorded so a bad address isn't retried every day; the first email's link keeps working.
+      await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,channel,direction,event_type,payload) VALUES (?,?,'email','outbound','reactivation_reminder_failed',?)")
+        .bind(crypto.randomUUID(),row.id,(error instanceof Error?error.message:'send failed').slice(0,500)).run();
+    }
+  }
+  return {attempted:(rows.results||[]).length,sent,failed};
+}
+
+/** Daily cron: sends the reminder while REACTIVATION_REMINDER_ENABLED=true, within the reactivation daily cap. Separate from OUTREACH_ENABLED. */
+export async function runReactivationReminders(env:OutreachEnv){
+  if(clean(env.REACTIVATION_REMINDER_ENABLED,10).toLowerCase()!=='true')return null;
+  if(!env.DB||!env.EMAIL)return null;
+  const result=await sendReactivationReminderBatch(env,dailyCap(env,'reactivation'));
+  if(result.attempted>0)await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,attempted,sent,failed) VALUES (?,'reactivation_reminder','cron',?,?,?)")
+    .bind(crypto.randomUUID(),result.attempted,result.sent,result.failed).run();
+  return result;
 }
 
 /** Sends up to today's remaining cap for one outreach kind and records the run. */

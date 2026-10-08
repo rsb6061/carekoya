@@ -351,3 +351,14 @@ describe('jobFit', ()=>{
     expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
   });
 });
+
+describe('profile list fields', ()=>{
+  it('reads legacy JSON, mixed and comma text the same way', async ()=>{
+    const { cleanList, listText } = await import('../src/listField');
+    expect(listText('["CPR/First Aid", "Driver\'s License"], CNA')).toBe("CPR/First Aid, Driver's License, CNA");
+    expect(listText('["English"], English, Spanish')).toBe('English, Spanish');
+    expect(cleanList('[]')).toEqual([]);
+    expect(cleanList('CNA, HHA')).toEqual(['CNA','HHA']);
+    expect(cleanList(['CNA','cna',' BLS '])).toEqual(['CNA','BLS']);
+  });
+});
