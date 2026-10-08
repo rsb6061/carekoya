@@ -83,13 +83,13 @@ export function CaregiverActivation(){
 
       <form className="activation-form" onSubmit={submit}>
         <div className="status-choices">
-          <button type="button" className={workStatus==='actively_looking'?'status-choice selected':''} onClick={()=>setWorkStatus('actively_looking')}>
+          <button type="button" className={'status-choice'+(workStatus==='actively_looking'?' selected':'')} aria-pressed={workStatus==='actively_looking'} onClick={()=>setWorkStatus('actively_looking')}>
             <strong>Yes, I’m looking</strong><span>Refresh my profile and mark my availability as confirmed for relevant employers.</span>
           </button>
-          <button type="button" className={workStatus==='maybe_later'?'status-choice selected':''} onClick={()=>setWorkStatus('maybe_later')}>
+          <button type="button" className={'status-choice'+(workStatus==='maybe_later'?' selected':'')} aria-pressed={workStatus==='maybe_later'} onClick={()=>setWorkStatus('maybe_later')}>
             <strong>Maybe later</strong><span>Keep my profile, but don’t show me as available.</span>
           </button>
-          <button type="button" className={workStatus==='not_looking'?'status-choice selected':''} onClick={()=>setWorkStatus('not_looking')}>
+          <button type="button" className={'status-choice'+(workStatus==='not_looking'?' selected':'')} aria-pressed={workStatus==='not_looking'} onClick={()=>setWorkStatus('not_looking')}>
             <strong>No, not looking</strong><span>Do not show my profile to employers.</span>
           </button>
         </div>
