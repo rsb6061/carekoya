@@ -106,8 +106,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     if(!auth.isAuthenticated||draft){setSaved(null);return;}
     let live=true;
     (async()=>{
-      const token=await auth.getIdToken();
-      const res=await fetch('/api/me',{headers:token?{authorization:'Bearer '+token}:{}});
+      const res=await fetch('/api/me');
       const c=res.ok?(await res.json() as {caregiver?:SavedProfile|null}).caregiver:null;
       if(!live)return;
       setSaved(c||null);
@@ -129,7 +128,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   // After signing in to claim an existing profile, send the same answers again automatically.
   useEffect(()=>{
     if(!pendingResubmit||!auth.isAuthenticated||stage!=='profile'||status==='saving')return;
-    if(!auth.configured||turnstileRequired&&!turnstileToken)return;
+    if(turnstileRequired&&!turnstileToken)return;
     setPendingResubmit(false);
     void save();
   },[pendingResubmit,auth.isAuthenticated,stage,turnstileToken]);
@@ -194,7 +193,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   async function save(){
     setStatus('saving');setMessage('');
     try{
-      const idToken=auth.configured?await auth.getIdToken():'';
       const payload={
         ...form,
         email:auth.email||form.email,
@@ -210,7 +208,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       };
       const res=await fetch('/api/caregiver-resume',{
         method:'POST',
-        headers:{'content-type':'application/json',...(idToken?{authorization:'Bearer '+idToken}:{})},
+        headers:{'content-type':'application/json'},
         body:JSON.stringify(payload)
       });
       const body=await res.json() as MatchResult;
@@ -240,18 +238,17 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     if(!target?.id||!target.applicationUrl)return;
     setContinuing(true);
     try{
-      const idToken=auth.configured?await auth.getIdToken():'';
       if(sendProfile){
         // Also put the caregiver in the agency's CareJoys Inbox. Without a verified sign-in this emails them a Send link.
         await fetch('/api/public/caregiver-jobs/'+encodeURIComponent(target.id)+'/interest',{
           method:'POST',
-          headers:{'content-type':'application/json',...(idToken?{authorization:'Bearer '+idToken}:{})},
+          headers:{'content-type':'application/json'},
           body:JSON.stringify({caregiverId:result?.id})
         }).catch(()=>null);
       }
       const res=await fetch('/api/public/caregiver-jobs/'+encodeURIComponent(target.id)+'/apply',{
         method:'POST',
-        headers:{'content-type':'application/json',...(idToken?{authorization:'Bearer '+idToken}:{})},
+        headers:{'content-type':'application/json'},
         body:JSON.stringify({caregiverId:result?.id})
       });
       const body=await res.json() as {applicationUrl?:string};
@@ -286,7 +283,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           :auth.isAuthenticated
             ?<a className="btn" href="/dashboard">Open your dashboard</a>
             :<a className="btn" href={jobsHubPath(usState(form.state)||usState(inferState(form.zip))||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
-        {!auth.isAuthenticated&&auth.configured&&<div className="onboarding-save-login">
+        {!auth.isAuthenticated&&<div className="onboarding-save-login">
           <strong>Come back to your matches anytime</strong>
           <span>Sign in once to see employer invites, update availability and track applications.</span>
           <div className="auth-choice">

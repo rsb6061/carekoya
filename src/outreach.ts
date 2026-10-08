@@ -51,7 +51,7 @@ export async function sendReactivationBatch(env:OutreachEnv,limit:number){
   if(!env.DB||!env.EMAIL||limit<1)return {attempted:0,sent:0,failed:0};
   const rows=await env.DB.prepare(`SELECT id,first_name,display_name,lower(trim(email)) AS email FROM caregivers c
     WHERE c.source='legacy_carekoya' AND c.activation_sent_at IS NULL AND c.activation_completed_at IS NULL
-      AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate')
+      AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate','closed')
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(c.email)))
     ORDER BY c.updated_at DESC LIMIT ?`).bind(limit).all<Row>();
   let sent=0,failed=0;
@@ -88,7 +88,7 @@ export async function sendReactivationReminderBatch(env:OutreachEnv,limit:number
   if(!env.DB||!env.EMAIL||limit<1)return {attempted:0,sent:0,failed:0};
   const rows=await env.DB.prepare(`SELECT id,first_name,display_name,lower(trim(email)) AS email FROM caregivers c
     WHERE c.source='legacy_carekoya' AND c.activation_delivery_status='sent' AND c.activation_completed_at IS NULL
-      AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate')
+      AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate','closed')
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(c.email)))
       AND NOT EXISTS (SELECT 1 FROM outreach_events oe WHERE oe.caregiver_id=c.id AND oe.event_type IN ('reactivation_reminder','reactivation_reminder_failed'))
     ORDER BY c.updated_at DESC LIMIT ?`).bind(limit).all<Row>();
@@ -159,7 +159,7 @@ export async function outreachStatus(env:OutreachEnv){
   const kinds:OutreachKind[]=['reactivation','agency_teasers'];
   const today=await Promise.all(kinds.map(async kind=>({kind,cap:dailyCap(env,kind),sentToday:await sentToday(env,kind)})));
   const remainingReactivation=await env.DB!.prepare(`SELECT COUNT(*) AS count FROM caregivers c WHERE c.source='legacy_carekoya' AND c.activation_sent_at IS NULL AND c.activation_completed_at IS NULL
-    AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate')
+    AND c.email IS NOT NULL AND trim(c.email)!='' AND COALESCE(c.work_status,'unknown') NOT IN ('not_looking','merged_duplicate','closed')
     AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(c.email)))`).first<Row>();
   const runs=await env.DB!.prepare('SELECT kind,trigger,attempted,sent,failed,created_at FROM outreach_runs ORDER BY created_at DESC LIMIT 20').all<Row>();
   const suppressions=await env.DB!.prepare('SELECT COUNT(*) AS count FROM email_suppressions').first<Row>();

@@ -15,7 +15,6 @@
     "zip-geo:build": "node scripts/build-zip-geo.mjs"
   },
   "dependencies": {
-    "@auth0/auth0-react": "^2.3.0",
     "@cloudflare/playwright": "^1.3.6",
     "@vitejs/plugin-react": "^5.0.4",
     "lucide-react": "^0.544.0",

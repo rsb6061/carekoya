@@ -17,9 +17,16 @@ export function homePath(roles:DashboardRoles|null,last=''){
   return '/dashboard';
 }
 
-/** Browser only: remember which dashboard this person opened, so the next sign-in returns there. */
+export const DASHBOARD_KINDS:DashboardKind[]=['me','app','admin','school'];
+
+let remembered='';
+/** Browser only: remember which dashboard this person opened, here and on their account, so the next sign-in on
+ *  any device returns there. */
 export function rememberDashboard(kind:DashboardKind){
   try{document.cookie=`${LAST_DASHBOARD_COOKIE}=${kind}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`}catch{}
+  if(remembered===kind)return;
+  remembered=kind;
+  fetch('/api/account/last-dashboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind}),keepalive:true}).catch(()=>{});
 }
 export function lastDashboard(){
   try{return document.cookie.split('; ').find(c=>c.startsWith(LAST_DASHBOARD_COOKIE+'='))?.split('=')[1]||''}catch{return ''}

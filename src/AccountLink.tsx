@@ -49,3 +49,26 @@ export function AccountMenu(){
     </div>}
   </div>;
 }
+
+/** Leave one side of CareJoys: close the hiring workspace, or take the caregiver profile down. Signing up again restores it. */
+export function CloseAccountSide({side}:{side:'hiring'|'caregiver'}){
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  const text=side==='hiring'
+    ?{button:'Close hiring workspace',confirm:'Close your hiring workspace? Your openings stop recruiting and you lose access to /app. Setting up hiring again with this email brings it back.'}
+    :{button:'Remove my caregiver profile',confirm:'Remove your caregiver profile? Employers stop seeing you and CareJoys stops sending you jobs. Building a profile again with this email brings it back.'};
+  async function close(){
+    if(!window.confirm(text.confirm))return;
+    setBusy(true);setError('');
+    try{
+      const res=await fetch('/api/account/close',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({side})});
+      const body=await res.json() as {redirect?:string;error?:string};
+      if(!res.ok)throw new Error(body.error||'Could not close it.');
+      window.location.assign(body.redirect||'/');
+    }catch(e){setError(e instanceof Error?e.message:'Could not close it.');setBusy(false)}
+  }
+  return <div className="close-account-side">
+    <button type="button" className="text-button" disabled={busy} onClick={()=>void close()}>{busy?'Closing…':text.button}</button>
+    {error&&<div className="notice">{error}</div>}
+  </div>;
+}

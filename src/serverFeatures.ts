@@ -15,8 +15,6 @@ export type FeatureEnv={
   EMAIL?:EmailBinding;
   TURNSTILE_SITE_KEY?:string;
   TURNSTILE_SECRET_KEY?:string;
-  AUTH0_DOMAIN?:string;
-  AUTH0_CLIENT_ID?:string;
   STRIPE_SECRET_KEY?:string;
   STRIPE_PRICE_ID?:string;
   FREE_CONTACTS?:string;
@@ -219,8 +217,6 @@ export function publicConfig(env:FeatureEnv,googleSignIn=false){
   return json({
     ok:true,
     turnstileSiteKey:env.TURNSTILE_SITE_KEY||null,
-    auth0Domain:env.AUTH0_DOMAIN||null,
-    auth0ClientId:env.AUTH0_CLIENT_ID||null,
     googleSignIn
   });
 }
