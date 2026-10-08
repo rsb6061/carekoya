@@ -123,7 +123,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
     freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,
     availability:parseAvailability(c.availability_json),employmentTypes:listOf(c.employment_types),startAvailability:c.start_availability,
-    careSettings:listOf(c.care_settings),workConditions:listOf(c.work_conditions),licenseNumber:c.license_number,licenseState:c.license_state
+    careSettings:listOf(c.care_settings),preferredSettings:listOf(c.preferred_settings),workConditions:listOf(c.work_conditions),licenseNumber:c.license_number,licenseState:c.license_state
   },
   invites:(invites.results||[]).map(r=>({
     id:r.id,stage:r.stage,response:r.response_value,contactedAt:r.contacted_at,interviewAt:r.interview_at,interviewBooked:!!r.interview_booked_at,
@@ -237,13 +237,13 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
   const travel=Math.max(0,Math.min(100,asNum(d?.travelMiles)));
   const payMin=Math.max(0,Math.min(200,asNum(d?.payMin)));
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),
-      role=?,certifications=?,license_number=?,license_state=?,years_experience=?,specialties=?,care_settings=?,languages=?,bio=?,
+      role=?,certifications=?,license_number=?,license_state=?,years_experience=?,specialties=?,care_settings=?,preferred_settings=?,languages=?,bio=?,
       availability_json=?,shift_preferences=?,employment_types=?,start_availability=?,work_conditions=?,
       hourly_rate_min=?,desired_wage=?,transportation=?,travel_distance_miles=?,
       work_status=?,is_active=?,last_confirmed_at=CURRENT_TIMESTAMP,profile_updated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(first,last,(first+' '+last).trim(),clean(d?.phone,40),zip,zipInfo?.city||'',state||'',
       clean(d?.role,80)||'Caregiver',freeList(d?.certifications),clean(d?.licenseNumber,60),clean(d?.licenseState,2).toUpperCase(),years||null,
-      freeList(d?.specialties),freeList(d?.careSettings),freeList(d?.languages),clean(d?.bio,1200),
+      freeList(d?.specialties),freeList(d?.careSettings),freeList(d?.preferredSettings),freeList(d?.languages),clean(d?.bio,1200),
       JSON.stringify(availability),availabilitySummary(availability),pick(d?.employmentTypes,['full_time','part_time','per_diem']).join(','),
       ['now','2_weeks','1_month','later'].includes(clean(d?.startAvailability,20))?clean(d?.startAvailability,20):null,
       pick(d?.workConditions,['pets','smokers']).join(','),
