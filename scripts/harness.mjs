@@ -54,11 +54,11 @@ export function seed(db){
       VALUES ('org-a','a','Harbor Home Care','jobs@harbor.example','Dana Smith','Baltimore','MD','21201',1,90),
              ('org-b','b','Chesapeake Caregivers','hello@chesapeake.example','','Towson','MD','21204',1,70),
              ('org-c','c','Closed Agency','x@closed.example','','Baltimore','MD','21201',0,50);
-    INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published,date_posted,description_text)
-      VALUES ('job-1','org-a','d1','ats','https://harbor.example/apply/1','CNA Day Shift','CNA','Harbor Home Care','Baltimore','MD','21201',19,22,'hour','current',1,'2026-09-20','Visit clients in Baltimore.'),
-             ('job-2','org-a','d2','ats','https://harbor.example/apply/2','HHA Weekends','HHA','Harbor Home Care','Baltimore','MD','21230',16,17,'hour','current',1,'2026-09-25',''),
-             ('job-3','org-b','d3','ats','https://chesapeake.example/apply','Caregiver','Caregiver','Chesapeake Caregivers','Towson','MD','21204',NULL,NULL,NULL,'current',1,'2026-09-10',''),
-             ('job-hidden','org-b','d4','ats','https://chesapeake.example/x','Hidden CNA','CNA','Chesapeake Caregivers','Towson','MD','21204',30,30,'hour','current',0,'2026-09-28','');
+    INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published,date_posted,description_text,summary_text)
+      VALUES ('job-1','org-a','d1','ats','https://harbor.example/apply/1','CNA Day Shift','CNA','Harbor Home Care','Baltimore','MD','21201',19,22,'hour','current',1,'2026-09-20','Employer posting text, never shown.','Visit clients in Baltimore.'),
+             ('job-2','org-a','d2','ats','https://harbor.example/apply/2','HHA Weekends','HHA','Harbor Home Care','Baltimore','MD','21230',16,17,'hour','current',1,'2026-09-25','',NULL),
+             ('job-3','org-b','d3','ats','https://chesapeake.example/apply','Caregiver','Caregiver','Chesapeake Caregivers','Towson','MD','21204',NULL,NULL,NULL,'current',1,'2026-09-10','',NULL),
+             ('job-hidden','org-b','d4','ats','https://chesapeake.example/x','Hidden CNA','CNA','Chesapeake Caregivers','Towson','MD','21204',30,30,'hour','current',0,'2026-09-28','',NULL);
   `);
 }
 

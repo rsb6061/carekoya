@@ -39,6 +39,10 @@
   "browser": {
     "binding": "BROWSER"
   },
+  // Workers AI: writes CareJoys' own summary of each job (src/jobSummary.ts).
+  "ai": {
+    "binding": "AI"
+  },
   "send_email": [
     {
       "name": "EMAIL",

@@ -14,6 +14,8 @@ import { approvalFor, approveEmployer, pendingApprovalResponse } from './employe
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runReactivationReminders, runScheduledOutreach } from './outreach';
 import { listText } from './listField';
+import { summarizeJobsBatch, type AiBinding } from './jobSummary';
+import { descriptionBlocks } from './jobFormat';
 import { runDataForSeoJobs } from './dataforseo';
 import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
@@ -62,6 +64,8 @@ interface Env {
   GOOGLE_SITE_VERIFICATION?: string;
   BING_SITE_VERIFICATION?: string;
   BROWSER?: unknown;
+  AI?: AiBinding;
+  JOB_SUMMARY_MODEL?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -523,12 +527,12 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   const publicJobMatch=url.pathname.match(/^\/jobs\/([^/]+)$/);
   if(publicJobMatch&&env.DB){
     const id=decodeURIComponent(publicJobMatch[1]);
-    const job=await env.DB.prepare("SELECT id,agency_organization_id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,pay_currency,description_text,source_url,date_posted,valid_through,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
+    const job=await env.DB.prepare("SELECT id,agency_organization_id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,pay_currency,summary_text,source_url,date_posted,valid_through,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
     if(job){
       const title=normalizeTitle(job.title)||"Caregiver job";
       const employer=String(job.employer_name||"Care employer");
       const location=[job.city,job.state,job.zip].filter(Boolean).join(", ");
-      const description=htmlEntityDecode(job.description_text||"").replace(/\s+/g," ").trim();
+      const summary=descriptionBlocks(String(job.summary_text||""));
       const pay=payText(job.pay_min,job.pay_max,job.pay_period);
       const state=usState(String(job.state||""));
       const hubLink=state?'<a href="'+jobsHubPath(state)+'">Caregiver jobs in '+htmlEscape(state.name)+'</a>':'<a href="/caregiver-jobs">Caregiver jobs</a>';
@@ -541,7 +545,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         description:trimAtWord(title+" at "+employer+(location?" in "+location:"")+(pay?", "+pay:"")+". Apply through CareJoys and reuse one caregiver profile for relevant jobs.",160),
         canonical:"/jobs/"+encodeURIComponent(id),
         ogImage:"/og/caregiver-jobs.png",
-        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(description?'<h2>About this job</h2><p>'+htmlEscape(description)+'</p>':'')+payHtml+employerHtml+similarHtml+'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p></main>',
+        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(summary.lead?'<h2>About this job</h2><p>'+htmlEscape(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+htmlEscape(b)+'</li>').join('')+'</ul>':''):'')+payHtml+employerHtml+similarHtml+'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p></main>',
         jsonLd:[
           jobPostingJsonLd(job,context.employer?{primary_website:context.employer.website}:null),
           {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[
@@ -1692,6 +1696,8 @@ export default {
         return;
       }
       if(event.cron==="2,32,47 * * * *"){
+        // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
+        await summarizeJobsBatch(env,50).catch(()=>null);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         await enrichAgencyBatch(env,30);
         return;
