@@ -10,20 +10,20 @@ type Stage=
   |{kind:'error';message:string;fallbackUrl?:string};
 
 /** Uploads the caregiver's resume file to their CareJoys account. */
-export async function uploadMyResume(file:File,token:string){
-  const res=await fetch('/api/me/resume',{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name),...(token?{authorization:'Bearer '+token}:{})},body:file});
+export async function uploadMyResume(file:File){
+  const res=await fetch('/api/me/resume',{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name)},body:file});
   const body=await res.json().catch(()=>({})) as {error?:string};
   if(!res.ok)throw new Error(body.error||'Could not save your resume.');
 }
 
-export function ResumeFileInput({getToken,onSaved,label='Add your resume file'}:{getToken:()=>Promise<string>;onSaved:(name:string)=>void;label?:string}){
+export function ResumeFileInput({onSaved,label='Add your resume file'}:{onSaved:(name:string)=>void;label?:string}){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   async function onFile(e:ChangeEvent<HTMLInputElement>){
     const file=e.target.files?.[0];
     if(!file)return;
     setBusy(true);setError('');
-    try{await uploadMyResume(file,await getToken());onSaved(file.name)}
+    try{await uploadMyResume(file);onSaved(file.name)}
     catch(err){setError(err instanceof Error?err.message:'Could not save your resume.')}
     finally{setBusy(false);e.target.value=''}
   }
@@ -37,8 +37,8 @@ export function ResumeFileInput({getToken,onSaved,label='Add your resume file'}:
  * "Apply for me": CareJoys fills in the employer's own application with the caregiver's profile and resume,
  * asks here for anything it doesn't know, and hands over the employer's page for CAPTCHAs and signatures.
  */
-export function ApplyForMe({jobId,employerName,hasResume,getToken,onActive,onSubmitted}:{
-  jobId:string;employerName:string;hasResume:boolean;getToken:()=>Promise<string>;onActive:(active:boolean)=>void;onSubmitted:()=>void;
+export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
+  jobId:string;employerName:string;hasResume:boolean;onActive:(active:boolean)=>void;onSubmitted:()=>void;
 }){
   const [stage,setStageRaw]=useState<Stage>({kind:'idle'});
   const [resumeName,setResumeName]=useState(hasResume?'saved':'');
@@ -47,8 +47,7 @@ export function ApplyForMe({jobId,employerName,hasResume,getToken,onActive,onSub
   const setStage=(next:Stage)=>{setStageRaw(next);onActive(next.kind!=='idle');if(next.kind==='submitted')onSubmitted()};
 
   async function call(path:string,body:unknown){
-    const token=await getToken();
-    const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:JSON.stringify(body)});
+    const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json().catch(()=>({})) as any;
     if(data.status==='submitted'||data.status==='already_applied')return setStage({kind:'submitted'});
     if(data.status==='needs_answers'){setAnswers({});setRemember({});return setStage({kind:'questions',sessionId:data.sessionId,questions:data.questions||[]})}
@@ -114,7 +113,7 @@ export function ApplyForMe({jobId,employerName,hasResume,getToken,onActive,onSub
     {stage.kind==='error'&&<div className="notice">{stage.message}{stage.fallbackUrl&&<> <a className="text-link" href={stage.fallbackUrl} target="_blank" rel="noreferrer nofollow">Apply on {employerName}’s site</a></>}</div>}
     {!resumeName
       ?<><p className="apply-with-profile-sub">Add your resume file and CareJoys can fill in {employerName}’s application for you.</p>
-        <ResumeFileInput getToken={getToken} onSaved={setResumeName}/></>
+        <ResumeFileInput onSaved={setResumeName}/></>
       :<button className="btn submit-button" onClick={()=>void start()}>Apply for me on {employerName}’s site</button>}
     <p className="apply-agent-note">CareJoys fills in {employerName}’s application with your profile and resume and asks you about anything it doesn’t know. It never answers background-check, demographic or signature questions for you.</p>
   </div>;

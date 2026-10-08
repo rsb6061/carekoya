@@ -232,3 +232,6 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .candidate-name-row .talent-card-status{margin-left:auto;display:grid;justify-items:end;gap:2px;text-align:right;font-size:13px;color:#655f78;max-width:55%}
 .talent-card-status strong{color:#4255ff;font-size:14px}
 .profile-visibility h3{font-size:15px;font-weight:600;margin:0;color:#514b65}.profile-visibility p{font-size:14px;color:#655f78}
+
+.close-account-side{margin-top:24px;font-size:.9rem}
+.app-footer .close-account-side{margin-top:8px}

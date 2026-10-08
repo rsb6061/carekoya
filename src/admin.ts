@@ -1,6 +1,7 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
 import { resetTestAgency, startTestAgency } from './agencyFeatures';
+import { accountSession } from './accountAuth';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
@@ -28,7 +29,7 @@ export async function secretsMatch(a:string,b:string){
   return diff===0;
 }
 
-/** Admin = `Authorization: Bearer $ADMIN_TOKEN`, or an employer session whose email is in ADMIN_EMAILS. */
+/** Admin = `Authorization: Bearer $ADMIN_TOKEN`, or a CareJoys sign-in (workspace or shared account) whose email is in ADMIN_EMAILS. */
 export async function adminFromRequest(request:Request,env:AdminEnv){
   const auth=request.headers.get('authorization')||'';
   if(env.ADMIN_TOKEN&&auth.startsWith('Bearer ')&&await secretsMatch(auth.slice(7).trim(),env.ADMIN_TOKEN))return {via:'token' as const,email:''};
@@ -36,7 +37,9 @@ export async function adminFromRequest(request:Request,env:AdminEnv){
   if(!allowed.length)return null;
   const session=await employerSession(request,env);
   const email=clean(session?.email,320).toLowerCase();
-  return session&&allowed.includes(email)?{via:'session' as const,email}:null;
+  if(session&&allowed.includes(email))return {via:'session' as const,email};
+  const account=await accountSession(request,env);
+  return account&&allowed.includes(account.email)?{via:'session' as const,email:account.email}:null;
 }
 
 export async function requestAdminMagicLink(request:Request,env:AdminEnv){

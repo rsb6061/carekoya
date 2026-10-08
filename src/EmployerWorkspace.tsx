@@ -3,7 +3,7 @@ import { LoginForm, Shell } from './LoginPage';
 import { useCaregiverAuth } from './caregiverAuth';
 import { rememberDashboard } from './dashboardHome';
 import { payLabel } from './jobFormat';
-import { AccountMenu } from './AccountLink';
+import { AccountMenu, CloseAccountSide } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { JobsWidgetCard } from './JobsWidgetCard';
 import { AgencyInbox } from './AgencyInboxTab';
@@ -432,8 +432,14 @@ export function EmployerWorkspace(){
         </form>
       </div></div>}
     </main>
-    <footer className="app-footer"><div className="app-wrap">CareJoys · Caregivers ready to work. Interviews ready for you.</div></footer>
+    <footer className="app-footer"><div className="app-wrap">CareJoys · Caregivers ready to work. Interviews ready for you.<CloseWorkspace/></div></footer>
   </div>;
+}
+
+/** Only a shared sign-in can close the workspace, since closing is per email. */
+function CloseWorkspace(){
+  const auth=useCaregiverAuth();
+  return auth.isAuthenticated?<CloseAccountSide side="hiring"/>:null;
 }
 
 /** The account menu, or a plain Sign out for an older hiring-only session that has no shared sign-in. */

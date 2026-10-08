@@ -1,9 +1,9 @@
-import { accountSession, accountStatus, finishGoogleSignIn, googleSignInConfigured, logoutEverywhere, requestLogin, startGoogleSignIn, verifyLogin } from './accountAuth';
+import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
-import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, sessionResponse, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
+import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
@@ -41,8 +41,6 @@ interface Env {
   EMAIL?: EmailBinding;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
-  AUTH0_DOMAIN?: string;
-  AUTH0_CLIENT_ID?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   ADMIN_EMAILS?: string;
@@ -79,53 +77,10 @@ function rejectCrossSiteWrite(request:Request){
   return sameOriginWrite(request)?null:json({ok:false,error:"Cross-site request blocked"},{status:403});
 }
 
-function base64UrlBytes(value:string){
-  const normalized=value.replace(/-/g,'+').replace(/_/g,'/');
-  const padded=normalized+'='.repeat((4-normalized.length%4)%4);
-  const raw=atob(padded);
-  return Uint8Array.from(raw,ch=>ch.charCodeAt(0));
-}
-function base64UrlJson(value:string){
-  try{return JSON.parse(new TextDecoder().decode(base64UrlBytes(value))) as Record<string,unknown>}catch{return null}
-}
-/** The signed-in caregiver identity: an Auth0 token when one is sent, otherwise the CareJoys email sign-in. */
+/** The signed-in caregiver identity: the CareJoys account session (email link or Google). */
 async function caregiverAuthIdentity(request:Request,env:Env){
-  const viaAuth0=await auth0Identity(request,env);
-  if(viaAuth0)return viaAuth0;
   const account=await accountSession(request,env);
   return account?{sub:EMAIL_SUB_PREFIX+account.email,email:account.email,emailVerified:true,name:""}:null;
-}
-async function auth0Identity(request:Request,env:Env){
-  if(!env.AUTH0_DOMAIN||!env.AUTH0_CLIENT_ID)return null;
-  const auth=request.headers.get('authorization')||'';
-  const token=auth.startsWith('Bearer ')?auth.slice(7).trim():'';
-  if(!token)return null;
-  const parts=token.split('.');
-  if(parts.length!==3)return null;
-  const header=base64UrlJson(parts[0]);
-  const payload=base64UrlJson(parts[1]);
-  if(!header||!payload||header.alg!=='RS256'||!header.kid)return null;
-  const issuer='https://'+env.AUTH0_DOMAIN.replace(/^https?:\/\//,'').replace(/\/$/,'')+'/';
-  const aud=payload.aud;
-  const audOk=Array.isArray(aud)?aud.includes(env.AUTH0_CLIENT_ID):aud===env.AUTH0_CLIENT_ID;
-  if(payload.iss!==issuer||!audOk||Number(payload.exp||0)*1000<Date.now())return null;
-  try{
-    const res=await fetch(issuer+'.well-known/jwks.json',{headers:{accept:'application/json'}});
-    if(!res.ok)return null;
-    const jwks=await res.json() as {keys?:JsonWebKey[]};
-    const jwk=(jwks.keys||[]).find((k:any)=>k.kid===header.kid);
-    if(!jwk)return null;
-    const key=await crypto.subtle.importKey('jwk',jwk,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['verify']);
-    const signed=new TextEncoder().encode(parts[0]+'.'+parts[1]);
-    const valid=await crypto.subtle.verify('RSASSA-PKCS1-v1_5',key,base64UrlBytes(parts[2]),signed);
-    if(!valid)return null;
-    return {
-      sub:clean(payload.sub,255),
-      email:clean(payload.email,320).toLowerCase(),
-      emailVerified:payload.email_verified===true,
-      name:clean(payload.name,200)
-    };
-  }catch{return null}
 }
 
 type WorkerCtx={waitUntil(promise:Promise<unknown>):void};
@@ -367,6 +322,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   // The employer form used to open as a pop-up on the homepage; old links go to its page.
   if(url.pathname==="/"&&url.searchParams.get("hire")==="1")return Response.redirect(new URL("/hire-caregivers",url).toString(),301);
   if(url.pathname==="/"){
+    // The home page is the pitch to agencies; anyone signed in goes to their own dashboard instead.
+    const home=await signedInHome(request,env);
+    if(home)return new Response(null,{status:302,headers:{location:home,"cache-control":"no-store"}});
     return seoAsset(request,env,{
       title:"CareJoys | Caregiver Recruiting & Caregiver Jobs Near You",
       description:"CareJoys helps home-care agencies and employers match with local caregivers ready to work, and helps caregivers find CNA, HHA and PCA jobs by city and state.",
@@ -1554,11 +1512,13 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
     if(request.method==="GET"&&url.pathname==="/api/config") return publicConfig(env,googleSignInConfigured(env));
     if(request.method==="POST"&&url.pathname==="/api/auth/request") return requestEmployerMagicLink(request,env);
-    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake));
-    if(request.method==="GET"&&url.pathname==="/api/session") return sessionResponse(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/auth/verify") return verifyEmployerMagicLink(request,env,(employerId,intake)=>applyPendingEmployerIntake(env,employerId,intake),employerId=>employerAccountCookie(env,employerId));
+    if(request.method==="GET"&&url.pathname==="/api/session") return hiringSession(request,env);
     if(request.method==="POST"&&url.pathname==="/api/login/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestLogin(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/login/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyLogin(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/account") return accountStatus(request,env);
+    if(request.method==="POST"&&url.pathname==="/api/account/last-dashboard"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveLastDashboard(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/account/close"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return closeAccountSide(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/auth/google/start") return startGoogleSignIn(request,env);
     if(request.method==="GET"&&url.pathname==="/api/auth/google/callback") return finishGoogleSignIn(request,env);
     // Signing out anywhere signs this browser out of CareJoys entirely, whichever dashboard it was on.

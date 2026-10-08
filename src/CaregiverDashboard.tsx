@@ -5,7 +5,7 @@ import { ResumeFileInput } from './ApplyForMe';
 import { jobsHubPath, usState } from './usStates';
 import { payLabel, tidyTitle } from './jobFormat';
 import { rememberDashboard } from './dashboardHome';
-import { AccountMenu } from './AccountLink';
+import { AccountMenu, CloseAccountSide } from './AccountLink';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import './workspace.css';
@@ -52,8 +52,7 @@ export function CaregiverDashboard(){
   const [notice,setNotice]=useState('');
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
-    const token=await auth.getIdToken();
-    const res=await fetch(path,{...init,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),...(init?.headers||{})}});
+    const res=await fetch(path,{...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
     const body=await res.json() as T&{error?:string};
     if(!res.ok)throw new Error(body.error||'Request failed');
     return body;
@@ -107,7 +106,10 @@ export function CaregiverDashboard(){
       <p>Caregivers: upload your resume once and we’ll match you with local care jobs. Agencies and employers: describe the role and see matched local caregivers.</p>
       <div className="empty-actions">
         <a className="button" href="/caregiver-resume">I’m a caregiver</a>
-        <a className="button secondary" href="/hire-caregivers">I’m hiring caregivers</a>
+        {/* An agency already has a workspace: open it rather than starting a second hiring setup. */}
+        {auth.roles?.employer
+          ?<a className="button secondary" href="/app">Open your hiring workspace</a>
+          :<a className="button secondary" href="/hire-caregivers">I’m hiring caregivers</a>}
       </div>
     </div>
   </main></div>;
@@ -130,6 +132,7 @@ export function CaregiverDashboard(){
     <main className="app-wrap app-content profile-page">
       <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
       <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
+      <CloseAccountSide side="caregiver"/>
     </main>
   </div>;
 
@@ -226,7 +229,7 @@ export function CaregiverDashboard(){
         <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
         <div className="settings-card resume-card">
           {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
-          <ResumeFileInput getToken={auth.getIdToken} label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
+          <ResumeFileInput label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
         </div>
       </section>
 

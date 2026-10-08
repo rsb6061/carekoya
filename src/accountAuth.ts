@@ -1,5 +1,5 @@
-import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie } from './serverFeatures';
-import { homePath, LAST_DASHBOARD_COOKIE } from './dashboardHome';
+import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie, sessionResponse } from './serverFeatures';
+import { DASHBOARD_KINDS, homePath, LAST_DASHBOARD_COOKIE, type DashboardKind } from './dashboardHome';
 import { adminEmails } from './admin';
 import { loginLinkEmail } from './email';
 
@@ -13,6 +13,8 @@ type Roles={caregiver:boolean;employer:boolean;admin:boolean;school:boolean};
 export const LOGIN_LINK_MINUTES=60;
 const ACCOUNT_COOKIE='__Host-cj_account';
 const SESSION_DAYS=30;
+const CLEAR_EMPLOYER_COOKIE='__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
+const CLEAR_SCHOOL_COOKIE='__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const emailValid=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -45,7 +47,7 @@ export const SCHOOL_FOR_EMAIL=`SELECT tp.id AS training_program_id,sl.id AS scho
 
 export async function accountRoles(env:AccountEnv,email:string):Promise<Roles>{
   if(!env.DB||!email)return {caregiver:false,employer:false,admin:false,school:false};
-  const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate' LIMIT 1").bind(email).first();
+  const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(email).first();
   const employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' LIMIT 1").bind(email).first();
   const school=await env.DB.prepare(SCHOOL_FOR_EMAIL).bind(email).first();
   return {caregiver:!!caregiver,employer:!!employer,admin:adminEmails(env).includes(email),school:!!school};
@@ -105,6 +107,8 @@ export async function verifyLogin(request:Request,env:AccountEnv){
 /** Signs a proven email in: the account session, plus the employer session when a hiring workspace exists. */
 async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
   const roles=await accountRoles(env,email);
+  // A new device has no cookie yet: fall back to the dashboard this account used last anywhere.
+  if(!last)last=(await env.DB!.prepare('SELECT last_dashboard FROM account_preferences WHERE email=? LIMIT 1').bind(email).first<{last_dashboard:string}>())?.last_dashboard||'';
   const headers=new Headers({'cache-control':'no-store'});
   headers.append('Set-Cookie',await startAccountSession(env,email));
   // Admins sign in to /admin through an employer session, so give a first-time admin that record.
@@ -112,10 +116,11 @@ async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
     await env.DB!.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status) VALUES (?,'CareJoys','Admin',?,'','','CareJoys admin account','active')").bind(crypto.randomUUID(),email).run();
     roles.employer=true;
   }
-  if(roles.employer){
-    const employer=await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
-    if(employer)headers.append('Set-Cookie',employerSessionCookie(await startEmployerSession(env,employer.id)));
-  }
+  const employer=roles.employer?await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>():null;
+  // Replace any workspace or school session this browser still holds for a different email, so a shared computer never
+  // opens someone else's hiring workspace under this sign-in.
+  headers.append('Set-Cookie',employer?employerSessionCookie(await startEmployerSession(env,employer.id)):CLEAR_EMPLOYER_COOKIE);
+  if(!roles.school)headers.append('Set-Cookie',CLEAR_SCHOOL_COOKIE);
   return {headers,redirect:landingPath(roles,next,last),roles};
 }
 
@@ -180,11 +185,78 @@ export async function accountStatus(request:Request,env:AccountEnv){
   const session=await accountSession(request,env);
   if(!session)return json({ok:true,signedIn:false});
   const name=await env.DB!.prepare(`SELECT name FROM (
-      SELECT first_name AS name,1 AS rank FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate'
+      SELECT first_name AS name,1 AS rank FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed')
       UNION ALL SELECT contact_name,2 FROM employer_leads WHERE lower(email)=? AND status!='disabled'
       UNION ALL SELECT contact_name,3 FROM school_leads WHERE lower(email)=?)
     WHERE COALESCE(name,'')!='' ORDER BY rank LIMIT 1`).bind(session.email,session.email,session.email).first<{name:string}>();
   return json({ok:true,signedIn:true,email:session.email,name:clean(name?.name,120).split(/\s+/)[0]||'',roles:await accountRoles(env,session.email)});
+}
+
+/** An account session for the email behind an employer's emailed workspace link, which proved that email. */
+export async function employerAccountCookie(env:AccountEnv,employerId:string){
+  const row=await env.DB!.prepare('SELECT email FROM employer_leads WHERE id=? LIMIT 1').bind(employerId).first<{email:string}>();
+  const email=clean(row?.email,320).toLowerCase();
+  return emailValid(email)?startAccountSession(env,email):null;
+}
+
+/** /api/session: the hiring workspace session, opened from the shared sign-in when this browser doesn't have one yet
+ *  (it expired, or the workspace was set up or claimed after they signed in). */
+export async function hiringSession(request:Request,env:AccountEnv){
+  const existing=await sessionResponse(request,env);
+  if(existing.status!==401)return existing;
+  const account=await accountSession(request,env);
+  const employer=account?await env.DB!.prepare("SELECT id,company_name,contact_name,email,phone,zip FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1")
+    .bind(account.email).first<Record<string,unknown>>():null;
+  if(!employer)return existing;
+  const session=await startEmployerSession(env,String(employer.id));
+  return json({ok:true,employer:{id:employer.id,companyName:employer.company_name,contactName:employer.contact_name,email:employer.email,phone:employer.phone,zip:employer.zip}},
+    {headers:{'Set-Cookie':employerSessionCookie(session)}});
+}
+
+/** Where a signed-in visitor to the home page belongs: their own dashboard. Null when not signed in. */
+export async function signedInHome(request:Request,env:AccountEnv){
+  if(!cookie(request,ACCOUNT_COOKIE))return null;
+  const session=await accountSession(request,env);
+  if(!session)return null;
+  let last=cookie(request,LAST_DASHBOARD_COOKIE);
+  if(!last)last=(await env.DB!.prepare('SELECT last_dashboard FROM account_preferences WHERE email=? LIMIT 1').bind(session.email).first<{last_dashboard:string}>())?.last_dashboard||'';
+  return homePath(await accountRoles(env,session.email),last);
+}
+
+/** Saves the dashboard this account opened last, so a sign-in on another device opens it too. */
+export async function saveLastDashboard(request:Request,env:AccountEnv){
+  const session=await accountSession(request,env);
+  if(!session)return json({ok:false,error:'Sign in required'},{status:401});
+  const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
+  const kind=clean(data?.kind,20) as DashboardKind;
+  if(!DASHBOARD_KINDS.includes(kind))return json({ok:false,error:'Unknown dashboard'},{status:400});
+  await env.DB!.prepare(`INSERT INTO account_preferences(email,last_dashboard,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)
+    ON CONFLICT(email) DO UPDATE SET last_dashboard=excluded.last_dashboard,updated_at=CURRENT_TIMESTAMP`).bind(session.email,kind).run();
+  return json({ok:true});
+}
+
+/** Leaves one side of CareJoys for this account: closes the hiring workspace, or removes the caregiver profile from
+ *  employers and from sign-in. Nothing is deleted, so signing up again on that side picks the record back up. */
+export async function closeAccountSide(request:Request,env:AccountEnv){
+  const session=await accountSession(request,env);
+  if(!session)return json({ok:false,error:'Sign in required'},{status:401});
+  const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
+  const side=clean(data?.side,20);
+  const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
+  if(side==='hiring'){
+    const rows=await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled'").bind(session.email).all<{id:string}>();
+    for(const row of rows.results||[]){
+      await env.DB!.prepare("UPDATE employer_leads SET status='disabled',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
+      await env.DB!.prepare('DELETE FROM employer_sessions WHERE employer_id=?').bind(row.id).run();
+    }
+    headers.append('Set-Cookie',CLEAR_EMPLOYER_COOKIE);
+  }else if(side==='caregiver'){
+    await env.DB!.prepare("UPDATE caregivers SET work_status='closed',is_active=0,updated_at=CURRENT_TIMESTAMP WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate'").bind(session.email).run();
+  }else{
+    return json({ok:false,error:'Choose hiring or caregiver'},{status:400});
+  }
+  const roles=await accountRoles(env,session.email);
+  return new Response(JSON.stringify({ok:true,roles,redirect:homePath(roles)}),{status:200,headers});
 }
 
 /** Signs this browser out of everything: the account session and any employer session. */
@@ -199,7 +271,7 @@ export async function logoutEverywhere(request:Request,env:AccountEnv){
   }
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store'});
   headers.append('Set-Cookie',`${ACCOUNT_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
-  headers.append('Set-Cookie','__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
-  headers.append('Set-Cookie','__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  headers.append('Set-Cookie',CLEAR_EMPLOYER_COOKIE);
+  headers.append('Set-Cookie',CLEAR_SCHOOL_COOKIE);
   return new Response(JSON.stringify({ok:true}),{status:200,headers});
 }

@@ -176,7 +176,7 @@ jobs:
           test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
           echo "Public config:"
           CONFIG=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config)
-          echo "$CONFIG" | jq -e 'has("auth0Domain") and has("auth0ClientId")' >/dev/null
+          echo "$CONFIG" | jq -e 'has("googleSignIn")' >/dev/null
           echo "$CONFIG"
           echo
           echo "Agency demand summary:"

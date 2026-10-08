@@ -47,8 +47,7 @@ export function CaregiverJobPage(){
   useEffect(()=>{
     if(!auth.isAuthenticated){setMe(null);return}
     (async()=>{
-      const token=await auth.getIdToken();
-      const res=await fetch('/api/me',{headers:token?{authorization:'Bearer '+token}:{}});
+      const res=await fetch('/api/me');
       if(res.ok)setMe(await res.json() as MyProfile);
     })().catch(()=>{});
   },[auth.isAuthenticated]);
@@ -62,8 +61,7 @@ export function CaregiverJobPage(){
     if(!job)return;
     setApplying(true);setApplyError('');
     try{
-      const token=await auth.getIdToken();
-      const res=await fetch('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:'{}'});
+      const res=await fetch('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
       const body=await res.json() as ApplyResult&{error?:string};
       if(!res.ok)throw new Error(body.error||'Could not send your application.');
       setApplied(body);
@@ -139,7 +137,7 @@ export function CaregiverJobPage(){
     {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
-        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} getToken={auth.getIdToken} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
+        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
         :<CaregiverOnboarding
           compact
           targetJobId={job.id}
@@ -154,14 +152,14 @@ export function CaregiverJobPage(){
 }
 
 
-function ApplyWithProfile({job,profile,hasResume,getToken,result,alreadyApplied,applicationSent,applying,error,onApply,onEmployerSite}:{
-  job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;getToken:()=>Promise<string>;result:ApplyResult|null;alreadyApplied:boolean;applicationSent:boolean;applying:boolean;error:string;
+function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicationSent,applying,error,onApply,onEmployerSite}:{
+  job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;result:ApplyResult|null;alreadyApplied:boolean;applicationSent:boolean;applying:boolean;error:string;
   onApply:()=>void;onEmployerSite:()=>void;
 }){
   const [agentActive,setAgentActive]=useState(false);
   const [agentSubmitted,setAgentSubmitted]=useState(false);
   const agent=job.applyForMe&&!result&&!alreadyApplied||agentSubmitted
-    ?<ApplyForMe jobId={job.id} employerName={job.employerName||'the employer'} hasResume={hasResume} getToken={getToken} onActive={setAgentActive} onSubmitted={()=>setAgentSubmitted(true)}/>
+    ?<ApplyForMe jobId={job.id} employerName={job.employerName||'the employer'} hasResume={hasResume} onActive={setAgentActive} onSubmitted={()=>setAgentSubmitted(true)}/>
     :null;
   if(agentActive||agentSubmitted)return <div className="caregiver-onboarding compact apply-with-profile">{agent}</div>;
   const employer=job.employerName||'the employer';

@@ -1,6 +1,8 @@
-import { lazy, Suspense, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect, type ComponentType } from 'react';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
+import { useCaregiverAuth } from './caregiverAuth';
+import { homePath, lastDashboard } from './dashboardHome';
 
 // Each page is its own chunk so a visitor only downloads the page they opened.
 const named=<K extends string>(load:()=>Promise<Record<K,ComponentType<any>>>,name:K)=>lazy(()=>load().then(m=>({default:m[name]})));
@@ -86,6 +88,11 @@ function NotFound(){
 }
 
 function Home() {
+  const auth=useCaregiverAuth();
+  // The Worker already redirects signed-in visitors; this catches a home page the browser served from its cache.
+  useEffect(()=>{
+    if(!auth.loading&&auth.isAuthenticated)window.location.replace(homePath(auth.roles,lastDashboard()));
+  },[auth.loading,auth.isAuthenticated]);
   return <div>
     <SiteHeader audience="employer"/>
 
