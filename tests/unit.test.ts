@@ -162,7 +162,7 @@ describe('seo helpers', ()=>{
   });
   it('builds Google for Jobs markup', ()=>{
     const posting=jobPostingJsonLd({id:'job_1',title:'CNA &amp; GNA',employer_name:'Acme Care',city:'Baltimore',state:'MD',zip:'21201',
-      employment_type:'Full-time',pay_min:18,pay_max:22,pay_period:'hour',description_text:'Help <clients>',date_posted:'2026-09-20',
+      employment_type:'Full-time',pay_min:18,pay_max:22,pay_period:'hour',description_text:'Copied employer text',summary_text:'Help <clients> at home • Valid license',date_posted:'2026-09-20',
       last_checked_at:'2026-09-30 10:00:00'},{primary_website:'https://acme.example'}) as any;
     expect(posting['@type']).toBe('JobPosting');
     expect(posting.title).toBe('CNA & GNA');
@@ -172,7 +172,7 @@ describe('seo helpers', ()=>{
     expect(posting.jobLocation.address).toMatchObject({addressLocality:'Baltimore',addressRegion:'MD',postalCode:'21201',addressCountry:'US'});
     expect(posting.baseSalary.value).toEqual({'@type':'QuantitativeValue',minValue:18,maxValue:22,unitText:'HOUR'});
     expect(posting.employmentType).toBe('FULL_TIME');
-    expect(posting.description).toBe('<p>Help &lt;clients&gt;</p>');
+    expect(posting.description).toBe('<p>Help &lt;clients&gt; at home</p><ul><li>Valid license</li></ul>');
   });
 });
 
@@ -349,5 +349,24 @@ describe('jobFit', ()=>{
   it('prefers jobs that meet the minimum pay and are closer', ()=>{
     expect(jobFit(cna,{role:'CNA',title:'CNA',pay_max:20},10,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA',pay_max:15},10,25));
     expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
+  });
+});
+
+describe('profile list fields', ()=>{
+  it('reads legacy JSON, mixed and comma text the same way', async ()=>{
+    const { cleanList, listText } = await import('../src/listField');
+    expect(listText('["CPR/First Aid", "Driver\'s License"], CNA')).toBe("CPR/First Aid, Driver's License, CNA");
+    expect(listText('["English"], English, Spanish')).toBe('English, Spanish');
+    expect(cleanList('[]')).toEqual([]);
+    expect(cleanList('CNA, HHA')).toEqual(['CNA','HHA']);
+    expect(cleanList(['CNA','cna',' BLS '])).toEqual(['CNA','BLS']);
+  });
+});
+
+describe('job summaries', ()=>{
+  it('turns the model output into the lead and bullets the job page renders', async ()=>{
+    const { parseSummary } = await import('../src/jobSummary');
+    expect(parseSummary('Here is the summary:\nHome care aide role supporting seniors in Rockport.\n- Help with bathing and meals\n* Driver license required\n\n1. Weekend shifts')).toBe('Home care aide role supporting seniors in Rockport. • Help with bathing and meals • Driver license required • Weekend shifts');
+    expect(parseSummary('- only bullets')).toBe('');
   });
 });

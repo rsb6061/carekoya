@@ -1353,7 +1353,7 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
 }
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.description_text,j.source_url,j.source_listing_url,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
+  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.id=? AND j.is_published=1 AND j.status="current" LIMIT 1`).bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
@@ -1362,7 +1362,7 @@ export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   return json({ok:true,job:{
     id:row.id,title:normalizeTitle(row.title),role:row.role,roles,employerName:row.employer_name,
     city:row.city,state:row.state,zip:row.zip,employmentType:row.employment_type,
-    payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:decodeHtml(clean(row.description_text,8000)),
+    payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:clean(row.summary_text,4000),
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
     firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
     applyForMe:!!detectApplyProvider(clean(row.source_url,1000)),

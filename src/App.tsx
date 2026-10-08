@@ -59,7 +59,7 @@ function routePage(path:string){
   if (path === '/login' || path === '/signup') return <LoginPage />;
   if (path === '/signin') return <SignInLinkPage />;
   if (path === '/welcome') return <WelcomeRedirect />;
-  if (path === '/find-caregivers') return <FindCaregiversPage />;
+  if (path === '/hire-caregivers' || path === '/find-caregivers') return <FindCaregiversPage />;
   if (path === '/add-training-program') return <AddTrainingProgramPage />;
   return null;
 }
@@ -79,7 +79,7 @@ function NotFound(){
     <main className="section not-found"><div className="wrap">
       <div className="modal-kicker">404</div>
       <h1>Page not found</h1>
-      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs">caregiver jobs</a>, or <a className="text-link" href="/find-caregivers">hiring caregivers</a>.</p>
+      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers">hiring caregivers</a>.</p>
     </div></main>
     <SiteFooter/>
   </div>;
@@ -97,7 +97,7 @@ function Home() {
             <span className="hero-title-line">Interviews ready for you.</span>
           </h1>
           <p>CareJoys helps home-care agencies and employers match with local caregivers ready to work.</p>
-          <form className="search" action="/find-caregivers" method="get">
+          <form className="search" action="/hire-caregivers" method="get">
             <select name="role" defaultValue="">
               <option value="">All caregiver roles</option>
               <option value="CNA">CNA</option>
@@ -107,7 +107,7 @@ function Home() {
               <option value="Caregiver">Caregiver</option>
             </select>
             <input name="zip" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
-            <button className="btn" type="submit">Find caregivers</button>
+            <button className="btn" type="submit">Hire caregivers</button>
           </form>
         </div>
       </section>

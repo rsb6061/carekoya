@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { ProfilePhotoSection } from './ProfilePhotoSection';
+import { cleanList } from './listField';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
@@ -19,7 +20,7 @@ export type CaregiverProfileData={
   desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;profilePhotoUrl?:string|null;
 };
 
-const list=(v?:string|string[])=>(Array.isArray(v)?v:(v||'').split(',')).map(x=>x.trim()).filter(Boolean);
+const list=(v?:string|string[])=>cleanList(v);
 const hasAvailability=(a?:Availability)=>!!a&&(a.liveIn||Object.values(a.days||{}).some(b=>b.length>0));
 const payNumber=(wage?:string)=>{const m=(wage||'').match(/\d+(\.\d+)?/);return m?m[0]:''};
 

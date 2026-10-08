@@ -39,6 +39,10 @@
   "browser": {
     "binding": "BROWSER"
   },
+  // Workers AI: writes CareJoys' own summary of each job (src/jobSummary.ts).
+  "ai": {
+    "binding": "AI"
+  },
   "send_email": [
     {
       "name": "EMAIL",
@@ -53,6 +57,8 @@
     // Outreach crons send nothing until this is "true". Caps are emails per UTC day.
     "OUTREACH_ENABLED": "false",
     "REACTIVATION_DAILY_CAP": "50",
+    // One reminder (15:41 UTC cron) to legacy caregivers who got the first email and never confirmed; each gets it once. Rebecca approved 2026-10-08.
+    "REACTIVATION_REMINDER_ENABLED": "true",
     "AGENCY_TEASER_DAILY_CAP": "10",
     // "Verify your agency needs" invites to agencies whose jobs CareJoys lists; separate from OUTREACH_ENABLED.
     "AGENCY_HIRING_INVITES_ENABLED": "true",

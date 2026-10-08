@@ -16,7 +16,7 @@ export function EmployerRecruitingPage(){
         <div className="modal-kicker">Hire caregivers</div>
         <h1>Hire caregivers in {state.name}.</h1>
         <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
-        <div className="hero-actions"><a className="btn" href="/find-caregivers">Find caregivers</a></div>
+        <div className="hero-actions"><a className="btn" href="/hire-caregivers">Hire caregivers</a></div>
       </div></section>
 
       <section className="section" id="claim-agency"><div className="wrap">
@@ -74,7 +74,7 @@ export function AboutCareJoysPage(){
       <section className="section"><div className="wrap">
         <h2>What is CareJoys?</h2>
         <div className="jobs">
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/find-caregivers">Find caregivers →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Find local caregivers who fit the role and work preferences, see availability freshness, confirm interest, and manage the path to interview and hire.</div></div><a className="text-link" href="/hire-caregivers">Find caregivers →</a></div>
           <div className="job"><div><h3>For caregivers</h3><div className="meta">Create one work profile, keep availability current, and decide which relevant local opportunities you want to pursue.</div></div><a className="text-link" href="/caregiver-jobs">Find jobs →</a></div>
           <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.</div></div><a className="text-link" href="/training-programs/maryland">Maryland training programs →</a></div>
         </div>
@@ -121,7 +121,7 @@ export function PricingPage(){
               <div><h2>Hiring</h2><span className="plan-note">Per location</span></div>
               <div className="plan-price"><strong>{p.price}</strong><span>{p.per}</span></div>
             </div>
-            <a className="btn plan-cta" href={'/find-caregivers?plan='+plan}>{p.cta}</a>
+            <a className="btn plan-cta" href={'/hire-caregivers?plan='+plan}>{p.cta}</a>
             {plan==='yearly'&&<div className="plan-save">Save $70 per year</div>}
             {free>0&&<div className="plan-free">Your first {free} caregiver contacts are free.</div>}
             <ul className="plan-list">
