@@ -197,7 +197,8 @@ describe('us states', ()=>{
     expect(slugify('Ellicott City')).toBe('ellicott-city');
   });
   it('parses hub paths and rejects non-canonical ones', ()=>{
-    expect(parseJobsHubPath('/caregiver-jobs/maryland')).toEqual({state:usState('MD'),citySlug:''});
+    expect(parseJobsHubPath('/caregiver-jobs/maryland')).toEqual({state:usState('MD'),citySlug:'',cna:false});
+    expect(parseJobsHubPath('/cna-jobs/maryland/baltimore')).toEqual({state:usState('MD'),citySlug:'baltimore',cna:true});
     expect(parseJobsHubPath('/caregiver-jobs/maryland/baltimore')?.citySlug).toBe('baltimore');
     expect(parseJobsHubPath('/caregiver-jobs/md')).toBeNull();
     expect(parseJobsHubPath('/caregiver-jobs/narnia')).toBeNull();

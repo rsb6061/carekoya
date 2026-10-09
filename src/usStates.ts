@@ -24,19 +24,19 @@ export function usState(value:string|null|undefined):UsState|null{
   return BY_CODE.get(v.toUpperCase())||BY_SLUG.get(slugify(v))||null;
 }
 
-/** `/caregiver-jobs/{state}[/{city}]` → its parts, or null for any other path. */
+/** `/caregiver-jobs/{state}[/{city}]` or `/cna-jobs/{state}[/{city}]` → its parts, or null for any other path. */
 export function parseJobsHubPath(pathname:string){
-  const m=pathname.match(/^\/caregiver-jobs\/([^/]+)(?:\/([^/]+))?\/?$/);
+  const m=pathname.match(/^\/(caregiver|cna)-jobs\/([^/]+)(?:\/([^/]+))?\/?$/);
   if(!m)return null;
-  const state=usState(decodeURIComponent(m[1]));
-  if(!state||slugify(decodeURIComponent(m[1]))!==state.slug)return null;
-  return {state,citySlug:m[2]?slugify(decodeURIComponent(m[2])):''};
+  const state=usState(decodeURIComponent(m[2]));
+  if(!state||slugify(decodeURIComponent(m[2]))!==state.slug)return null;
+  return {state,citySlug:m[3]?slugify(decodeURIComponent(m[3])):'',cna:m[1]==='cna'};
 }
 
 /** `/caregiver-jobs`, the all-states jobs page. */
 export const isNationalJobsPath=(pathname:string)=>pathname==='/caregiver-jobs'||pathname==='/caregiver-jobs/';
 
-export const jobsHubPath=(state:UsState,citySlug='')=>'/caregiver-jobs/'+state.slug+(citySlug?'/'+citySlug:'');
+export const jobsHubPath=(state:UsState,citySlug='',cna=false)=>(cna?'/cna-jobs/':'/caregiver-jobs/')+state.slug+(citySlug?'/'+citySlug:'');
 
 // USPS three-digit ZIP prefixes per state (territories and military prefixes are left out).
 const ZIP3_RANGES:ReadonlyArray<readonly [from:number,to:number,code:string]>=[

@@ -10,7 +10,7 @@ export type PublicCaregiverJob={
   id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null;
 };
-type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];metro?:{name:string;area:string}|null;jobs:PublicCaregiverJob[]};
+type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];metro?:{name:string;area:string}|null;cna?:boolean;sibling?:number;cnaPageMinJobs?:number;jobs:PublicCaregiverJob[]};
 type National={total:number;page:number;pages:number;jobs:PublicCaregiverJob[];
   states:{code:string;name:string;slug:string;count:number}[];
   cities:{city:string;slug:string;state:string;stateSlug:string;count:number}[]};
@@ -198,6 +198,7 @@ function StateJobsPage(){
   const parsed=parseJobsHubPath(window.location.pathname);
   const state=parsed?.state||usState('MD')!;
   const citySlug=parsed?.citySlug||'';
+  const cna=!!parsed?.cna;
   const params=new URLSearchParams(window.location.search);
   const [role,setRole]=useState(params.get('role')||'');
   const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
@@ -219,6 +220,7 @@ function StateJobsPage(){
     setJobsLoading(true);
     const q=new URLSearchParams({state:state.code,page:String(page)});
     if(citySlug)q.set('city',citySlug);
+    if(cna)q.set('cna','1');
     if(role)q.set('role',role);
     fetch('/api/public/jobs-hub?'+q.toString())
       .then(r=>r.json())
@@ -226,9 +228,17 @@ function StateJobsPage(){
       .catch(()=>{})
       .finally(()=>setJobsLoading(false));
     syncQuery({role,page:page>1?String(page):''});
-  },[referralSlug,state.code,citySlug,role,page]);
+  },[referralSlug,state.code,citySlug,cna,role,page]);
 
   const place=hub?.city?hub.city+', '+state.code:state.name;
+  const area=hub?.metro?'the '+hub.metro.name+' area':place;
+  const isMaryland=state.code==='MD';
+  // Mirrors the server page: a place with its own CNA page keeps "CNA" off its caregiver heading.
+  const hasCnaPage=!cna&&!!hub&&(hub.sibling||0)>=(hub.cnaPageMinJobs||10);
+  const heading=cna?(isMaryland?'CNA and GNA jobs in ':'CNA jobs in ')+area
+    :hasCnaPage?'Caregiver jobs in '+area
+    :hub?.metro?'CNA and caregiver jobs in the '+hub.metro.name+' area':(isMaryland?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+place;
+  const noun=cna?(isMaryland?'CNA and GNA jobs':'CNA jobs'):'caregiver jobs';
 
   return <div>
     <SiteHeader/>
@@ -236,9 +246,9 @@ function StateJobsPage(){
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
-          {!program&&<div className="hub-breadcrumb"><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › {citySlug?<><a href={jobsHubPath(state)}>{state.name}</a> › {hub?.city||'…'}</>:state.name}</div>}
+          {!program&&<div className="hub-breadcrumb"><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › {citySlug?<><a href={jobsHubPath(state,'',cna)}>{cna?'CNA jobs in '+state.name:state.name}</a> › {hub?.city||'…'}</>:cna?'CNA jobs in '+state.name:state.name}</div>}
           <div className="modal-kicker">{program?program.name:state.name+' caregivers'}</div>
-          <h1>{program?'Get matched after training.':hub?.metro?'CNA and caregiver jobs in the '+hub.metro.name+' area':(state.code==='MD'?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+place}</h1>
+          <h1>{program?'Get matched after training.':heading}</h1>
           <p>{program
             ?'Create one free profile, resume optional. CareJoys matches you with care employers near you.'
             :'Create one free profile, resume optional. CareJoys matches you with caregiver jobs and employers near you.'}</p>
@@ -254,7 +264,7 @@ function StateJobsPage(){
         <div className="section-heading">
           <div>
             <div className="modal-kicker">Current openings</div>
-            <h2>Current caregiver jobs in {place}</h2>
+            <h2>Current {noun} in {area}</h2>
             <p>{hub?.total?hub.total+' current opening'+(hub.total===1?'':'s')+', verified from care-employer career pages. ':'Verified from care-employer career pages. '}Open a job on CareJoys, then apply with the same reusable profile.</p>
           </div>
         </div>
@@ -269,9 +279,10 @@ function StateJobsPage(){
 
         {hub&&<Pager page={hub.page} pages={hub.pages} onChange={setPage}/>}
 
+        {hub&&(cna?(hub.sibling||0)>0:hasCnaPage)&&<p className="hub-other-states"><a className="text-link" href={jobsHubPath(state,citySlug,!cna)}>{cna?'See all '+hub.sibling+' caregiver jobs in '+area:'See '+hub.sibling+' CNA'+(isMaryland?' and GNA':'')+' jobs in '+area} →</a></p>}
         {!citySlug&&hub&&hub.cities.length>0&&<div className="hub-cities">
-          <h3>Caregiver jobs by city</h3>
-          <div className="job-tags">{hub.cities.map(c=><a className="pill" key={c.slug} href={jobsHubPath(state,c.slug)}>{c.city} ({c.count})</a>)}</div>
+          <h3>{cna?'CNA':'Caregiver'} jobs by city</h3>
+          <div className="job-tags">{hub.cities.map(c=><a className="pill" key={c.slug} href={jobsHubPath(state,c.slug,cna)}>{c.city} ({c.count})</a>)}</div>
         </div>}
         <p className="hub-other-states"><a className="text-link" href="/caregiver-jobs">Caregiver jobs in other states →</a></p>
       </div></section>}
