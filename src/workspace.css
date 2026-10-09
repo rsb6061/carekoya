@@ -354,7 +354,7 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .match-tile.picked{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
 .match-pick{padding-top:12px}
 .match-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.match-name{min-width:0;flex:1}
+.match-name{min-width:0;flex:1 1 180px}
 .match-name h3{margin:0;font-family:var(--display);font-size:24px;font-weight:500}
 .match-name .job-meta{margin-top:2px}
 .match-status{font-size:13px;border-radius:999px;padding:5px 10px;background:#f3f0fb;color:#514b65;white-space:nowrap}
@@ -368,3 +368,10 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .match-contact{font-size:12px;color:var(--muted);word-break:break-all;text-align:center}
 @media (max-width:640px){.match-tile{grid-template-columns:22px minmax(0,1fr);padding:14px}.match-actions{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:center;min-width:0}.match-name h3{font-size:21px}.match-toolbar .button{width:100%}}
 .match-opening-head .text-button,.match-opening-links .text-button,.match-actions .text-button{margin:0}
+.candidate-group{display:grid;gap:12px;margin:0 0 26px}
+.candidate-group-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;margin:6px 0 0}
+.candidate-group-head h3{margin:0;font-size:20px}
+.candidate-group-head p{margin:0;color:var(--muted,#666);font-size:14px}
+.match-tile.no-pick{grid-template-columns:minmax(0,1fr) auto}
+@media (max-width:640px){.match-tile.no-pick{grid-template-columns:minmax(0,1fr)}.match-tile.no-pick .match-actions{grid-column:1}}
+.section-block>.candidate-group-head{margin:0 0 12px}

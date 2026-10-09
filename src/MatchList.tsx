@@ -5,7 +5,7 @@ export type MatchRow={
   id:string;opening_id:string;stage:string;match_score?:number;match_reasons?:string[];
   contacted_at?:string|null;responded_at?:string|null;interview_at?:string|null;hired_at?:string|null;
   response_value?:string|null;rejected_reason?:string|null;title:string;caregiver_id:string;
-  name:string;city?:string;state?:string;role?:string;profilePhotoUrl?:string;contact_email?:string|null;contact_locked?:boolean;profile?:TalentCandidate;
+  name:string;city?:string;state?:string;role?:string;profilePhotoUrl?:string;contact_email?:string|null;contact_phone?:string|null;contact_locked?:boolean;employer_notes?:string;profile?:TalentCandidate;
 };
 
 const day=(v?:string|null)=>v?new Date(v.includes('T')?v:v.replace(' ','T')+'Z').toLocaleDateString(undefined,{month:'short',day:'numeric'}):'';
@@ -28,9 +28,10 @@ function statusOf(r:MatchRow):{label:string;tone:string}{
  * Matched caregivers as selectable tiles: why each one matched, where they stand, and the next action.
  * Invitations go out per caregiver or for the selected ones; the employer's only manual marks are Hired and Not a fit.
  */
-export function MatchList({rows,showOpening,disabled,onInvite,onDecide}:{
+export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes}:{
   rows:MatchRow[];showOpening:boolean;disabled?:boolean;
   onInvite:(rows:MatchRow[])=>Promise<void>;onDecide:(row:MatchRow,stage:'hired'|'rejected')=>Promise<void>;
+  onNotes?:(row:MatchRow,notes:string)=>Promise<void>;
 }){
   const [selected,setSelected]=useState<Set<string>>(new Set());
   const [busy,setBusy]=useState(false);
@@ -70,11 +71,14 @@ export function MatchList({rows,showOpening,disabled,onInvite,onDecide}:{
             {r.profile?.freshness&&<span className="badge">{r.profile.freshness.replace(/^Confirmed/,'Available, confirmed')}</span>}
           </div>
           {r.profile&&<details className="talent-more"><summary>Full profile</summary><TalentDetails candidate={r.profile}/></details>}
+          {onNotes&&r.stage!=='matched'&&<textarea className="inbox-notes" rows={2} defaultValue={r.employer_notes||''} placeholder="Private notes" aria-label={'Notes on '+r.name}
+            onBlur={e=>{if(e.target.value!==(r.employer_notes||''))void onNotes(r,e.target.value)}}/>}
         </div>
         <div className="match-actions">
           {r.stage==='matched'&&<button className="button" disabled={disabled||busy} onClick={()=>void invite([r])}>Invite</button>}
           {r.contact_email&&<a className="button" href={'mailto:'+r.contact_email}>Email</a>}
-          {r.contact_email&&<span className="match-contact">{r.contact_email}</span>}
+          {r.contact_phone&&<a className="button secondary" href={'tel:'+r.contact_phone.replace(/[^\d+]/g,'')}>Call</a>}
+          {(r.contact_email||r.contact_phone)&&<span className="match-contact">{[r.contact_email,r.contact_phone].filter(Boolean).join(' · ')}</span>}
           {['interested','interview'].includes(r.stage)&&<button className="button secondary" disabled={disabled} onClick={()=>void onDecide(r,'hired')}>Mark hired</button>}
           {!['hired','rejected'].includes(r.stage)&&<button className="text-button" disabled={disabled} onClick={()=>void onDecide(r,'rejected')}>Not a fit</button>}
         </div>

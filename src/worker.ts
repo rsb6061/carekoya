@@ -1488,8 +1488,9 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const openingId=clean(url.searchParams.get("openingId"),80);
-  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,cp.response_value,cp.rejected_reason,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},
-    CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email
+  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,cp.response_value,cp.rejected_reason,cp.employer_notes,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},
+    CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email,
+    CASE WHEN cp.response_value='interested' THEN c.phone ELSE NULL END AS contact_phone
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
       AND (cp.stage!='matched' OR (c.is_active=1 AND c.work_status='actively_looking'
        AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))))`;
@@ -1506,13 +1507,19 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
     return {id:r.id,opening_id:r.opening_id,stage:r.stage,match_score:r.match_score,match_reasons:reasons,contacted_at:r.contacted_at,responded_at:r.responded_at,
       interview_at:r.interview_at,hired_at:r.hired_at,response_value:r.response_value,rejected_reason:r.rejected_reason,title:r.title,opening_role:r.opening_role,
       caregiver_id:r.caregiver_id,name:profile.name,city:r.city,state:r.state,role:r.role,certifications:r.certifications,freshness:profile.freshness,
-      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_locked:locked.has(clean(r.id,100)),profile};
+      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_phone:locked.has(clean(r.id,100))?null:r.contact_phone||null,contact_locked:locked.has(clean(r.id,100)),employer_notes:r.employer_notes||'',profile};
   })});
 }
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const data=await readJson(request);
+  if(data?.notes!==undefined&&data?.stage===undefined){
+    const owns=await env.DB!.prepare("SELECT cp.id FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first();
+    if(!owns) return json({ok:false,error:"Pipeline record not found"},{status:404});
+    await env.DB!.prepare("UPDATE candidate_pipeline SET employer_notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(clean(data.notes,4000),pipelineId).run();
+    return json({ok:true});
+  }
   const stage=clean(data?.stage,40);
   // Invited, interested and interview booked come only from real invitations and the caregiver's own answers.
   const allowed=["hired","rejected"];
