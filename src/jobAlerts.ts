@@ -57,13 +57,13 @@ export async function caregiverAlertSettings(request:Request,env:FeatureEnv,iden
 function emailBody(firstName:string,jobs:Awaited<ReturnType<typeof nearbyJobsFor>>){
   const greeting=esc(firstName||'there');
   const lines=jobs.map(j=>{
-    const url='https://carejoys.com/jobs/'+encodeURIComponent(j.id);
-    const location=esc([j.city,j.state].filter(Boolean).join(', '));
+    const url='https://carejoys.com/jobs/'+encodeURIComponent(String(j.id));
+    const location=esc([j.city,j.state].filter(Boolean).map(String).join(', '));
     const pay=j.payMax&&j.payPeriod==='hour'?' · up to $'+j.payMax+'/hr':'';
-    return '<li style="margin:0 0 20px"><a href="'+esc(url)+'" style="color:#4255ff;font-weight:bold">'+esc(j.title)+'</a><div style="color:#686078">'+esc(j.employerName||'Employer')+' · '+location+esc(pay)+'</div></li>';
+    return '<li style="margin:0 0 20px"><a href="'+esc(url)+'" style="color:#4255ff;font-weight:bold">'+esc(String(j.title||''))+'</a><div style="color:#686078">'+esc(String(j.employerName||'Employer'))+' · '+location+esc(pay)+'</div></li>';
   }).join('');
   const html='<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;color:#1b153c"><h1>New jobs worth a look</h1><p>Hi '+greeting+', here are caregiver opportunities that fit the location and career details in your CareJoys profile.</p><ul style="padding-left:20px">'+lines+'</ul><p><a href="https://carejoys.com/dashboard">Update your job preferences</a></p><p style="font-size:13px">Pay, schedule and openings can change. Confirm details with each employer. This email is free and optional.</p></div>';
-  const text='Hi '+(firstName||'there')+',\n\nYour CareJoys job matches:\n\n'+jobs.map(j=>j.title+' — '+(j.employerName||'Employer')+' ('+[j.city,j.state].filter(Boolean).join(', ')+')\nhttps://carejoys.com/jobs/'+encodeURIComponent(j.id)).join('\n\n')+'\n\nUpdate preferences: https://carejoys.com/dashboard';
+  const text='Hi '+(firstName||'there')+',\n\nYour CareJoys job matches:\n\n'+jobs.map(j=>j.title+' — '+(j.employerName||'Employer')+' ('+[j.city,j.state].filter(Boolean).join(', ')+')\nhttps://carejoys.com/jobs/'+encodeURIComponent(String(j.id))).join('\n\n')+'\n\nUpdate preferences: https://carejoys.com/dashboard';
   return {subject:'Your weekly CareJoys caregiver job matches',html,text};
 }
 
