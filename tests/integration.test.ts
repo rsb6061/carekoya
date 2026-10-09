@@ -539,6 +539,15 @@ describe('audit fixes: SEO responses', ()=>{
     expect(www.status).toBe(301);
     expect(www.headers.get('location')).toBe('https://carejoys.com/about');
   });
+  it('nurse aide registry page lists every state with official links', async()=>{
+    const page=await call('/resources/nurse-aide-registry-by-state',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<tr id="north-carolina">');
+    expect(html).toContain('<tr id="maryland">');
+    expect(html.match(/<tr id="/g)?.length).toBe(51);
+    expect(await (await call('/sitemaps/pages.xml')).text()).toContain('/resources/nurse-aide-registry-by-state');
+  });
   it('sitemap is an index of child sitemaps', async()=>{
     const index=await (await call('/sitemap.xml')).text();
     expect(index).toContain('<sitemapindex');

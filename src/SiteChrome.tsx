@@ -24,6 +24,7 @@ export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links)
     <nav className="footer-links">
       <a href={jobsHref}>Caregiver jobs</a>
       {showTraining&&<a href="/training-programs/maryland">Maryland training programs</a>}
+      <a href="/resources/nurse-aide-registry-by-state">CNA registry by state</a>
       <a href="/pricing">For employers</a>
       <a href="/about">About</a>
       <a href="/privacy-policy">Privacy</a>
