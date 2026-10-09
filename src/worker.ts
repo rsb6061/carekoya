@@ -1098,7 +1098,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,work_status=CASE WHEN work_status='closed' THEN 'unknown' ELSE work_status END,last_confirmed_at=CASE WHEN work_status='closed' THEN NULL ELSE last_confirmed_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
       shifts,desiredWage,floor||null,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
