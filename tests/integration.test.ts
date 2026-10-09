@@ -25,7 +25,7 @@ const SESSION='test-session-token';
 const recent=new Date(Date.now()-86400000).toISOString();
 
 async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}){
-  const row={id,first_name:id,last_name:'Test',email:id+'@example.com',zip,state:'',role:'CNA',work_status:'actively_looking',last_confirmed_at:recent,source:'organic',is_active:1,...extra};
+  const row={id,first_name:id,last_name:'Test',email:id+'@example.com',zip,state:'',role:'CNA',work_status:'actively_looking',last_confirmed_at:recent,source:'organic',is_active:1,auth0_email_verified:1,...extra};
   const keys=Object.keys(row);
   await DB.prepare(`INSERT INTO caregivers(${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`).bind(...Object.values(row)).run();
 }
@@ -409,6 +409,44 @@ describe('worker acquisition: optional phone and linked 24-hour retention',()=>{
     await call('/api/public/job-preview?zip=21201&role=CNA',{headers:{'X-CareJoys-Funnel-Id':visitor}});
     const result=await (await call('/api/admin/overview?window=30',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
     expect(result.funnel.workerFunnel.previews).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('pay preferences and verified caregiver availability',()=>{
+  it('keeps unsigned profiles hidden, stores an hourly floor and requires explicit availability',async()=>{
+    const email='pay-floor-worker@realcare.test';
+    const req={firstName:'Pay',lastName:'Floor',email,zip:'21201',role:'CNA',desiredWage:'$24–30/hr'};
+    const created=await post('/api/caregiver-resume',req);
+    expect(created.status).toBe(201);
+    const {id}=await created.json() as any;
+    expect(await DB.prepare('SELECT phone,hourly_rate_min,desired_wage,work_status,last_confirmed_at FROM caregivers WHERE id=?').bind(id).first())
+      .toEqual({phone:'',hourly_rate_min:24,desired_wage:'$24+/hr',work_status:'unknown',last_confirmed_at:null});
+    const search=await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(search.candidates.some((c:any)=>c.id===id)).toBe(false);
+    const invalid=await post('/api/caregiver-resume',{firstName:'Bad',lastName:'Pay',email:'invalid-pay-worker@realcare.test',zip:'21201',role:'CNA',desiredWage:'50000/year'});
+    expect(invalid.status).toBe(400);
+    sent.length=0;
+    const login=await post('/api/login/request',{email});
+    expect(login.status).toBe(200);
+    const token=decodeURIComponent(sent.find(x=>x.to===email)!.html!.match(/signin\?token=([^"&]+)/)![1]);
+    const proof=await post('/api/login/verify',{token});
+    expect(proof.status).toBe(200);
+    expect((await DB.prepare('SELECT auth0_email_verified,work_status FROM caregivers WHERE id=?').bind(id).first())).toEqual({auth0_email_verified:1,work_status:'unknown'});
+    const cookie=proof.headers.get('set-cookie')?.match(/__Host-cj_account=([^;]+)/)?.[1];
+    expect(cookie).toBeTruthy();
+    const confirm=await post('/api/me/availability',{workStatus:'actively_looking'},{cookie:'__Host-cj_account='+cookie});
+    expect(confirm.status).toBe(200);
+    const after=await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(after.candidates.some((c:any)=>c.id===id)).toBe(true);
+  });
+  it('shows separate agency and school outreach campaigns with their actual configured status',async()=>{
+    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'60',OUTREACH_ENABLED:'false'});
+    expect(res.status).toBe(200);
+    const body=await res.json() as any;
+    expect(body.funnel.outreachChannels.agencyHiring.enabled).toBe(true);
+    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(60);
+    expect(body.funnel.outreachChannels.generalBulk.enabled).toBe(false);
+    expect(body.funnel.outreachChannels.schools.mode).toBe('manual');
   });
 });
 

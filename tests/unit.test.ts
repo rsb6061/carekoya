@@ -1,3 +1,4 @@
+import { hourlyPayFloor } from '../src/payPreferences';
 import { jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
@@ -380,6 +381,17 @@ describe('jobFit', ()=>{
   it('prefers jobs that meet the minimum pay and are closer', ()=>{
     expect(jobFit(cna,{role:'CNA',title:'CNA',pay_max:20},10,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA',pay_max:15},10,25));
     expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
+  });
+});
+
+describe('hourly wage floor parsing',()=>{
+  it('handles numeric minimums and the legacy desired-wage ranges',()=>{
+    expect(hourlyPayFloor('$20–24/hr')).toBe(20);
+    expect(hourlyPayFloor('$24+/hr')).toBe(24);
+    expect(hourlyPayFloor('21.50 per hour')).toBe(21.5);
+    expect(hourlyPayFloor('50000/year')).toBeNull();
+    expect(hourlyPayFloor('not sure')).toBeNull();
+    expect(hourlyPayFloor(250)).toBeNull();
   });
 });
 
