@@ -376,12 +376,12 @@ describe('worker acquisition: optional phone and linked 24-hour retention',()=>{
     expect(await DB.prepare('SELECT phone,auth0_email_verified FROM caregivers WHERE id=?').bind(id).first()).toEqual({phone:'',auth0_email_verified:0});
     expect(await DB.prepare('SELECT visitor_id FROM worker_funnel_links WHERE caregiver_id=?').bind(id).first()).toEqual({visitor_id:visitor});
     expect(await DB.prepare('SELECT email_enabled FROM caregiver_job_alert_preferences WHERE caregiver_id=?').bind(id).first()).toEqual({email_enabled:1});
-    const auth=await call('/api/auth/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
+    const auth=await call('/api/login/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
     expect(auth.status).toBe(200);
     const ownerMail=sent.find(m=>m.to===email);
     expect(ownerMail?.html).toContain('token=');
     const token=decodeURIComponent(ownerMail!.html!.match(/token=([^"&]+)/)![1]);
-    const verified=await call('/api/auth/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token})});
+    const verified=await call('/api/login/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token})});
     expect(verified.status).toBe(200);
     expect(await DB.prepare('SELECT auth0_email_verified FROM caregivers WHERE id=?').bind(id).first()).toEqual({auth0_email_verified:1});
     const cookie=verified.headers.get('set-cookie')?.match(/__Host-cj_account=([^;]+)/)?.[1];
