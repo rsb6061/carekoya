@@ -45,6 +45,8 @@ const ROLE_ALIASES:Record<string,string[]>={
  * when both do, geography is distance-based and caregivers outside their commute radius are excluded (score 0).
  */
 export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
+  if(c.auth0_email_verified!==undefined&&Number(c.auth0_email_verified)!==1&&!(c.source==='legacy_carekoya'&&c.activation_completed_at))return {score:0,reasons:['email not verified'],distanceMiles:null};
+  if(c.work_status!==undefined&&c.work_status!=='actively_looking')return {score:0,reasons:['availability not confirmed'],distanceMiles:null};
   let score=0;
   const reasons:string[]=[];
   const distanceMiles=rowDistanceMiles(opening,c);

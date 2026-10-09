@@ -2,6 +2,7 @@ import { accountSession, accountStatus, closeAccountSide, signedInHome, employer
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
+import { hourlyPayFloor } from './payPreferences';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
@@ -975,6 +976,9 @@ async function handleCaregiver(request: Request, env: Env) {
   const city=zipInfo?.city||"";
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
+  const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
+  if((data!.payMin!==undefined||clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  const desiredWage=floor?'$'+floor+'+/hr':'';
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   // This form has no sign-in, so it may create a profile but never change one that already exists.
   if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/login to update it."},{status:409});
@@ -982,19 +986,19 @@ async function handleCaregiver(request: Request, env: Env) {
 
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
-      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP)`)
+      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,hourly_rate_min,transportation,source,work_status,last_confirmed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','unknown',NULL)`)
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),city||null,zip,state,clean(data!.role,80),
-        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80)).run();
+        clean(data!.shifts,500),desiredWage,floor||null,clean(data!.transportation,80)).run();
   }
   const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,city=COALESCE(NULLIF(?,''),city),state=CASE WHEN ?!='' THEN ? ELSE state END,
-    role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
+    role=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,
     is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,city,state,state,clean(data!.role,80),
-      clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),id).run();
+      clean(data!.shifts,500),desiredWage,floor||null,clean(data!.transportation,80),id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1075,14 +1079,16 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const languages=clean(data!.languages,1000);
   const years=Math.max(0,Math.min(60,Number(data!.yearsExperience||0)||0));
   const shifts=clean(data!.shifts,500);
-  const desiredWage=clean(data!.desiredWage,80);
+  const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
+  if((data!.payMin!==undefined||clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  const desiredWage=floor?'$'+floor+'+/hr':'';
   const transportation=clean(data!.transportation,80);
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,hourly_rate_min,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','unknown',NULL,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
+        shifts,desiredWage,floor||null,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
 
   const canonical=auth0Sub
@@ -1092,9 +1098,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
+      shifts,desiredWage,floor||null,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1240,7 +1246,7 @@ async function handleSchool(request: Request, env: Env) {
     .bind(id,clean(data!.organizationName,250),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.city,120),clean(data!.state,80),clean(data!.programTypes,500),clean(data!.graduatingCount,50),clean(data!.notes,1500)).run();
   return json({ok:true,id},{status:201});
 }
-const SEARCHABLE_CAREGIVER="c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))";
+const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))";
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
