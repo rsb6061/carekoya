@@ -101,7 +101,7 @@ function Home() {
     if(!auth.loading&&auth.isAuthenticated)window.location.replace(homePath(auth.roles,lastDashboard()));
   },[auth.loading,auth.isAuthenticated]);
   return <div>
-    <SiteHeader audience="caregiver"/>
+    <SiteHeader audience="caregiver" cta/>
 
     <main>
       <HomeHero/>

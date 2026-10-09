@@ -7,13 +7,13 @@ type Links={jobsHref?:string;showTraining?:boolean};
 /** Phones only have room for one section link: caregiver pages keep jobs, employer pages keep employers. */
 type Audience={audience?:'caregiver'|'employer'};
 
-export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver'}:Omit<Links,'showTraining'>&Audience){
+export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver',cta=false}:Omit<Links,'showTraining'>&Audience&{cta?:boolean}){
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
-      <a className={audience==='caregiver'?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
+      <a className={audience==='caregiver'&&!cta?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
       <a className={audience==='employer'?undefined:'hide-sm'} href="/pricing">For employers</a>
-      <AccountLink className="nav-signin"/>
+      <AccountLink className="nav-signin" cta={cta}/>
     </nav>
   </div></header>;
 }

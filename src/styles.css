@@ -13,6 +13,8 @@ a{color:inherit;text-decoration:none}
 .navlinks a:hover,.navlinks button:hover{background:#efeaff;color:var(--ink)}
 .navlinks .nav-signin{background:#e8e3ff;color:var(--ink);font-weight:600}
 .navlinks .nav-signin:hover{background:#ddd6ff}
+.navlinks .nav-cta{background:var(--blue);color:#fff;font-weight:600;padding:9px 16px;box-shadow:0 5px 14px rgba(66,85,255,.18)}
+.navlinks .nav-cta:hover{background:#3445e6;color:#fff}
 .btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--blue);background:var(--blue);color:white;border-radius:999px;min-height:46px;padding:11px 20px;font-size:14px;font-weight:600;box-shadow:0 5px 14px rgba(66,85,255,.16);transition:transform .15s ease,box-shadow .15s ease,background .15s ease;cursor:pointer}
 .btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(66,85,255,.22)}
 .btn.secondary{background:rgba(255,255,255,.82);border-color:var(--lavender);color:var(--ink);box-shadow:none}
