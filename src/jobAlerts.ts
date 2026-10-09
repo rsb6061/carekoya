@@ -44,14 +44,14 @@ export async function caregiverAlertSettings(request:Request,env:FeatureEnv,iden
   if(!id)return json({ok:false,error:'Sign in to manage job emails.'},{status:401});
   if(request.method==='GET'){
     const row=await env.DB.prepare('SELECT email_enabled,last_sent_at FROM caregiver_job_alert_preferences WHERE caregiver_id=?').bind(id).first<Row>();
-    return json({ok:true,emailEnabled:Number(row?.email_enabled||0)===1,lastSentAt:row?.last_sent_at||null,smsAvailable:false});
+    return json({ok:true,emailEnabled:Number(row?.email_enabled||0)===1,lastSentAt:row?.last_sent_at||null});
   }
   const data=await request.json().catch(()=>null) as Row|null;
   if(typeof data?.emailEnabled!=='boolean')return json({ok:false,error:'Choose whether to receive job emails.'},{status:400});
   const enabled=data.emailEnabled?1:0;
   await env.DB.prepare(`INSERT INTO caregiver_job_alert_preferences(caregiver_id,email_enabled) VALUES (?,?)
     ON CONFLICT(caregiver_id) DO UPDATE SET email_enabled=excluded.email_enabled,updated_at=CURRENT_TIMESTAMP`).bind(id,enabled).run();
-  return json({ok:true,emailEnabled:enabled===1,smsAvailable:false});
+  return json({ok:true,emailEnabled:enabled===1});
 }
 
 function emailBody(firstName:string,jobs:Awaited<ReturnType<typeof nearbyJobsFor>>){

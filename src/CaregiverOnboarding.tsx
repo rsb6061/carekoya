@@ -80,7 +80,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const resumeFileRef=useRef<File|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [editParsed,setEditParsed]=useState(false);
-  const smsConsentRef=useRef(false);
   const [turnstileRequired,setTurnstileRequired]=useState(false);
   useEffect(()=>{fetch('/api/config').then(r=>r.json()).then((c:any)=>setTurnstileRequired(!!c?.turnstileSiteKey)).catch(()=>{})},[]);
   const [sendProfile,setSendProfile]=useState(true);
@@ -186,7 +185,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   async function onSubmit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    smsConsentRef.current=new FormData(e.currentTarget).get('smsConsent')==='on';
     if(!phoneOk(form.phone)){setStatus('error');setMessage('Enter a 10-digit mobile phone number.');return;}
     await save();
   }
@@ -199,7 +197,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         email:auth.email||form.email,
         yearsExperience:Number(form.yearsExperience||0)||null,
         travelMiles:Number(form.travelMiles||0)||null,
-        smsConsent:smsConsentRef.current,
         jobAlertsEmailOptIn:emailAlerts,
         turnstileToken,
         sourceFilename:fileMeta?.name||'',

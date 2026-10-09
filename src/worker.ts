@@ -974,8 +974,6 @@ async function handleCaregiver(request: Request, env: Env) {
   const city=zipInfo?.city||"";
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
-  const smsConsent=data!.smsConsent===true?1:0;
-  const smsAt=smsConsent?new Date().toISOString():null;
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   // This form has no sign-in, so it may create a profile but never change one that already exists.
   if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/login to update it."},{status:409});
@@ -983,22 +981,19 @@ async function handleCaregiver(request: Request, env: Env) {
 
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
-      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at,sms_consent,sms_consent_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP,?,?)`)
+      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP)`)
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),city||null,zip,state,clean(data!.role,80),
-        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),smsConsent,smsAt).run();
+        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80)).run();
   }
   const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,city=COALESCE(NULLIF(?,''),city),state=CASE WHEN ?!='' THEN ? ELSE state END,
     role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
-    sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,
-    sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,
     is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,city,state,state,clean(data!.role,80),
-      clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),
-      smsConsent,smsConsent,smsAt,id).run();
+      clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1083,13 +1078,11 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const desiredWage=clean(data!.desiredWage,80);
   const transportation=clean(data!.transportation,80);
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
-  const smsConsent=data!.smsConsent===true?1:0;
-  const smsAt=smsConsent?new Date().toISOString():null;
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,sms_consent,sms_consent_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,smsConsent,smsAt,auth0Sub,authIdentity?.emailVerified?1:0).run();
+        shifts,desiredWage,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
 
   const canonical=auth0Sub
@@ -1099,9 +1092,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=CASE WHEN ?=1 THEN 1 ELSE sms_consent END,sms_consent_at=CASE WHEN ?=1 THEN COALESCE(sms_consent_at,?) ELSE sms_consent_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=?,zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,smsConsent,smsConsent,smsAt,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
+      shifts,desiredWage,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1430,10 +1423,9 @@ async function completeActivation(request:Request,env:Env){
   const desiredWage=clean(data?.desiredWage,80)||null;
   const transportation=clean(data?.transportation,80)||null;
   const travelMiles=Number(data?.travelMiles||0)||null;
-  const smsConsent=data?.smsConsent===true?1:0;
   const active=workStatus==="actively_looking"?1:0;
-  await env.DB.prepare("UPDATE caregivers SET role=?,city=?,state=?,zip=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status=?,last_confirmed_at=CURRENT_TIMESTAMP,sms_consent=?,sms_consent_at=?,activation_completed_at=CURRENT_TIMESTAMP,activation_token_hash=NULL,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-    .bind(role,city,state,zip,shifts,desiredWage,transportation,travelMiles,workStatus,smsConsent,smsConsent?new Date().toISOString():null,active,caregiver.id).run();
+  await env.DB.prepare("UPDATE caregivers SET role=?,city=?,state=?,zip=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status=?,last_confirmed_at=CURRENT_TIMESTAMP,activation_completed_at=CURRENT_TIMESTAMP,activation_token_hash=NULL,is_active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(role,city,state,zip,shifts,desiredWage,transportation,travelMiles,workStatus,active,caregiver.id).run();
   await env.DB.prepare("INSERT INTO availability_events (id,caregiver_id,status,shift_preferences,desired_wage,travel_distance_miles,source,confirmed_at) VALUES (?,?,?,?,?,?,'caregiver_reactivation',CURRENT_TIMESTAMP)")
     .bind(crypto.randomUUID(),caregiver.id,workStatus,shifts,desiredWage,travelMiles).run();
   return json({ok:true,status:workStatus});
