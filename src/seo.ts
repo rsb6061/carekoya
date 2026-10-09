@@ -173,14 +173,65 @@ export async function jobPageContext(env:FeatureEnv,job:Row){
   return {similar,employer,payContext};
 }
 
+/**
+ * Big cities whose jobs are mostly posted under suburb names ("Towson", "Parkville") get one metro page at the
+ * city's slug that rolls those places up. ZIP prefixes keep a mislabeled out-of-area job from joining.
+ */
+export type Metro={state:string;slug:string;name:string;area:string;zipPrefixes:string[];places:string[]};
+export const METROS:Metro[]=[
+  {state:'MD',slug:'baltimore',name:'Baltimore',area:'Baltimore City and Baltimore County',zipPrefixes:['210','211','212'],places:[
+    'Baltimore','Baltimore City','Baltimore County','Towson','Parkville','Rosedale','Pikesville','Owings Mills','Cockeysville',
+    'Lutherville','Lutherville-Timonium','Lutherville Timonium','Timonium','Hunt Valley','Phoenix','Monkton','Sparks','Glen Arm',
+    'Kingsville','Perry Hall','Nottingham','White Marsh','Middle River','Essex','Dundalk','Catonsville','Arbutus','Halethorpe',
+    'Lansdowne','Woodlawn','Windsor Mill','Gwynn Oak','Randallstown','Reisterstown','Glyndon','Brooklyn Park','Brooklyn Pk','Woodstock']},
+  {state:'MI',slug:'detroit',name:'Detroit',area:'Wayne, Oakland and Macomb counties',zipPrefixes:['480','481','482','483'],places:[
+    'Detroit','Dearborn','Dearborn Heights','Southfield','Bloomfield Township','Bloomfield Hills','West Bloomfield','Birmingham',
+    'Bingham Farms','Farmington','Farmington Hills','Livonia','Novi','Northville','Plymouth','Canton','Westland','Garden City',
+    'Redford Township','Taylor','Southgate','Southagate','Wyandotte','Riverview','Belleville','New Boston','Romulus','Troy',
+    'Rochester','Rochester Hills','Auburn Hills','Pontiac','Waterford','Clarkston','Lake Orion','Oxford','Commerce Township',
+    'Wixom','Milford','Royal Oak','Ferndale','Madison Heights','Warren','Sterling Heights','Clinton Township','Macomb',
+    'Shelby Township','Grosse Pointe']},
+  {state:'MA',slug:'boston',name:'Boston',area:'Boston and its inner suburbs',zipPrefixes:['020','021','022','024'],places:[
+    'Boston','Allston','Brighton','Hyde Park','South Boston','Mattapan','Dorchester','Roxbury','Jamaica Plain','Roslindale',
+    'West Roxbury','Charlestown','East Boston','Cambridge','Somerville','Brookline','Newton','Waltham','Watertown','Belmont',
+    'Arlington','Lexington','Quincy','Milton','Dedham','Norwood','Needham','Wellesley','Randolph','Braintree','Weymouth',
+    'Canton','Walpole','Malden','Medford','Everett','Chelsea','Revere','Winchester','Woburn','Burlington']}
+];
+export const metroFor=(stateCode:string,slug:string)=>METROS.find(m=>m.state===stateCode&&m.slug===slug)||null;
+/** The metro a place belongs to, so its own page can link up to the metro page. */
+export const metroOfPlace=(stateCode:string,city:string)=>METROS.find(m=>m.state===stateCode&&m.slug!==slugify(city)&&m.places.some(p=>p.toLowerCase()===city.trim().toLowerCase()))||null;
+/** SQL (no table alias) matching a metro's current jobs. */
+function metroWhere(m:Metro){
+  return {sql:`state=? AND lower(city) IN (${m.places.map(()=>'?').join(',')}) AND (COALESCE(zip,'')='' OR substr(zip,1,3) IN (${m.zipPrefixes.map(()=>'?').join(',')}))`,
+    args:[m.state,...m.places.map(p=>p.toLowerCase()),...m.zipPrefixes] as unknown[]};
+}
+/** Current job counts per metro, optionally limited to one state. */
+export async function metroTotals(env:FeatureEnv,stateCode=''){
+  if(!env.DB)return [] as {metro:Metro;count:number;lastmod:string}[];
+  const db=env.DB;
+  return Promise.all(METROS.filter(m=>!stateCode||m.state===stateCode).map(async metro=>{
+    const w=metroWhere(metro);
+    const row=await db.prepare(`SELECT COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql}`).bind(...w.args).first<Row>();
+    return {metro,count:asNum(row?.count),lastmod:clean(row?.lastmod,40)};
+  }));
+}
+/** Replaces a metro's core-city row with the metro total, keeping the list sorted by count. */
+function withMetros<T extends {slug:string;count:number}>(rows:T[],totals:{metro:Metro;count:number}[],make:(t:{metro:Metro;count:number})=>T){
+  const slugs=new Set(totals.filter(t=>t.count>0).map(t=>t.metro.slug));
+  return [...rows.filter(r=>!slugs.has(r.slug)),...totals.filter(t=>t.count>0).map(make)].sort((a,b)=>b.count-a.count);
+}
+
 /** One page of a state (or city) jobs hub plus the cities worth linking to. */
 export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:string;role?:string;page?:number}){
-  const empty={jobs:[] as Row[],total:0,city:'',cities:[] as {city:string;slug:string;count:number}[],page:1,pages:1};
+  const empty={jobs:[] as Row[],total:0,city:'',cities:[] as {city:string;slug:string;count:number}[],page:1,pages:1,metro:null as Metro|null,places:[] as {city:string;slug:string;count:number}[]};
   if(!env.DB)return empty;
   const cityRows=((await env.DB.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs
     WHERE is_published=1 AND status='current' AND state=? AND COALESCE(city,'')!='' GROUP BY lower(city) ORDER BY count DESC LIMIT 200`)
     .bind(opts.state.code).all<Row>()).results||[]);
-  const cities=cityRows.map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug);
+  const metros=await metroTotals(env,opts.state.code);
+  const cities=withMetros(cityRows.map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug),
+    metros,t=>({city:t.metro.name,slug:t.metro.slug,count:t.count}));
+  const metro=opts.citySlug?metroFor(opts.state.code,opts.citySlug):null;
   let city=opts.citySlug?cities.find(c=>c.slug===opts.citySlug)?.city||'':'';
   if(opts.citySlug&&!city&&cityRows.length>=200){
     // Big states have more cities than the linked list; the sitemap still links their pages.
@@ -191,7 +242,8 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
   if(opts.citySlug&&!city)return {...empty,cities};
   let where="is_published=1 AND status='current' AND state=?";
   const args:unknown[]=[opts.state.code];
-  if(city){where+=' AND lower(city)=lower(?)';args.push(city)}
+  if(metro&&city){const w=metroWhere(metro);where="is_published=1 AND status='current' AND "+w.sql;args.splice(0,args.length,...w.args)}
+  else if(city){where+=' AND lower(city)=lower(?)';args.push(city)}
   if(opts.role){where+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,\'\')) LIKE lower(?))';args.push(opts.role,'%"'+opts.role+'"%')}
   const total=asNum((await env.DB.prepare('SELECT COUNT(*) AS count FROM caregiver_jobs WHERE '+where).bind(...args).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
@@ -199,7 +251,10 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
   const jobs=((await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${where}
     ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ? OFFSET ?`)
     .bind(...args,JOBS_PER_PAGE,(page-1)*JOBS_PER_PAGE).all<Row>()).results||[]);
-  return {jobs,total,city,cities,page,pages};
+  // A metro page lists the places it covers so each suburb page stays one click away.
+  const places=metro&&city?(((await env.DB.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs WHERE ${where} GROUP BY lower(city) ORDER BY count DESC`).bind(...args).all<Row>()).results||[])
+    .map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug)):[];
+  return {jobs,total,city,cities,page,pages,metro:metro&&city?metro:null,places};
 }
 
 /** States and cities with enough current jobs to deserve an indexable hub page. */
@@ -209,8 +264,10 @@ export async function hubLocations(env:FeatureEnv){
   const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count),lastmod:clean(r.lastmod,40)})).filter((s):s is {state:UsState;count:number;lastmod:string}=>!!s.state&&s.count>=STATE_PAGE_MIN_JOBS);
   const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs
     WHERE is_published=1 AND status='current' AND COALESCE(city,'')!='' GROUP BY state,lower(city) HAVING COUNT(*)>=?`).bind(CITY_PAGE_MIN_JOBS).all<Row>()).results||[];
+  const metros=(await metroTotals(env)).filter(t=>t.count>=CITY_PAGE_MIN_JOBS);
   const cities=cityRows.map(r=>({state:usState(clean(r.state,20)),slug:slugify(clean(r.city,120)),count:asNum(r.count),lastmod:clean(r.lastmod,40)}))
-    .filter((c):c is {state:UsState;slug:string;count:number;lastmod:string}=>!!c.state&&!!c.slug);
+    .filter((c):c is {state:UsState;slug:string;count:number;lastmod:string}=>!!c.state&&!!c.slug&&!metros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug));
+  for(const t of metros){const state=usState(t.metro.state);if(state)cities.push({state,slug:t.metro.slug,count:t.count,lastmod:t.lastmod})}
   return {states,cities};
 }
 
@@ -227,8 +284,11 @@ export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:nu
   const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count)})).filter((s):s is {state:UsState;count:number}=>!!s.state&&s.count>0);
   const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND COALESCE(city,'')!=''
     GROUP BY state,lower(city) HAVING COUNT(*)>=? ORDER BY count DESC LIMIT 30`).bind(CITY_PAGE_MIN_JOBS).all<Row>()).results||[];
-  const cities=cityRows.map(r=>({state:usState(clean(r.state,20)),city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)}))
-    .filter((c):c is {state:UsState;city:string;slug:string;count:number}=>!!c.state&&!!c.slug);
+  const metros=(await metroTotals(env)).filter(t=>t.count>=CITY_PAGE_MIN_JOBS);
+  const cities=[...cityRows.map(r=>({state:usState(clean(r.state,20)),city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)}))
+    .filter((c):c is {state:UsState;city:string;slug:string;count:number}=>!!c.state&&!!c.slug&&!metros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug)),
+    ...metros.flatMap(t=>{const state=usState(t.metro.state);return state?[{state,city:t.metro.name,slug:t.metro.slug,count:t.count}]:[]})]
+    .sort((a,b)=>b.count-a.count).slice(0,30);
   const total=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${roleWhere(role)}`).bind(...roleArgs(role)).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
   const page=Math.min(pages,Math.max(1,Math.floor(opts.page||1)));
@@ -284,29 +344,66 @@ export type StateHiringStats={jobs:number;agencies:number;caregivers:number;role
   hourly:{low:number;median:number;high:number;sample:number}|null};
 
 /** What CareJoys knows about caregiver hiring in one state, from current jobs, agencies and caregiver profiles. */
+const hourlyMidpoints=(rows:Row[])=>rows.map(r=>{const p=normalizePay(r.pay_min,r.pay_max,r.pay_period);
+  return p.period==='hour'?(p.min!==null&&p.max!==null?(p.min+p.max)/2:p.min??p.max):null}).filter((n):n is number=>n!==null).sort((a,b)=>a-b);
+/** Middle and interquartile hourly pay; needs 5 samples to say anything. */
+function hourlyQuartiles(mids:number[]){
+  const at=(q:number)=>mids[Math.min(mids.length-1,Math.floor(q*(mids.length-1)+0.5))];
+  return mids.length>=5?{low:at(0.25),median:at(0.5),high:at(0.75),sample:mids.length}:null;
+}
+
 export async function stateHiringStats(env:FeatureEnv,state:UsState):Promise<StateHiringStats>{
   const empty={jobs:0,agencies:0,caregivers:0,roles:[],cities:[],employers:[],hourly:null};
   if(!env.DB)return empty;
   const db=env.DB;
-  const [jobs,agencies,caregivers,roles,cities,employers,payRows]=await Promise.all([
+  const [jobs,agencies,caregivers,roles,cities,employers,payRows,metros]=await Promise.all([
     db.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=?`).bind(state.code).first<Row>(),
     db.prepare('SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0 AND state=?').bind(state.code).first<Row>(),
     db.prepare('SELECT COUNT(*) AS count FROM caregivers WHERE is_active=1 AND upper(state)=?').bind(state.code).first<Row>(),
     db.prepare(`SELECT role,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(role,'')!='' GROUP BY role ORDER BY count DESC`).bind(state.code).all<Row>(),
-    db.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(city,'')!='' GROUP BY lower(city) ORDER BY count DESC LIMIT 10`).bind(state.code).all<Row>(),
+    db.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(city,'')!='' GROUP BY lower(city) ORDER BY count DESC LIMIT 200`).bind(state.code).all<Row>(),
     db.prepare(`SELECT employer_name,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(employer_name,'')!='' GROUP BY employer_name ORDER BY count DESC,employer_name LIMIT 8`).bind(state.code).all<Row>(),
-    db.prepare(`SELECT pay_min,pay_max,pay_period FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND pay_period='hour' LIMIT 2000`).bind(state.code).all<Row>()
+    db.prepare(`SELECT pay_min,pay_max,pay_period FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND pay_period='hour' LIMIT 2000`).bind(state.code).all<Row>(),
+    metroTotals(env,state.code)
   ]);
-  const mids=(payRows.results||[]).map(r=>{const p=normalizePay(r.pay_min,r.pay_max,r.pay_period);
-    return p.period==='hour'?(p.min!==null&&p.max!==null?(p.min+p.max)/2:p.min??p.max):null}).filter((n):n is number=>n!==null).sort((a,b)=>a-b);
-  const at=(q:number)=>mids[Math.min(mids.length-1,Math.floor(q*(mids.length-1)+0.5))];
+  const mids=hourlyMidpoints(payRows.results||[]);
   return {
     jobs:asNum(jobs?.count),agencies:asNum(agencies?.count),caregivers:asNum(caregivers?.count),
     roles:(roles.results||[]).map(r=>({role:clean(r.role,40),count:asNum(r.count)})),
-    cities:(cities.results||[]).map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug),
+    // Suburbs a metro page covers are counted under the metro instead of listed one by one.
+    cities:withMetros((cities.results||[]).map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)}))
+      .filter(c=>c.slug&&!metros.some(t=>t.count>0&&t.metro.places.some(p=>p.toLowerCase()===c.city.toLowerCase()))),
+      metros,t=>({city:t.metro.name+' area',slug:t.metro.slug,count:t.count})).slice(0,10),
     employers:(employers.results||[]).map(r=>({name:decodeHtml(clean(r.employer_name,160)),count:asNum(r.count)})),
-    hourly:mids.length>=5?{low:at(0.25),median:at(0.5),high:at(0.75),sample:mids.length}:null
+    hourly:hourlyQuartiles(mids)
   };
+}
+
+/** Pay, roles and top employers across a metro's current jobs, for the metro jobs page. */
+export async function metroJobStats(env:FeatureEnv,metro:Metro){
+  const out={roles:[] as {role:string;count:number}[],employers:[] as {name:string;count:number}[],hourly:null as StateHiringStats['hourly']};
+  if(!env.DB)return out;
+  const w=metroWhere(metro);
+  const [roles,employers,payRows]=await Promise.all([
+    env.DB.prepare(`SELECT role,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql} AND COALESCE(role,'')!='' GROUP BY role ORDER BY count DESC`).bind(...w.args).all<Row>(),
+    env.DB.prepare(`SELECT employer_name,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql} AND COALESCE(employer_name,'')!='' GROUP BY employer_name ORDER BY count DESC,employer_name LIMIT 8`).bind(...w.args).all<Row>(),
+    env.DB.prepare(`SELECT pay_min,pay_max,pay_period FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql} AND pay_period='hour' LIMIT 2000`).bind(...w.args).all<Row>()
+  ]);
+  const mids=hourlyMidpoints(payRows.results||[]);
+  out.roles=(roles.results||[]).map(r=>({role:clean(r.role,40),count:asNum(r.count)}));
+  out.employers=(employers.results||[]).map(r=>({name:decodeHtml(clean(r.employer_name,160)),count:asNum(r.count)}));
+  out.hourly=hourlyQuartiles(mids);
+  return out;
+}
+
+export function metroJobStatsHtml(metro:Metro,s:Awaited<ReturnType<typeof metroJobStats>>){
+  const name='the '+htmlText(metro.name)+' area';
+  const parts:string[]=[];
+  if(s.hourly)parts.push('<h2>Caregiver pay in '+name+'</h2><p>Across '+s.hourly.sample+' current caregiver jobs in '+name+' that list an hourly rate, the middle posted rate is '+dollars(s.hourly.median)+
+    ' an hour. Half of them pay between '+dollars(s.hourly.low)+' and '+dollars(s.hourly.high)+'.</p>');
+  if(s.roles.length)parts.push('<h2>Roles hiring in '+name+'</h2><ul>'+s.roles.map(r=>'<li>'+htmlText(ROLE_NAMES[r.role]||r.role)+': '+r.count+' open job'+(r.count===1?'':'s')+'</li>').join('')+'</ul>');
+  if(s.employers.length)parts.push('<h2>Employers with the most open caregiver jobs in '+name+'</h2><p>'+s.employers.map(e=>htmlText(e.name)+' ('+e.count+')').join(', ')+'.</p>');
+  return parts.join('');
 }
 
 /** The data section of /hire-caregivers/{state}: every number comes from current CareJoys data for that state. */

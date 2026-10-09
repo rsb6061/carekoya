@@ -7,7 +7,7 @@ export function HowToBecomeCaregiverMarylandPage(){
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver career guide</div>
-        <h1>How to become a caregiver in Maryland</h1>
+        <h1>How to become a CNA or caregiver in Maryland</h1>
         <p>There is more than one path into caregiving. The right route depends on the work you want to do: non-medical personal care, home care, or certified nursing-assistant work.</p>
       </div></section>
 
@@ -38,6 +38,8 @@ export function HowToBecomeCaregiverMarylandPage(){
       </div></section>
 
       <section className="section"><div className="wrap">
+        <h2>Check a Maryland CNA or GNA certification</h2>
+        <p>Employers and caregivers can confirm a CNA or GNA certification with the license verification lookup on the Maryland Board of Nursing website.</p>
         <h2>Official Maryland sources</h2>
         <p className="meta">CareJoys is not a credentialing body. For current rules, use the <a className="text-link" href="https://health.maryland.gov/mbon/Documents/new-cna-faqs-final.pdf" target="_blank" rel="noreferrer">Maryland Board of Nursing CNA guidance</a> and the <a className="text-link" href="https://health.maryland.gov/ohcq/Pages/Residential-Service-Agencies.aspx" target="_blank" rel="noreferrer">Maryland OHCQ Residential Service Agency guidance</a>.</p>
       </div></section>

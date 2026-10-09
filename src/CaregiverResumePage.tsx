@@ -10,7 +10,7 @@ export function CaregiverResumePage(){
       <section className="resume-hero"><div className="wrap resume-hero-grid">
         <div>
           <div className="modal-kicker">Caregiver resume</div>
-          <h1>Add your resume, get matched to the best caregiver jobs near you.</h1>
+          <h1>Caregiver and CNA resume: add yours, get matched to jobs near you.</h1>
           <p>Upload your resume once. CareJoys builds your caregiver profile, asks only for anything missing, and matches you with caregiver employers and agencies.</p>
           <div className="resume-points"><span>PDF, DOCX or TXT</span><span>Free to use</span><span>One reusable profile</span></div>
         </div>
