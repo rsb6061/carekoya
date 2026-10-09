@@ -9,6 +9,15 @@ export function EmployerRecruitingPage(){
   const isMaryland=state.code==='MD';
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
+  // This page is lazy-loaded: the hash is processed by the browser before #claim-agency exists.
+  useEffect(()=>{
+    const scrollToClaim=()=>{
+      if(window.location.hash==='#claim-agency')window.requestAnimationFrame(()=>document.getElementById('claim-agency')?.scrollIntoView({block:'start'}));
+    };
+    scrollToClaim();
+    window.addEventListener('hashchange',scrollToClaim);
+    return ()=>window.removeEventListener('hashchange',scrollToClaim);
+  },[]);
   return <div>
     <SiteHeader audience="employer" jobsHref={jobsHubPath(state)}/>
     <main>
@@ -16,7 +25,7 @@ export function EmployerRecruitingPage(){
         <div className="modal-kicker">Hire caregivers</div>
         <h1>Hire caregivers in {state.name}.</h1>
         <p>Find local CNAs, {isMaryland?'GNAs, ':''}HHAs, PCAs and caregivers who are actually interested in your opening.</p>
-        <div className="hero-actions"><a className="btn" href="/hire-caregivers">Hire caregivers</a></div>
+        <div className="hero-actions"><a className="btn" href="/hire-caregivers">Hire caregivers</a><a className="btn secondary" href="#claim-agency">Claim your agency free</a></div>
       </div></section>
 
       <section className="section" id="claim-agency"><div className="wrap">
