@@ -16,12 +16,12 @@ export function minimumHourlyPay(candidate:Record<string,unknown>):number|null{
   return parseHourlyMinimum(candidate.hourly_rate_min)??parseHourlyMinimum(candidate.desired_wage);
 }
 
-/** An explicitly requested wage floor is satisfied only by disclosed hourly pay. */
+/** Exclude disclosed underpayment; unknown or nonhour pay must not be labeled a confirmed match. */
 export function jobMeetsPayFloor(candidate:Record<string,unknown>,job:Record<string,unknown>):boolean{
   const minimum=minimumHourlyPay(candidate);
   if(minimum===null)return true;
   const period=typeof job.pay_period==='string'?job.pay_period.trim().toLowerCase():'';
-  if(period&&!/^(hour|hourly|hr|per.hour)$/.test(period))return false;
+  if(period&&!/^(hour|hourly|hr|per.hour)$/.test(period))return true;
   const statedMax=Number(job.pay_max||job.pay_min||0);
-  return Number.isFinite(statedMax)&&statedMax>=minimum;
+  return !Number.isFinite(statedMax)||statedMax===0||statedMax>=minimum;
 }
