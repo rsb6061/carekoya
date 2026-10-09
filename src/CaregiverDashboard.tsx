@@ -139,8 +139,17 @@ export function CaregiverDashboard(){
     </main>
   </div>;
 
+  const sections=[
+    {id:'matches',label:'My matches'},
+    ...(invites.length?[{id:'interviews',label:'Interviews'}]:[]),
+    ...((data.applications||[]).length?[{id:'applications',label:'Applications'}]:[]),
+    {id:'emails',label:'Weekly email'},
+    {id:'resume',label:'Resume'},
+  ];
   return <div>{header}
-    <main className="app-wrap app-content">
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections}/>
+      <div className="dash-main-col">
       <div className="page-head page-head-row">
         <div>
           <h1>Hi {c.firstName||'there'}.</h1>
@@ -153,7 +162,7 @@ export function CaregiverDashboard(){
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
 
-      {invites.length>0&&<section className="section-block invite-banner">
+      {invites.length>0&&<section className="section-block invite-banner" id="interviews">
         <div className="section-heading"><h2>{open.length?'An employer wants to interview you':'Your employer invitations'}</h2><p>{open.length?`${open.length} waiting on your answer.`:'Interviews and replies from employers who reached out to you.'}</p></div>
         <div className="job-list">{invites.map((invite,i)=><article className={'job-card '+cardTone(i)} key={invite.id}>
           <div className="job-card-main">
@@ -174,12 +183,7 @@ export function CaregiverDashboard(){
       </section>}
 
 
-      <section className="section-block">
-        <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
-        <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
-        <p className="job-meta">Turn weekly job emails off here or unsubscribe from any digest.</p>
-      </section>
-      <section className="section-block">
+      <section className="section-block" id="matches">
         <div className="section-heading"><h2>Best matches near you</h2><p>Ranked by your credentials, pay and distance, within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
         {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
         <div className="job-list">{(data.nearbyJobs||[]).map((job,i)=>{
@@ -226,7 +230,7 @@ export function CaregiverDashboard(){
         </div></section>}
 
 
-      {(data.applications||[]).length>0&&<section className="section-block">
+      {(data.applications||[]).length>0&&<section className="section-block" id="applications">
         <div className="section-heading"><h2>Jobs you applied to</h2></div>
         <div className="settings-card">{(data.applications||[]).map(a=><div key={a.jobId+a.at} className="job-meta">
           <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {applicationStatus(a)} · {when(a.at)}
@@ -234,7 +238,13 @@ export function CaregiverDashboard(){
         </div>)}</div>
       </section>}
 
-      <section className="section-block">
+      <section className="section-block" id="emails">
+        <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
+        <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
+        <p className="job-meta">Turn weekly job emails off here or unsubscribe from any digest.</p>
+      </section>
+
+      <section className="section-block" id="resume">
         <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
         <div className="settings-card resume-card">
           {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
@@ -242,8 +252,29 @@ export function CaregiverDashboard(){
         </div>
       </section>
 
+      </div>
     </main>
   </div>;
+}
+
+/** Left side nav on desktop, a scrolling tab row on phones. Links jump to sections; the one in view is highlighted. */
+function DashNav({sections}:{sections:{id:string;label:string}[]}){
+  const [active,setActive]=useState(sections[0]?.id||'');
+  useEffect(()=>{
+    const els=sections.map(s=>document.getElementById(s.id)).filter((e):e is HTMLElement=>!!e);
+    if(!els.length||typeof IntersectionObserver==='undefined')return;
+    const io=new IntersectionObserver(entries=>{
+      const top=entries.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];
+      if(top)setActive(top.target.id);
+    },{rootMargin:'-30% 0px -60% 0px'});
+    els.forEach(e=>io.observe(e));
+    return ()=>io.disconnect();
+  },[sections.map(s=>s.id).join()]);
+  return <nav className="dash-sidenav" aria-label="Dashboard sections">
+    <div className="dash-sidenav-label">Dashboard</div>
+    {sections.map(s=><a key={s.id} href={'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
+    <a href="/dashboard/profile">Profile</a>
+  </nav>;
 }
 
 // Short names for missing profile items, for the one-line status on the preview card.
