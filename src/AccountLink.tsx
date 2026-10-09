@@ -5,11 +5,8 @@ import { homePath, lastDashboard } from './dashboardHome';
 /** The header's account control on every page: "Sign in" when signed out, an account menu when signed in. */
 export function AccountLink({className,cta=false}:{className?:string;cta?:boolean}){
   const auth=useCaregiverAuth();
-  // Homepage: a blue signup button leads, with Sign in as a quieter link beside it.
-  if(cta&&!auth.isAuthenticated)return <>
-    <a href="/login" style={auth.loading?{visibility:'hidden'}:undefined}>Sign in</a>
-    <a className="nav-cta" href="/caregiver-resume">Get started<span className="hide-sm"> free</span></a>
-  </>;
+  // Homepage: just the blue signup button. Returning caregivers sign in from the footer or the signup page.
+  if(cta&&!auth.isAuthenticated)return <a className="nav-cta" href="/caregiver-resume">Get started<span className="hide-sm"> free</span></a>;
   // Keep the space while the session loads so the header doesn't jump.
   if(auth.loading)return <a className={className} href="/login" style={{visibility:'hidden'}} aria-hidden="true" tabIndex={-1}>Sign in</a>;
   if(!auth.isAuthenticated)return <a className={className} href="/login">Sign in</a>;
