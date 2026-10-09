@@ -1,6 +1,7 @@
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
+import { parseHourlyMinimum } from './payMatching';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
@@ -13,7 +14,7 @@ import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
-import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
+import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest, acquisitionChannels } from './admin';
 import { runReactivationReminders, runScheduledOutreach } from './outreach';
 import { listText } from './listField';
 import { summarizeJobsBatch, type AiBinding } from './jobSummary';
@@ -983,7 +984,7 @@ async function handleCaregiver(request: Request, env: Env) {
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
       (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',CURRENT_TIMESTAMP)`)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',NULL)`)
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),city||null,zip,state,clean(data!.role,80),
         clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80)).run();
   }
@@ -991,10 +992,10 @@ async function handleCaregiver(request: Request, env: Env) {
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,city=COALESCE(NULLIF(?,''),city),state=CASE WHEN ?!='' THEN ? ELSE state END,
-    role=?,shift_preferences=?,desired_wage=?,transportation=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,
+    role=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,work_status='actively_looking',last_confirmed_at=NULL,
     is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,city,state,state,clean(data!.role,80),
-      clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80),id).run();
+      clean(data!.shifts,500),clean(data!.desiredWage,80),parseHourlyMinimum(data!.desiredWage),clean(data!.transportation,80),id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1080,7 +1081,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',NULL,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
         shifts,desiredWage,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
@@ -1092,9 +1093,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,hourly_rate_min=?,work_status='actively_looking',last_confirmed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
+      shifts,desiredWage,transportation,travel||null,parseHourlyMinimum(desiredWage),authIdentity?.emailVerified?1:0,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1240,7 +1241,7 @@ async function handleSchool(request: Request, env: Env) {
     .bind(id,clean(data!.organizationName,250),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.city,120),clean(data!.state,80),clean(data!.programTypes,500),clean(data!.graduatingCount,50),clean(data!.notes,1500)).run();
   return json({ok:true,id},{status:201});
 }
-const SEARCHABLE_CAREGIVER="c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))";
+const SEARCHABLE_CAREGIVER="c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1) AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))";
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
@@ -1502,8 +1503,8 @@ export default {
       if(request.method==="POST"&&url.pathname==="/api/admin/clarity/pull") return json(await pullClarityInsights(env,{force:true}));
       if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
-        const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
-        return json({ok:true,admin,funnel,outreach,employers});
+        const [funnel,outreach,employers,acquisition]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env),acquisitionChannels(env)]);
+        return json({ok:true,admin,funnel,outreach,employers,acquisition});
       }
       const approve=url.pathname.match(/^\/api\/admin\/employers\/([^/]+)\/approve$/);
       if(request.method==="POST"&&approve) return approveEmployer(env,decodeURIComponent(approve[1]),admin.email||"admin_token");

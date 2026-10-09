@@ -142,7 +142,7 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
 
 export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:string){
   if(!env.DB)return {scored:0};
-  const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 LIMIT 1").bind(caregiverId).first<Row>();
+  const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 AND (source='legacy_carekoya' OR auth0_email_verified=1) LIMIT 1").bind(caregiverId).first<Row>();
   if(!caregiver||!/^[A-Z]{2}$/.test(clean(caregiver.state,20).toUpperCase()))return {scored:0};
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=? AND status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").bind(caregiverId).run();
   const result=await env.DB.prepare(`WITH scored AS (
@@ -206,7 +206,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       FROM agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
       CROSS JOIN caregivers c
-      WHERE ao.is_active=1 AND c.is_active=1
+      WHERE ao.is_active=1 AND c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1)
         AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
         -- Agencies only match caregivers in their own state; a caregiver with no state but a Maryland ZIP counts as Maryland.
         AND upper(coalesce(ao.state,''))=upper(CASE WHEN coalesce(c.state,'')!='' THEN c.state
@@ -578,7 +578,7 @@ export async function startTestAgency(env:FeatureEnv,email:string,sourceId=''){
           CASE WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
             WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8 ELSE 0 END AS f
         FROM caregivers c
-        WHERE c.is_active=1 AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
+        WHERE c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1) AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
           AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
         ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
   }

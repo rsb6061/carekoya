@@ -1,6 +1,6 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
-import { resetTestAgency, startTestAgency } from './agencyFeatures';
+import { resetTestAgency, startTestAgency, hiringInviteCounts } from './agencyFeatures';
 import { accountSession } from './accountAuth';
 import { workerFunnelReport } from './workerFunnel';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
@@ -163,6 +163,13 @@ export async function adminAgencySearch(env:AdminEnv,q:string){
     FROM agency_organizations o WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 ${term?'AND lower(o.canonical_name) LIKE ?':"AND o.id IN (SELECT agency_organization_id FROM caregiver_jobs WHERE status='current' AND is_published=1)"}
     ORDER BY jobs DESC,matches DESC LIMIT 12`).bind(...(term?['%'+term+'%']:[])).all<Row>();
   return json({ok:true,agencies:(rows.results||[]).map(r=>({id:r.id,name:r.canonical_name,city:r.city,state:r.state,jobs:asNum(r.jobs),matches:asNum(r.matches),claimed:!!r.claimed_employer_id}))});
+}
+
+export async function acquisitionChannels(env:AdminEnv){
+ const agency=await hiringInviteCounts(env);
+ const school=await env.DB!.prepare("SELECT COUNT(*) AS total, SUM(datetime(created_at)>=datetime('now','start of day')) AS today FROM training_program_outreach WHERE event_type='school_intro'").first<Row>();
+ const eligibleSchools=await env.DB!.prepare("SELECT COUNT(*) AS count FROM training_programs p WHERE p.is_active=1 AND p.state='MD' AND p.email IS NOT NULL AND trim(p.email)!='' AND p.claimed_school_lead_id IS NULL AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE o.training_program_id=p.id AND o.event_type IN ('school_intro','school_intro_failed')) AND NOT EXISTS(SELECT 1 FROM email_suppressions s WHERE s.email=lower(trim(p.email)))").first<Row>();
+ return {agencyHiring:{enabled:(env as AdminEnv&{AGENCY_HIRING_INVITES_ENABLED?:string}).AGENCY_HIRING_INVITES_ENABLED==='true',cap:Number((env as AdminEnv&{AGENCY_HIRING_INVITE_DAILY_CAP?:string}).AGENCY_HIRING_INVITE_DAILY_CAP||60),...agency},schools:{enabled:(env as AdminEnv&{SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED==='true',cap:Number((env as AdminEnv&{SCHOOL_OUTREACH_DAILY_CAP?:string}).SCHOOL_OUTREACH_DAILY_CAP||15),today:asNum(school?.today),total:asNum(school?.total),eligible:asNum(eligibleSchools?.count)}};
 }
 
 export { outreachStatus };

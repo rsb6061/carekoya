@@ -5,6 +5,7 @@ import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZ
 import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
 import { caregiverApplicationEmail } from './email';
 import { normalizeTitle } from './jobDiscovery';
+import { jobMeetsPayFloor, minimumHourlyPay } from './payMatching';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -23,7 +24,7 @@ const unauthorized=()=>json({ok:false,error:'Sign in required'},{status:401});
 export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!env.DB||!identity?.sub)return null;
   const bySub=await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.sub).first<{id:string}>();
-  if(bySub)return bySub.id;
+  if(bySub){if(identity.emailVerified)await env.DB.prepare('UPDATE caregivers SET auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(bySub.id).run();return bySub.id;
   if(!identity.emailVerified||!identity.email)return null;
   const byEmail=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.email).first<{id:string}>();
   if(!byEmail)return null;
@@ -46,9 +47,7 @@ export function jobConflict(c:Row,j:Row):string|null{
     const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
     if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
   }
-  const min=Number(c.hourly_rate_min||0);
-  const advertisedMax=Number(j.pay_max||j.pay_min||0);
-  if(min>0&&advertisedMax>0&&(!j.pay_period||/hour|hr/i.test(clean(j.pay_period)))&&advertisedMax<min)return 'below minimum hourly pay';
+  if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay or pay not disclosed';
   const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
   const offered=clean(j.employment_type).toLowerCase().replace(/[^a-z,]+/g,'_');
   if(wants.length&&offered&&['full_time','part_time','per_diem','temporary','contract'].some(v=>offered.includes(v))&&!wants.some(v=>offered.includes(v)))return 'employment type conflict';
@@ -80,9 +79,9 @@ export function jobFit(c:Row,j:Row,distanceMiles:number|null,radius:number,now=D
   if([...needs].some(k=>mine.has(k)))score+=40;
   else if([...needs].some(k=>LICENSED.includes(k)))score-=30;
   else score+=20;
-  const myMin=Number(c.hourly_rate_min||0);
+  const myMin=minimumHourlyPay(c)||0;
   const jobTop=Number(j.pay_max||j.pay_min||0);
-  const hourly=!clean(j.pay_period)||/hour/i.test(clean(j.pay_period));
+  const hourly=!clean(j.pay_period)||/hour|hr/i.test(clean(j.pay_period));
   if(myMin>0&&jobTop>0&&hourly)score+=jobTop>=myMin?15:-15;
   if(distanceMiles!==null)score+=Math.round(25*Math.max(0,1-distanceMiles/Math.max(radius,1)));
   const wantHours=clean(c.employment_types).split(',').filter(Boolean);

@@ -23,6 +23,7 @@ type Overview={
     today:Array<{kind:'reactivation'|'agency_teasers';cap:number;sentToday:number}>;
     recentRuns:Array<{kind:string;trigger:string;attempted:number;sent:number;failed:number;created_at:string}>;
   };
+  acquisition?:{agencyHiring:{enabled:boolean;cap:number;today:number;total:number};schools:{enabled:boolean;cap:number;today:number;total:number;eligible:number}};
   employers:Array<{id:string;company_name:string;contact_name?:string;email:string;zip?:string;created_at:string;last_login_at?:string;openings:number;contacted:number;interviews:number;claimed_agency?:string;approval:string}>;
 };
 
@@ -294,6 +295,7 @@ export function AdminConsole(){
         <JobSites/>
       </>}
       {section==='advanced'&&<>
+        {data.acquisition&&<section className="section-block"><div className="section-heading"><h2>Acquisition channels (independent schedules)</h2><p>Bulk outreach off does not stop agency hiring invitations, school outreach, or worker reminders.</p></div><div className="admin-stat-grid"><Stat label="Agency hiring invites" value={data.acquisition.agencyHiring.today+' / '+data.acquisition.agencyHiring.cap} sub={(data.acquisition.agencyHiring.enabled?'Enabled':'Paused')+' · '+data.acquisition.agencyHiring.total+' ever'}/><Stat label="Training school invitations" value={data.acquisition.schools.today+' / '+data.acquisition.schools.cap} sub={(data.acquisition.schools.enabled?'Enabled':'Paused')+' · '+data.acquisition.schools.eligible+' eligible · '+data.acquisition.schools.total+' ever'}/><Stat label="Legacy bulk outreach" value={data.outreach.enabled?'Enabled':'Paused'} sub="Separate caregiver reactivation and agency teaser campaigns"/></div></section>}
         <section className="section-block"><div className="section-heading"><h2>Technical diagnostics</h2><p>These tools are for operational testing and troubleshooting, not day-to-day business review.</p></div>
           <a className="button secondary" href="/api/admin/health" target="_blank" rel="noopener noreferrer">Open raw system health</a>
         </section>
