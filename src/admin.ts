@@ -2,6 +2,7 @@ import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serve
 import { employerApproval } from './employerApproval';
 import { resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
+import { workerFunnelReport } from './workerFunnel';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
@@ -102,6 +103,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     window:modifier?windowKey:'all',
     employerFunnel:['employers','openings','matched','contacted','interested','interviews','hired'].map(step=>({step,count:num(funnel,step)})),
     caregiverSignups:caregivers.results||[],
+    workerFunnel:await workerFunnelReport(env,windowKey),
     reactivation:{legacyTotal:num(activation,'legacy_total'),sent:num(activation,'sent'),opened:num(activation,'opened'),completed:num(activation,'completed'),activelyLooking:num(activation,'actively_looking')},
     agencyClaims:{teasersSent:num(agencies,'teasers_sent'),teasersOpened:num(agencies,'teasers_opened'),claimsRequested:num(agencies,'claims_requested'),claimed:num(agencies,'claimed')},
     jobApplies:jobApplies.results||[],

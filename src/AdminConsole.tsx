@@ -12,6 +12,7 @@ type Overview={
     window:string;
     employerFunnel:Array<{step:string;count:number}>;
     caregiverSignups:Array<{source:string}&Count>;
+    workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
     reactivation:{legacyTotal:number;sent:number;opened:number;completed:number;activelyLooking:number};
     agencyClaims:{teasersSent:number;teasersOpened:number;claimsRequested:number;claimed:number};
     jobApplies:Array<{event_type:string}&Count>;
@@ -253,6 +254,19 @@ export function AdminConsole(){
 </section>
 }
       {section==='caregivers'&&<>
+        <section className="section-block admin-worker-funnel">
+          <div className="section-heading"><h2>Preview → signup → verified → returned</h2><p>All stages come from the SAME visitors who successfully previewed jobs during this reporting period.</p></div>
+          <div className="admin-stat-grid">
+            <Stat label="Unique ZIP-preview visitors" value={f.workerFunnel.previews} sub="Loaded a job preview"/>
+            <Stat label="Created a profile" value={f.workerFunnel.signups} sub={pct(f.workerFunnel.signups,f.workerFunnel.previews)+' of preview visitors'}/>
+            <Stat label="Verified email" value={f.workerFunnel.verified} sub={pct(f.workerFunnel.verified,f.workerFunnel.signups)+' of linked profiles'}/>
+            <Stat label="Returned to view jobs" value={f.workerFunnel.returned} sub={pct(f.workerFunnel.returned,f.workerFunnel.eligibleReturn)+' of profiles old enough to return'}/>
+          </div>
+          <div className="admin-info-note">
+            Preview visitors who saw matches: <strong style={{display:'inline'}}>{f.workerFunnel.withJobs}</strong> · Saw an empty result: <strong style={{display:'inline'}}>{f.workerFunnel.emptyPreviews}</strong> · Profiles eligible for 24-hour retention: <strong style={{display:'inline'}}>{f.workerFunnel.eligibleReturn}</strong>.
+            <div>Visitors may have both a match and an empty preview across searches. A return means an authenticated job view 24+ hours after signup. No contact details or ZIPs are stored in acquisition events. Standard test email domains are excluded from signup conversions. New tracking only; no historical backfill.</div>
+          </div>
+        </section>
         <section className="section-block admin-caregiver-summary">
           <div className="admin-stat-grid">
             <Stat label="Profiles created" value={caregiverNew} sub="During selected reporting period"/>
@@ -268,7 +282,7 @@ export function AdminConsole(){
 
         </div>
       </section>
-        <div className="admin-info-note"><strong>Not yet a verified acquisition funnel.</strong> Page views aren't distinct job seekers. ZIP preview → signup → verified email → returning worker requires linked event tracking; the existing totals don't establish those conversion rates.</div>
+
       </>}
       {section==='jobs'&&<>
         <section className="section-block">

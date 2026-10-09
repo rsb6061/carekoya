@@ -33,7 +33,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -358,6 +358,57 @@ describe('clarity data export', ()=>{
     expect(await DB.prepare("SELECT payload IS NOT NULL AS kept FROM clarity_insights WHERE dimension=''").first()).toEqual({kept:1});
     const view=await (await call('/api/admin/clarity',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
     expect(view.rows.find((r:any)=>r.dimension==='URL').data[0].metricName).toBe('Traffic');
+  });
+});
+
+
+describe('worker acquisition: optional phone and linked 24-hour retention',()=>{
+  it('links a job preview, creates a phone-free profile, persists opt-in, verifies email and records a genuine later job view',async()=>{
+    const visitor=crypto.randomUUID(),email='worker-retention@careworker.test';
+    const preview=await call('/api/public/job-preview?zip=21201&role=CNA',{headers:{'X-CareJoys-Funnel-Id':visitor}});
+    expect(preview.status).toBe(200);
+    expect(await DB.prepare('SELECT COUNT(*) AS n FROM worker_funnel_events WHERE visitor_id=?').bind(visitor).first()).toEqual({n:1});
+    const create=await call('/api/caregiver-resume',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+      firstName:'Worker',lastName:'Retention',email,zip:'21201',role:'CNA',funnelVisitorId:visitor,jobAlertsEmailOptIn:true
+    })});
+    expect(create.status).toBe(201);
+    const {id}=await create.json() as any;
+    expect(await DB.prepare('SELECT phone,auth0_email_verified FROM caregivers WHERE id=?').bind(id).first()).toEqual({phone:'',auth0_email_verified:0});
+    expect(await DB.prepare('SELECT visitor_id FROM worker_funnel_links WHERE caregiver_id=?').bind(id).first()).toEqual({visitor_id:visitor});
+    expect(await DB.prepare('SELECT email_enabled FROM caregiver_job_alert_preferences WHERE caregiver_id=?').bind(id).first()).toEqual({email_enabled:1});
+    const auth=await call('/api/auth/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
+    expect(auth.status).toBe(200);
+    const ownerMail=sent.find(m=>m.to===email);
+    expect(ownerMail?.html).toContain('token=');
+    const token=decodeURIComponent(ownerMail!.html!.match(/token=([^"&]+)/)![1]);
+    const verified=await call('/api/auth/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token})});
+    expect(verified.status).toBe(200);
+    expect(await DB.prepare('SELECT auth0_email_verified FROM caregivers WHERE id=?').bind(id).first()).toEqual({auth0_email_verified:1});
+    const cookie=verified.headers.get('set-cookie')?.match(/__Host-cj_account=([^;]+)/)?.[1];
+    expect(cookie).toBeTruthy();
+    // Seed a published job unrelated to public inventory timing, then simulate a 24h-old worker.
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,city,state,is_active) VALUES ('funnel-org','funnel-org','Funnel Care','funnel.test','https://funnel.test','Baltimore','MD',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('funnel-job','funnel-org','funnel-job','test','https://funnel.test/jobs','CNA day','CNA','Funnel Care','Baltimore','MD','21201','current',1)").run();
+    const event=await call('/api/me/worker-activity',{method:'POST',headers:{cookie:'__Host-cj_account='+cookie,'content-type':'application/json'},body:JSON.stringify({jobId:'funnel-job'})});
+    expect(event.status).toBe(200);
+    const early=await (await call('/api/admin/overview?window=30',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(early.funnel.workerFunnel.signups).toBeGreaterThanOrEqual(1);
+    expect(early.funnel.workerFunnel.verified).toBeGreaterThanOrEqual(1);
+    // A same-day revisit is not 24-hour retention.
+    const before=early.funnel.workerFunnel.returned;
+    await DB.prepare("UPDATE caregivers SET created_at=datetime('now','-2 days') WHERE id=?").bind(id).run();
+    await DB.prepare("UPDATE worker_funnel_events SET created_at=datetime('now','-3 days') WHERE visitor_id=?").bind(visitor).run();
+    const mature=await (await call('/api/admin/overview?window=30',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(mature.funnel.workerFunnel.returned).toBe(before+1);
+    expect(mature.funnel.workerFunnel.eligibleReturn).toBeGreaterThanOrEqual(1);
+    expect(mature.funnel.workerFunnel.withJobs+mature.funnel.workerFunnel.emptyPreviews).toBeGreaterThanOrEqual(1);
+  });
+  it('does not count anonymous previews as returning workers or allow unauthenticated activity',async()=>{
+    const visitor=crypto.randomUUID();
+    expect((await call('/api/me/worker-activity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:'funnel-job'})})).status).toBe(401);
+    await call('/api/public/job-preview?zip=21201&role=CNA',{headers:{'X-CareJoys-Funnel-Id':visitor}});
+    const result=await (await call('/api/admin/overview?window=30',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(result.funnel.workerFunnel.previews).toBeGreaterThanOrEqual(2);
   });
 });
 
