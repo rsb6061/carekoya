@@ -14,8 +14,10 @@ type Overview={
     caregiverSignups:Array<{source:string}&Count>;
     workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
     outreachChannels:{
-      agencyHiring:{enabled:boolean;cap:number;today:number;total:number;schedule:string};
-      generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean};
+      agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string};
+      generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
+      agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
+      weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
       schools:{mode:string;cap:number;today:number;contactable:number;intros:number;claimed:number;referrals:number;
         prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
     };
@@ -163,6 +165,7 @@ export function AdminConsole(){
   if(needsLogin)return <AdminSignIn/>;
   if(!data)return <div className="loading-screen">{notice||'Loading admin…'}</div>;
   const f=data.funnel;
+  const oc=f.outreachChannels;
   const steps=f.employerFunnel;
   const pending=data.employers.filter(e=>e.approval==='pending');
   const caregiverNew=f.caregiverSignups.reduce((sum,row)=>sum+row.count,0);
@@ -308,12 +311,14 @@ export function AdminConsole(){
   <div className="section-heading"><h2>What's actually sending</h2>
     <p>Separate outbound channels with independent schedules and caps. A disabled bulk campaign does not stop hourly agency hiring invitations.</p></div>
   <div className="admin-stat-grid">
-    <Stat label="Agency hiring invites" value={f.outreachChannels.agencyHiring.enabled?'On':'Off'} sub={f.outreachChannels.agencyHiring.today+' / '+f.outreachChannels.agencyHiring.cap+' sent today · '+f.outreachChannels.agencyHiring.total+' lifetime; hourly checks'}/>
-    <Stat label="General bulk outreach" value={f.outreachChannels.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation & agency teasers, separate from hiring invites"/>
-    <Stat label="Reactivation reminders" value={f.outreachChannels.reactivationReminders.enabled?'On':'Off'} sub="Independent legacy-caregiver reminder campaign"/>
-    <Stat label="Training-school invitations" value={f.outreachChannels.schools.mode==='automatic'?'On':'Manual'} sub={f.outreachChannels.schools.today+' / '+f.outreachChannels.schools.cap+' sent today · '+f.outreachChannels.schools.intros+' recorded introductions'}/>
+    <Stat label="Agency hiring invites" value={oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'}/>
+    <Stat label="Agency inbox alerts" value={oc.agencyInboxAlerts.unclaimedEnabled?'On':'Claimed only'} sub={oc.agencyInboxAlerts.claimedLast24h+' to claimed agencies, '+oc.agencyInboxAlerts.unclaimedLast24h+' to unclaimed in the last 24 hours · hourly, at most one per agency a day'}/>
+    <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
+    <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>
+    <Stat label="Weekly job emails to caregivers" value={oc.weeklyDigest.enabled?'On':'Off'} sub={oc.weeklyDigest.verified+' of '+oc.weeklyDigest.subscribed+' opted-in caregivers verified · '+oc.weeklyDigest.sentLast7Days+' sent in the last 7 days'}/>
+    <Stat label="Training-school invitations" value={oc.schools.mode==='automatic'?'On':'Manual'} sub={oc.schools.today+' of '+oc.schools.cap+' sent today · '+oc.schools.intros+' recorded introductions'}/>
   </div>
-  <div className="admin-info-note">Agency hiring invites are governed by AGENCY_HIRING_INVITES_ENABLED and their own daily cap, not OUTREACH_ENABLED. Bulk agency teasers are separate. School invitations have a separate schedule and cap, independent of general bulk outreach.</div>
+  <div className="admin-info-note">Each channel has its own switch. Turning off general bulk outreach does not stop agency hiring invites or reminders. Agency inbox alerts always go to agencies that claimed their page; unclaimed agencies get them only while general bulk outreach is on. School invitations have their own switch and daily cap. Weekly job emails go only to caregivers who opted in and verified their email.</div>
 </section>
 <section className="section-block admin-school-outreach">
   <div className="section-heading"><h2>Maryland training-school prospects</h2><p>Start with freestanding CNA academies and colleges. These are contact leads, not confirmed partners. Drafting an email here does not count as a sent introduction.</p></div>

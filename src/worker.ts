@@ -4,7 +4,7 @@ import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
+import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
@@ -226,24 +226,25 @@ Sitemap: https://carejoys.com/sitemap.xml
 function careJoysLlms(){
   return new Response(`# CareJoys
 
-CareJoys is a caregiver recruiting and placement network for home-care, senior-care, and direct-care hiring in the United States. It started in Maryland and now lists caregiver jobs and home-care agencies in more states.
+CareJoys is a free job-matching service for caregivers, CNAs, GNAs, HHAs and PCAs in the United States. Caregivers find nearby jobs that fit their pay, shift and commute; training programs share it free with graduates; care employers pay to be introduced to caregivers who are verified and interested. It started in Maryland and now lists caregiver jobs in more states.
 
 ## What CareJoys does
-- Helps care employers identify local caregivers by role, geography, shift, pay preference, transportation, credentials, experience, and current availability.
-- Helps employers confirm caregiver interest and move qualified matches toward interviews and hires.
-- Helps caregivers create one reusable work profile and choose which relevant opportunities they want to pursue.
-- Helps CNA/GNA and other caregiver training programs give graduates tracked referral links and measure downstream profiles, matches, employer interest, interviews, and recorded hires.
+- For caregivers (always free): preview nearby caregiver jobs without a resume or contact details, create one profile, get matched by pay, shift and distance, and opt in to a weekly job email. Caregivers choose which employers see their profile.
+- For caregiver training programs (free): give graduates a CareJoys link to local jobs and see how many create profiles, get matched and get hired.
+- For care employers (home-care agencies, assisted living, senior-care communities): get introduced to local caregivers who verified their email and confirmed interest. The first introductions are free, then $35/month per location; no placement fees. Pricing: https://carejoys.com/pricing
 
 ## What CareJoys is not
 - CareJoys is not a state regulator or credentialing body.
 - Regulatory and training-program approval information remains attributed to the relevant state or training source.
-- A caregiver profile is not treated as currently available unless availability is separately confirmed.
+- CareJoys is not a staffing agency; employers hire caregivers directly.
+- A caregiver profile is not treated as currently available unless the caregiver verified their email and confirmed they are looking.
 
 ## Roles
 CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 
 ## Canonical public pages
-- Home: https://carejoys.com/
+- Home (caregiver job search): https://carejoys.com/
+- Pricing for employers: https://carejoys.com/pricing
 - About CareJoys: https://carejoys.com/about
 - Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
 - Caregiver jobs (search by city, state or ZIP): https://carejoys.com/caregiver-jobs
@@ -327,18 +328,19 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   // The employer form used to open as a pop-up on the homepage; old links go to its page.
   if(url.pathname==="/"&&url.searchParams.get("hire")==="1")return Response.redirect(new URL("/hire-caregivers",url).toString(),301);
   if(url.pathname==="/"){
-    // The home page is the pitch to agencies; anyone signed in goes to their own dashboard instead.
+    // The home page is for caregivers looking for work; anyone signed in goes to their own dashboard instead.
     const home=await signedInHome(request,env);
     if(home)return new Response(null,{status:302,headers:{location:home,"cache-control":"no-store"}});
     const {states:jobStates}=await hubLocations(env);
     const jobTotal=jobStates.reduce((sum,s)=>sum+s.count,0);
     const topStates=[...jobStates].sort((a,b)=>b.count-a.count).slice(0,12);
     const homeMore='<h2>How CareJoys works for caregivers</h2><ol><li>Search caregiver, CNA, HHA and PCA jobs near your ZIP code and see pay, shifts and distance first.</li>'+
-      '<li>Upload your resume once. CareJoys builds your caregiver profile and only asks for what is missing.</li>'+
-      '<li>Pick the jobs you want and CareJoys sends your profile to those employers.</li></ol>'+
+      '<li>Create one free profile with your pay, shift and commute preferences. A resume is optional.</li>'+
+      '<li>Get matched to better jobs and choose which employers see your profile. Optional weekly job emails.</li></ol>'+
       (jobTotal?'<h2>Caregiver jobs by state</h2><p>'+jobTotal.toLocaleString("en-US")+' current caregiver jobs from home-care agencies and senior-care employers in '+jobStates.length+' states.</p><ul>'+
         topStates.map(s=>'<li><a href="'+jobsHubPath(s.state)+'">Caregiver jobs in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join("")+'</ul>':'')+
-      '<h2>For care employers</h2><p>Home-care, senior-care and direct-care employers use CareJoys to find local caregivers who are actually looking, confirm their interest, and book interviews. <a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">See pricing</a></p>';
+      '<h2>For caregiver training programs</h2><p>CNA/GNA programs share CareJoys free with graduates so they can find nearby jobs. <a href="/training-programs/maryland">Find your Maryland program</a></p>'+
+      '<h2>For care employers</h2><p>Home-care agencies, assisted living and senior-care communities use CareJoys to meet local caregivers who verified their email and want the work. <a href="/pricing">See how it works</a></p>';
     return seoAsset(request,env,{
       title:"CNA & Caregiver Jobs Near You, Free to Apply | CareJoys",
       description:"Find better-paying caregiver and CNA jobs near you. One free profile, personalized matches and optional weekly job alerts.",
@@ -394,18 +396,18 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   if(url.pathname==="/pricing"){
     return seoAsset(request,env,{
-      title:"Pricing for Caregiver Hiring | CareJoys",
-      description:"CareJoys Hiring is $35/month per location, or $350/year: local caregiver matches, interest confirmation and interview booking, with no recruiter or placement fees.",
+      title:freeContacts(env)?"Hire Caregivers: First "+freeContacts(env)+" Introductions Free | CareJoys":"Hire Caregivers for $35/Month Per Location | CareJoys",
+      description:"Meet local caregivers who verified their email and want the work. For home-care agencies and assisted living: $35/month per location, no placement fees.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Hire caregivers who want the job.</h1><p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested.</p><h2>Hiring: $35/month per location</h2><p>Or $350/year.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver contacts are free.':'')+' Ranked local caregiver matches, interest confirmation, interview booking and one inbox. No recruiter or placement fees.</p><p><a href="/hire-caregivers">Start hiring</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Hire caregivers who already want to work near you.</h1><p>For home-care agencies, assisted living and senior-care communities. CareJoys introduces you to local CNAs, GNAs, HHAs, PCAs and caregivers who verified their email and said they are looking. Caregivers join free through job search and Maryland CNA/GNA training programs.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $35/month per location</h2><p>Or $350/year.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver introductions are free.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
     return seoAsset(request,env,{
-      title:"About CareJoys | Caregiver Recruiting Network",
-      description:"CareJoys connects care employers, caregivers, and training programs through current availability, interest confirmation, interviews, and hires.",
+      title:"About CareJoys | Free Caregiver Job Matching",
+      description:"CareJoys is free job matching for caregivers, CNAs and GNAs. Training programs share it with graduates; care employers pay to meet interested local caregivers.",
       canonical:"/about",
-      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p><p><a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing</a> · <a href="/training-programs/maryland">Maryland training programs</a> · <a href="/">CareJoys home</a></p></main>',
+      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a free job-matching service for caregivers, CNAs and GNAs.</strong> Caregivers find nearby jobs that fit their pay and schedule. Training programs share it free with graduates. Home-care agencies, assisted living and senior-care communities pay to be introduced to caregivers who verified their email and said they are interested.</p><h2>Who CareJoys is for</h2><ul><li>Caregivers, CNAs, GNAs, HHAs and PCAs looking for better local jobs, always free.</li><li>Caregiver training programs that want a free job resource for graduates and placement results.</li><li>Care employers hiring direct-care workers: first introductions free, then $35 a month per location, no placement fees.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p><p><a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing</a> · <a href="/training-programs/maryland">Maryland training programs</a> · <a href="/">CareJoys home</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
@@ -438,7 +440,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       // Searches and role filters are views of this page, not pages of their own.
       robots:data.total>0&&!role&&!q?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
-      snapshot:'<main><p><a href="/">CareJoys</a> › Caregiver jobs</p><h1>Caregiver and CNA jobs near you</h1><p>Search by city, state or ZIP. Upload your resume once and CareJoys matches you with caregiver jobs and employers near you.</p><form action="/caregiver-jobs" method="get"><input name="q" aria-label="City, state or ZIP" placeholder="City, state or ZIP"><button type="submit">Search jobs</button></form>'+(stateLinks?'<h2>Caregiver jobs by state</h2><ul>'+stateLinks+'</ul>':'')+(cityLinks?'<h2>Popular cities</h2><ul>'+cityLinks+'</ul>':'')+'<h2>Newest caregiver jobs</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages now. Upload your resume and we will match you as openings are confirmed.</p>')+'<p><a href="/caregiver-resume">Upload your caregiver resume</a></p></main>',
+      snapshot:'<main><p><a href="/">CareJoys</a> › Caregiver jobs</p><h1>Caregiver and CNA jobs near you</h1><p>Search by city, state or ZIP. Create one free profile, resume optional, and CareJoys matches you with caregiver jobs and employers near you.</p><form action="/caregiver-jobs" method="get"><input name="q" aria-label="City, state or ZIP" placeholder="City, state or ZIP"><button type="submit">Search jobs</button></form>'+(stateLinks?'<h2>Caregiver jobs by state</h2><ul>'+stateLinks+'</ul>':'')+(cityLinks?'<h2>Popular cities</h2><ul>'+cityLinks+'</ul>':'')+'<h2>Newest caregiver jobs</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages now. Create your free profile and we will match you as openings are confirmed.</p>')+'<p><a href="/caregiver-resume">Upload your caregiver resume</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs by state and city","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
         {"@type":"BreadcrumbList","itemListElement":[
@@ -489,7 +491,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical,
       robots:indexable?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
-      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › '+(data.city?'<a href="'+jobsHubPath(hub.state)+'">'+htmlEscape(hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(hub.state.name))+'</p><h1>'+(metro?'CNA and caregiver jobs in the '+htmlEscape(metro.name)+' area':(isMaryland?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+htmlEscape(place))+'</h1>'+metroIntro+metroUp+'<p>Upload your resume once. CareJoys builds your caregiver profile and matches you with caregiver jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your caregiver resume</a></p><h2>Current caregiver jobs in '+htmlEscape(place)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages in '+htmlEscape(place)+' now. Upload your resume and we will match you as openings are confirmed.</p>')+metroStats+(placeLinks?'<h2>Caregiver jobs by town in the '+htmlEscape(metro!.name)+' area</h2><ul>'+placeLinks+'</ul>':'')+(cityLinks?'<h2>Caregiver jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › '+(data.city?'<a href="'+jobsHubPath(hub.state)+'">'+htmlEscape(hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(hub.state.name))+'</p><h1>'+(metro?'CNA and caregiver jobs in the '+htmlEscape(metro.name)+' area':(isMaryland?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+htmlEscape(place))+'</h1>'+metroIntro+metroUp+'<p>Create one free profile, resume optional. CareJoys matches you with caregiver jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your caregiver resume</a></p><h2>Current caregiver jobs in '+htmlEscape(place)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages in '+htmlEscape(place)+' now. Create your free profile and we will match you as openings are confirmed.</p>')+metroStats+(placeLinks?'<h2>Caregiver jobs by town in the '+htmlEscape(metro!.name)+' area</h2><ul>'+placeLinks+'</ul>':'')+(cityLinks?'<h2>Caregiver jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs in "+place,"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
         {"@type":"BreadcrumbList","itemListElement":[
@@ -1179,6 +1181,18 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   },{status:existedBefore?200:201});
 }
 
+// /pricing's "who is near you" line. Small counts are reported as "fewer than SUPPLY_MIN_SHOWN" so nobody can be singled out.
+async function getCaregiverSupply(url:URL,env:Env){
+  const zip=clean(url.searchParams.get("zip"),5);
+  if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a five-digit ZIP code."},{status:400});
+  const geo=await lookupZip(env.DB,zip);
+  if(!geo)return json({ok:true,zip,found:false});
+  const s=await localCaregiverSupply(env,geo);
+  return json({ok:true,zip,found:true,city:geo.city,state:geo.state,miles:s.miles,jobs:s.jobs,
+    caregivers:s.caregivers>=SUPPLY_MIN_SHOWN?s.caregivers:null,caregiversBelow:s.caregivers>=SUPPLY_MIN_SHOWN?null:SUPPLY_MIN_SHOWN
+  },{headers:{"cache-control":"public,max-age=900"}});
+}
+
 async function getJobsHub(url:URL,env:Env){
   const state=usState(url.searchParams.get("state"));
   if(!state)return json({ok:false,error:"Unknown state"},{status:400});
@@ -1275,20 +1289,22 @@ const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' A
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
+  const preferredRole=clean(url.searchParams.get("preferredRole"),80).toLowerCase();
   const zip=normalizeZip(url.searchParams.get("zip"));
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
+  const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
   let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
-  if(center){
+  if(center&&!allDistances){
     const box=boundingBox(center,radius);
     sql+=" AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?"; args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
-  }else if(zip){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
+  }else if(zip&&!center){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
   if(state){ sql+=" AND lower(COALESCE(c.state,''))=?"; args.push(state); }
   if(shift){ sql+=" AND lower(COALESCE(c.shift_preferences,'')) LIKE ?"; args.push("%"+shift+"%"); }
   if(freshness==="confirmed"){ sql+=" AND c.work_status='actively_looking' AND datetime(c.last_confirmed_at)>=datetime('now','-30 days')"; }
@@ -1299,10 +1315,21 @@ async function searchCandidates(url: URL, env: Env) {
     return {c,distanceMiles:center&&geo?haversineMiles(center,geo):null};
   });
   if(center){
-    rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
-    rows.sort((a,b)=>(ageDays(a.c.last_confirmed_at)??9999)-(ageDays(b.c.last_confirmed_at)??9999)||(a.distanceMiles!-b.distanceMiles!));
+    if(!allDistances)rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
+    // Prioritize caregivers likely to accept the commute, then fresh availability, then
+    // distance. A default unbounded browse still includes everyone eligible afterwards.
+    rows.sort((a,b)=>{
+      const aCommute=a.distanceMiles!==null&&a.distanceMiles<=commuteRadiusMiles(a.c)?0:1;
+      const bCommute=b.distanceMiles!==null&&b.distanceMiles<=commuteRadiusMiles(b.c)?0:1;
+      const aAge=ageDays(a.c.last_confirmed_at)??9999,bAge=ageDays(b.c.last_confirmed_at)??9999;
+      const roleText=(c:Record<string,unknown>)=>[c.role,c.certifications,c.specialties].map(v=>clean(v,500).toLowerCase()).join(' ');
+      const aRole=preferredRole&&!roleText(a.c).includes(preferredRole)?1:0;
+      const bRole=preferredRole&&!roleText(b.c).includes(preferredRole)?1:0;
+      return aCommute-bCommute||aRole-bRole||(aAge<=30?0:1)-(bAge<=30?0:1)||
+        (a.distanceMiles??9999)-(b.distanceMiles??9999)||aAge-bAge;
+    });
   }
-  return json({ok:true,total:rows.length,radiusMiles:center?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
+  return json({ok:true,total:rows.length,radiusMiles:center&&!allDistances?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
 }
 /** One caregiver as employers see them in Talent network search. The caregiver's own preview uses the same shape. */
 function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
@@ -1620,6 +1647,7 @@ export default {
     let agencyJob=url.pathname.match(/^\/api\/agency\/jobs\/([^/]+)$/);
     if(request.method==="POST"&&agencyJob){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyJob(request,env,decodeURIComponent(agencyJob[1])); }
     if(request.method==="GET"&&url.pathname==="/api/public/pricing") return json({ok:true,freeContacts:freeContacts(env)},{headers:{"cache-control":"public,max-age=3600"}});
+    if(request.method==="GET"&&url.pathname==="/api/public/caregiver-supply") return getCaregiverSupply(url,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
     if(request.method==="GET"&&url.pathname==="/api/agency/inbox") return getAgencyInbox(request,env);

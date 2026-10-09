@@ -70,6 +70,9 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .pipeline-legend{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-2px 0 28px;color:var(--muted);font-size:13px}
 .pipeline-legend span{display:inline-flex;background:#fffdf9;border:1px solid var(--lavender);border-radius:999px;padding:6px 10px;color:var(--ink)}
 .pipeline-legend b{font-weight:500;color:#918aa3}
+.opening-interview-link{align-self:flex-start;margin-top:auto;padding:22px 0 0;border:0;background:transparent;color:var(--blue);font:inherit;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px;text-align:left;cursor:pointer}
+.opening-interview-link:hover{text-decoration-thickness:2px}
+.opening-interview-link:focus-visible{outline:2px solid var(--blue);outline-offset:5px;border-radius:2px}
 .opening-actions{align-items:stretch;min-width:158px}
 .opening-actions .button,.opening-actions .job-card-action{width:100%;white-space:nowrap}
 @media(max-width:760px){.pipeline-legend{gap:5px}.opening-actions{width:100%;min-width:0}}
@@ -311,3 +314,5 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
  .admin-subheading{flex-direction:column;align-items:stretch}
  .admin-subheading input{width:100%}
 }
+
+.talent-results-meta{margin:2px 0 18px;color:var(--muted);font-size:14px;line-height:1.5}

@@ -441,3 +441,22 @@ export async function jobsNearTrainingProgram(env:FeatureEnv,zips:string[],miles
     city:clean(r.city,120),pay:payLabel({payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period})||'',miles:Math.round(d)}));
   return out;
 }
+
+/** Below this many, /pricing says "fewer than N" so a count never points at one or two real people. */
+export const SUPPLY_MIN_SHOWN=5;
+
+/** /pricing's proof line: verified, actively looking caregivers and current jobs within `miles` of a ZIP. Counts only, never people. */
+export async function localCaregiverSupply(env:FeatureEnv,center:{lat:number;lng:number},miles=25){
+  if(!env.DB)return {caregivers:0,jobs:0,miles};
+  const box=boundingBox(center,miles);
+  const [caregivers,jobs]=await Promise.all([
+    env.DB.prepare(`SELECT zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')}
+      WHERE c.is_active=1 AND c.work_status='actively_looking'
+        AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
+        AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ? LIMIT 5000`).bind(box.minLat,box.maxLat,box.minLng,box.maxLng).all<Row>(),
+    env.DB.prepare(`SELECT zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregiver_jobs j ${zipGeoJoin('j')}
+      WHERE j.is_published=1 AND j.status='current' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ? LIMIT 5000`).bind(box.minLat,box.maxLat,box.minLng,box.maxLng).all<Row>()
+  ]);
+  const within=(rows:Row[])=>rows.filter(r=>{const g=rowGeo(r);return !!g&&haversineMiles(center,g)<=miles;}).length;
+  return {caregivers:within(caregivers.results||[]),jobs:within(jobs.results||[]),miles};
+}

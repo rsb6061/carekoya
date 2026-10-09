@@ -53,6 +53,15 @@ describe('auth boundaries', ()=>{
     expect(body.tables).toBeUndefined();
     expect(body.jobScanSamples).toBeUndefined();
   });
+  it('pricing supply check returns only counts and hides small ones', async()=>{
+    expect((await call('/api/public/caregiver-supply?zip=abc')).status).toBe(400);
+    const body=await (await call('/api/public/caregiver-supply?zip=21201')).json() as any;
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body).sort()).toEqual(['caregivers','caregiversBelow','city','found','jobs','miles','ok','state','zip']);
+    // Baltimore has two seeded verified caregivers: too few to show as a number.
+    expect(body.caregivers).toBeNull();
+    expect(body.caregiversBelow).toBe(5);
+  });
   it('admin and stats endpoints require an admin', async()=>{
     for(const path of ['/api/admin/overview','/api/admin/health','/api/activation-stats'])expect((await call(path)).status).toBe(401);
     // A normal employer session is not an admin.
@@ -121,6 +130,13 @@ describe('distance matching', ()=>{
     expect(body.candidates.find((c:any)=>c.id==='towson').distanceMiles).toBeGreaterThan(5);
     const wide=await (await call('/api/candidates?zip=21201&radius=50',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(wide.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','dc','towson']);
+    // Default directory browse exposes eligible nationwide supply but ranks realistic
+    // local commutes ahead of distant caregivers, instead of silently cutting to 25 mi.
+    const all=await (await call('/api/candidates?zip=21201&radius=all',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(all.radiusMiles).toBeNull();
+    expect(all.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','dc','la','towson']);
+    expect(all.candidates.slice(0,2).map((c:any)=>c.id)).toEqual(['baltimore','towson']);
+    expect(all.candidates.find((c:any)=>c.id==='la').distanceMiles).toBeGreaterThan(100);
   });
   it('opening match uses commute radius and infers location from ZIP', async()=>{
     const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA days',role:'CNA',zip:'21201'})});
@@ -200,6 +216,28 @@ describe('optional interview scheduling and verified owner admin', ()=>{
     expect(employerNotice?.html).toContain('baltimore@example.com');
     const slots=await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any;
     expect(slots.slots).toHaveLength(0);
+    // The optional scheduling flow must work after a caregiver accepts an invitation.
+    const startsAt=new Date(Date.now()+2*86400000).toISOString();
+    const created=await call('/api/openings/'+id+'/interview-slots',{method:'POST',headers,body:JSON.stringify({
+      slots:[{startsAt,timezone:'America/New_York',durationMinutes:30}]
+    })});
+    expect(created.status).toBe(200);
+    expect((await created.json() as any).added).toBe(1);
+    const available=(await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any).slots;
+    expect(available).toHaveLength(1);
+    const response=(await (await call('/api/respond?token='+encodeURIComponent(token))).json() as any).opportunity;
+    expect(response.slots.some((s:any)=>s.id===available[0].id)).toBe(true);
+    const booking=await call('/api/respond/interview',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({
+      token,slotId:available[0].id
+    })});
+    expect(booking.status).toBe(200);
+    const booked=(await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any).slots;
+    expect(booked[0].status).toBe('booked');
+    const piped=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(piped.find((p:any)=>p.caregiver_id==='baltimore')?.stage).toBe('interview');
+    expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='baltimore@example.com')).toBe(true);
+    expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='pat@acme.test')).toBe(true);
+    expect((await call('/api/respond/interview',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,slotId:available[0].id})})).status).toBe(409);
   });
   it('authorizes the designated owner only after a real email-based account session',async()=>{
     const owner='myersrebeccal@gmail.com';
@@ -440,11 +478,15 @@ describe('pay preferences and verified caregiver availability',()=>{
     expect(after.candidates.some((c:any)=>c.id===id)).toBe(true);
   });
   it('shows separate agency and school outreach campaigns with their actual configured status',async()=>{
-    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'60',OUTREACH_ENABLED:'false'});
+    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'20',OUTREACH_ENABLED:'false',WEEKLY_DIGEST_ENABLED:'true'});
     expect(res.status).toBe(200);
     const body=await res.json() as any;
     expect(body.funnel.outreachChannels.agencyHiring.enabled).toBe(true);
-    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(60);
+    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(20);
+    expect(body.funnel.outreachChannels.agencyHiring.perHour).toBe(1);
+    expect(body.funnel.outreachChannels.agencyInboxAlerts.unclaimedEnabled).toBe(false);
+    expect(body.funnel.outreachChannels.weeklyDigest.enabled).toBe(true);
+    expect(typeof body.funnel.outreachChannels.reactivationReminders.sent).toBe('number');
     expect(body.funnel.outreachChannels.generalBulk.enabled).toBe(false);
     expect(body.funnel.outreachChannels.schools.mode).toBe('manual');
   });
