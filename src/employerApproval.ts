@@ -2,7 +2,7 @@ import type { FeatureEnv } from './serverFeatures';
 
 type Row=Record<string,unknown>;
 type ApprovalEnv=FeatureEnv&{ADMIN_EMAILS?:string};
-export type EmployerApproval={approved:boolean;reason:'manual'|'agency'|'business_email'|'admin'|'pending'};
+export type EmployerApproval={approved:boolean;reason:'manual'|'agency'|'business_email'|'pending'};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
@@ -17,13 +17,10 @@ export const isFreeMail=(email:string)=>FREE_MAIL.has(clean(email,320).toLowerCa
 
 const adminList=(env:ApprovalEnv)=>clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
 
-/** Who may see caregiver profiles: approved by an admin, a verified agency, a company email domain, or an admin. */
+/** Employer access requires employer verification, independent of site administrator identity. */
 export async function employerApproval(env:ApprovalEnv,employer:Row):Promise<EmployerApproval>{
   if(clean(employer.approved_at,40))return {approved:true,reason:'manual'};
   const email=clean(employer.email,320).toLowerCase();
-  if(adminList(env).includes(email))return {approved:true,reason:'admin'};
-  // Also recognize verified CareJoys admins granted in the private admin table.
-  if(email&&await env.DB!.prepare('SELECT 1 FROM admin_authorizations WHERE email=? LIMIT 1').bind(email).first())return {approved:true,reason:'admin'};
   const claimed=await env.DB!.prepare('SELECT 1 FROM agency_organizations WHERE claimed_employer_id=? LIMIT 1').bind(employer.id).first();
   if(claimed)return {approved:true,reason:'agency'};
   if(email.includes('@')&&!isFreeMail(email))return {approved:true,reason:'business_email'};
