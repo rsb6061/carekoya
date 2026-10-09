@@ -75,7 +75,7 @@ export async function sendWeeklyJobDigests(env:AlertEnv,limit=50){
   const due=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregiver_job_alert_preferences p JOIN caregivers c ON c.id=p.caregiver_id
     LEFT JOIN zip_geo zg ON zg.zip=substr(trim(COALESCE(c.zip,'')),1,5)
-    WHERE p.email_enabled=1 AND c.email IS NOT NULL AND c.email!=''
+    WHERE p.email_enabled=1 AND c.auth0_email_verified=1 AND c.email IS NOT NULL AND c.email!=''
     AND COALESCE(c.work_status,'') NOT IN ('closed','merged_duplicate')
     AND (p.last_sent_at IS NULL OR datetime(p.last_sent_at)<=datetime('now','-7 days'))
     ORDER BY COALESCE(p.last_sent_at,'') ASC,c.created_at ASC LIMIT ?`).bind(Math.max(1,Math.min(limit,100))).all<Row>();
