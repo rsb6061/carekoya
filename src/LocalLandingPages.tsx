@@ -64,13 +64,19 @@ export function CnaClassesPage(){
   return <div>
     <SiteHeader/>
     <main>
-      <Hero kicker="CNA classes" title="CNA classes in Baltimore, MD" lead="CNA training programs with a location in Baltimore City or Baltimore County, from the Maryland Board of Nursing list of approved programs. Already training? Create your free profile now and get matched to jobs when you finish."
+      <Hero kicker="CNA classes" title="CNA classes in Baltimore, MD" lead="CNA training programs with a location in Baltimore City and the surrounding counties, from the Maryland Board of Nursing list of approved programs. Already training? Create your free profile now and get matched to jobs when you finish."
         points={['Board-approved programs','Free job matching','Resume optional']}/>
 
       <section className="section"><div className="wrap">
         <h2>{data?data.programs.length+' CNA training programs in the Baltimore area':'CNA training programs in the Baltimore area'}</h2>
-        {data&&data.programs.length>0?<div className="jobs">
-          {data.programs.map(p=><div className="job" key={p.slug}><div><h3><a href={'/training-programs/'+encodeURIComponent(p.slug)}>{p.name}</a></h3><div className="meta">{[p.town,'Maryland'].filter(Boolean).join(', ')}</div></div><span className="pill">{p.credentials}</span></div>)}
+        {data&&data.programs.length>0?<div className="jobs caregiver-public-job-list">
+          {data.programs.map(p=>{
+            const href='/training-programs/'+encodeURIComponent(p.slug);
+            return <article className="job" key={p.slug}>
+              <div><h3><a href={href} target="_blank" rel="noopener">{p.name}</a></h3><div className="meta">{[p.town,'Maryland'].filter(Boolean).join(', ')}</div><div className="job-tags"><span className="pill">{p.credentials}</span></div></div>
+              <div className="public-job-actions"><a className="btn job-apply-primary" href={href} target="_blank" rel="noopener" aria-label={'View '+p.name+' (opens in a new tab)'}>View program</a></div>
+            </article>;
+          })}
         </div>:<div className="empty"><strong>{data||failed?'No programs listed yet.':'Loading programs…'}</strong>{(data||failed)&&<span> <a className="text-link" href="/training-programs/maryland">Browse all Maryland programs</a>.</span>}</div>}
       </div></section>
 

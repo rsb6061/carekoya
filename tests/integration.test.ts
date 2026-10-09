@@ -369,6 +369,17 @@ describe('outreach', ()=>{
     await Promise.all(waits);
     expect(sent).toHaveLength(0);
   });
+  it('records a summary run, and notes a schedule it does not recognise', async()=>{
+    const at=Date.parse('2026-10-09T21:07:00Z');
+    await worker.scheduled({cron:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    await worker.scheduled({cron:'7-59/5 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    const runs=await DB.prepare("SELECT kind,trigger FROM outreach_runs WHERE kind IN ('job_summaries','unmatched_cron') ORDER BY kind,trigger").all();
+    expect(runs.results).toEqual([
+      {kind:'job_summaries',trigger:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *'},
+      {kind:'job_summaries',trigger:'7-59/5 * * * *'},
+      {kind:'unmatched_cron',trigger:'7-59/5 * * * *'}
+    ]);
+  });
 });
 
 describe('billing gate', ()=>{
@@ -624,6 +635,15 @@ describe('audit fixes: SEO responses', ()=>{
     expect(www.status).toBe(301);
     expect(www.headers.get('location')).toBe('https://carejoys.com/about');
   });
+  it('nurse aide registry page lists every state with official links', async()=>{
+    const page=await call('/resources/nurse-aide-registry-by-state',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<tr id="north-carolina">');
+    expect(html).toContain('<tr id="maryland">');
+    expect(html.match(/<tr id="/g)?.length).toBe(51);
+    expect(await (await call('/sitemaps/pages.xml')).text()).toContain('/resources/nurse-aide-registry-by-state');
+  });
   it('sitemap is an index of child sitemaps', async()=>{
     const index=await (await call('/sitemap.xml')).text();
     expect(index).toContain('<sitemapindex');
@@ -703,6 +723,39 @@ describe('audit fixes: SEO responses', ()=>{
     expect(sitemap.match(/caregiver-jobs\/maryland\/baltimore</g)?.length).toBe(1);
     }finally{
       await DB.prepare("DELETE FROM caregiver_jobs WHERE id IN ('job-towson-1','job-towson-2','job-towson-3','job-parkville','job-phoenix-az')").run();
+    }
+  });
+  it('CNA pages list only CNA and GNA jobs, link to the caregiver page, and the search box opens them', async()=>{
+    const ids=Array.from({length:10},(_,i)=>'job-cna-'+i);
+    for(const id of ids)await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,'CNA Nights','CNA','Sunrise Home Care','Towson','MD','21204','current',1)")
+      .bind(id,id,'https://sunrisecare.test/jobs/'+id).run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-companion','org-test','job-companion','test','https://sunrisecare.test/jobs/c','Companion','Caregiver','Sunrise Home Care','Towson','MD','21204','current',1)").run();
+    try{
+      // Two Baltimore CNA jobs from earlier fixtures plus ten Towson ones; the companion job stays on the caregiver page only.
+      const page=await call('/cna-jobs/maryland/baltimore',{},htmlAssets);
+      expect(page.status).toBe(200);
+      const html=await page.text();
+      expect(html).toContain('<title>CNA Jobs in Baltimore, MD Area: GNA &amp; Nursing Assistant</title>');
+      expect(html).toContain('<h1>CNA and GNA jobs in the Baltimore area</h1>');
+      expect(html).toContain('12 current CNA and GNA jobs in the Baltimore area');
+      expect(html).not.toContain('Companion');
+      expect(html).not.toContain('noindex');
+      expect(html).toContain('<a href="/caregiver-jobs/maryland/baltimore">See all 13 caregiver jobs in the Baltimore area</a>');
+      const caregiver=await (await call('/caregiver-jobs/maryland/baltimore',{},htmlAssets)).text();
+      expect(caregiver).toContain('<h1>Caregiver jobs in the Baltimore area</h1>');
+      expect(caregiver).toContain('<a href="/cna-jobs/maryland/baltimore">See 12 CNA and GNA jobs in the Baltimore area</a>');
+      const go=async(q:string)=>(await call('/caregiver-jobs?q='+encodeURIComponent(q),{},htmlAssets)).headers.get('location');
+      expect(await go('cna jobs towson')).toBe('https://carejoys.com/cna-jobs/maryland/towson');
+      expect(await go('CNA Baltimore, MD')).toBe('https://carejoys.com/cna-jobs/maryland/baltimore');
+      expect(await go('gna jobs in maryland')).toBe('https://carejoys.com/cna-jobs/maryland');
+      const api=await (await call('/api/public/jobs-hub?state=MD&city=baltimore&cna=1')).json() as any;
+      expect([api.total,api.cna,api.sibling]).toEqual([12,true,13]);
+      const sitemap=await (await call('/sitemaps/locations.xml')).text();
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland/baltimore</loc>');
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland/towson</loc>');
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland</loc>');
+    }finally{
+      await DB.prepare("DELETE FROM caregiver_jobs WHERE id LIKE 'job-cna-%' OR id='job-companion'").run();
     }
   });
   it('/caregiver-jobs lists every state with jobs and the search box resolves places', async()=>{
@@ -1535,5 +1588,20 @@ describe('reviewing candidates', ()=>{
     expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toHaveLength(1);
     await call('/api/email-templates/'+id,{method:'DELETE',headers});
     expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toEqual([]);
+  });
+});
+
+describe('homepage hero stats',()=>{
+  it('returns live counts and newest paid openings, one per employer',async()=>{
+    const res=await call('/api/public/home-stats');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toContain('max-age');
+    const body=await res.json() as any;
+    expect(body.ok).toBe(true);
+    for(const k of ['jobs','states','employersWatched','newThisWeek'])expect(typeof body[k]).toBe('number');
+    expect(body.latest.length).toBeLessThanOrEqual(4);
+    const employers=body.latest.map((j:any)=>j.employerName.toLowerCase());
+    expect(new Set(employers).size).toBe(employers.length);
+    for(const j of body.latest)expect(j.payMax).not.toBeNull();
   });
 });

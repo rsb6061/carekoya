@@ -235,7 +235,8 @@ describe('us states', ()=>{
     expect(slugify('Ellicott City')).toBe('ellicott-city');
   });
   it('parses hub paths and rejects non-canonical ones', ()=>{
-    expect(parseJobsHubPath('/caregiver-jobs/maryland')).toEqual({state:usState('MD'),citySlug:''});
+    expect(parseJobsHubPath('/caregiver-jobs/maryland')).toEqual({state:usState('MD'),citySlug:'',cna:false});
+    expect(parseJobsHubPath('/cna-jobs/maryland/baltimore')).toEqual({state:usState('MD'),citySlug:'baltimore',cna:true});
     expect(parseJobsHubPath('/caregiver-jobs/maryland/baltimore')?.citySlug).toBe('baltimore');
     expect(parseJobsHubPath('/caregiver-jobs/md')).toBeNull();
     expect(parseJobsHubPath('/caregiver-jobs/narnia')).toBeNull();
@@ -500,7 +501,7 @@ describe('job summaries', ()=>{
     const result=await summarizeJobsBatch({DB,AI},10,50);
     expect(result).toEqual({attempted:2,summarized:1,failed:1});
     expect(updates).toContainEqual(['error','summary timed out','hang']);
-    expect(updates).toContainEqual(['summary','GNA role at an assisted living community in Towson. • Night shifts',100,'ok']);
+    expect(updates).toContainEqual(['summary','GNA role at an assisted living community in Towson. • Night shifts','ok']);
   });
 });
 

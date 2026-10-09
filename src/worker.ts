@@ -1,11 +1,13 @@
 import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
+import { homeStats, homeStatsResponse, roundedCount } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
+import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
@@ -156,16 +158,17 @@ async function careJoysChildSitemap(env:Env,name:string){
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
+      {url:SEO_ORIGIN+REGISTRY_PATH,lastmod:REGISTRIES_CHECKED},
       {url:SEO_ORIGIN+"/agent"},
       {url:SEO_ORIGIN+"/training-programs/maryland"},
       {url:SEO_ORIGIN+"/cna-classes/baltimore"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland/baltimore"}
     ];
-    return sitemapXml(entries.map(e=>({...e,lastmod:STATIC_CONTENT_UPDATED})));
+    return sitemapXml(entries.map(e=>({...e,lastmod:e.lastmod||STATIC_CONTENT_UPDATED})));
   }
   if(name==="locations"){
-    const {states,cities}=await hubLocations(env);
+    const {states,cities,cnaStates,cnaCities}=await hubLocations(env);
     const newest=states.map(s=>s.lastmod).filter(Boolean).sort().pop()||null;
     const entries:SitemapEntry[]=[{url:SEO_ORIGIN+"/caregiver-jobs",lastmod:newest}];
     for(const s of states){
@@ -174,6 +177,8 @@ async function careJoysChildSitemap(env:Env,name:string){
       if(s.state.code!=="MD")entries.push({url:SEO_ORIGIN+"/hire-caregivers/"+s.state.slug,lastmod:s.lastmod});
     }
     for(const c of cities)entries.push({url:SEO_ORIGIN+jobsHubPath(c.state,c.slug),lastmod:c.lastmod});
+    for(const s of cnaStates)entries.push({url:SEO_ORIGIN+jobsHubPath(s.state,'',true),lastmod:s.lastmod});
+    for(const c of cnaCities)entries.push({url:SEO_ORIGIN+jobsHubPath(c.state,c.slug,true),lastmod:c.lastmod});
     return sitemapXml(entries);
   }
   if(name==="training"){
@@ -262,6 +267,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
 - Caregiver resume builder and job matching: https://carejoys.com/caregiver-resume
 - How to become a caregiver in Maryland: https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland
+- Nurse aide (CNA) registry by state, with official lookups and phone numbers: https://carejoys.com/resources/nurse-aide-registry-by-state
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
 - Sitemap: https://carejoys.com/sitemap.xml
@@ -343,6 +349,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const {states:jobStates}=await hubLocations(env);
     const jobTotal=jobStates.reduce((sum,s)=>sum+s.count,0);
     const topStates=[...jobStates].sort((a,b)=>b.count-a.count).slice(0,12);
+    const stats=await homeStats(env).catch(()=>null);
+    const watched=stats?.employersWatched?roundedCount(stats.employersWatched)+' ':'';
     const homeMore='<h2>How CareJoys works for caregivers</h2><ol><li>Search caregiver, CNA, HHA and PCA jobs near your ZIP code and see pay, shifts and distance first.</li>'+
       '<li>Create one free profile with your pay, shift and commute preferences. A resume is optional.</li>'+
       '<li>Get matched to better jobs and choose which employers see your profile. Optional weekly job emails.</li></ol>'+
@@ -352,9 +360,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       '<h2>For care employers</h2><p>Home-care agencies, assisted living and senior-care communities use CareJoys to meet local caregivers who verified their email and want the work. <a href="/pricing">See how it works</a></p>';
     return seoAsset(request,env,{
       title:"CNA & Caregiver Jobs Near You, Free to Apply | CareJoys",
-      description:"Find better-paying caregiver and CNA jobs near you. One free profile, personalized matches and optional weekly job alerts.",
+      description:"Be first to better-paying CNA and caregiver jobs near you. CareJoys AI checks employer job pages every week and helps you apply. Free.",
       canonical:"/",
-      snapshot:'<main><h1>Find better-paying caregiver and CNA jobs near you.</h1><p>One profile, personalized matches, always free. Preview nearby jobs before sharing contact details or uploading a resume.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Be first to every better-paying CNA and caregiver job near you. Let AI do the legwork.</h1><p>CareJoys checks the job pages of '+watched+'home-care agencies, nursing homes and senior-care employers every week and shows you new openings with pay. On jobs marked Apply for me, CareJoys AI fills in the employer\'s application from your free profile. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
@@ -462,15 +470,25 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   const hub=parseJobsHubPath(url.pathname);
   if(hub){
+    // /caregiver-jobs/... lists every caregiver job; /cna-jobs/... only jobs a CNA or GNA can apply to.
+    const cna=hub.cna;
     const page=Math.max(1,Math.floor(Number(url.searchParams.get("page")||1))||1);
     const role=clean(url.searchParams.get("role"),40);
-    const data=await jobsHub(env,{state:hub.state,citySlug:hub.citySlug,role,page});
+    const data=await jobsHub(env,{state:hub.state,citySlug:hub.citySlug,role,page,cna});
     if(hub.citySlug&&!data.city){
+      // A town with caregiver jobs but no CNA jobs sends CNA searchers to its caregiver page.
+      if(cna&&(await jobsHub(env,{state:hub.state,citySlug:hub.citySlug})).city)return Response.redirect(SEO_ORIGIN+jobsHubPath(hub.state,hub.citySlug),302);
       return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist.",canonical:jobsHubPath(hub.state),robots:"noindex,follow",
         snapshot:'<main><h1>No current caregiver jobs here.</h1><p><a href="'+jobsHubPath(hub.state)+'">Browse caregiver jobs in '+htmlEscape(hub.state.name)+'</a></p></main>'});
     }
+    const isMaryland=hub.state.code==="MD";
+    const metro=data.metro;
     const place=data.city?data.city+", "+hub.state.code:hub.state.name;
-    const basePath=jobsHubPath(hub.state,hub.citySlug);
+    const area=metro?"the "+metro.name+" area":place;
+    const noun=cna?(isMaryland?"CNA and GNA jobs":"CNA jobs"):"caregiver jobs";
+    const pathFor=(slug="")=>jobsHubPath(hub.state,slug,cna);
+    const linkMin=cna?CNA_PAGE_MIN_JOBS:CITY_PAGE_MIN_JOBS;
+    const basePath=pathFor(hub.citySlug);
     const canonical=basePath+(page>1&&!role?"?page="+page:"");
     const itemList:any[]=[];
     const jobsHtml=data.jobs.map((job,index)=>{
@@ -481,35 +499,49 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       return '<li><a href="'+jobUrl+'">'+htmlEscape(title)+'</a> — '+htmlEscape(label)+'</li>';
     }).join("");
     const pager=data.pages>1?'<nav aria-label="Pages">'+(data.page>1?'<a href="'+basePath+(data.page>2?"?page="+(data.page-1):"")+'">Previous</a> ':'')+'Page '+data.page+' of '+data.pages+(data.page<data.pages?' <a href="'+basePath+'?page='+(data.page+1)+'">Next</a>':'')+'</nav>':'';
-    const cityLinks=!data.city?data.cities.filter(c=>c.count>=CITY_PAGE_MIN_JOBS).slice(0,40).map(c=>'<li><a href="'+jobsHubPath(hub.state,c.slug)+'">Caregiver jobs in '+htmlEscape(c.city)+'</a> ('+c.count+')</li>').join(""):"";
-    const isMaryland=hub.state.code==="MD";
+    const cityLinks=!data.city?data.cities.filter(c=>c.count>=linkMin).slice(0,40).map(c=>'<li><a href="'+pathFor(c.slug)+'">'+(cna?'CNA':'Caregiver')+' jobs in '+htmlEscape(c.city)+'</a> ('+c.count+')</li>').join(""):"";
     // Metro pages (Baltimore, Detroit, Boston) roll up suburb jobs; suburb pages link back up to them.
-    const metro=data.metro;
-    const metroIntro=metro?'<p>Caregiver, CNA'+(isMaryland?', GNA':'')+', home health aide and personal care jobs across '+htmlEscape(metro.area)+(data.places.length>1?', including '+data.places.filter(p=>p.slug!==metro.slug).slice(0,6).map(p=>htmlEscape(p.city)).join(', '):'')+'.</p>':'';
-    const placeLinks=metro?data.places.map(p=>'<li>'+(p.count>=CITY_PAGE_MIN_JOBS&&p.slug!==metro.slug?'<a href="'+jobsHubPath(hub.state,p.slug)+'">'+htmlEscape(p.city)+'</a>':htmlEscape(p.city))+': '+p.count+' job'+(p.count===1?'':'s')+'</li>').join(""):"";
-    const metroStats=metro&&!role&&data.page===1?metroJobStatsHtml(metro,await metroJobStats(env,metro)):"";
+    // Maryland retired the GNA title on April 1, 2026; new geriatric nursing assistants are certified CNA-I.
+    const gnaNote=cna&&isMaryland?'<p>GNA (now CNA-I) openings are included.</p>':'';
+    const metroIntro=metro?'<p>'+(cna?(isMaryland?'Certified and geriatric nursing assistant jobs':'Certified nursing assistant jobs'):'Caregiver, CNA'+(isMaryland?', GNA':'')+', home health aide and personal care jobs')+' across '+htmlEscape(metro.area)+(data.places.length>1?', including '+data.places.filter(p=>p.slug!==metro.slug).slice(0,6).map(p=>htmlEscape(p.city)).join(', '):'')+'.</p>':'';
+    const placeLinks=metro?data.places.map(p=>'<li>'+(p.count>=linkMin&&p.slug!==metro.slug?'<a href="'+pathFor(p.slug)+'">'+htmlEscape(p.city)+'</a>':htmlEscape(p.city))+': '+p.count+' job'+(p.count===1?'':'s')+'</li>').join(""):"";
+    const metroStats=metro&&!role&&data.page===1?metroJobStatsHtml(metro,await metroJobStats(env,metro,cna),cna?'CNA':'Caregiver'):"";
     const parentMetro=data.city&&!metro?metroOfPlace(hub.state.code,data.city):null;
-    const parentCount=parentMetro?(await metroTotals(env,hub.state.code)).find(t=>t.metro===parentMetro)?.count||0:0;
-    const metroUp=parentMetro&&parentCount>=CITY_PAGE_MIN_JOBS?'<p><a href="'+jobsHubPath(hub.state,parentMetro.slug)+'">See all '+parentCount+' caregiver jobs in the '+htmlEscape(parentMetro.name)+' area</a></p>':"";
+    const parentCount=parentMetro?(await metroTotals(env,hub.state.code,cna)).find(t=>t.metro===parentMetro)?.count||0:0;
+    const metroUp=parentMetro&&parentCount>=linkMin?'<p><a href="'+pathFor(parentMetro.slug)+'">See all '+parentCount+' '+noun+' in the '+htmlEscape(parentMetro.name)+' area</a></p>':"";
+    // Each caregiver page links to its CNA page and back. A caregiver page whose place has a CNA page leaves "CNA" to it.
+    const sibling=!role?(await jobsHub(env,{state:hub.state,citySlug:hub.citySlug,cna:!cna})).total:0;
+    const hasCnaPage=!cna&&sibling>=CNA_PAGE_MIN_JOBS;
+    const siblingLink=cna?(sibling?'<p><a href="'+jobsHubPath(hub.state,hub.citySlug)+'">See all '+sibling+' caregiver jobs in '+htmlEscape(area)+'</a>, including home care, HHA and PCA roles.</p>':'')
+      :hasCnaPage?'<p><a href="'+jobsHubPath(hub.state,hub.citySlug,true)+'">See '+sibling+' CNA'+(isMaryland?' and GNA':'')+' jobs in '+htmlEscape(area)+'</a></p>':'';
     const resources=isMaryland?'<p><a href="/gna-jobs/maryland">GNA jobs in Maryland</a> · <a href="/cna-classes/baltimore">CNA classes in Baltimore</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p>':'';
     // Thin pages (no jobs, filtered views, small cities) stay out of the index but still help the people who land on them.
-    const indexable=!role&&data.total>=(data.city?CITY_PAGE_MIN_JOBS:STATE_PAGE_MIN_JOBS);
+    const indexable=!role&&data.total>=(cna?CNA_PAGE_MIN_JOBS:data.city?CITY_PAGE_MIN_JOBS:STATE_PAGE_MIN_JOBS);
+    const where=metro?place+" Area":place;
+    const title=data.page>1?fitTitle((cna?"CNA":"Caregiver")+" Jobs in "+place+", Page "+data.page)
+      :cna?fitTitle("CNA Jobs in "+where+(isMaryland?": GNA & Nursing Assistant":": Nursing Assistant"))
+      :hasCnaPage?fitTitle("Caregiver Jobs in "+where+": Home Care, HHA & PCA")
+      :metro?fitTitle("CNA & Caregiver Jobs in "+where):isMaryland?fitTitle("CNA, GNA & Caregiver Jobs in "+place):fitTitle("CNA & Caregiver Jobs in "+place+": HHA & PCA");
+    const h1=cna?(isMaryland?'CNA and GNA jobs in ':'CNA jobs in ')+htmlEscape(area)
+      :hasCnaPage?'Caregiver jobs in '+htmlEscape(area)
+      :metro?'CNA and caregiver jobs in the '+htmlEscape(metro.name)+' area':(isMaryland?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+htmlEscape(place);
+    const stateCrumb=cna?'CNA jobs in '+hub.state.name:'Caregiver jobs in '+hub.state.name;
     return seoAsset(request,env,{
-      title:data.page>1?fitTitle("Caregiver Jobs in "+place+", Page "+data.page):metro?fitTitle("CNA & Caregiver Jobs in "+place+" Area"):isMaryland?fitTitle("CNA, GNA & Caregiver Jobs in "+place):fitTitle("CNA & Caregiver Jobs in "+place+": HHA & PCA"),
-      description:trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current caregiver and CNA jobs in "+(metro?"the "+metro.name+" area ("+metro.area+")":place)+". ":"Caregiver jobs in "+place+". ")+"Upload one resume, let CareJoys build your profile, and apply to CNA, GNA, HHA, PCA, DSP and caregiver openings.",160),
+      title,
+      description:trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current "+(cna?noun:"caregiver and CNA jobs")+" in "+(metro?"the "+metro.name+" area ("+metro.area+")":place)+". ":(cna?"CNA":"Caregiver")+" jobs in "+place+". ")+(cna?"Create one free profile and apply to certified nursing assistant openings at home care agencies, nursing homes and assisted living.":"Upload one resume, let CareJoys build your profile, and apply to CNA, GNA, HHA, PCA, DSP and caregiver openings."),160),
       canonical,
       robots:indexable?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
-      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › '+(data.city?'<a href="'+jobsHubPath(hub.state)+'">'+htmlEscape(hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(hub.state.name))+'</p><h1>'+(metro?'CNA and caregiver jobs in the '+htmlEscape(metro.name)+' area':(isMaryland?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+htmlEscape(place))+'</h1>'+metroIntro+metroUp+'<p>Create one free profile, resume optional. CareJoys matches you with caregiver jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your caregiver resume</a></p><h2>Current caregiver jobs in '+htmlEscape(place)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages in '+htmlEscape(place)+' now. Create your free profile and we will match you as openings are confirmed.</p>')+metroStats+(placeLinks?'<h2>Caregiver jobs by town in the '+htmlEscape(metro!.name)+' area</h2><ul>'+placeLinks+'</ul>':'')+(cityLinks?'<h2>Caregiver jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › '+(data.city?'<a href="'+pathFor()+'">'+htmlEscape(cna?stateCrumb:hub.state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(cna?stateCrumb:hub.state.name))+'</p><h1>'+h1+'</h1>'+metroIntro+gnaNote+metroUp+siblingLink+'<p>Create one free profile, resume optional. CareJoys matches you with '+(cna?'CNA':'caregiver')+' jobs and employers near you.</p><p><a href="/caregiver-resume">Upload your '+(cna?'CNA':'caregiver')+' resume</a></p><h2>Current '+noun+' in '+htmlEscape(area)+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified '+noun+' from employer career pages in '+htmlEscape(place)+' now. Create your free profile and we will match you as openings are confirmed.</p>')+metroStats+(placeLinks?'<h2>'+(cna?'CNA':'Caregiver')+' jobs by town in the '+htmlEscape(metro!.name)+' area</h2><ul>'+placeLinks+'</ul>':'')+(cityLinks?'<h2>'+(cna?'CNA':'Caregiver')+' jobs by city</h2><ul>'+cityLinks+'</ul>':'')+'<h2>One profile. Relevant jobs. Your choice.</h2><ol><li>Create your caregiver work profile once.</li><li>Keep your location, shifts, pay preferences and availability current.</li><li>Choose which relevant employer opportunities interest you.</li></ol>'+resources+'</main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
-        {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs in "+place,"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":(cna?"CNA":"Caregiver")+" jobs in "+place,"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
         {"@type":"BreadcrumbList","itemListElement":[
           {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
           {"@type":"ListItem","position":2,"name":"Caregiver jobs","item":SEO_ORIGIN+"/caregiver-jobs"},
-          {"@type":"ListItem","position":3,"name":"Caregiver jobs in "+hub.state.name,"item":SEO_ORIGIN+jobsHubPath(hub.state)},
-          ...(data.city?[{"@type":"ListItem","position":4,"name":"Caregiver jobs in "+place,"item":SEO_ORIGIN+basePath}]:[])
+          {"@type":"ListItem","position":3,"name":stateCrumb,"item":SEO_ORIGIN+pathFor()},
+          ...(data.city?[{"@type":"ListItem","position":4,"name":(cna?"CNA":"Caregiver")+" jobs in "+place,"item":SEO_ORIGIN+basePath}]:[])
         ]},
-        ...(itemList.length?[{"@type":"ItemList","name":"Current caregiver jobs in "+place,"itemListElement":itemList}]:[])
+        ...(itemList.length?[{"@type":"ItemList","name":"Current "+noun+" in "+place,"itemListElement":itemList}]:[])
       ]}
     });
   }
@@ -585,7 +617,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:fitTitle("CNA Classes in Baltimore, MD: GNA Training"),
       description:trimAtWord((data.programs.length?data.programs.length+" Maryland Board-approved CNA and GNA training programs in the Baltimore area. ":"CNA and GNA training programs in the Baltimore area. ")+"Compare programs, then find caregiver jobs near you after you finish.",160),
       canonical:"/cna-classes/baltimore",
-      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/training-programs/maryland">Maryland training programs</a> › Baltimore</p><h1>CNA classes in Baltimore, MD</h1><p>CNA and GNA training programs with a location in Baltimore City or Baltimore County, from the Maryland Board of Nursing list of approved programs.</p>'+
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/training-programs/maryland">Maryland training programs</a> › Baltimore</p><h1>CNA classes in Baltimore, MD</h1><p>CNA and GNA training programs with a location in Baltimore City and the surrounding counties, from the Maryland Board of Nursing list of approved programs.</p>'+
         (list?'<h2>'+data.programs.length+' CNA and GNA training programs in the Baltimore area</h2><ul>'+list+'</ul>':'<p>CareJoys is adding Baltimore training programs now. <a href="/training-programs/maryland">Browse all Maryland programs</a>.</p>')+
         '<h2>How to choose a CNA class</h2><ol><li>Confirm the program is approved by the Maryland Board of Nursing. Since April 1, 2026, new nursing assistants certify as CNA-I, which replaced CNA/GNA and covers nursing homes too.</li><li>Ask about total cost, schedule (days, evenings, weekends) and when clinical hours happen.</li><li>Ask how many graduates pass the competency exam and where they get hired.</li></ol>'+
         '<h2>After you finish</h2><p>'+(data.jobs?'There are '+data.jobs+' current caregiver jobs in the Baltimore area on CareJoys right now. ':'')+'Create a free profile, resume optional, and CareJoys emails you new jobs near you each week.</p><p><a href="/gna-jobs/maryland/baltimore">GNA jobs in Baltimore</a> · <a href="/caregiver-jobs/maryland/baltimore">All caregiver jobs in the Baltimore area</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA or GNA in Maryland</a> · <a href="/training-programs/maryland">All Maryland training programs</a></p></main>',
@@ -614,6 +646,23 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:"/resources/how-to-become-a-caregiver-in-maryland",
       snapshot:'<main><h1>How to become a CNA or caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><h2>Check a Maryland CNA or GNA certification</h2><p>Employers and caregivers can confirm a CNA or GNA certification with the license verification lookup on the Maryland Board of Nursing website.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"Article","headline":"How to Become a Caregiver in Maryland","mainEntityOfPage":SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland","publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":[{"@type":"Thing","name":"Caregiver careers in Maryland"},{"@type":"Thing","name":"CNA-I training"}]}
+    });
+  }
+  if(url.pathname===REGISTRY_PATH){
+    const rows=NURSE_AIDE_REGISTRIES.map(r=>{
+      const contacts=r.also?[r,r.also]:[r];
+      const cells=(f:(c:typeof contacts[number])=>string)=>'<td>'+contacts.map(f).join("<br>")+'</td>';
+      return '<tr id="'+r.slug+'"><th scope="row">'+htmlEscape(r.name)+'</th>'
+        +cells(c=>'<a href="'+htmlEscape(c.registryUrl)+'">'+htmlEscape(c.agency)+'</a>'+(c===r&&r.note?'<br>'+htmlEscape(r.note):''))
+        +cells(c=>c.lookupUrl?'<a href="'+htmlEscape(c.lookupUrl)+'">'+htmlEscape(c.lookupLabel||'Lookup')+'</a>':'Contact the registry')
+        +cells(c=>htmlEscape(c.phone||'See registry site'))+'</tr>';
+    }).join("");
+    return seoAsset(request,env,{
+      title:"Nurse Aide (CNA) Registry by State: Lookups and Phone Numbers | CareJoys",
+      description:"Official nurse aide registry for all 50 states and DC, with each state's CNA certification lookup and phone number. Check, renew or transfer a CNA certification.",
+      canonical:REGISTRY_PATH,
+      snapshot:'<main><h1>Nurse aide registry by state</h1><p>Every state keeps a registry of certified nurse aides. Use it to check a CNA certification, renew, update your name or address, or transfer your certification from another state. Below is the official registry for all 50 states and DC, with each state\'s online lookup and phone number. Links last checked '+REGISTRIES_CHECKED+'. CareJoys is not a registry or credentialing body; confirm requirements with the state.</p><table><thead><tr><th>State</th><th>Registry</th><th>Look up a certification</th><th>Phone</th></tr></thead><tbody>'+rows+'</tbody></table><h2>Transferring your CNA to another state</h2><p>Most states let a nurse aide who is active and in good standing on another state\'s registry apply to join theirs, often called reciprocity or endorsement. Apply to the registry in the state you are moving to. Rules, forms and fees differ by state.</p><p><a href="/caregiver-jobs">Find CNA and caregiver jobs near you</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA in Maryland</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"WebPage","name":"Nurse aide registry by state","url":SEO_ORIGIN+REGISTRY_PATH,"dateModified":REGISTRIES_CHECKED,"isPartOf":{"@id":SEO_ORIGIN+"/#website"},"publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":{"@type":"Thing","name":"Nurse aide registry"}}
     });
   }
   if(url.pathname==="/training-programs/maryland"){
@@ -1260,10 +1309,15 @@ async function getCaregiverSupply(url:URL,env:Env){
 async function getJobsHub(url:URL,env:Env){
   const state=usState(url.searchParams.get("state"));
   if(!state)return json({ok:false,error:"Unknown state"},{status:400});
-  const data=await jobsHub(env,{state,citySlug:slugify(clean(url.searchParams.get("city"),120)),role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1)});
+  const cna=url.searchParams.get("cna")==="1";
+  const citySlug=slugify(clean(url.searchParams.get("city"),120));
+  const data=await jobsHub(env,{state,citySlug,role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1),cna});
+  // The matching caregiver or CNA page for the same place, so each can link to the other.
+  const sibling=(await jobsHub(env,{state,citySlug,cna:!cna})).total;
   return json({ok:true,state,city:data.city,total:data.total,page:data.page,pages:data.pages,
-    cities:data.cities.filter(c=>c.count>=CITY_PAGE_MIN_JOBS).slice(0,40),
+    cities:data.cities.filter(c=>c.count>=(cna?CNA_PAGE_MIN_JOBS:CITY_PAGE_MIN_JOBS)).slice(0,40),
     metro:data.metro?{name:data.metro.name,area:data.metro.area}:null,
+    cna,sibling,cnaPageMinJobs:CNA_PAGE_MIN_JOBS,
     jobs:data.jobs.map(publicHubJob)
   },{headers:{"cache-control":"public,max-age=300"}});
 }
@@ -1611,6 +1665,19 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
+/** Each summary run leaves a row in outreach_runs (kind job_summaries), so a run that stalls or fails is visible. */
+async function recordedSummaryRun(env:Env,cron:string|undefined){
+  if(!env.DB)return;
+  const id=crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'job_summaries',?,'started')").bind(id,String(cron||'')).run().catch(()=>null);
+  try{
+    const r=await summarizeJobsBatch(env,100);
+    await env.DB.prepare("UPDATE outreach_runs SET attempted=?,sent=?,failed=?,note='finished' WHERE id=?").bind(r.attempted,r.summarized,r.failed,id).run();
+  }catch(error){
+    await env.DB.prepare("UPDATE outreach_runs SET note=? WHERE id=?").bind(('error: '+(error instanceof Error?error.message:String(error))).slice(0,300),id).run().catch(()=>null);
+  }
+}
+
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     const url=new URL(request.url);
@@ -1630,6 +1697,7 @@ export default {
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
+    if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
@@ -1854,7 +1922,7 @@ export default {
     return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist on CareJoys.",canonical:url.pathname,robots:"noindex,follow",
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
   },
-  async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+  async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{
       if(event.cron==="*/5 * * * *"){
@@ -1870,11 +1938,12 @@ export default {
         await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
         return;
       }
-      if(event.cron==="2,32,47 * * * *"){
+      if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
-        await summarizeJobsBatch(env,100).catch(()=>null);
+        // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
+        await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
-        await enrichAgencyBatch(env,30);
+        if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
         return;
       }
       if(event.cron==="17 * * * *"){
@@ -1902,6 +1971,10 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         return;
       }
+      // A schedule none of the branches above recognised: note the exact string so a mismatch shows up in D1.
+      await env.DB?.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'unmatched_cron',?,NULL)")
+        .bind(crypto.randomUUID(),String(event.cron||'')).run().catch(()=>null);
+      if(new Date(event.scheduledTime??Date.now()).getUTCMinutes()%5===2)await recordedSummaryRun(env,event.cron);
     })();
     ctx.waitUntil(work);
     await work.catch(()=>null);

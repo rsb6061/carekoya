@@ -134,8 +134,10 @@ jobs:
           echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Free Caregiver Job Matching</title>'
           echo "$ABOUT_HTML" | grep -q '"@type":"AboutPage"'
           CAREGIVER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
-          echo "$CAREGIVER_HTML" | grep -q '<title>CNA, GNA &amp; Caregiver Jobs in Maryland | CareJoys</title>'
-          echo "$CAREGIVER_HTML" | grep -q '<h1>CNA, GNA and caregiver jobs in Maryland</h1>'
+          echo "$CAREGIVER_HTML" | grep -q '<title>Caregiver Jobs in Maryland: Home Care, HHA &amp; PCA | CareJoys</title>'
+          echo "$CAREGIVER_HTML" | grep -q '<h1>Caregiver jobs in Maryland</h1>'
+          CNA_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/cna-jobs/maryland)
+          echo "$CNA_HTML" | grep -q '<h1>CNA and GNA jobs in Maryland</h1>'
           echo "Caregiver resume funnel:"
           RESUME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-resume)
           echo "$RESUME_HTML" | grep -q '<title>Caregiver &amp; CNA Resume: Example and Builder | CareJoys</title>'
