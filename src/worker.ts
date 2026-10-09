@@ -1708,7 +1708,7 @@ export default {
     return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist on CareJoys.",canonical:url.pathname,robots:"noindex,follow",
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
   },
-  async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+  async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{
       if(event.cron==="*/5 * * * *"){
@@ -1724,11 +1724,12 @@ export default {
         await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
         return;
       }
-      if(event.cron==="2,32,47 * * * *"){
+      if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
+        // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
         await summarizeJobsBatch(env,100).catch(()=>null);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
-        await enrichAgencyBatch(env,30);
+        if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
         return;
       }
       if(event.cron==="17 * * * *"){
