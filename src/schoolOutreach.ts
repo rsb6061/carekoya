@@ -15,7 +15,8 @@ export async function schoolOutreachCounts(env:SchoolOutreachEnv){
  AND p.claimed_school_lead_id IS NULL AND p.email IS NOT NULL AND trim(p.email)!=''
  AND EXISTS(SELECT 1 FROM school_referral_codes rc WHERE rc.training_program_id=p.id AND rc.status='active')
  AND NOT EXISTS(SELECT 1 FROM email_suppressions s WHERE s.email=lower(trim(p.email)))
- AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE o.training_program_id=p.id AND o.event_type IN ('school_intro','school_intro_failed'))`).first<Row>();
+ AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE o.training_program_id=p.id AND o.event_type IN ('school_intro','school_intro_failed'))
+ AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE lower(trim(o.recipient))=lower(trim(p.email)) AND o.event_type IN ('school_intro','school_intro_failed','school_intro_manual'))`).first<Row>();
  return {today:n(counts?.today),total:n(counts?.total),eligible:n(eligible?.count)};
 }
 
@@ -33,11 +34,14 @@ export async function sendSchoolPlacementInvites(env:SchoolOutreachEnv){
  AND EXISTS(SELECT 1 FROM school_referral_codes rc WHERE rc.training_program_id=p.id AND rc.status='active')
  AND NOT EXISTS(SELECT 1 FROM email_suppressions s WHERE s.email=lower(trim(p.email)))
  AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE o.training_program_id=p.id AND o.event_type IN ('school_intro','school_intro_failed'))
+ AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE lower(trim(o.recipient))=lower(trim(p.email)) AND o.event_type IN ('school_intro','school_intro_failed','school_intro_manual'))
  ORDER BY CASE WHEN p.provider_type IN ('Freestanding Program','College') THEN 0 ELSE 1 END,p.created_at LIMIT ?`).bind(remaining).all<Row>();
  let sent=0,failed=0;
+ const contactedEmails=new Set<string>();
  for(const p of rows.results||[]){
   const email=clean(p.email,320).toLowerCase();
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||await isSuppressed(env.DB,email))continue;
+  if(contactedEmails.has(email)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||await isSuppressed(env.DB,email))continue;
+  contactedEmails.add(email);
   const link='https://carejoys.com/school/'+encodeURIComponent(clean(p.slug,200));
   const content=schoolPlacementInviteEmail({contactName:'',programName:clean(p.program_name,200),claimLink:link});
   try{
