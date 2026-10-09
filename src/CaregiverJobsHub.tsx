@@ -6,7 +6,7 @@ import { payLabel, pillLabel } from './jobFormat';
 import './styles.css';
 
 // Serves /caregiver-jobs (all states), every /caregiver-jobs/{state}[/{city}] hub, and /join/{referral}.
-type PublicCaregiverJob={
+export type PublicCaregiverJob={
   id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null;
 };
@@ -30,7 +30,7 @@ export function JobsSearch({defaultValue=''}:{defaultValue?:string}){
   </form>;
 }
 
-function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
+export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
   return <div className="jobs caregiver-public-job-list">
     {jobs.map(job=>{
       const pay=payLabel(job);

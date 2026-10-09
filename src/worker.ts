@@ -4,7 +4,7 @@ import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
+import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
@@ -151,7 +151,10 @@ async function careJoysChildSitemap(env:Env,name:string){
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
       {url:SEO_ORIGIN+"/agent"},
-      {url:SEO_ORIGIN+"/training-programs/maryland"}
+      {url:SEO_ORIGIN+"/training-programs/maryland"},
+      {url:SEO_ORIGIN+"/cna-classes/baltimore"},
+      {url:SEO_ORIGIN+"/gna-jobs/maryland"},
+      {url:SEO_ORIGIN+"/gna-jobs/maryland/baltimore"}
     ];
     return sitemapXml(entries.map(e=>({...e,lastmod:STATIC_CONTENT_UPDATED})));
   }
@@ -482,7 +485,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const parentMetro=data.city&&!metro?metroOfPlace(hub.state.code,data.city):null;
     const parentCount=parentMetro?(await metroTotals(env,hub.state.code)).find(t=>t.metro===parentMetro)?.count||0:0;
     const metroUp=parentMetro&&parentCount>=CITY_PAGE_MIN_JOBS?'<p><a href="'+jobsHubPath(hub.state,parentMetro.slug)+'">See all '+parentCount+' caregiver jobs in the '+htmlEscape(parentMetro.name)+' area</a></p>':"";
-    const resources=isMaryland?'<p><a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p>':'';
+    const resources=isMaryland?'<p><a href="/gna-jobs/maryland">GNA jobs in Maryland</a> · <a href="/cna-classes/baltimore">CNA classes in Baltimore</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a caregiver in Maryland</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a></p>':'';
     // Thin pages (no jobs, filtered views, small cities) stay out of the index but still help the people who land on them.
     const indexable=!role&&data.total>=(data.city?CITY_PAGE_MIN_JOBS:STATE_PAGE_MIN_JOBS);
     return seoAsset(request,env,{
@@ -538,6 +541,53 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     }
     // 410 tells search engines the listing is gone for good, so it drops out of the index quickly.
     return seoAsset(request,env,{status:410,title:"Job no longer available | CareJoys",description:"This caregiver job is no longer available. Browse current caregiver jobs.",canonical:"/jobs/"+encodeURIComponent(id),robots:"noindex,follow",snapshot:'<main><h1>This job is no longer available.</h1><p><a href="/caregiver-jobs">Browse current caregiver jobs</a></p></main>'});
+  }
+  // Maryland landing pages for the searches myCNAjobs doesn't rank on (see the GTM plan): GNA jobs and Baltimore CNA classes.
+  if(url.pathname==="/gna-jobs"||url.pathname==="/gna-jobs/")return Response.redirect(new URL("/gna-jobs/maryland",url).toString(),301);
+  if(url.pathname==="/cna-classes"||url.pathname==="/cna-classes/"||url.pathname==="/cna-classes/maryland")return Response.redirect(new URL("/training-programs/maryland",url).toString(),301);
+  // Same shape as the /cna-jobs/{state}/{city} pages: /gna-jobs/maryland and /gna-jobs/maryland/{city}.
+  const gnaMatch=url.pathname.match(/^\/gna-jobs\/([a-z-]+)(?:\/([a-z-]+))?\/?$/);
+  if(gnaMatch){
+    const area=gnaMatch[1]==="maryland"&&gnaMatch[2]!=="maryland"?localArea(gnaMatch[2]||"maryland"):null;
+    const gnaPath=(slug:string)=>"/gna-jobs/maryland"+(slug==="maryland"?"":"/"+slug);
+    if(!area)return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist.",canonical:"/gna-jobs/maryland",robots:"noindex,follow",snapshot:'<main><h1>Page not found.</h1><p><a href="/gna-jobs/maryland">Browse GNA jobs in Maryland</a></p></main>'});
+    const data=await gnaJobs(env,area);
+    const where=area.slug==="maryland"?"Maryland":"the Baltimore area";
+    const jobsHtml=data.jobs.map(job=>'<li><a href="/jobs/'+encodeURIComponent(String(job.id||""))+'">'+htmlEscape(normalizeTitle(job.title)||"GNA job")+'</a> — '+htmlEscape([job.employer_name,[job.city,job.state].filter(Boolean).join(", ")||job.zip,payText(job.pay_min,job.pay_max,job.pay_period)].filter(Boolean).join(" · "))+"</li>").join("");
+    const other=area.slug==="maryland"?'<a href="/gna-jobs/maryland/baltimore">GNA jobs in Baltimore</a>':'<a href="/gna-jobs/maryland">GNA jobs across Maryland</a>';
+    return seoAsset(request,env,{
+      title:fitTitle(area.slug==="maryland"?"GNA Jobs in Maryland: Hiring Near You":"GNA Jobs in Baltimore, MD: Hiring Now"),
+      description:trimAtWord((data.total?data.total+" current GNA and CNA jobs in "+where+", checked on employer career pages, with pay shown. ":"GNA and CNA jobs in "+where+". ")+"Free profile, resume optional. Only the employers you pick see it.",160),
+      canonical:gnaPath(area.slug),
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregiver-jobs/maryland">Maryland caregiver jobs</a> › GNA jobs</p><h1>GNA jobs in '+htmlEscape(area.slug==="maryland"?"Maryland":"Baltimore")+'</h1><p>GNA (now CNA-I) and CNA jobs in '+where+', checked on each employer\'s own careers page, with pay shown when the employer lists it. Maryland now calls this credential CNA-I, and CNA-I holders can apply to the CNA jobs below too.</p>'+
+        (jobsHtml?'<h2>Current GNA and CNA jobs in '+where+'</h2><p>'+data.total+' current opening'+(data.total===1?'':'s')+(data.gna?', '+data.gna+' listed as GNA':'')+'.</p><ul>'+jobsHtml+'</ul>':'<p>CareJoys is adding GNA jobs in '+where+' now. Create your free profile and we will email you when one is confirmed.</p>')+
+        '<h2>Is GNA still a Maryland certification?</h2><p>Not as a separate title. On April 1, 2026 the Maryland Board of Nursing replaced CNA/GNA with CNA-I. If you were a GNA, your certificate became CNA-I with the same number, and you can keep working in any setting, including nursing homes. Many employers still post these jobs as GNA. Check a certification with the license verification lookup on the Maryland Board of Nursing website.</p>'+
+        '<h2>Get GNA jobs by email</h2><p>Create one free CareJoys profile, resume optional. CareJoys emails you new GNA jobs near you each week, and no employer sees your profile unless you pick them. No calls, no texts.</p><p><a href="/caregiver-resume">Create your free profile</a> · '+other+' · <a href="/cna-classes/baltimore">CNA and GNA classes in Baltimore</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA or GNA in Maryland</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"CollectionPage","url":SEO_ORIGIN+gnaPath(area.slug),"name":"GNA jobs in "+(area.slug==="maryland"?"Maryland":"Baltimore, MD"),"isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        {"@type":"BreadcrumbList","itemListElement":[
+          {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
+          {"@type":"ListItem","position":2,"name":"Caregiver jobs in Maryland","item":SEO_ORIGIN+"/caregiver-jobs/maryland"},
+          {"@type":"ListItem","position":3,"name":"GNA jobs","item":SEO_ORIGIN+gnaPath(area.slug)}]}
+      ]}
+    });
+  }
+  if(url.pathname==="/cna-classes/baltimore"){
+    const data=await cnaClasses(env,localArea("baltimore")!);
+    const list=data.programs.map(p=>'<li><a href="/training-programs/'+encodeURIComponent(p.slug)+'">'+htmlEscape(p.name)+'</a>'+(p.town?' — '+htmlEscape(p.town):'')+' · '+htmlEscape(p.credentials)+"</li>").join("");
+    return seoAsset(request,env,{
+      title:fitTitle("CNA Classes in Baltimore, MD: GNA Training"),
+      description:trimAtWord((data.programs.length?data.programs.length+" Maryland Board-approved CNA and GNA training programs in the Baltimore area. ":"CNA and GNA training programs in the Baltimore area. ")+"Compare programs, then find caregiver jobs near you after you finish.",160),
+      canonical:"/cna-classes/baltimore",
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/training-programs/maryland">Maryland training programs</a> › Baltimore</p><h1>CNA classes in Baltimore, MD</h1><p>CNA and GNA training programs with a location in Baltimore City or Baltimore County, from the Maryland Board of Nursing list of approved programs.</p>'+
+        (list?'<h2>'+data.programs.length+' CNA and GNA training programs in the Baltimore area</h2><ul>'+list+'</ul>':'<p>CareJoys is adding Baltimore training programs now. <a href="/training-programs/maryland">Browse all Maryland programs</a>.</p>')+
+        '<h2>How to choose a CNA class</h2><ol><li>Confirm the program is approved by the Maryland Board of Nursing. Since April 1, 2026, new nursing assistants certify as CNA-I, which replaced CNA/GNA and covers nursing homes too.</li><li>Ask about total cost, schedule (days, evenings, weekends) and when clinical hours happen.</li><li>Ask how many graduates pass the competency exam and where they get hired.</li></ol>'+
+        '<h2>After you finish</h2><p>'+(data.jobs?'There are '+data.jobs+' current caregiver jobs in the Baltimore area on CareJoys right now. ':'')+'Create a free profile, resume optional, and CareJoys emails you new jobs near you each week.</p><p><a href="/gna-jobs/maryland/baltimore">GNA jobs in Baltimore</a> · <a href="/caregiver-jobs/maryland/baltimore">All caregiver jobs in the Baltimore area</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA or GNA in Maryland</a> · <a href="/training-programs/maryland">All Maryland training programs</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@graph":[
+        {"@type":"CollectionPage","url":SEO_ORIGIN+"/cna-classes/baltimore","name":"CNA classes in Baltimore, MD","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        {"@type":"ItemList","itemListElement":data.programs.slice(0,50).map((p,i)=>({"@type":"ListItem","position":i+1,"name":p.name,"url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(p.slug)}))}
+      ]}
+    });
   }
   if(url.pathname==="/caregiver-resume"){
     return seoAsset(request,env,{
@@ -1207,6 +1257,20 @@ async function getJobsHub(url:URL,env:Env){
 const publicHubJob=(j:Record<string,unknown>)=>({id:j.id,title:normalizeTitle(j.title),role:j.role,employerName:j.employer_name,city:j.city,state:j.state,zip:j.zip,
   employmentType:j.employment_type,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period});
 
+async function getGnaJobs(url:URL,env:Env){
+  const area=localArea(clean(url.searchParams.get("area"),40)||"maryland");
+  if(!area)return json({ok:false,error:"Unknown area"},{status:400});
+  const data=await gnaJobs(env,area);
+  return json({ok:true,area:area.slug,total:data.total,gna:data.gna,jobs:data.jobs.map(publicHubJob)},{headers:{"cache-control":"public,max-age=300"}});
+}
+
+async function getCnaClasses(url:URL,env:Env){
+  const area=localArea(clean(url.searchParams.get("area"),40)||"baltimore");
+  if(!area)return json({ok:false,error:"Unknown area"},{status:400});
+  const data=await cnaClasses(env,area);
+  return json({ok:true,area:area.slug,programs:data.programs,jobs:data.jobs},{headers:{"cache-control":"public,max-age=300"}});
+}
+
 async function getNationalJobs(url:URL,env:Env){
   const data=await nationalJobsHub(env,{role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1)});
   return json({ok:true,total:data.total,page:data.page,pages:data.pages,
@@ -1619,6 +1683,8 @@ export default {
     const widgetFeed=url.pathname.match(/^\/api\/public\/agency-jobs\/([^/]+)$/);
     if(widgetFeed&&(request.method==="GET"||request.method==="OPTIONS")) return agencyJobsFeed(request,env,decodeURIComponent(widgetFeed[1]));
     if(request.method==="GET"&&url.pathname==="/api/public/training-programs") return listPublicTrainingPrograms(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/gna-jobs") return getGnaJobs(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/cna-classes") return getCnaClasses(url,env);
     let trainingOrg=url.pathname.match(/^\/api\/public\/training-organization\/([^/]+)$/);
     if(request.method==="GET"&&trainingOrg) return publicTrainingOrganization(decodeURIComponent(trainingOrg[1]),env);
     let schoolProgram=url.pathname.match(/^\/api\/school\/program\/([^/]+)$/);

@@ -24,6 +24,8 @@ const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage
 const PricingPage=named(()=>import('./PublicInfoPages'),'PricingPage');
 const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
 const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
+const GnaJobsPage=named(()=>import('./LocalLandingPages'),'GnaJobsPage');
+const CnaClassesPage=named(()=>import('./LocalLandingPages'),'CnaClassesPage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
 const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
 const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
@@ -38,6 +40,8 @@ const AddTrainingProgramPage=named(()=>import('./IntakePage'),'AddTrainingProgra
 function routePage(path:string){
   if (/^\/hire-caregivers\/[^/]+\/?$/.test(path)) return <EmployerRecruitingPage />;
   if (path.startsWith('/caregiver-resume')) return <CaregiverResumePage />;
+  if (/^\/gna-jobs\/maryland(\/baltimore)?\/?$/.test(path)) return <GnaJobsPage />;
+  if (/^\/cna-classes\/baltimore\/?$/.test(path)) return <CnaClassesPage />;
   if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
   if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
   if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;

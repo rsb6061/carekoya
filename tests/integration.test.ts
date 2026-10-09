@@ -552,6 +552,47 @@ describe('audit fixes: SEO responses', ()=>{
     const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
     expect(hub.total).toBeGreaterThan(0);
   });
+  it('GNA jobs and Baltimore CNA classes pages list Maryland jobs and programs', async()=>{
+    const add=(id:string,role:string,city:string,zip:string)=>DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,?,?,'Sunrise Home Care',?,'MD',?,'current',1)")
+      .bind(id,id,'https://sunrisecare.test/jobs/'+id,role+' Evenings',role,city,zip).run();
+    await add('gna-balt','GNA','Towson','21204');await add('cna-balt','CNA','Parkville','21234');
+    await add('gna-fred','GNA','Frederick','21701');await add('hha-balt','HHA','Towson','21204');
+    await DB.prepare("INSERT OR REPLACE INTO training_organizations(id,organization_key,canonical_name,slug,credential_categories,is_active) VALUES ('torg-balt','torg-balt','Harbor CNA Academy','harbor-cna-academy','CNA/GNA',1),('torg-fred','torg-fred','Frederick CNA School','frederick-cna-school','CNA/GNA',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO training_programs(id,source,source_key,organization_id,program_name,provider_type,zip,is_active) VALUES ('tp-balt','test','tp-balt','torg-balt','Harbor CNA Academy','Freestanding Program','21201',1),('tp-fred','test','tp-fred','torg-fred','Frederick CNA School','Freestanding Program','21701',1)").run();
+    try{
+      const md=await (await call('/gna-jobs/maryland',{},htmlAssets)).text();
+      expect(md).toContain('<h1>GNA jobs in Maryland</h1>');
+      expect(md).toContain('/jobs/gna-fred');
+      expect(md).not.toContain('/jobs/hha-balt');
+      const balt=await (await call('/gna-jobs/maryland/baltimore',{},htmlAssets)).text();
+      expect(balt).toContain('/jobs/gna-balt');
+      expect(balt).toContain('/jobs/cna-balt');
+      expect(balt).not.toContain('/jobs/gna-fred');
+      // GNA postings come before CNA ones.
+      expect(balt.indexOf('/jobs/gna-balt')).toBeLessThan(balt.indexOf('/jobs/cna-balt'));
+      const api=await (await call('/api/public/gna-jobs?area=baltimore')).json() as any;
+      const ids=api.jobs.map((j:any)=>j.id);
+      expect(ids[0]).toBe('gna-balt');
+      expect(ids).toContain('cna-balt');
+      expect(ids).not.toContain('gna-fred');
+      expect(api.gna).toBe(1);
+      expect((await call('/gna-jobs/texas',{},htmlAssets)).status).toBe(404);
+      expect((await call('/gna-jobs/maryland/maryland',{},htmlAssets)).status).toBe(404);
+      expect((await call('/gna-jobs')).headers.get('location')).toBe('https://carejoys.com/gna-jobs/maryland');
+      const classes=await (await call('/cna-classes/baltimore',{},htmlAssets)).text();
+      expect(classes).toContain('<h1>CNA classes in Baltimore, MD</h1>');
+      expect(classes).toContain('href="/training-programs/harbor-cna-academy"');
+      expect(classes).not.toContain('frederick-cna-school');
+      expect((await call('/cna-classes/maryland')).headers.get('location')).toBe('https://carejoys.com/training-programs/maryland');
+      const pages=await (await call('/sitemaps/pages.xml')).text();
+      expect(pages).toContain('/gna-jobs/maryland/baltimore<');
+      expect(pages).toContain('/cna-classes/baltimore<');
+    }finally{
+      await DB.prepare("DELETE FROM caregiver_jobs WHERE id IN ('gna-balt','cna-balt','gna-fred','hha-balt')").run();
+      await DB.prepare("DELETE FROM training_programs WHERE id IN ('tp-balt','tp-fred')").run();
+      await DB.prepare("DELETE FROM training_organizations WHERE id IN ('torg-balt','torg-fred')").run();
+    }
+  });
   it('the Baltimore metro page rolls up suburb jobs and suburb pages link up to it', async()=>{
     const add=(id:string,city:string,zip:string)=>DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,'GNA Evenings','GNA','Sunrise Home Care',?,'MD',?,'current',1)")
       .bind(id,id,'https://sunrisecare.test/jobs/'+id,city,zip).run();

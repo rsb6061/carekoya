@@ -460,3 +460,46 @@ export async function localCaregiverSupply(env:FeatureEnv,center:{lat:number;lng
   const within=(rows:Row[])=>rows.filter(r=>{const g=rowGeo(r);return !!g&&haversineMiles(center,g)<=miles;}).length;
   return {caregivers:within(caregivers.results||[]),jobs:within(jobs.results||[]),miles};
 }
+
+/**
+ * Maryland landing pages for searches myCNAjobs doesn't rank on: "gna jobs" and "cna classes baltimore".
+ * Areas are ZIP-prefix based (the Baltimore metro's prefixes), since training-program cities are unreliable.
+ */
+export type LocalArea={slug:string;name:string;zipPrefixes:string[]};
+export const LOCAL_AREAS:LocalArea[]=[
+  {slug:'maryland',name:'Maryland',zipPrefixes:[]},
+  {slug:'baltimore',name:'Baltimore',zipPrefixes:metroFor('MD','baltimore')!.zipPrefixes}
+];
+export const localArea=(slug:string)=>LOCAL_AREAS.find(a=>a.slug===slug)||null;
+const areaZip=(a:LocalArea,col:string)=>({sql:a.zipPrefixes.length?` AND substr(COALESCE(${col},''),1,3) IN (${a.zipPrefixes.map(()=>'?').join(',')})`:'',args:a.zipPrefixes});
+
+/** Current Maryland GNA jobs, then CNA jobs. Maryland folded GNA into CNA-I on 2026-04-01, so both fit a former GNA. */
+export async function gnaJobs(env:FeatureEnv,area:LocalArea,limit=60){
+  const out={total:0,gna:0,jobs:[] as Row[]};
+  if(!env.DB)return out;
+  const z=areaZip(area,'zip');
+  const where=`${PUBLISHED} AND state='MD' AND (upper(role) IN ('GNA','CNA') OR lower(COALESCE(roles_json,'')) LIKE '%"gna"%')${z.sql}`;
+  const [counts,rows]=await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS total,SUM(CASE WHEN upper(role)='GNA' OR lower(COALESCE(roles_json,'')) LIKE '%"gna"%' THEN 1 ELSE 0 END) AS gna FROM caregiver_jobs WHERE ${where}`).bind(...z.args).first<Row>(),
+    env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${where}
+      ORDER BY CASE WHEN upper(role)='GNA' THEN 0 ELSE 1 END,last_seen_at DESC LIMIT ?`).bind(...z.args,limit).all<Row>()
+  ]);
+  out.total=asNum(counts?.total);out.gna=asNum(counts?.gna);out.jobs=rows.results||[];
+  return out;
+}
+
+/** Approved CNA/GNA training organizations with a program location in the area, plus current jobs there. */
+export async function cnaClasses(env:FeatureEnv,area:LocalArea){
+  const out={programs:[] as {name:string;slug:string;credentials:string;town:string}[],jobs:0};
+  if(!env.DB)return out;
+  const z=areaZip(area,'tp.zip');
+  const rows=(await env.DB.prepare(`SELECT torg.canonical_name,torg.slug,torg.credential_categories,MIN(zg.city) AS town
+    FROM training_organizations torg JOIN training_programs tp ON tp.organization_id=torg.id
+    LEFT JOIN zip_geo zg ON zg.zip=substr(tp.zip,1,5)
+    WHERE torg.is_active=1 AND tp.is_active=1 AND tp.provider_type IN ('Freestanding Program','College','High School')${z.sql}
+    GROUP BY torg.id ORDER BY torg.canonical_name LIMIT 200`).bind(...z.args).all<Row>()).results||[];
+  out.programs=rows.map(r=>({name:clean(r.canonical_name,200),slug:clean(r.slug,200),credentials:clean(r.credential_categories,80)||'CNA/GNA',town:clean(r.town,80)}));
+  const j=areaZip(area,'zip');
+  out.jobs=asNum((await env.DB.prepare(`SELECT COUNT(*) AS n FROM caregiver_jobs WHERE ${PUBLISHED} AND state='MD'${j.sql}`).bind(...j.args).first<Row>())?.n);
+  return out;
+}
