@@ -27,6 +27,7 @@ export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links)
       <a href="/resources/nurse-aide-registry-by-state">CNA registry by state</a>
       <a href="/pricing">For employers</a>
       <a href="/about">About</a>
+      <a href="/login">Sign in</a>
       <a href="/privacy-policy">Privacy</a>
       <a href="/terms-of-service">Terms</a>
     </nav>
