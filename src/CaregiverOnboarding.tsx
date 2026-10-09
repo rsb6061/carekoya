@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { parseResumeFile, type ParsedResume } from './resumeParser';
+import { workerVisitorId } from './workerFunnelClient';
 import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -39,7 +40,6 @@ function splitName(name:string){
 }
 // Only used for display; the server works out the state from any US ZIP.
 const inferState=(zip:string)=>stateForZipPrefix(zip);
-const phoneOk=(value:string)=>{const d=value.replace(/\D/g,'');return d.length===10||(d.length===11&&d.startsWith('1'))};
 // The parsed resume survives the trip to the emailed sign-in link, which often opens in a new tab, for up to two hours.
 const DRAFT_KEY='carejoys:onboarding-draft';
 const DRAFT_MS=2*3600000;
@@ -185,7 +185,6 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   async function onSubmit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
-    if(!phoneOk(form.phone)){setStatus('error');setMessage('Enter a 10-digit mobile phone number.');return;}
     await save();
   }
 
@@ -198,6 +197,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         yearsExperience:Number(form.yearsExperience||0)||null,
         travelMiles:Number(form.travelMiles||0)||null,
         jobAlertsEmailOptIn:emailAlerts,
+        funnelVisitorId:workerVisitorId(),
         turnstileToken,
         sourceFilename:fileMeta?.name||'',
         sourceMimeType:fileMeta?.type||'',
@@ -258,7 +258,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   }
 
   const missing=useMemo(()=>({
-    firstName:!form.firstName,lastName:!form.lastName,email:!form.email&&!auth.email,phone:!form.phone,
+    firstName:!form.firstName,lastName:!form.lastName,email:!form.email&&!auth.email,
     zip:!form.zip,state:needsState&&!form.state,role:!form.role
   }),[form,auth.email]);
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
@@ -350,10 +350,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <label>First name<input value={form.firstName} onChange={e=>patch('firstName',e.target.value)} required /></label>
           <label>Last name<input value={form.lastName} onChange={e=>patch('lastName',e.target.value)} required /></label>
         </div>}
-        {(missing.email||missing.phone||editParsed)&&<div className="form-grid">
-          {!auth.isAuthenticated&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} required /></label>}
-          <label>Mobile phone<input type="tel" inputMode="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} required /></label>
-        </div>}
+        {!auth.isAuthenticated&&(missing.email||editParsed)&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} required /></label>}
         {(missing.zip||missing.state||missing.role||editParsed)&&<div className="form-grid">
           <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);if(!form.state)patch('state',inferState(e.target.value))}} inputMode="numeric" pattern="[0-9]{5}" required /></label>
           <label>Role<select value={form.role} onChange={e=>patch('role',e.target.value)} required><option value="">Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>DSP</option><option>Caregiver</option><option>Other</option></select></label>

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { workerVisitorId } from './workerFunnelClient';
 
 type PreviewJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;distanceMiles?:number|null};
 type Preview={jobs:PreviewJob[];total:number};
@@ -19,7 +20,7 @@ export function HomeJobPreview(){
     if(minimumPay)p.set('payMin',minimumPay);
     if(shifts)p.set('shifts',shifts);
     try{
-      const response=await fetch('/api/public/job-preview?'+p.toString());
+      const response=await fetch('/api/public/job-preview?'+p.toString(),{headers:{'X-CareJoys-Funnel-Id':workerVisitorId()}});
       const body=await response.json() as Preview&{error?:string};
       if(!response.ok)throw new Error(body.error||'Could not load jobs right now');
       setResult(body);setStatus('ready');

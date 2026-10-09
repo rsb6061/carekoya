@@ -107,6 +107,9 @@ export async function verifyLogin(request:Request,env:AccountEnv){
 /** Signs a proven email in: the account session, plus the employer session when a hiring workspace exists. */
 async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
   const roles=await accountRoles(env,email);
+  // Magic-link or Google sign-in proves this mailbox belongs to the caregiver, even before dashboard load.
+  await env.DB!.prepare("UPDATE caregivers SET auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('closed','merged_duplicate')")
+    .bind(email).run();
   // A new device has no cookie yet: fall back to the dashboard this account used last anywhere.
   if(!last)last=(await env.DB!.prepare('SELECT last_dashboard FROM account_preferences WHERE email=? LIMIT 1').bind(email).first<{last_dashboard:string}>())?.last_dashboard||'';
   const headers=new Headers({'cache-control':'no-store'});
