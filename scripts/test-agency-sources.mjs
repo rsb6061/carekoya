@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  baseOrganizationKey, groupAgencies, inferredRoles, nppesHeader, nppesRecord, organizationFields,
-  ownSiteDomain, parseCsvLine, parseStates, phone10, stateCode
+  agencyUpsertSql, baseOrganizationKey, cmsNursingHomeRecord, groupAgencies, inferredRoles, nppesHeader, nppesRecord, organizationFields,
+  ownSiteDomain, parseCsvLine, parseKinds, parseStates, phone10, stateCode
 } from './lib/agency-sources.mjs';
 
 const HEADER=['NPI','Entity Type Code','Provider Organization Name (Legal Business Name)','Provider Other Organization Name',
@@ -91,4 +91,49 @@ test('NPI and Google rows for the same agency merge, licence-list organizations 
   assert.equal(f.rating,4.5);
   assert.equal(f.sources,'google_business, nppes');
   assert.deepEqual(inferredRoles(f.providerTypes).sort(),['Caregiver','HHA','PCA']);
+});
+
+test('NPPES facility taxonomies become facilities, and --kinds picks which kinds are imported',()=>{
+  const index=nppesHeader(HEADER);
+  const alf=nppesRecord(nppesRow({'Healthcare Provider Taxonomy Code_1':'310400000X'}),index,['VA']);
+  assert.equal(alf.providerKind,'facility');
+  assert.equal(alf.providerType,'Assisted Living Facility');
+  assert.equal(nppesRecord(nppesRow({}),index,['VA']).providerKind,'home_care');
+  // An agency that also lists a facility code stays home care.
+  assert.equal(nppesRecord(nppesRow({'Healthcare Provider Taxonomy Code_2':'310400000X'}),index,['VA']).providerKind,'home_care');
+  assert.equal(nppesRecord(nppesRow({'Healthcare Provider Taxonomy Code_1':'314000000X'}),index,['VA'],['home_care']),null);
+  assert.equal(nppesRecord(nppesRow({}),index,['VA'],['facility']),null);
+  assert.deepEqual(parseKinds('facilities'),['facility']);
+  assert.deepEqual(parseKinds(''),['home_care','facility']);
+  assert.throws(()=>parseKinds('hospital'));
+  assert.match(agencyUpsertSql(alf),/'facility'/);
+});
+
+test('CMS nursing homes become facilities with their bed count',()=>{
+  const row={cms_certification_number_ccn:'215001',provider_name:'OAK CREST NURSING CENTER',provider_address:'8800 WALTHER BLVD',
+    citytown:'PARKVILLE',state:'MD',zip_code:'21234',telephone_number:'4105550123',number_of_certified_beds:'120',
+    legal_business_name:'OAK CREST VILLAGE INC',chain_name:'',processing_date:'2026-09-01'};
+  const r=cmsNursingHomeRecord(row,['MD']);
+  assert.equal(r.name,'Oak Crest Nursing Center');
+  assert.equal(r.providerKind,'facility');
+  assert.equal(r.bedCount,120);
+  assert.equal(r.ccn,'215001');
+  assert.equal(r.phone,'(410) 555-0123');
+  assert.equal(r.sourceUrl,'https://www.medicare.gov/care-compare/details/nursing-home/215001');
+  assert.equal(cmsNursingHomeRecord(row,['VA']),null);
+  assert.equal(cmsNursingHomeRecord({...row,cms_certification_number_ccn:''},['MD']),null);
+});
+
+test('an organization with any facility row is a facility, and facilities hire CNAs',()=>{
+  const rows=[
+    {id:'n',source:'cms_nursing_home',name:'Oak Crest',phone:'(410) 555-0123',city:'Parkville',state:'MD',provider_type:'Nursing Home',provider_kind:'facility',bed_count:120},
+    {id:'g',source:'google_business',name:'Oak Crest Senior Living',phone:'410-555-0123',city:'Parkville',state:'MD',website:'https://oakcrest.example/',provider_type:'Google listing: Assisted living facility',provider_kind:'facility'},
+    {id:'h',source:'google_business',name:'Home Helpers Parkville',phone:'410-555-0999',city:'Parkville',state:'MD',provider_type:'Google listing: Home help service agency',provider_kind:'home_care'}
+  ];
+  const groups=groupAgencies(rows);
+  const oak=organizationFields(groups.find(g=>g.rows.some(r=>r.id==='n')));
+  assert.equal(oak.providerKind,'facility');
+  assert.equal(oak.bedCount,120);
+  assert.ok(inferredRoles(oak.providerTypes).includes('CNA'));
+  assert.equal(organizationFields(groups.find(g=>g.rows.some(r=>r.id==='h'))).providerKind,'home_care');
 });

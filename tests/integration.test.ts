@@ -659,6 +659,30 @@ describe('DataForSEO pull in the Worker', ()=>{
     expect(saved.find(r=>r.name==='Closed Agency').is_active).toBe(0);
   });
 
+  it('a facility pull saves facilities and leaves home care listings alone', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await DB.prepare("DELETE FROM agencies WHERE source='google_business'").run();
+    await DB.prepare("INSERT INTO agencies(id,source,source_key,name,state,is_active,last_source_sync_at) VALUES ('legacy','google_business','place:legacy','Old Home Care','VA',1,'2020-01-01 00:00:00')").run();
+    await DB.prepare("INSERT INTO agencies(id,source,source_key,name,state,is_active,last_source_sync_at,provider_kind,google_pull_category) VALUES ('gone-alf','google_business','place:gone-alf','Closed Assisted Living','VA',1,'2020-01-01 00:00:00','facility','assisted_living_facility')").run();
+    await DB.prepare("INSERT INTO dataforseo_import_jobs(id,states,mode,max_cost,categories) VALUES ('fac','VA','import',10,'assisted_living_facility')").run();
+    const calls:any[]=[];
+    const original=globalThis.fetch;
+    globalThis.fetch=(async(_url:string,init:any)=>{
+      const task=JSON.parse(init.body)[0];
+      calls.push(task);
+      const virginia=task.filters?.[0]?.[2]==='Virginia';
+      if(task.limit===1)return new Response(JSON.stringify({status_code:20000,cost:0.01,tasks:[{status_code:20000,result:[{total_count:virginia?1:0,items:[]}]}]}));
+      return new Response(JSON.stringify({status_code:20000,cost:0.5,tasks:[{status_code:20000,result:[{total_count:1,items:[listing(9,{title:'Oak Grove Assisted Living',category:'Assisted living facility'})]}]}]}));
+    }) as any;
+    try{await runDataForSeoJobs(env(creds));await runDataForSeoJobs(env(creds))}finally{globalThis.fetch=original}
+    expect((await status('fac') as any).status).toBe('done');
+    expect(calls.every(c=>c.categories[0]==='assisted_living_facility')).toBe(true);
+    const rows=Object.fromEntries(((await DB.prepare("SELECT name,provider_kind,google_pull_category,is_active FROM agencies WHERE source='google_business'").all()).results as any[]).map(r=>[r.name,r]));
+    expect(rows['Oak Grove Assisted Living']).toMatchObject({provider_kind:'facility',google_pull_category:'assisted_living_facility',is_active:1});
+    expect(rows['Closed Assisted Living'].is_active).toBe(0);
+    expect(rows['Old Home Care'].is_active).toBe(1);
+  });
+
   it('stops before passing the spend cap', async()=>{
     await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
     await job('cap','import',0.6);
@@ -1085,6 +1109,20 @@ describe('agency hiring-needs invites', ()=>{
     await sendAgencyHiringInvites(env(),50);
     expect(sent.filter(m=>m.to==='jobs@brightway.test')).toHaveLength(0);
     expect(friendlyAgencyName('Sunrise Home Care Inc.')).toBe('Sunrise Home Care');
+  });
+
+  it('never emails a senior living facility or a chain board, even with live jobs and an email', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active,provider_kind) VALUES ('org-facility','org-facility','Oak Grove Assisted Living','jobs@oakgrove.test','Towson','MD',1,'facility')").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-facility','org-facility','job-facility','test','https://oakgrove.test/jobs/1','CNA','CNA','Oak Grove','Towson','MD','current',1)").run();
+    await DB.prepare("UPDATE agency_organizations SET primary_email='talent@brookdale.test' WHERE id='org_chain_brookdale'").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-chain','org_chain_brookdale','job-chain','icims','https://jobs-brookdale.icims.com/jobs/1/cna/job','CNA','CNA','Brookdale Senior Living','Towson','MD','current',1)").run();
+    sent.length=0;
+    await sendAgencyHiringInvites(env(),50);
+    expect(sent.map(m=>m.to)).not.toContain('jobs@oakgrove.test');
+    expect(sent.map(m=>m.to)).not.toContain('talent@brookdale.test');
+    // The chain boards are seeded as facilities on their corporate job boards.
+    expect(await DB.prepare("SELECT provider_kind,is_chain,primary_careers_url FROM agency_organizations WHERE id='org_chain_erickson'").first())
+      .toEqual({provider_kind:'facility',is_chain:1,primary_careers_url:'https://erickson.wd108.myworkdayjobs.com/en-US/External'});
   });
 
   it('stops at a sending limit and keeps the agency queued', async()=>{

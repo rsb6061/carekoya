@@ -680,12 +680,22 @@ function workdayEndpoint(listingUrl:string){
     return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(site)+'/jobs',host};
   }catch{return null}
 }
-async function workdayJobs(listingUrl:string){
+// Workday's job API returns at most 20 postings a request.
+const WORKDAY_PAGE=20;
+/** Workday postings, searched by each term (a chain's whole board is mostly not caregiving) or unfiltered. */
+async function workdayJobs(listingUrl:string,searchTerms:string[]=[''],pagesPerTerm=searchTerms.length>1?2:5){
   const endpoint=workdayEndpoint(listingUrl);
   if(!endpoint)return [] as DiscoveredJob[];
-  const data=await fetchJsonPost(endpoint.url,{appliedFacets:{},limit:100,offset:0,searchText:''},9000) as any;
-  if(!Array.isArray(data?.jobPostings))return [] as DiscoveredJob[];
-  return data.jobPostings.map((job:any)=>{
+  const postings=new Map<string,any>();
+  for(const searchText of searchTerms){
+    for(let page=0;page<pagesPerTerm;page++){
+      const data=await fetchJsonPost(endpoint.url,{appliedFacets:{},limit:WORKDAY_PAGE,offset:page*WORKDAY_PAGE,searchText},9000) as any;
+      const batch:any[]=Array.isArray(data?.jobPostings)?data.jobPostings:[];
+      for(const job of batch)postings.set(clean(job.externalPath||job.title,1000),job);
+      if(batch.length<WORKDAY_PAGE||(page+1)*WORKDAY_PAGE>=Number(data?.total||0))break;
+    }
+  }
+  return [...postings.values()].map((job:any)=>{
     const title=clean(job.title,220);
     const description=stripHtml(Array.isArray(job.bulletFields)?job.bulletFields.join(' '):'',4000);
     const cls=roleClassification(title,description);
@@ -704,6 +714,57 @@ async function workdayJobs(listingUrl:string){
   }).filter(Boolean) as DiscoveredJob[];
 }
 
+/** Terms a chain's board is searched with: chains post thousands of jobs, most of them not caregiving. */
+export const CHAIN_SEARCH_TERMS=['CNA','Certified Nursing Assistant','Caregiver','Care Assistant','Resident Care','Medication Aide','Med Tech','Home Care Aide','Personal Care'];
+// Detail pages fetched per chain scan; the window rotates daily so every posting is refreshed before it goes stale.
+const CHAIN_DETAIL_PAGES=40;
+export function icimsSearchUrl(listingUrl:string,term:string){
+  return new URL(listingUrl).origin+'/jobs/search?ss=1&searchKeyword='+encodeURIComponent(term)+'&in_iframe=1';
+}
+/** Job links on an iCIMS search page: /jobs/<id>/<slug>/job, without the iframe flag. */
+export function icimsJobLinks(base:string,html:string){
+  const out:{url:string;title:string;id:number}[]=[];
+  const seen=new Set<number>();
+  for(const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+    try{
+      const u=new URL(decodeHtml(m[1]),base);
+      const id=Number(u.pathname.match(/^\/jobs\/(\d+)\/[^/]+\/job\/?$/)?.[1]);
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      u.search='';u.hash='';
+      out.push({url:u.toString(),title:stripHtml(m[2],260),id});
+    }catch{}
+  }
+  return out;
+}
+/** Today's slice of a chain's caregiving postings, so successive daily scans walk the whole list. */
+export function rotatingWindow<T>(items:T[],size:number,day=Math.floor(Date.now()/86400000)){
+  if(items.length<=size)return items;
+  const start=(day*size)%items.length;
+  return [...items.slice(start),...items.slice(0,start)].slice(0,size);
+}
+async function icimsChainJobs(listingUrl:string,org:Row){
+  const links=new Map<number,{url:string;title:string;id:number}>();
+  let fetched=0;
+  for(const term of CHAIN_SEARCH_TERMS){
+    const page=await fetchText(icimsSearchUrl(listingUrl,term),8500);
+    if(!page)continue;
+    fetched++;
+    // A link's text is its title; keep only caregiving ones (an empty title is checked on the detail page).
+    for(const link of icimsJobLinks(page.url,page.text))if(!link.title||roleClassification(link.title,''))links.set(link.id,link);
+  }
+  const jobs:DiscoveredJob[]=[];
+  const ordered=[...links.values()].sort((a,b)=>b.id-a.id);
+  for(const link of rotatingWindow(ordered,CHAIN_DETAIL_PAGES)){
+    const detail=await fetchText(link.url,6500);
+    if(!detail)continue;
+    const structured=parseJsonLdJobs(detail.text,detail.url);
+    if(structured.length){jobs.push(...structured.map(j=>({...j,sourceProvider:'icims',sourceListingUrl:listingUrl})));continue}
+    const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+    if(generic)jobs.push({...generic,sourceProvider:'icims',sourceListingUrl:listingUrl});
+  }
+  return {jobs,linksSeen:links.size,fetchFailed:fetched===0};
+}
 function jobLinks(base:string,html:string){
   const out:{url:string;title:string}[]=[];
   const seen=new Set<string>();
@@ -866,7 +927,15 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   const providers=new Set<string>();
   if(direct?.provider)providers.add(direct.provider);
 
-  if(direct?.provider==='greenhouse'&&direct.account)jobs=await greenhouseJobs(direct.account,listing);
+  const chain=Number(org.is_chain)===1;
+  if(chain&&direct?.provider==='icims'){
+    const crawled=await icimsChainJobs(listing,org);
+    if(crawled.fetchFailed)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'icims',status:'fetch_failed'};
+    jobs=crawled.jobs;
+    jobLinksSeen=crawled.linksSeen;
+  }
+  else if(chain&&direct?.provider==='workday')jobs=await workdayJobs(listing,CHAIN_SEARCH_TERMS);
+  else if(direct?.provider==='greenhouse'&&direct.account)jobs=await greenhouseJobs(direct.account,listing);
   else if(direct?.provider==='lever'&&direct.account)jobs=await leverJobs(direct.account,listing);
   else if(direct?.provider==='ashby'&&direct.account)jobs=await ashbyJobs(direct.account,listing);
   else if(direct?.provider==='workday')jobs=await workdayJobs(listing);
@@ -1106,7 +1175,8 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   let published=0;
   for(const job of unique.values())if(await saveDiscoveredJob(env,org,job))published++;
   await reconcileOrgDuplicates(env,clean(org.id,100));
-  await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND datetime(last_seen_at)<datetime("now","-7 days")').bind(org.id).run();
+  // A chain's scan sees one rotating slice of its postings, so they get longer before counting as gone.
+  await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND datetime(last_seen_at)<datetime("now",?)').bind(org.id,chain?'-21 days':'-7 days').run();
 
   const rejected=Math.max(0,unique.size-published);
   const provider=Array.from(providers).sort().join('+')||'generic';
@@ -1192,7 +1262,7 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
 }
 export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain
     FROM agency_job_scan_state scan
     JOIN agency_organizations ao ON ao.id=scan.organization_id
     WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
@@ -1304,7 +1374,7 @@ export async function repairJobCityBatch(env:FeatureEnv,limit=100){
 const SCAN_CONCURRENCY=4;
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain,scan.last_scanned_at
     FROM agency_organizations ao
     LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
     WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0

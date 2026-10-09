@@ -1,6 +1,6 @@
 name: DataForSEO Agency Import
 
-# Pulls Google business listings for home care agencies through DataForSEO. The pull itself runs inside the
+# Pulls Google business listings for home care agencies (and, with kind=facilities, care facilities) through DataForSEO. The pull itself runs inside the
 # Worker (src/dataforseo.ts), using DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD from the Worker's Cloudflare settings;
 # this workflow only queues the job, waits for the five-minute cron to finish it, and then regroups agencies.
 # Run with mode=estimate first: it costs about a cent per state × category and writes no agencies.
@@ -20,6 +20,11 @@ on:
       max_cost:
         description: Most to spend on DataForSEO in this run (USD)
         default: '10'
+      kind:
+        description: home_care pulls agencies; facilities pulls assisted living, nursing and retirement homes
+        type: choice
+        options: [home_care, facilities, both]
+        default: home_care
 
 permissions:
   contents: read
@@ -38,6 +43,7 @@ jobs:
       STATES: ${{ inputs.states }}
       MODE: ${{ inputs.mode }}
       MAX_COST: ${{ inputs.max_cost }}
+      KIND: ${{ inputs.kind }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,9 +57,16 @@ jobs:
           [[ "$STATES" =~ ^[A-Z]{2}(,[A-Z]{2})*$ ]] || { echo "states must look like VA or VA,DC"; exit 1; }
           [[ "$MAX_COST" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "max_cost must be a number"; exit 1; }
           [[ "$MODE" == estimate || "$MODE" == import ]] || exit 1
+          # Category ids must match GOOGLE_CATEGORIES in src/dataforseo.ts; home_care leaves categories empty (the default set).
+          case "$KIND" in
+            home_care) CATEGORIES="NULL" ;;
+            facilities) CATEGORIES="'assisted_living_facility,nursing_home,retirement_home'" ;;
+            both) CATEGORIES="'home_help_service_agency,home_health_care_service,senior_citizens_care_service,nursing_agency,assisted_living_facility,nursing_home,retirement_home'" ;;
+            *) echo "kind must be home_care, facilities or both"; exit 1 ;;
+          esac
           JOB_ID="dfs_$(date -u +%Y%m%d%H%M%S)_${GITHUB_RUN_ID}"
           echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
-          npx wrangler d1 execute DB --remote --command="INSERT INTO dataforseo_import_jobs(id,states,mode,max_cost) VALUES ('$JOB_ID','$STATES','$MODE',$MAX_COST);"
+          npx wrangler d1 execute DB --remote --command="INSERT INTO dataforseo_import_jobs(id,states,mode,max_cost,categories) VALUES ('$JOB_ID','$STATES','$MODE',$MAX_COST,$CATEGORIES);"
 
       - name: Wait for the Worker to finish
         run: |

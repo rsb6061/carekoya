@@ -22,6 +22,11 @@ export function stateCode(value){
   if(/^[a-z]{2}$/i.test(s)&&STATES[s.toUpperCase()])return s.toUpperCase();
   return BY_NAME.get(s.toLowerCase())||'';
 }
+export function parseKinds(value){
+  const kinds=clean(value||'home_care,facility').split(/[\s,]+/).filter(Boolean).map(k=>k==='facilities'?'facility':k);
+  if(!kinds.length||kinds.some(k=>!['home_care','facility'].includes(k)))throw new Error('--kinds takes home_care, facility or both');
+  return [...new Set(kinds)];
+}
 export function parseStates(value){
   const codes=clean(value).split(/[\s,]+/).filter(Boolean).map(stateCode);
   if(!codes.length||codes.some(c=>!c))throw new Error('--states needs two-letter state codes, e.g. VA or VA,DC');
@@ -49,12 +54,19 @@ export function titleCase(value){
 
 // ---------------------------------------------------------------- NPPES (NPI registry bulk file)
 
-/** Agency taxonomies worth importing, with how directly each employs caregivers. */
+/** Taxonomies worth importing, with how directly each employs caregivers and whether it is home care or a facility. */
 export const NPPES_TAXONOMIES={
-  '253Z00000X':{providerType:'In Home Supportive Care Agency',score:100},
-  '251E00000X':{providerType:'Home Health Agency',score:90},
-  '251J00000X':{providerType:'Nursing Care Agency',score:70}
+  '253Z00000X':{providerType:'In Home Supportive Care Agency',score:100,kind:'home_care'},
+  '251E00000X':{providerType:'Home Health Agency',score:90,kind:'home_care'},
+  '251J00000X':{providerType:'Nursing Care Agency',score:70,kind:'home_care'},
+  '310400000X':{providerType:'Assisted Living Facility',score:90,kind:'facility'},
+  '311500000X':{providerType:'Alzheimer Center',score:85,kind:'facility'},
+  '314000000X':{providerType:'Skilled Nursing Facility',score:85,kind:'facility'},
+  '313M00000X':{providerType:'Nursing Facility',score:80,kind:'facility'},
+  '311ZA0620X':{providerType:'Adult Care Home',score:80,kind:'facility'}
 };
+/** A row is a facility only when every matching code is a facility one: an agency that also runs a facility stays home care. */
+export const providerKindOf=codes=>codes.length&&codes.every(c=>NPPES_TAXONOMIES[c]?.kind==='facility')?'facility':'home_care';
 export const NPPES_COLUMNS={
   npi:'NPI',
   entity:'Entity Type Code',
@@ -105,8 +117,8 @@ export function nppesHeader(fields){
   return index;
 }
 
-/** One NPPES row → an `agencies` record, or null when it isn't an active agency in the wanted states. */
-export function nppesRecord(fields,index,states){
+/** One NPPES row → an `agencies` record, or null when it isn't an active agency (or facility) of a wanted kind in the wanted states. */
+export function nppesRecord(fields,index,states,kinds=['home_care','facility']){
   const get=k=>clean(fields[index[k]]);
   if(get('entity')!=='2')return null;
   const state=stateCode(get('state'));
@@ -121,7 +133,7 @@ export function nppesRecord(fields,index,states){
   // Type code 3 is a DBA, which is usually the name caregivers and families know.
   const dba=index.otherNameType>=0&&clean(fields[index.otherNameType])==='3'?titleCase(get('otherName')):'';
   const name=dba||legalName;
-  if(!npi||!name)return null;
+  if(!npi||!name||!kinds.includes(providerKindOf(matched)))return null;
   const contact=[get('officialFirst'),get('officialLast')].filter(Boolean).map(titleCase).join(' ');
   return {
     source:'nppes',sourceKey:'npi:'+npi,id:idFor('nppes','npi:'+npi),
@@ -130,10 +142,36 @@ export function nppesRecord(fields,index,states){
     city:titleCase(get('city')),state,zip:zip5(get('zip')),
     phone:formatPhone(get('phone')),contactName:contact,
     providerType:[...new Set(matched.map(c=>NPPES_TAXONOMIES[c].providerType))].join(', '),
+    providerKind:providerKindOf(matched),
     licenseType:'NPI '+matched.join(', '),
     score:best.score,eligible:1,
     sourceUrl:'https://npiregistry.cms.hhs.gov/provider-view/'+npi,
     sourceAsOfDate:get('updated')||null
+  };
+}
+
+// ---------------------------------------------------------------- CMS nursing homes (Care Compare "Provider Information")
+
+export const CMS_NURSING_HOME_DATASET='4pq5-n9py';
+/** One row of the CMS Provider Information datastore API → an `agencies` record, or null when unusable. */
+export function cmsNursingHomeRecord(row,states){
+  const get=k=>clean(row?.[k]);
+  const ccn=get('cms_certification_number_ccn');
+  const state=stateCode(get('state'));
+  const name=titleCase(get('provider_name'));
+  if(!ccn||!name||!states.includes(state))return null;
+  const beds=Number.parseInt(get('number_of_certified_beds'),10);
+  return {
+    source:'cms_nursing_home',sourceKey:'ccn:'+ccn,id:idFor('cms_nursing_home','ccn:'+ccn),
+    ccn,name,legalName:titleCase(get('legal_business_name'))||name,
+    address1:titleCase(get('provider_address')),city:titleCase(get('citytown')),state,zip:zip5(get('zip_code').padStart(5,'0')),
+    phone:formatPhone(get('telephone_number')),
+    providerType:'Nursing Home',providerKind:'facility',
+    licenseType:'CMS CCN '+ccn+(get('chain_name')?' · '+get('chain_name'):''),
+    bedCount:Number.isFinite(beds)?beds:null,
+    score:85,eligible:1,
+    sourceUrl:'https://www.medicare.gov/care-compare/details/nursing-home/'+ccn,
+    sourceAsOfDate:get('processing_date')||null
   };
 }
 
@@ -158,13 +196,14 @@ export function agencyUpsertSql(r){
   return `INSERT INTO agencies (
       id,source,source_key,name,legal_name,license_number,license_type,address1,city,state,zip,phone,email,website,source_url,
       is_active,last_source_sync_at,updated_at,contact_name,provider_type,organization_key,caregiver_relevance_score,caregiver_match_eligible,
-      source_as_of_date,npi,google_place_id,google_cid,google_category,rating,review_count,latitude,longitude
+      source_as_of_date,npi,google_place_id,google_cid,google_category,rating,review_count,latitude,longitude,provider_kind,bed_count,ccn
     ) VALUES (
       ${sql(r.id)},${sql(r.source)},${sql(r.sourceKey)},${sql(r.name)},${sql(r.legalName)},${sql(r.npi||null)},${sql(r.licenseType)},
       ${sql(r.address1)},${sql(r.city)},${sql(r.state)},${sql(r.zip)},${sql(r.phone)},NULL,${sql(r.website||null)},${sql(r.sourceUrl)},
       1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,${sql(r.contactName||null)},${sql(r.providerType)},${sql(normalize(r.name))},${r.score},${r.eligible},
       ${sql(r.sourceAsOfDate)},${sql(r.npi||null)},${sql(r.googlePlaceId||null)},${sql(r.googleCid||null)},${sql(r.googleCategory||null)},
-      ${sql(r.rating??null)},${sql(r.reviewCount??null)},${sql(r.latitude??null)},${sql(r.longitude??null)}
+      ${sql(r.rating??null)},${sql(r.reviewCount??null)},${sql(r.latitude??null)},${sql(r.longitude??null)},
+      ${sql(r.providerKind||'home_care')},${sql(r.bedCount??null)},${sql(r.ccn||null)}
     )
     ON CONFLICT(source,source_key) DO UPDATE SET
       name=excluded.name,legal_name=excluded.legal_name,license_number=excluded.license_number,license_type=excluded.license_type,
@@ -174,7 +213,7 @@ export function agencyUpsertSql(r){
       caregiver_relevance_score=excluded.caregiver_relevance_score,caregiver_match_eligible=excluded.caregiver_match_eligible,
       source_as_of_date=excluded.source_as_of_date,npi=excluded.npi,google_place_id=excluded.google_place_id,google_cid=excluded.google_cid,
       google_category=excluded.google_category,rating=excluded.rating,review_count=excluded.review_count,
-      latitude=excluded.latitude,longitude=excluded.longitude;`;
+      latitude=excluded.latitude,longitude=excluded.longitude,provider_kind=excluded.provider_kind,bed_count=excluded.bed_count,ccn=excluded.ccn;`;
 }
 
 // ---------------------------------------------------------------- grouping rows into organizations
@@ -184,15 +223,17 @@ export const FREE_EMAIL_DOMAINS=new Set(['gmail.com','yahoo.com','hotmail.com','
 // Sites that host many unrelated businesses, so a shared one says nothing about being the same agency.
 const SHARED_SITES=/(^|\.)(facebook\.com|instagram\.com|linkedin\.com|yelp\.com|google\.com|business\.site|wixsite\.com|godaddysites\.com|square\.site|weebly\.com|carecompare\.cms\.gov|caring\.com|care\.com|indeed\.com)$/;
 const TOLL_FREE=/^(800|833|844|855|866|877|888)/;
-const NATIONAL_SOURCES=new Set(['nppes','google_business']);
+const NATIONAL_SOURCES=new Set(['nppes','cms_nursing_home','google_business']);
+/** Sources that carry no website or email, so an organization known only from them can't be crawled or reached. */
+export const UNREACHABLE_SOURCES=new Set(['nppes','cms_nursing_home']);
 
 const emailDomain=e=>{const s=clean(e).toLowerCase();const i=s.lastIndexOf('@');return i>0?s.slice(i+1):''};
 const brand=n=>clean(n).toLowerCase().replace(/&/g,' and ')
   .replace(/\b(llc|inc|incorporated|corp|corporation|company|limited|ltd|pllc)\b/g,' ')
   .replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
 
-/** Licence lists first (they carry emails and are what claims hang off), then NPI, then Google. */
-export const sourceRank=source=>NATIONAL_SOURCES.has(source)?(source==='nppes'?1:2):0;
+/** Licence lists first (they carry emails and are what claims hang off), then NPI and CMS, then Google. */
+export const sourceRank=source=>NATIONAL_SOURCES.has(source)?(source==='google_business'?2:1):0;
 
 /** The domain an agency row identifies itself by: its business email's, else its own website's. */
 export function rowDomain(r){
@@ -278,6 +319,9 @@ export function organizationFields(group){
     npi:pick('npi'),googlePlaceId:google?clean(google.google_place_id):'',
     rating:google&&google.rating!=null?Number(google.rating):null,
     reviewCount:google&&google.review_count!=null?Number(google.review_count):null,
+    // Any facility row makes the organization a facility, which keeps it out of agency outreach.
+    providerKind:rs.some(r=>clean(r.provider_kind)==='facility')?'facility':'home_care',
+    bedCount:rs.some(r=>Number(r.bed_count)>0)?Math.max(...rs.map(r=>Number(r.bed_count)||0)):null,
     sources:[...new Set(rs.map(r=>r.source.startsWith('maryland_ohcq_')?'maryland_license':r.source))].sort().join(', ')
   };
 }
@@ -289,6 +333,9 @@ export function inferredRoles(providerTypes){
   if(/Residential Service Agency|In Home Supportive Care/.test(providerTypes)){roles.add('Caregiver');roles.add('PCA')}
   if(/Health Care Staff Agency/.test(providerTypes)){roles.add('CNA');roles.add('GNA');roles.add('HHA')}
   if(/Nursing Care Agency/.test(providerTypes)){roles.add('CNA');roles.add('HHA')}
-  if(/Google listing/.test(providerTypes)){roles.add('Caregiver');roles.add('HHA')}
+  if(/Assisted Living|Alzheimer|Adult Care Home/.test(providerTypes)){roles.add('CNA');roles.add('Caregiver')}
+  if(/Nursing Home|Nursing Facility|Skilled Nursing/.test(providerTypes)){roles.add('CNA');roles.add('GNA')}
+  if(/Google listing: (Assisted living|Aged care|Retirement|Nursing home|Memory care|Senior living|Skilled nursing)/i.test(providerTypes)){roles.add('CNA');roles.add('Caregiver')}
+  else if(/Google listing/.test(providerTypes)){roles.add('Caregiver');roles.add('HHA')}
   return [...roles];
 }

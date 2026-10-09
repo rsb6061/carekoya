@@ -9,7 +9,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
+import { icimsJobLinks, icimsSearchUrl, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -453,5 +453,25 @@ describe('availabilityByDay', ()=>{
     expect(availabilityByDay({days,liveIn:false})).toBe('Mon–Fri: mornings · Sat–Sun: overnights');
     expect(availabilityByDay({days:{...days,wed:[]},liveIn:false})).toBe('Mon–Tue: mornings · Thu–Fri: mornings · Sat–Sun: overnights');
     expect(availabilityByDay({days:{mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[]},liveIn:true})).toBe('');
+  });
+});
+
+describe('senior living chain boards', ()=>{
+  it('searches an iCIMS board for a caregiving term and reads its job links', ()=>{
+    expect(icimsSearchUrl('https://jobs-brookdale.icims.com/jobs/search?ss=1','Care Assistant')).toBe('https://jobs-brookdale.icims.com/jobs/search?ss=1&searchKeyword=Care%20Assistant&in_iframe=1');
+    const html='<a href="https://jobs-brookdale.icims.com/jobs/274632/care-assistant/job?in_iframe=1"><span>Care Assistant</span></a>'
+      +'<a href="/jobs/274632/care-assistant/job?in_iframe=1">Care Assistant</a>'
+      +'<a href="/jobs/280292/cook/job?in_iframe=1">Cook</a><a href="/jobs/search?pr=1&in_iframe=1">Next</a>';
+    expect(icimsJobLinks('https://jobs-brookdale.icims.com/jobs/search?ss=1',html)).toEqual([
+      {url:'https://jobs-brookdale.icims.com/jobs/274632/care-assistant/job',title:'Care Assistant',id:274632},
+      {url:'https://jobs-brookdale.icims.com/jobs/280292/cook/job',title:'Cook',id:280292}
+    ]);
+  });
+  it('walks a long posting list a slice a day', ()=>{
+    const items=[1,2,3,4,5];
+    expect(rotatingWindow(items,2,0)).toEqual([1,2]);
+    expect(rotatingWindow(items,2,1)).toEqual([3,4]);
+    expect(rotatingWindow(items,2,2)).toEqual([5,1]);
+    expect(rotatingWindow(items,10,7)).toEqual(items);
   });
 });
