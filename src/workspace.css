@@ -314,3 +314,5 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
  .admin-subheading{flex-direction:column;align-items:stretch}
  .admin-subheading input{width:100%}
 }
+
+.talent-results-meta{margin:2px 0 18px;color:var(--muted);font-size:14px;line-height:1.5}
