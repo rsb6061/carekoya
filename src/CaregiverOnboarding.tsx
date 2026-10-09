@@ -287,6 +287,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
             :<a className="btn" href={jobsHubPath(usState(form.state)||usState(inferState(form.zip))||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
         {!auth.isAuthenticated&&<div className="onboarding-save-login">
           <strong>Come back to your matches anytime</strong>
+          {emailAlerts&&<span>To activate your weekly job emails, verify this email address using a CareJoys sign-in link.</span>}
           <span>Sign in once to see employer invites, update availability and track applications.</span>
           <div className="auth-choice">
             <button className="btn secondary" onClick={()=>void login('email')}>Email me a sign-in link</button>
