@@ -236,7 +236,7 @@ export function EmployerWorkspace(){
       setSlotsFor(null);
       setSlotInputs([{startsAt:'',durationMinutes:30}]);
       await refreshWorkspace();
-      setTab('pipeline');
+      setTab(pendingApproval?'openings':'pipeline');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not save interview times','error');
     }
@@ -447,7 +447,7 @@ export function EmployerWorkspace(){
           <label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label>
           <label>Requirements<textarea name="requirements" rows={4} placeholder="Experience, credential, schedule, client requirements..." /></label>
           <label className="check-row"><input type="checkbox" name="transportationRequired" /><span>Reliable transportation required</span></label>
-          <button className="button submit-button">Create & match</button>
+          <button className="button submit-button">{pendingApproval?'Create opening':'Create & match'}</button>
         </form>
       </div></div>}
 

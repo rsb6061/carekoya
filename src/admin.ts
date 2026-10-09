@@ -108,10 +108,11 @@ export async function adminEmployers(env:AdminEnv){
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.contacted_at IS NOT NULL) AS contacted,
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.interview_booked_at IS NOT NULL) AS interviews,
       (SELECT canonical_name FROM agency_organizations ao WHERE ao.claimed_employer_id=e.id LIMIT 1) AS claimed_agency
-    FROM employer_leads e WHERE COALESCE(e.hiring_notes,'')!='CareJoys admin account' ORDER BY CASE WHEN e.approved_at IS NULL AND e.email LIKE '%@gmail.com' THEN 0 WHEN e.approved_at IS NULL AND e.email LIKE '%@yahoo.com' THEN 0 ELSE 1 END, e.created_at DESC LIMIT 100`).all<Row>();
+    FROM employer_leads e WHERE COALESCE(e.hiring_notes,'')!='CareJoys admin account' ORDER BY e.created_at DESC LIMIT 100`).all<Row>();
   const out=[];
   for(const row of rows.results||[])out.push({...row,approval:(await employerApproval(env,row)).reason});
-  return out;
+  // Reviewable accounts stay visible at the top regardless of email provider.
+  return out.sort((a,b)=>(a.approval==='pending'?0:1)-(b.approval==='pending'?0:1));
 }
 
 export async function runAdminOutreach(request:Request,env:AdminEnv){
