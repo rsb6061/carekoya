@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { ProfilePhotoSection } from './ProfilePhotoSection';
 import { IntroVideoSection } from './IntroVideoSection';
 import { cleanList } from './listField';
+import { CHECKLIST } from './checklist';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
@@ -18,7 +19,7 @@ export type Availability={days:Record<string,string[]>;liveIn:boolean};
 export type CaregiverProfileData={
   firstName?:string;lastName?:string;phone?:string;zip?:string;city?:string;state?:string;role?:string;
   certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];preferredSettings?:string[];languages?:string;bio?:string;
-  availability?:Availability;employmentTypes?:string[];startAvailability?:string;workConditions?:string[];
+  availability?:Availability;employmentTypes?:string[];startAvailability?:string;workConditions?:string[];checklist?:string[];
   desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;profilePhotoUrl?:string|null;
 };
 
@@ -64,6 +65,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
   const [languages,setLanguages]=useState(list(c.languages).length?list(c.languages):['English']);
   const [hours,setHours]=useState(list(c.employmentTypes));
   const [conditions,setConditions]=useState(list(c.workConditions));
+  const [checklist,setChecklist]=useState<string[]>(c.checklist||[]);
   const [looking,setLooking]=useState(c.workStatus!=='not_looking'&&c.workStatus!=='maybe_later');
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
@@ -80,7 +82,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
         firstName:text('firstName'),lastName:text('lastName'),phone:text('phone'),zip:text('zip'),role:text('role'),
         certifications:certs,licenseNumber:text('licenseNumber'),licenseState:text('licenseState'),yearsExperience:Number(text('yearsExperience')||0),
         specialties:skills,careSettings:settings,preferredSettings:preferred,languages,bio:text('bio'),
-        availability:{days,liveIn},employmentTypes:hours,startAvailability:text('startAvailability'),workConditions:conditions,
+        availability:{days,liveIn},employmentTypes:hours,startAvailability:text('startAvailability'),workConditions:conditions,checklist,
         payMin:Number(text('payMin')||0),transportation:text('transportation'),travelMiles:Number(text('travelMiles')||0),
         workStatus:looking?'actively_looking':'not_looking'
       });
@@ -126,6 +128,10 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
       <div className="chip-field"><span>Where I want to work</span><Chips options={PREFERRED} value={preferred} onChange={setPreferred}/></div>
       <div className="chip-field"><span>Languages I speak</span><Chips options={LANGUAGES} value={languages} onChange={setLanguages}/></div>
       <div className="chip-field"><span>I’m comfortable with</span><Chips options={['Pets in the home','Smokers in the home']} value={conditions.map(x=>x==='pets'?'Pets in the home':'Smokers in the home')} onChange={v=>setConditions(v.map(x=>x.startsWith('Pets')?'pets':'smokers'))}/></div>
+    </Section>
+
+    <Section title="What employers check first" hint="Check each one that’s true for you. Employers see the ones you check; anything left blank shows as not answered.">
+      <div className="checklist-field">{CHECKLIST.map(([key,label])=><label className="check-row" key={key}><input type="checkbox" checked={checklist.includes(key)} onChange={e=>setChecklist(prev=>e.target.checked?[...prev,key]:prev.filter(k=>k!==key))}/><span>{label}</span></label>)}</div>
     </Section>
 
     <Section title="Pay and travel">

@@ -40,7 +40,7 @@ beforeAll(async()=>{
   await addCaregiver('towson','21204');
   await addCaregiver('dc','20001');
   await addCaregiver('la','90001');
-  await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp1','Acme Care','Pat','pat@acme.test','21201','CNA','active')").run();
+  await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp1','Acme Care','Pat','pat@acme.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
   await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s1','emp1',?,?)").bind(await sha256Hex(SESSION),new Date(Date.now()+86400000).toISOString()).run();
 },120000);
 afterAll(async()=>{await proxy?.dispose()});
@@ -102,7 +102,24 @@ describe('admin privileges do not approve an employer account',()=>{
 });
 
 describe('employer approval', ()=>{
-  it('free-mail employers wait for an admin before seeing caregivers; company emails do not', async()=>{
+  it('approves a company email only at the domain of an agency or care community on record', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_domain,city,state,is_active,provider_kind) VALUES ('org-oak','org-oak','Oak Grove Senior Living','oakgrove-living.test','Towson','MD',1,'facility')").run();
+    const cases:[string,string,unknown][]=[
+      ['emp-unknown','owner@acrepermit.test',{approved:false,reason:'pending'}],
+      ['emp-oak','hr@oakgrove-living.test',{approved:true,reason:'agency_domain'}],
+      ['emp-oak-sub','hr@towson.oakgrove-living.test',{approved:true,reason:'agency_domain'}],
+      ['emp-lookalike','hr@notoakgrove-living.test',{approved:false,reason:'pending'}]
+    ];
+    for(const [id,email,expected] of cases){
+      await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES (?,?,'Kim',?,'21204','CNA','active')").bind(id,id,email).run();
+      await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)").bind(id+'-s',id,await sha256Hex(id+'-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+      const ws=await (await call('/api/workspace',{headers:{cookie:'cj_session='+id+'-cookie'}})).json() as any;
+      expect([email,ws.approval]).toEqual([email,expected]);
+    }
+    expect((await call('/api/candidates?zip=21204',{headers:{cookie:'cj_session=emp-unknown-cookie'}})).status).toBe(403);
+    expect((await call('/api/candidates?zip=21204',{headers:{cookie:'cj_session=emp-oak-cookie'}})).status).toBe(200);
+  });
+  it('free-mail employers wait for an admin before seeing caregivers', async()=>{
     await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('empfree','Solo Care','Sam','sam@gmail.com','21201','CNA','active')").run();
     await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s2','empfree',?,?)").bind(await sha256Hex('free-session'),new Date(Date.now()+86400000).toISOString()).run();
     sent.length=0;
@@ -145,6 +162,14 @@ describe('distance matching', ()=>{
     expect(opening).toEqual({city:'Baltimore',state:'MD'});
     const match=await (await call(`/api/openings/${id}/match`,{method:'POST',headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(match.top.map((c:any)=>c.id).sort()).toEqual(['baltimore','towson']);
+  });
+  it('stores an opening schedule and shows it as plain-words shift hours', async()=>{
+    const schedule={days:{mon:{start:'07:00',end:'15:00'},tue:{start:'07:00',end:'15:00'},sat:{start:'23:00',end:'07:00'}},liveIn:false};
+    const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA',role:'CNA',zip:'21201',shifts:'ignored',schedule:JSON.stringify(schedule)})});
+    const {id}=await created.json() as any;
+    const row=await DB.prepare('SELECT shift_preferences,schedule_json FROM openings WHERE id=?').bind(id).first() as any;
+    expect(row.shift_preferences).toBe('Mon, Tue 7am–3pm · Sat 11pm–7am');
+    expect(JSON.parse(row.schedule_json)).toEqual(schedule);
   });
   it('caregiver signup infers state and city outside Maryland', async()=>{
     const res=await call('/api/caregivers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({firstName:'Nia',lastName:'York',email:'nia@example.com',phone:'5550100',zip:'10001',role:'HHA'})});
@@ -192,6 +217,28 @@ describe('employer booking and approval gates', ()=>{
 });
 
 describe('optional interview scheduling and verified owner admin', ()=>{
+  it('invites only the caregivers the employer picked and keeps caregiver-only stages out of manual edits', async()=>{
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA picked',role:'CNA',zip:'21201'})})).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers});
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(rows.length).toBeGreaterThan(1);
+    const pick=rows.find((r:any)=>r.caregiver_id==='towson');
+    expect(pick.profile.name).toBe(pick.name);
+    expect(pick.match_reasons).toContain('role match');
+    expect(pick.profile.email).toBeUndefined();
+    sent.length=0;
+    const outcome=await (await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:[pick.id]})})).json() as any;
+    expect(outcome.sent).toBe(1);
+    expect(sent.map(m=>m.to)).toEqual(['towson@example.com']);
+    const after=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(after.filter((r:any)=>r.stage==='contacted').map((r:any)=>r.caregiver_id)).toEqual(['towson']);
+    const other=after.find((r:any)=>r.caregiver_id!=='towson');
+    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'interview'})})).status).toBe(400);
+    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'rejected'})})).status).toBe(200);
+    const final=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(final.find((r:any)=>r.id===other.id)).toMatchObject({stage:'rejected',rejected_reason:'employer_not_a_fit',interview_at:null});
+  });
   it('sends an introduction without interview slots and reveals contact email only after the worker explicitly agrees', async()=>{
     const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
     const opened=await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA day position',role:'CNA',zip:'21201'})});
@@ -322,6 +369,17 @@ describe('outreach', ()=>{
     await Promise.all(waits);
     expect(sent).toHaveLength(0);
   });
+  it('records a summary run, and notes a schedule it does not recognise', async()=>{
+    const at=Date.parse('2026-10-09T21:07:00Z');
+    await worker.scheduled({cron:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    await worker.scheduled({cron:'7-59/5 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    const runs=await DB.prepare("SELECT kind,trigger FROM outreach_runs WHERE kind IN ('job_summaries','unmatched_cron') ORDER BY kind,trigger").all();
+    expect(runs.results).toEqual([
+      {kind:'job_summaries',trigger:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *'},
+      {kind:'job_summaries',trigger:'7-59/5 * * * *'},
+      {kind:'unmatched_cron',trigger:'7-59/5 * * * *'}
+    ]);
+  });
 });
 
 describe('billing gate', ()=>{
@@ -338,6 +396,44 @@ describe('billing gate', ()=>{
     const allowed=await (await call(`/api/openings/${id}/contact`,{method:'POST',headers:{cookie:'cj_session='+SESSION},body:'{}'},stripe)).json() as any;
     expect(allowed.sent).toBeGreaterThan(0);
     expect((await (await call('/api/billing',{headers:{cookie:'cj_session='+SESSION}})).json() as any).enabled).toBe(false);
+  });
+});
+
+describe('free introductions', ()=>{
+  it('counts an introduction when a caregiver says yes and hides contact past the free ones', async()=>{
+    const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'1'};
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-intro','Intro Care','Lee','lee@introcare.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('intro-s','emp-intro',?,?)").bind(await sha256Hex('intro-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    const headers={cookie:'cj_session=intro-cookie','content-type':'application/json'};
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA intro',role:'CNA',zip:'21201'})},stripe)).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers},stripe);
+    sent.length=0;
+    // Inviting two uses no introductions yet.
+    expect((await (await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({limit:2})},stripe)).json() as any).sent).toBe(2);
+    expect((await (await call('/api/billing',{headers},stripe)).json() as any).freeContactsRemaining).toBe(1);
+    const tokens=sent.filter(m=>m.html?.includes('/respond?token=')).map(m=>decodeURIComponent(m.html!.match(/respond\?token=([^"&\s]+)/)![1]));
+    expect(tokens).toHaveLength(2);
+    sent.length=0;
+    for(const token of tokens){
+      const res=await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})},stripe);
+      expect(res.status).toBe(200);
+    }
+    const notices=sent.filter(m=>m.subject.startsWith('Interested candidate:'));
+    expect(notices).toHaveLength(2);
+    expect(notices[0].html).toMatch(/@example\.com/);
+    expect(notices[1].html).not.toMatch(/@example\.com/);
+    expect(notices[1].html).toContain('free introductions');
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers},stripe)).json() as any).pipeline.filter((r:any)=>r.stage==='interested');
+    expect(rows.filter((r:any)=>r.contact_email).length).toBe(1);
+    expect(rows.filter((r:any)=>r.contact_locked&&!r.contact_email).length).toBe(1);
+    // The locked caregiver can't book interview times the employer can't see.
+    const lockedToken=tokens[1];
+    expect((await (await call('/api/respond?token='+encodeURIComponent(lockedToken),{},stripe)).json() as any).opportunity.slots).toEqual([]);
+    expect((await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:'{}'},stripe)).status).toBe(402);
+    // A subscription unlocks everyone.
+    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp-intro','active')").run();
+    const unlocked=(await (await call('/api/pipeline?openingId='+id,{headers},stripe)).json() as any).pipeline.filter((r:any)=>r.stage==='interested');
+    expect(unlocked.every((r:any)=>r.contact_email&&!r.contact_locked)).toBe(true);
   });
 });
 
@@ -538,6 +634,15 @@ describe('audit fixes: SEO responses', ()=>{
     const www=await worker.fetch(new Request('https://www.carejoys.com/about'),env(htmlAssets));
     expect(www.status).toBe(301);
     expect(www.headers.get('location')).toBe('https://carejoys.com/about');
+  });
+  it('nurse aide registry page lists every state with official links', async()=>{
+    const page=await call('/resources/nurse-aide-registry-by-state',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<tr id="north-carolina">');
+    expect(html).toContain('<tr id="maryland">');
+    expect(html.match(/<tr id="/g)?.length).toBe(51);
+    expect(await (await call('/sitemaps/pages.xml')).text()).toContain('/resources/nurse-aide-registry-by-state');
   });
   it('sitemap is an index of child sitemaps', async()=>{
     const index=await (await call('/sitemap.xml')).text();
@@ -1001,7 +1106,7 @@ describe('shared sign-in', ()=>{
     const res=await post('/api/me/profile',{firstName:'Bea',lastName:'More',phone:'4105550123',zip:'21201',role:'CNA',
       certifications:['CNA','CPR / First Aid'],licenseNumber:'A123',licenseState:'md',yearsExperience:4,specialties:['Hoyer lift'],careSettings:['Home care'],languages:['English'],
       availability:{days:{mon:['morning','overnight'],sat:['morning'],tue:['bogus']},liveIn:true},employmentTypes:['full_time','nope'],startAvailability:'2_weeks',
-      workConditions:['pets'],payMin:19,transportation:'own_car',travelMiles:15},{cookie});
+      workConditions:['pets'],checklist:['over18','background_check','bogus'],payMin:19,transportation:'own_car',travelMiles:15},{cookie});
     expect(res.status).toBe(200);
     const row=await DB.prepare("SELECT shift_preferences,employment_types,license_state,desired_wage,work_status FROM caregivers WHERE id='baltimore'").first() as any;
     expect(row).toEqual({shift_preferences:'Mornings, Overnights, Weekends, Live-in',employment_types:'full_time',license_state:'MD',desired_wage:'$19+/hr',work_status:'actively_looking'});
@@ -1010,6 +1115,7 @@ describe('shared sign-in', ()=>{
     expect(me.caregiver.availability.days.tue).toEqual([]);
     expect(me.caregiver.availability.liveIn).toBe(true);
     expect(me.caregiver.workConditions).toEqual(['pets']);
+    expect(me.caregiver.checklist).toEqual(['over18','background_check']);
   });
 
   it('a caregiver previews their card exactly as employers see it, without contact details', async()=>{
@@ -1020,6 +1126,7 @@ describe('shared sign-in', ()=>{
     expect(view.candidate.name).toBe('Bea M.');
     expect(view.candidate.shifts).toBe('Mornings, Overnights, Weekends, Live-in');
     expect(view.candidate.schedule).toBe('Mon: mornings, overnights · Sat: mornings');
+    expect(view.candidate.checklist).toEqual(['over18','background_check']);
     expect(JSON.stringify(view)).not.toMatch(/4105550123|baltimore@example\.com/);
   });
 
@@ -1364,5 +1471,137 @@ describe('optional intro video', ()=>{
     expect((await call('/api/me/video/delete',{method:'POST',headers:me,body:'{}'},withStream)).status).toBe(200);
     expect(deleted).toContain(again);
     expect(((await (await call('/api/me/video',{headers:me},withStream)).json()) as any).video).toBeNull();
+  });
+});
+
+describe('agency always-on opening', ()=>{
+  it('matches hiring preferences with the same distance and role rules as any opening', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-claimed','org-claimed','Acme Care','acme.test','jobs@acme.test','Baltimore','MD','21201',1,'emp1')").run();
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+    const res=await call('/api/agency/hiring-profile',{method:'POST',headers,body:JSON.stringify({hiringStatus:'hiring',roles:'CNA'})});
+    expect(res.status).toBe(200);
+    const {openingId}=await res.json() as any;
+    const rows=(await (await call('/api/pipeline?openingId='+openingId,{headers})).json() as any).pipeline;
+    const ids=rows.map((r:any)=>r.caregiver_id);
+    expect(ids).toContain('baltimore');
+    expect(ids).not.toContain('la');
+    expect(ids).not.toContain('dc');
+    expect(rows.find((r:any)=>r.caregiver_id==='baltimore').match_reasons).toContain('role match');
+  });
+  it('turns one of the agency’s job listings into an opening with matches', async()=>{
+    await DB.prepare(`INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published)
+      VALUES ('job-recruit','org-claimed','dr','ats','https://acme.test/jobs/1','Certified Nursing Assistant (CNA) - Weekends','','Acme Care','Baltimore','MD','21201',18,21,'hour','current',1)`).run();
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+    const first=await (await call('/api/agency/jobs/job-recruit',{method:'POST',headers,body:JSON.stringify({action:'recruit'})})).json() as any;
+    const again=await (await call('/api/agency/jobs/job-recruit',{method:'POST',headers,body:JSON.stringify({action:'recruit'})})).json() as any;
+    expect(again.openingId).toBe(first.openingId);
+    expect(await DB.prepare('SELECT title,role,zip,pay_min,pay_max,source FROM openings WHERE id=?').bind(first.openingId).first())
+      .toEqual({title:'Certified Nursing Assistant (CNA) - Weekends',role:'CNA',zip:'21201',pay_min:18,pay_max:21,source:'agency_job'});
+    const match=await (await call('/api/openings/'+first.openingId+'/match',{method:'POST',headers})).json() as any;
+    expect(match.top.map((c:any)=>c.id)).toContain('baltimore');
+  });
+});
+
+describe('reviewing candidates', ()=>{
+  const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'1'};
+  const headers={cookie:'cj_session=tools-cookie','content-type':'application/json',origin:'https://carejoys.com'};
+  let openingId='',rowId='';
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-tools','Tools Care','Sam','sam@toolscare.test','21401','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('tools-s','emp-tools',?,?)").bind(await sha256Hex('tools-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    await addCaregiver('annapolis','21401',{checklist:'over18,can_lift'});
+    await DB.prepare("INSERT INTO caregiver_resume_files(caregiver_id,file_blob,file_name,content_type,byte_size) VALUES ('annapolis',?,'annapolis.pdf','application/pdf',8)").bind(new TextEncoder().encode('%PDF-1.4')).run();
+    openingId=((await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA Annapolis',role:'CNA',zip:'21401'})},stripe)).json()) as any).id;
+    await call('/api/openings/'+openingId+'/match',{method:'POST',headers},stripe);
+    const rows=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline;
+    rowId=rows.find((r:any)=>r.caregiver_id==='annapolis').id;
+  });
+
+  it('shows the caregiver’s checklist, and shares the resume only after they say yes', async()=>{
+    const row=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(row.profile.checklist).toEqual(['over18','can_lift']);
+    expect(row.resume_url).toBeNull();
+    expect((await call('/api/pipeline/'+rowId+'/resume',{headers},stripe)).status).toBe(403);
+    // Another employer can't reach it at all.
+    expect((await call('/api/pipeline/'+rowId+'/resume',{headers:{cookie:'cj_session='+SESSION}},stripe)).status).toBe(404);
+    sent.length=0;
+    await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:[rowId]})},stripe);
+    const token=decodeURIComponent(sent.find(m=>m.html?.includes('/respond?token='))!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
+    await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})},stripe);
+    const after=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(after.resume_url).toBe('/api/pipeline/'+rowId+'/resume');
+    const file=await call(after.resume_url,{headers},stripe);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('content-disposition')).toContain('annapolis.pdf');
+    expect(await file.text()).toBe('%PDF-1.4');
+  });
+
+  it('stars a caregiver, and restores only the ones the employer marked not a fit', async()=>{
+    const patch=(body:unknown)=>call('/api/pipeline/'+rowId,{method:'PATCH',headers,body:JSON.stringify(body)},stripe);
+    const get=async()=>(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect((await patch({favorite:true})).status).toBe(200);
+    expect((await get()).favorite).toBe(true);
+    expect((await patch({stage:'restore'})).status).toBe(409);
+    await patch({stage:'rejected'});
+    expect((await get()).stage).toBe('rejected');
+    expect(await (await patch({stage:'restore'})).json()).toEqual({ok:true,stage:'interested'});
+    expect((await get()).stage).toBe('interested');
+    await patch({favorite:false});
+    expect((await get()).favorite).toBe(false);
+    // A caregiver's own "not interested" can't be undone by the employer.
+    await DB.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='candidate_not_interested' WHERE id=?").bind(rowId).run();
+    expect((await patch({stage:'restore'})).status).toBe(409);
+    await DB.prepare("UPDATE candidate_pipeline SET stage='interested',rejected_reason=NULL WHERE id=?").bind(rowId).run();
+  });
+
+  it('job-page interest uses an introduction, and past the free ones its contact and resume wait for billing', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,zip,is_active,claimed_employer_id) VALUES ('org-tools','org-tools','Tools Care','Annapolis','MD','21401',1,'emp-tools')").run();
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,created_at) VALUES ('ai-tools','org-tools','annapolis','','job_apply',datetime('now','+1 minute'))").run();
+    expect((await (await call('/api/billing',{headers},stripe)).json() as any).contactsUsed).toBe(2);
+    const inbox=await (await call('/api/agency/inbox',{headers},stripe)).json() as any;
+    const item=inbox.items.find((i:any)=>i.id==='ai-tools');
+    expect(item.contactLocked).toBe(true);
+    expect(item.caregiver.email).toBe('');
+    expect(item.resumeUrl).toBeNull();
+    expect((await call('/api/agency/inbox/ai-tools/resume',{headers},stripe)).status).toBe(402);
+    // The earlier yes is still the free one.
+    const row=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(row.contact_locked).toBe(false);
+    // Without billing turned on nothing is locked.
+    const open=(await (await call('/api/agency/inbox',{headers})).json() as any).items.find((i:any)=>i.id==='ai-tools');
+    expect(open.caregiver.email).toBe('annapolis@example.com');
+    expect(open.resumeUrl).toBe('/api/agency/inbox/ai-tools/resume');
+    expect((await call(open.resumeUrl,{headers})).status).toBe(200);
+  });
+
+  it('saves email templates for the employer who made them only', async()=>{
+    expect((await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({name:'Phone screen',subject:'Hi',body:''})})).status).toBe(400);
+    const made=await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({name:'Phone screen',subject:'{opening} at {company}',body:'Hi {first_name}'})});
+    expect(made.status).toBe(201);
+    const {id}=await made.json() as any;
+    await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({id,name:'Phone screen',subject:'Call about {opening}',body:'Hi {first_name}'})});
+    const list=(await (await call('/api/email-templates',{headers})).json() as any).templates;
+    expect(list.map((t:any)=>[t.name,t.subject])).toEqual([['Phone screen','Call about {opening}']]);
+    const other={cookie:'cj_session='+SESSION,origin:'https://carejoys.com'};
+    expect((await (await call('/api/email-templates',{headers:other})).json() as any).templates).toEqual([]);
+    await call('/api/email-templates/'+id,{method:'DELETE',headers:other});
+    expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toHaveLength(1);
+    await call('/api/email-templates/'+id,{method:'DELETE',headers});
+    expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toEqual([]);
+  });
+});
+
+describe('homepage hero stats',()=>{
+  it('returns live counts and newest paid openings, one per employer',async()=>{
+    const res=await call('/api/public/home-stats');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toContain('max-age');
+    const body=await res.json() as any;
+    expect(body.ok).toBe(true);
+    for(const k of ['jobs','states','employersWatched','newThisWeek'])expect(typeof body[k]).toBe('number');
+    expect(body.latest.length).toBeLessThanOrEqual(4);
+    const employers=body.latest.map((j:any)=>j.employerName.toLowerCase());
+    expect(new Set(employers).size).toBe(employers.length);
+    for(const j of body.latest)expect(j.payMax).not.toBeNull();
   });
 });

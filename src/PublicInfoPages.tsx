@@ -38,8 +38,8 @@ export function EmployerRecruitingPage(){
         <h2>Pricing</h2>
         <div className="jobs">
           <div className="job"><div><h3>Searching and matching are free</h3><div className="meta">Post openings, see ranked local matches, and keep always-on hiring preferences at no cost.</div></div><div className="meta">Free</div></div>
-          <div className="job"><div><h3>{freeContacts===0?'Contacting caregivers':'Your first '+(freeContacts??5)+' caregiver contacts are free'}</h3><div className="meta">CareJoys contacts matched caregivers for you, confirms interest, and lets them book your interview times.</div></div><div className="meta">{freeContacts===0?'Subscription':'Free'}</div></div>
-          <div className="job"><div><h3>Then a monthly subscription</h3><div className="meta">Contacting more caregivers after the free allowance needs a CareJoys subscription, which you can start or cancel from your workspace.</div></div><div className="meta">Monthly</div></div>
+          <div className="job"><div><h3>{freeContacts===0?'Caregiver introductions':'Your first '+(freeContacts??5)+' caregiver introductions are free'}</h3><div className="meta">CareJoys invites matched caregivers for you. An introduction counts only when a caregiver says they’re interested.</div></div><div className="meta">{freeContacts===0?'Subscription':'Free'}</div></div>
+          <div className="job"><div><h3>Then a monthly subscription</h3><div className="meta">More introductions after the free ones need a CareJoys subscription, which you can start or cancel from your workspace.</div></div><div className="meta">Monthly</div></div>
         </div>
       </div></section>
 

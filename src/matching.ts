@@ -1,4 +1,5 @@
 import { DEFAULT_COMMUTE_MILES, rowDistanceMiles } from './geo';
+import { hasSchedule, parseOpeningSchedule, scheduleFit } from './schedule';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -85,9 +86,18 @@ export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
     else if(days<=90){score+=8;reasons.push('older availability')}
   }
 
-  const targetShift=clean(opening.shift_preferences),candidateShift=clean(c.shift_preferences);
-  if(targetShift&&candidateShift&&splitTerms(targetShift).some(term=>candidateShift.toLowerCase().includes(term))){
-    score+=10;reasons.push('shift overlap');
+  // A day-by-day schedule is compared with the caregiver's weekly grid; older openings fall back to shift words.
+  const schedule=parseOpeningSchedule(opening.schedule_json);
+  const fit=hasSchedule(schedule)?scheduleFit(schedule,c.availability_json):null;
+  if(fit){
+    score+=Math.round(15*fit.workable/fit.shifts);
+    if(schedule.liveIn)reasons.push(fit.workable?'open to live-in':'not open to live-in');
+    else reasons.push(fit.workable===fit.shifts?(fit.shifts===1?'available for the shift':`available all ${fit.shifts} shifts`):fit.workable?`available ${fit.workable} of ${fit.shifts} shifts`:'schedule does not overlap');
+  }else{
+    const targetShift=clean(opening.shift_preferences),candidateShift=clean(c.shift_preferences);
+    if(targetShift&&candidateShift&&splitTerms(targetShift).some(term=>candidateShift.toLowerCase().includes(term))){
+      score+=10;reasons.push('shift overlap');
+    }
   }
   if(Number(opening.transportation_required||0)===1&&(clean(c.transportation)||Number(c.willing_to_drive||0)===1)){
     score+=5;reasons.push('transportation');

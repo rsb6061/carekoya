@@ -1,20 +1,23 @@
 import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
+import { homeStats, homeStatsResponse, roundedCount } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
-import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
+import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
+import { hasSchedule, parseOpeningSchedule, scheduleSummary } from './schedule';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runReactivationReminders, runScheduledOutreach } from './outreach';
 import { listText } from './listField';
@@ -22,10 +25,13 @@ import { summarizeJobsBatch, type AiBinding } from './jobSummary';
 import { descriptionBlocks } from './jobFormat';
 import { runDataForSeoJobs } from './dataforseo';
 import { clarityInsights, pullClarityInsights } from './clarity';
-import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
+import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook, lockedIntroductions } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
+import { resumeDownload } from './resumeFile';
+import { parseChecklist } from './checklist';
+import { handleEmailTemplates } from './emailTemplates';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
@@ -152,13 +158,14 @@ async function careJoysChildSitemap(env:Env,name:string){
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
+      {url:SEO_ORIGIN+REGISTRY_PATH,lastmod:REGISTRIES_CHECKED},
       {url:SEO_ORIGIN+"/agent"},
       {url:SEO_ORIGIN+"/training-programs/maryland"},
       {url:SEO_ORIGIN+"/cna-classes/baltimore"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland/baltimore"}
     ];
-    return sitemapXml(entries.map(e=>({...e,lastmod:STATIC_CONTENT_UPDATED})));
+    return sitemapXml(entries.map(e=>({...e,lastmod:e.lastmod||STATIC_CONTENT_UPDATED})));
   }
   if(name==="locations"){
     const {states,cities,cnaStates,cnaCities}=await hubLocations(env);
@@ -260,6 +267,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
 - Caregiver resume builder and job matching: https://carejoys.com/caregiver-resume
 - How to become a caregiver in Maryland: https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland
+- Nurse aide (CNA) registry by state, with official lookups and phone numbers: https://carejoys.com/resources/nurse-aide-registry-by-state
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
 - Sitemap: https://carejoys.com/sitemap.xml
@@ -341,6 +349,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const {states:jobStates}=await hubLocations(env);
     const jobTotal=jobStates.reduce((sum,s)=>sum+s.count,0);
     const topStates=[...jobStates].sort((a,b)=>b.count-a.count).slice(0,12);
+    const stats=await homeStats(env).catch(()=>null);
+    const watched=stats?.employersWatched?roundedCount(stats.employersWatched)+' ':'';
     const homeMore='<h2>How CareJoys works for caregivers</h2><ol><li>Search caregiver, CNA, HHA and PCA jobs near your ZIP code and see pay, shifts and distance first.</li>'+
       '<li>Create one free profile with your pay, shift and commute preferences. A resume is optional.</li>'+
       '<li>Get matched to better jobs and choose which employers see your profile. Optional weekly job emails.</li></ol>'+
@@ -350,9 +360,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       '<h2>For care employers</h2><p>Home-care agencies, assisted living and senior-care communities use CareJoys to meet local caregivers who verified their email and want the work. <a href="/pricing">See how it works</a></p>';
     return seoAsset(request,env,{
       title:"CNA & Caregiver Jobs Near You, Free to Apply | CareJoys",
-      description:"Find better-paying caregiver and CNA jobs near you. One free profile, personalized matches and optional weekly job alerts.",
+      description:"Be first to better-paying CNA and caregiver jobs near you. CareJoys AI checks employer job pages every week and helps you apply. Free.",
       canonical:"/",
-      snapshot:'<main><h1>Find better-paying caregiver and CNA jobs near you.</h1><p>One profile, personalized matches, always free. Preview nearby jobs before sharing contact details or uploading a resume.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Be first to every better-paying CNA and caregiver job near you. Let AI do the legwork.</h1><p>CareJoys checks the job pages of '+watched+'home-care agencies, nursing homes and senior-care employers every week and shows you new openings with pay. On jobs marked Apply for me, CareJoys AI fills in the employer\'s application from your free profile. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
@@ -607,7 +617,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:fitTitle("CNA Classes in Baltimore, MD: GNA Training"),
       description:trimAtWord((data.programs.length?data.programs.length+" Maryland Board-approved CNA and GNA training programs in the Baltimore area. ":"CNA and GNA training programs in the Baltimore area. ")+"Compare programs, then find caregiver jobs near you after you finish.",160),
       canonical:"/cna-classes/baltimore",
-      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/training-programs/maryland">Maryland training programs</a> › Baltimore</p><h1>CNA classes in Baltimore, MD</h1><p>CNA and GNA training programs with a location in Baltimore City or Baltimore County, from the Maryland Board of Nursing list of approved programs.</p>'+
+      snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/training-programs/maryland">Maryland training programs</a> › Baltimore</p><h1>CNA classes in Baltimore, MD</h1><p>CNA and GNA training programs with a location in Baltimore City and the surrounding counties, from the Maryland Board of Nursing list of approved programs.</p>'+
         (list?'<h2>'+data.programs.length+' CNA and GNA training programs in the Baltimore area</h2><ul>'+list+'</ul>':'<p>CareJoys is adding Baltimore training programs now. <a href="/training-programs/maryland">Browse all Maryland programs</a>.</p>')+
         '<h2>How to choose a CNA class</h2><ol><li>Confirm the program is approved by the Maryland Board of Nursing. Since April 1, 2026, new nursing assistants certify as CNA-I, which replaced CNA/GNA and covers nursing homes too.</li><li>Ask about total cost, schedule (days, evenings, weekends) and when clinical hours happen.</li><li>Ask how many graduates pass the competency exam and where they get hired.</li></ol>'+
         '<h2>After you finish</h2><p>'+(data.jobs?'There are '+data.jobs+' current caregiver jobs in the Baltimore area on CareJoys right now. ':'')+'Create a free profile, resume optional, and CareJoys emails you new jobs near you each week.</p><p><a href="/gna-jobs/maryland/baltimore">GNA jobs in Baltimore</a> · <a href="/caregiver-jobs/maryland/baltimore">All caregiver jobs in the Baltimore area</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA or GNA in Maryland</a> · <a href="/training-programs/maryland">All Maryland training programs</a></p></main>',
@@ -636,6 +646,23 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:"/resources/how-to-become-a-caregiver-in-maryland",
       snapshot:'<main><h1>How to become a CNA or caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><h2>Check a Maryland CNA or GNA certification</h2><p>Employers and caregivers can confirm a CNA or GNA certification with the license verification lookup on the Maryland Board of Nursing website.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"Article","headline":"How to Become a Caregiver in Maryland","mainEntityOfPage":SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland","publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":[{"@type":"Thing","name":"Caregiver careers in Maryland"},{"@type":"Thing","name":"CNA-I training"}]}
+    });
+  }
+  if(url.pathname===REGISTRY_PATH){
+    const rows=NURSE_AIDE_REGISTRIES.map(r=>{
+      const contacts=r.also?[r,r.also]:[r];
+      const cells=(f:(c:typeof contacts[number])=>string)=>'<td>'+contacts.map(f).join("<br>")+'</td>';
+      return '<tr id="'+r.slug+'"><th scope="row">'+htmlEscape(r.name)+'</th>'
+        +cells(c=>'<a href="'+htmlEscape(c.registryUrl)+'">'+htmlEscape(c.agency)+'</a>'+(c===r&&r.note?'<br>'+htmlEscape(r.note):''))
+        +cells(c=>c.lookupUrl?'<a href="'+htmlEscape(c.lookupUrl)+'">'+htmlEscape(c.lookupLabel||'Lookup')+'</a>':'Contact the registry')
+        +cells(c=>htmlEscape(c.phone||'See registry site'))+'</tr>';
+    }).join("");
+    return seoAsset(request,env,{
+      title:"Nurse Aide (CNA) Registry by State: Lookups and Phone Numbers | CareJoys",
+      description:"Official nurse aide registry for all 50 states and DC, with each state's CNA certification lookup and phone number. Check, renew or transfer a CNA certification.",
+      canonical:REGISTRY_PATH,
+      snapshot:'<main><h1>Nurse aide registry by state</h1><p>Every state keeps a registry of certified nurse aides. Use it to check a CNA certification, renew, update your name or address, or transfer your certification from another state. Below is the official registry for all 50 states and DC, with each state\'s online lookup and phone number. Links last checked '+REGISTRIES_CHECKED+'. CareJoys is not a registry or credentialing body; confirm requirements with the state.</p><table><thead><tr><th>State</th><th>Registry</th><th>Look up a certification</th><th>Phone</th></tr></thead><tbody>'+rows+'</tbody></table><h2>Transferring your CNA to another state</h2><p>Most states let a nurse aide who is active and in good standing on another state\'s registry apply to join theirs, often called reciprocity or endorsement. Apply to the registry in the state you are moving to. Rules, forms and fees differ by state.</p><p><a href="/caregiver-jobs">Find CNA and caregiver jobs near you</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA in Maryland</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"WebPage","name":"Nurse aide registry by state","url":SEO_ORIGIN+REGISTRY_PATH,"dateModified":REGISTRIES_CHECKED,"isPartOf":{"@id":SEO_ORIGIN+"/#website"},"publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":{"@type":"Thing","name":"Nurse aide registry"}}
     });
   }
   if(url.pathname==="/training-programs/maryland"){
@@ -885,7 +912,7 @@ async function handleEmployer(request: Request, env: Env) {
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
   const intake:EmployerIntake={
     companyName:clean(data!.companyName,200),contactName:clean(data!.contactName,200),phone:clean(data!.phone,40),
-    zip:clean(data!.zip,20),rolesNeeded:clean(data!.rolesNeeded,500),hiringNotes:clean(data!.hiringNotes,1500),shifts:clean(data!.shifts,300),
+    zip:clean(data!.zip,20),rolesNeeded:clean(data!.rolesNeeded,500),hiringNotes:clean(data!.hiringNotes,1500),shifts:clean(data!.shifts,300),schedule:clean(data!.schedule,4000),
     payMin:Math.max(0,Number(data!.payMin||0)||0)||null,payMax:Math.max(0,Number(data!.payMax||0)||0)||null,
     transportationRequired:clean(data!.transportationRequired,20)==="yes"
   };
@@ -922,7 +949,14 @@ async function handleEmployer(request: Request, env: Env) {
   return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
 }
 
-type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;payMin:number|null;payMax:number|null;transportationRequired:boolean};
+type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;schedule:string;payMin:number|null;payMax:number|null;transportationRequired:boolean};
+
+/** The schedule JSON to store and the shift words to show. A day-by-day schedule replaces typed shift words. */
+function openingShift(scheduleValue:unknown,typedShifts:string){
+  const schedule=parseOpeningSchedule(scheduleValue);
+  if(!hasSchedule(schedule))return {scheduleJson:null,shifts:typedShifts};
+  return {scheduleJson:JSON.stringify(schedule),shifts:scheduleSummary(schedule).slice(0,300)};
+}
 
 /** Creates (or refreshes, within 30 minutes) the opening an employer described in the intake form. */
 async function createIntakeOpening(env:Env,employerId:string,intake:EmployerIntake){
@@ -935,14 +969,15 @@ async function createIntakeOpening(env:Env,employerId:string,intake:EmployerInta
       AND datetime(created_at)>datetime('now','-30 minutes')
     ORDER BY created_at DESC LIMIT 1`).bind(employerId,primaryRole,intake.zip).first<{id:string}>();
   const openingId=opening?.id||crypto.randomUUID();
+  const shift=openingShift(intake.schedule,intake.shifts);
   if(opening){
-    await env.DB!.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(primaryRole+" opening",inferredCity,inferredState,intake.shifts,intake.payMin,intake.payMax,intake.transportationRequired?1:0,intake.hiringNotes,openingId).run();
+    await env.DB!.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,schedule_json=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(primaryRole+" opening",inferredCity,inferredState,shift.shifts,shift.scheduleJson,intake.payMin,intake.payMax,intake.transportationRequired?1:0,intake.hiringNotes,openingId).run();
   }else{
     await env.DB!.prepare(`INSERT INTO openings
-      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
-      .bind(openingId,employerId,primaryRole+" opening",primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,intake.shifts,intake.transportationRequired?1:0,intake.hiringNotes).run();
+      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,schedule_json,transportation_required,requirements,status,source)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
+      .bind(openingId,employerId,primaryRole+" opening",primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,shift.shifts,shift.scheduleJson,intake.transportationRequired?1:0,intake.hiringNotes).run();
   }
   return openingId;
 }
@@ -952,7 +987,7 @@ async function applyPendingEmployerIntake(env:Env,employerId:string,raw:Record<s
   if(raw.kind!=="employer_intake"||!env.DB)return null;
   const intake:EmployerIntake={
     companyName:clean(raw.companyName,200),contactName:clean(raw.contactName,200),phone:clean(raw.phone,40),zip:clean(raw.zip,20),
-    rolesNeeded:clean(raw.rolesNeeded,500),hiringNotes:clean(raw.hiringNotes,1500),shifts:clean(raw.shifts,300),
+    rolesNeeded:clean(raw.rolesNeeded,500),hiringNotes:clean(raw.hiringNotes,1500),shifts:clean(raw.shifts,300),schedule:clean(raw.schedule,4000),
     payMin:Number(raw.payMin)||null,payMax:Number(raw.payMax)||null,transportationRequired:raw.transportationRequired===true
   };
   await env.DB.prepare("UPDATE employer_leads SET company_name=COALESCE(NULLIF(?,''),company_name),contact_name=COALESCE(NULLIF(?,''),contact_name),phone=COALESCE(NULLIF(?,''),phone),zip=COALESCE(NULLIF(?,''),zip),roles_needed=COALESCE(NULLIF(?,''),roles_needed),hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
@@ -1394,7 +1429,7 @@ async function searchCandidates(url: URL, env: Env) {
   const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
@@ -1435,7 +1470,7 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
     name:publicName(c.first_name,c.last_name,c.display_name),
     city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),
     careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:c.bio,employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
-    licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,
+    licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,checklist:parseChecklist(c.checklist),
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
@@ -1475,8 +1510,9 @@ async function createOpening(id:string,request:Request,env:Env) {
   if(error) return json({ok:false,error},{status:400});
   const openingId=crypto.randomUUID();
   const zipInfo=await lookupZip(env.DB,data!.zip);
-  await env.DB!.prepare("INSERT INTO openings (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'open')")
-    .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"",clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,clean(data!.shifts,300),data!.transportationRequired===true?1:0,clean(data!.requirements,1200)).run();
+  const shift=openingShift(data!.schedule,clean(data!.shifts,300));
+  await env.DB!.prepare("INSERT INTO openings (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,schedule_json,transportation_required,requirements,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'open')")
+    .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"",clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,shift.shifts,shift.scheduleJson,data!.transportationRequired===true?1:0,clean(data!.requirements,1200)).run();
   return json({ok:true,id:openingId},{status:201});
 }
 async function matchOpening(workspaceId:string,openingId:string,env:Env) {
@@ -1509,8 +1545,9 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const openingId=clean(url.searchParams.get("openingId"),80);
-  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at,c.profile_photo_url,
-    CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email
+  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,cp.response_value,cp.rejected_reason,cp.employer_notes,cp.favorited_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},
+    CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email,
+    CASE WHEN cp.response_value='interested' THEN c.phone ELSE NULL END AS contact_phone
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
       AND (cp.stage!='matched' OR (c.is_active=1 AND c.work_status='actively_looking'
        AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))))`;
@@ -1518,21 +1555,51 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
   const rows=await env.DB!.prepare(sql).bind(...args).all<Record<string,unknown>>();
-  return json({ok:true,pipeline:(rows.results||[]).map(r=>({...r,name:publicName(r.first_name,r.last_name,r.display_name),freshness:freshnessLabel(r.work_status,r.last_confirmed_at),profilePhotoUrl:r.profile_photo_url,first_name:undefined,last_name:undefined,display_name:undefined,profile_photo_url:undefined}))});
+  const locked=await lockedIntroductions(env,workspaceId);
+  // Each row carries the caregiver's full employer-facing profile, the same card the Talent network shows.
+  return json({ok:true,pipeline:(rows.results||[]).map(r=>{
+    const profile=talentCandidate({...r,id:r.caregiver_id},null);
+    let reasons:string[]=[];
+    try{const parsed=JSON.parse(clean(r.match_reason,2000)||"[]");if(Array.isArray(parsed))reasons=parsed.filter(x=>typeof x==="string")}catch{}
+    return {id:r.id,opening_id:r.opening_id,stage:r.stage,match_score:r.match_score,match_reasons:reasons,contacted_at:r.contacted_at,responded_at:r.responded_at,
+      interview_at:r.interview_at,hired_at:r.hired_at,response_value:r.response_value,rejected_reason:r.rejected_reason,title:r.title,opening_role:r.opening_role,
+      caregiver_id:r.caregiver_id,name:profile.name,city:r.city,state:r.state,role:r.role,certifications:r.certifications,freshness:profile.freshness,
+      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_phone:locked.has(clean(r.id,100))?null:r.contact_phone||null,contact_locked:locked.has(clean(r.id,100)),employer_notes:r.employer_notes||'',favorite:!!r.favorited_at,
+      resume_url:Number(r.has_resume)===1&&r.contact_email&&!locked.has(clean(r.id,100))?'/api/pipeline/'+encodeURIComponent(clean(r.id,100))+'/resume':null,profile};
+  })});
+}
+/** A caregiver's resume file, for an employer they said yes to (and whose introduction isn't locked behind billing). */
+async function pipelineResume(workspaceId:string,pipelineId:string,env:Env){
+  const row=await env.DB!.prepare("SELECT cp.id,cp.caregiver_id,cp.response_value FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first<Record<string,unknown>>();
+  if(!row) return json({ok:false,error:"Pipeline record not found"},{status:404});
+  if(row.response_value!=="interested") return json({ok:false,error:"The resume is shared once the caregiver says they’re interested."},{status:403});
+  if((await lockedIntroductions(env,workspaceId)).has(clean(row.id,100))) return json({ok:false,error:"Upgrade to see this caregiver’s contact details and resume."},{status:402});
+  return resumeDownload(env,clean(row.caregiver_id,120));
 }
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const data=await readJson(request);
-  const stage=clean(data?.stage,40);
-  const allowed=["matched","contacted","interested","qualified","interview","hired","rejected"];
-  if(!allowed.includes(stage)) return json({ok:false,error:"Invalid stage"},{status:400});
-  const owned=await env.DB!.prepare("SELECT cp.id FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first();
+  const owned=await env.DB!.prepare("SELECT cp.id,cp.stage,cp.rejected_reason,cp.contacted_at,cp.response_value,cp.interview_at FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first<Record<string,unknown>>();
   if(!owned) return json({ok:false,error:"Pipeline record not found"},{status:404});
-  const timestampColumn:Record<string,string>={contacted:"contacted_at",interested:"responded_at",qualified:"qualified_at",interview:"interview_at",hired:"hired_at"};
-  const col=timestampColumn[stage];
-  if(col) await env.DB!.prepare(`UPDATE candidate_pipeline SET stage=?, ${col}=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(stage,pipelineId).run();
-  else await env.DB!.prepare("UPDATE candidate_pipeline SET stage=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(stage,pipelineId).run();
+  if(data?.stage===undefined&&(data?.notes!==undefined||data?.favorite!==undefined)){
+    if(data.notes!==undefined)await env.DB!.prepare("UPDATE candidate_pipeline SET employer_notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(clean(data.notes,4000),pipelineId).run();
+    if(data.favorite!==undefined)await env.DB!.prepare("UPDATE candidate_pipeline SET favorited_at=CASE WHEN ? THEN COALESCE(favorited_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(data.favorite===true?1:0,pipelineId).run();
+    return json({ok:true});
+  }
+  const stage=clean(data?.stage,40);
+  if(stage==="restore"){
+    // Only the employer's own "Not a fit" can be undone; a caregiver's "not interested" stays.
+    if(owned.stage!=="rejected"||owned.rejected_reason!=="employer_not_a_fit") return json({ok:false,error:"Only caregivers you marked not a fit can be restored"},{status:409});
+    const back=owned.interview_at?"interview":owned.response_value==="interested"?"interested":owned.contacted_at?"contacted":"matched";
+    await env.DB!.prepare("UPDATE candidate_pipeline SET stage=?,rejected_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(back,pipelineId).run();
+    return json({ok:true,stage:back});
+  }
+  // Invited, interested and interview booked come only from real invitations and the caregiver's own answers.
+  const allowed=["hired","rejected"];
+  if(!allowed.includes(stage)) return json({ok:false,error:"Invalid stage"},{status:400});
+  if(stage==="hired") await env.DB!.prepare("UPDATE candidate_pipeline SET stage='hired',hired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
+  else await env.DB!.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='employer_not_a_fit',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
   return json({ok:true});
 }
 
@@ -1598,6 +1665,19 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
+/** Each summary run leaves a row in outreach_runs (kind job_summaries), so a run that stalls or fails is visible. */
+async function recordedSummaryRun(env:Env,cron:string|undefined){
+  if(!env.DB)return;
+  const id=crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'job_summaries',?,'started')").bind(id,String(cron||'')).run().catch(()=>null);
+  try{
+    const r=await summarizeJobsBatch(env,100);
+    await env.DB.prepare("UPDATE outreach_runs SET attempted=?,sent=?,failed=?,note='finished' WHERE id=?").bind(r.attempted,r.summarized,r.failed,id).run();
+  }catch(error){
+    await env.DB.prepare("UPDATE outreach_runs SET note=? WHERE id=?").bind(('error: '+(error instanceof Error?error.message:String(error))).slice(0,300),id).run().catch(()=>null);
+  }
+}
+
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     const url=new URL(request.url);
@@ -1617,6 +1697,7 @@ export default {
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
+    if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
@@ -1770,11 +1851,19 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
     if(request.method==="GET"&&url.pathname==="/api/agency/inbox") return getAgencyInbox(request,env);
+    const inboxResume=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)\/resume$/);
+    if(request.method==="GET"&&inboxResume) return agencyInterestResume(request,env,decodeURIComponent(inboxResume[1]));
     let inboxItem=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)$/);
     if(request.method==="POST"&&inboxItem){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyInterest(request,env,decodeURIComponent(inboxItem[1])); }
-    if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env,(employerId,openingId)=>matchOpening(employerId,openingId,env)); }
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
+    if(url.pathname==="/api/email-templates"&&(request.method==="GET"||request.method==="POST")){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      return handleEmailTemplates(request,env);
+    }
+    const emailTemplate=url.pathname.match(/^\/api\/email-templates\/([^/]+)$/);
+    if(request.method==="DELETE"&&emailTemplate){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleEmailTemplates(request,env,decodeURIComponent(emailTemplate[1])); }
     if(request.method==="GET"&&url.pathname==="/api/workspace"){
       const employer=await employerSession(request,env);
       if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
@@ -1812,6 +1901,12 @@ export default {
       if(employer instanceof Response)return employer;
       return getPipeline(String(employer.id),url,env);
     }
+    m=url.pathname.match(/^\/api\/pipeline\/([^/]+)\/resume$/);
+    if(request.method==="GET"&&m){
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return pipelineResume(String(employer.id),decodeURIComponent(m[1]),env);
+    }
     m=url.pathname.match(/^\/api\/pipeline\/([^/]+)$/);
     if(request.method==="PATCH"&&m){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
@@ -1827,7 +1922,7 @@ export default {
     return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist on CareJoys.",canonical:url.pathname,robots:"noindex,follow",
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
   },
-  async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+  async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{
       if(event.cron==="*/5 * * * *"){
@@ -1843,11 +1938,12 @@ export default {
         await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
         return;
       }
-      if(event.cron==="2,32,47 * * * *"){
+      if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
-        await summarizeJobsBatch(env,100).catch(()=>null);
+        // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
+        await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
-        await enrichAgencyBatch(env,30);
+        if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
         return;
       }
       if(event.cron==="17 * * * *"){
@@ -1875,6 +1971,10 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         return;
       }
+      // A schedule none of the branches above recognised: note the exact string so a mismatch shows up in D1.
+      await env.DB?.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'unmatched_cron',?,NULL)")
+        .bind(crypto.randomUUID(),String(event.cron||'')).run().catch(()=>null);
+      if(new Date(event.scheduledTime??Date.now()).getUTCMinutes()%5===2)await recordedSummaryRun(env,event.cron);
     })();
     ctx.waitUntil(work);
     await work.catch(()=>null);

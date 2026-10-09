@@ -2,7 +2,7 @@ import type { FeatureEnv } from './serverFeatures';
 
 type Row=Record<string,unknown>;
 type ApprovalEnv=FeatureEnv&{ADMIN_EMAILS?:string};
-export type EmployerApproval={approved:boolean;reason:'manual'|'agency'|'business_email'|'pending'};
+export type EmployerApproval={approved:boolean;reason:'manual'|'agency'|'agency_domain'|'pending'};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
@@ -17,13 +17,22 @@ export const isFreeMail=(email:string)=>FREE_MAIL.has(clean(email,320).toLowerCa
 
 const adminList=(env:ApprovalEnv)=>clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
 
-/** Employer access requires employer verification, independent of site administrator identity. */
+/**
+ * Employer access requires employer verification, independent of site administrator identity.
+ * Automatic only for a claimed agency, or an email at the website domain of an agency or care community
+ * CareJoys has on record. Any other company domain is cheap to register, so it waits for an admin.
+ */
 export async function employerApproval(env:ApprovalEnv,employer:Row):Promise<EmployerApproval>{
   if(clean(employer.approved_at,40))return {approved:true,reason:'manual'};
   const email=clean(employer.email,320).toLowerCase();
   const claimed=await env.DB!.prepare('SELECT 1 FROM agency_organizations WHERE claimed_employer_id=? LIMIT 1').bind(employer.id).first();
   if(claimed)return {approved:true,reason:'agency'};
-  if(email.includes('@')&&!isFreeMail(email))return {approved:true,reason:'business_email'};
+  const domain=email.includes('@')?email.split('@').pop()||'':'';
+  if(domain&&!isFreeMail(email)){
+    const known=await env.DB!.prepare(`SELECT 1 FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0
+      AND COALESCE(primary_domain,'')!='' AND (lower(primary_domain)=? OR ? LIKE '%.'||lower(primary_domain)) LIMIT 1`).bind(domain,domain).first();
+    if(known)return {approved:true,reason:'agency_domain'};
+  }
   return {approved:false,reason:'pending'};
 }
 
@@ -42,8 +51,8 @@ export async function pendingApprovalResponse(env:ApprovalEnv,employerId:string)
     if(e&&admins.length){
       const who=`${clean(e.company_name,200)} (${clean(e.contact_name,120)}, ${clean(e.email,320)})`;
       await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:admins,subject:'Employer waiting for approval: '+clean(e.company_name,200),
-        text:`${who} signed up with a personal email address and is waiting for approval before they can see caregiver profiles.\n\nApprove or ignore them at https://carejoys.com/admin`,
-        html:`<p>${who.replace(/[<>&]/g,'')} signed up with a personal email address and is waiting for approval before they can see caregiver profiles.</p><p><a href="https://carejoys.com/admin">Review in the admin console</a></p>`}).catch(()=>null);
+        text:`${who} signed up with an email that doesn't match an agency or care community on record, and is waiting for approval before they can see caregiver profiles.\n\nApprove or ignore them at https://carejoys.com/admin`,
+        html:`<p>${who.replace(/[<>&]/g,'')} signed up with an email that doesn't match an agency or care community on record, and is waiting for approval before they can see caregiver profiles.</p><p><a href="https://carejoys.com/admin">Review in the admin console</a></p>`}).catch(()=>null);
     }
   }
   return json({ok:false,pendingApproval:true,error:'Your account is waiting for CareJoys approval. We review new employers within one business day.'},{status:403});

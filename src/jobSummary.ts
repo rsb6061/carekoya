@@ -71,8 +71,10 @@ export async function summarizeJobsBatch(env:SummaryEnv,limit:number,timeoutMs=S
     try{
       const summary=await withTimeout(summarizeJob(env,{title:clean(row.title,200),employer:clean(row.employer_name,200),description}),timeoutMs);
       if(summary===null)throw new Error('empty summary');
-      await env.DB!.prepare("UPDATE caregiver_jobs SET summary_text=?,summary_source_len=?,summary_error=NULL,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
-        .bind(summary,description.length,row.id).run();
+      // Measured by SQLite, as the batch query compares it: the trimmed, 8,000-character text sent to the model
+      // is shorter for long or padded postings, and those jobs were picked again on every run.
+      await env.DB!.prepare("UPDATE caregiver_jobs SET summary_text=?,summary_source_len=length(description_text),summary_error=NULL,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(summary,row.id).run();
       summarized++;
     }catch(error){
       failed++;

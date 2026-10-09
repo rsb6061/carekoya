@@ -4,13 +4,16 @@ import { scoreCaregiverAgainstAgencies } from './agencyFeatures';
 import { outreachEnabled, type OutreachEnv } from './outreach';
 import { isSuppressed, unsubscribeLink } from './emailPreferences';
 import { withUnsubscribe } from './email';
+import { lockedIntroductions, type BillingEnv } from './billing';
+import { resumeDownload } from './resumeFile';
 
 // The Agency Inbox: every caregiver who asked to be sent to an agency, in five stages.
 //
 // A caregiver's interest is created only by the caregiver: from a CareJoys job page while signed in with a
 // verified email, or by pressing Send on the confirmation email (job page without a verified sign-in, and every
 // AI-assistant request). Agencies that haven't claimed their listing get a de-identified activation email; once
-// claimed, the Inbox shows full contact details, because the caregiver asked to be sent.
+// claimed, the Inbox shows full contact details, because the caregiver asked to be sent. Each one counts as an
+// introduction (src/billing.ts), so past the free ones the details wait for a subscription.
 // The stage is the agency's own mark; with no mark the interest still needs a reply.
 
 type Row=Record<string,unknown>;
@@ -435,18 +438,21 @@ async function claimedOrg(request:Request,env:FeatureEnv){
   const employer=await employerSession(request,env);
   if(!employer)return {error:json({ok:false,error:'Sign in required'},{status:401})};
   const org=await env.DB!.prepare('SELECT id,canonical_name FROM agency_organizations WHERE claimed_employer_id=? AND is_active=1 ORDER BY license_count DESC LIMIT 1').bind(employer.id).first<Row>();
-  return {org};
+  return {org,employerId:clean(employer.id,100)};
 }
 
-export function inboxItem(r:Row){
+export function inboxItem(r:Row,locked=false){
+  const id=clean(r.id,120);
   return {
+    contactLocked:locked,
+    resumeUrl:!locked&&Number(r.has_resume)===1?'/api/agency/inbox/'+encodeURIComponent(id)+'/resume':null,
     id:clean(r.id,120),stage:interestStage(r),createdAt:clean(r.created_at,40),viewed:!!r.agency_viewed_at,
     source:clean(r.source,40)==='mcp'?'AI assistant':'CareJoys job page',
     note:clean(r.caregiver_note,1000)||null,notes:clean(r.agency_notes,4000),
     job:r.caregiver_job_id?{id:clean(r.caregiver_job_id,120),title:clean(r.job_title,200),url:ORIGIN+'/jobs/'+encodeURIComponent(clean(r.caregiver_job_id,120))}:null,
     caregiver:{
       name:[clean(r.first_name,80),clean(r.last_name,80)].filter(Boolean).join(' ')||clean(r.display_name,160)||'Caregiver',
-      email:clean(r.email,320),phone:clean(r.phone,40),city:clean(r.city,120),state:clean(r.state,20),zip:clean(r.zip,10),
+      email:locked?'':clean(r.email,320),phone:locked?'':clean(r.phone,40),city:clean(r.city,120),state:clean(r.state,20),zip:clean(r.zip,10),
       role:clean(r.role,80),certifications:clean(r.certifications,500),yearsExperience:r.years_experience==null?null:asNum(r.years_experience),
       shifts:clean(r.shift_preferences,300),desiredWage:clean(r.desired_wage,80),transportation:clean(r.transportation,80),
       freshness:freshnessLabel(r.work_status,r.last_confirmed_at),photoUrl:clean(r.profile_photo_url,500)||null
@@ -454,19 +460,32 @@ export function inboxItem(r:Row){
   };
 }
 
-export async function getAgencyInbox(request:Request,env:FeatureEnv){
+export async function getAgencyInbox(request:Request,env:BillingEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const {org,error}=await claimedOrg(request,env);
+  const {org,employerId,error}=await claimedOrg(request,env);
   if(error)return error;
   if(!org)return json({ok:true,agency:null,items:[],stages:STAGE_LABELS});
   const rows=await env.DB.prepare(`SELECT ai.*,c.first_name,c.last_name,c.display_name,c.email,c.phone,c.city,c.state,c.zip,c.role,c.certifications,c.years_experience,
       c.shift_preferences,c.desired_wage,c.transportation,c.work_status,c.last_confirmed_at,c.profile_photo_url,
-      j.title AS job_title
+      EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,j.title AS job_title
     FROM agency_interests ai JOIN caregivers c ON c.id=ai.caregiver_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id
     WHERE ai.organization_id=? ORDER BY ai.created_at DESC LIMIT 300`).bind(org.id).all<Row>();
-  const items=(rows.results||[]).map(inboxItem);
+  const locked=await lockedIntroductions(env,employerId!);
+  const items=(rows.results||[]).map(r=>inboxItem(r,locked.has(clean(r.id,120))));
   await env.DB.prepare('UPDATE agency_interests SET agency_viewed_at=CURRENT_TIMESTAMP WHERE organization_id=? AND agency_viewed_at IS NULL').bind(org.id).run();
   return json({ok:true,agency:{id:org.id,name:org.canonical_name},stages:STAGE_LABELS,items});
+}
+
+/** The resume of a caregiver who sent their profile to this agency, unless that introduction waits on billing. */
+export async function agencyInterestResume(request:Request,env:BillingEnv,interestId:string){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const {org,employerId,error}=await claimedOrg(request,env);
+  if(error)return error;
+  if(!org)return json({ok:false,error:'No claimed agency is linked to this workspace.'},{status:404});
+  const row=await env.DB.prepare('SELECT id,caregiver_id FROM agency_interests WHERE id=? AND organization_id=?').bind(interestId,org.id).first<Row>();
+  if(!row)return json({ok:false,error:'Not found'},{status:404});
+  if((await lockedIntroductions(env,employerId!)).has(clean(row.id,120)))return json({ok:false,error:'Upgrade to see this caregiver’s contact details and resume.'},{status:402});
+  return resumeDownload(env,clean(row.caregiver_id,120));
 }
 
 export async function updateAgencyInterest(request:Request,env:FeatureEnv,interestId:string){

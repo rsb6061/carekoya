@@ -45,7 +45,7 @@ const applicationEventLabel=(event:string)=>({
   apply_started:'Application started',apply_completed:'Application submitted'
 } as Record<string,string>)[event]||event.replace(/_/g,' ');
 const approvalLabel=(status:string)=>({
-  manual:'Approved manually',agency:'Verified agency',business_email:'Company email (automatic)'
+  manual:'Approved manually',agency:'Verified agency',agency_domain:'Agency email domain (automatic)'
 } as Record<string,string>)[status]||status;
 const pct=(a:number,b:number)=>b>0?Math.round(a/b*100)+'%':'—';
 const day=(iso?:string)=>iso?new Date(iso.replace(' ','T')+(iso.endsWith('Z')?'':'Z')).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
@@ -249,7 +249,7 @@ export function AdminConsole(){
     <p>{[e.contact_name,e.email].filter(Boolean).join(' · ')}</p>
     <p className="job-meta">Joined {day(e.created_at)} · {e.openings} opening{e.openings===1?'':'s'} · ZIP {e.zip||'not provided'}</p>
     <button className="button" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve employer</button>
-  </article>)}</div>:<div className="settings-card admin-quiet"><strong>No employer accounts awaiting approval.</strong><p>Personal-email employers appear here. Verified company-domain employers and claimed agencies receive automatic access.</p></div>}
+  </article>)}</div>:<div className="settings-card admin-quiet"><strong>No employer accounts awaiting approval.</strong><p>Employers appear here unless their email is at the website domain of an agency or care community on record, or they claimed their agency.</p></div>}
   <div className="admin-subheading"><h3>All employer accounts</h3><input className="pipeline-select" value={employerQuery} onChange={e=>setEmployerQuery(e.target.value)} aria-label="Search employers" placeholder="Search company or email"/></div>
   <div className="settings-card admin-table-scroll">
     <table className="admin-data-table">

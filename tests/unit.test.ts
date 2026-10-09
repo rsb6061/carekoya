@@ -3,6 +3,10 @@ import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
+import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from '../src/schedule';
+import { fitSummary } from '../src/fitSummary';
+import { fillTemplate, mergeTemplates, templateMailto, BUILT_IN_TEMPLATES } from '../src/emailTemplateFill';
+import { parseChecklist } from '../src/checklist';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
@@ -44,6 +48,40 @@ describe('employer required role matching',()=>{
     const unrelated={role:'DSP',zip:'21201',state:'MD',geo_lat:39.29,geo_lng:-76.61,work_status:'actively_looking',last_confirmed_at:'2026-10-01T12:00:00Z'};
     expect(scoreCandidate(opening,unrelated,Date.parse('2026-10-02T12:00:00Z')).score).toBe(0);
     expect(scoreCandidate(opening,{...unrelated,role:'CNA'},Date.parse('2026-10-02T12:00:00Z')).score).toBeGreaterThan(0);
+  });
+});
+
+describe('opening schedule', ()=>{
+  const weekdayDays={mon:{start:'07:00',end:'15:00'},tue:{start:'07:00',end:'15:00'},wed:{start:'07:00',end:'15:00'},thu:{start:'07:00',end:'15:00'},fri:{start:'07:00',end:'15:00'}};
+  it('keeps only valid days and summarizes neighboring days with the same hours', ()=>{
+    const s=parseOpeningSchedule(JSON.stringify({days:{...weekdayDays,sat:{start:'19:00',end:'07:00'},sun:{start:'25:00',end:'07:00'}}}));
+    expect(Object.keys(s.days)).toEqual(['mon','tue','wed','thu','fri','sat']);
+    expect(scheduleSummary(s)).toBe('Mon–Fri 7am–3pm · Sat 7pm–7am');
+    expect(weeklyHours(s)).toBe(52);
+  });
+  it('counts a shift as workable when the caregiver covers it that day, including overnight', ()=>{
+    const s=parseOpeningSchedule({days:{mon:{start:'07:00',end:'15:00'},tue:{start:'23:00',end:'07:00'},sat:{start:'07:00',end:'19:00'}}});
+    const grid={days:{mon:['morning'],tue:['overnight'],sat:['morning']}};
+    expect(scheduleFit(s,JSON.stringify(grid))).toEqual({shifts:3,workable:2});
+    expect(scheduleFit(s,JSON.stringify({days:{...grid.days,sat:['morning','evening']}}))).toEqual({shifts:3,workable:3});
+    expect(scheduleFit(s,null)).toBeNull();
+  });
+  it('matches live-in only to caregivers open to live-in', ()=>{
+    const s=parseOpeningSchedule({days:{},liveIn:true});
+    expect(scheduleFit(s,JSON.stringify({days:{mon:['morning']},liveIn:true}))).toEqual({shifts:1,workable:1});
+    expect(scheduleFit(s,JSON.stringify({days:{mon:['morning']}}))).toEqual({shifts:1,workable:0});
+  });
+  it('scores schedule fit in place of shift words', ()=>{
+    const opening={role:'CNA',zip:'21201',state:'MD',geo_lat:BALTIMORE.lat,geo_lng:BALTIMORE.lng,schedule_json:JSON.stringify({days:weekdayDays})};
+    const base={role:'CNA',geo_lat:BALTIMORE.lat,geo_lng:BALTIMORE.lng,work_status:'actively_looking',last_confirmed_at:'2026-09-30T12:00:00Z'};
+    const all=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{mon:['morning'],tue:['morning'],wed:['morning'],thu:['morning'],fri:['morning']}})},NOW);
+    const some=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{mon:['morning'],tue:['morning']}})},NOW);
+    const none=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{sat:['overnight']}})},NOW);
+    expect(all.reasons).toContain('available all 5 shifts');
+    expect(some.reasons).toContain('available 2 of 5 shifts');
+    expect(none.reasons).toContain('schedule does not overlap');
+    expect(all.score).toBeGreaterThan(some.score);
+    expect(some.score).toBeGreaterThan(none.score);
   });
 });
 
@@ -463,7 +501,7 @@ describe('job summaries', ()=>{
     const result=await summarizeJobsBatch({DB,AI},10,50);
     expect(result).toEqual({attempted:2,summarized:1,failed:1});
     expect(updates).toContainEqual(['error','summary timed out','hang']);
-    expect(updates).toContainEqual(['summary','GNA role at an assisted living community in Towson. • Night shifts',100,'ok']);
+    expect(updates).toContainEqual(['summary','GNA role at an assisted living community in Towson. • Night shifts','ok']);
   });
 });
 
@@ -504,5 +542,28 @@ describe('senior living chain boards', ()=>{
     expect(rotatingWindow(items,2,1)).toEqual([3,4]);
     expect(rotatingWindow(items,2,2)).toEqual([5,1]);
     expect(rotatingWindow(items,10,7)).toEqual(items);
+  });
+});
+
+describe('candidate review helpers', ()=>{
+  it('writes why a caregiver fits from the match reasons and their profile only', ()=>{
+    expect(fitSummary({name:'Maria G.',reasons:['3 mi away','role match','recently confirmed','available 4 of 5 shifts'],profile:{role:'CNA',yearsExperience:4,specialties:'Dementia care, Hoyer lift',languages:'English, Spanish',startAvailability:'now'}}))
+      .toBe('Maria is a CNA and lives 3 mi from this opening. Maria is available for 4 of 5 shifts and can start right away. Profile: 4 years of experience; Dementia care and Hoyer lift; speaks Spanish. Maria confirmed this week that they’re looking for work.');
+    expect(fitSummary({name:'Tasha R.',reasons:['schedule does not overlap','older availability']})).toBe('Tasha has weekly availability that doesn’t line up with this schedule. Tasha hasn’t confirmed availability recently, so check they’re still looking.');
+    expect(fitSummary({name:'',reasons:[]})).toBe('');
+  });
+  it('fills email templates and lets a saved one replace the starter with its name', ()=>{
+    const v={firstName:'Ana',opening:'CNA – days',company:'Oak Grove',contactName:'Sam'};
+    expect(fillTemplate('Hi {first_name}, about {opening} at {company}. {my_name}',v)).toBe('Hi Ana, about CNA – days at Oak Grove. Sam');
+    expect(templateMailto('a.b+c@example.com',{subject:'{opening}',body:'Hi {first_name}'},v)).toBe('mailto:a.b%2Bc@example.com?subject=CNA%20%E2%80%93%20days&body=Hi%20Ana');
+    const merged=mergeTemplates([{id:'t1',name:'phone screen',subject:'s',body:'b'}]);
+    expect(merged[0].id).toBe('t1');
+    expect(merged.filter(t=>t.name.toLowerCase()==='phone screen')).toHaveLength(1);
+    expect(merged).toHaveLength(BUILT_IN_TEMPLATES.length);
+  });
+  it('keeps only known checklist answers', ()=>{
+    expect(parseChecklist('over18, bogus,can_lift,over18')).toEqual(['over18','can_lift']);
+    expect(parseChecklist(['diploma',3])).toEqual(['diploma']);
+    expect(parseChecklist(null)).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
-import { HomeJobPreview } from './HomeJobPreview';
+import { HomeHero } from './HomeHero';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -23,6 +23,7 @@ const EmployerRecruitingPage=named(()=>import('./PublicInfoPages'),'EmployerRecr
 const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage');
 const PricingPage=named(()=>import('./PublicInfoPages'),'PricingPage');
 const HowToBecomeCaregiverMarylandPage=named(()=>import('./CaregiverResourcePage'),'HowToBecomeCaregiverMarylandPage');
+const NurseAideRegistryPage=named(()=>import('./CaregiverResourcePage'),'NurseAideRegistryPage');
 const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverResumePage');
 const GnaJobsPage=named(()=>import('./LocalLandingPages'),'GnaJobsPage');
 const CnaClassesPage=named(()=>import('./LocalLandingPages'),'CnaClassesPage');
@@ -44,6 +45,7 @@ function routePage(path:string){
   if (/^\/cna-classes\/baltimore\/?$/.test(path)) return <CnaClassesPage />;
   if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
   if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
+  if (path.startsWith('/resources/nurse-aide-registry-by-state')) return <NurseAideRegistryPage />;
   if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;
   if (path === '/pricing') return <PricingPage />;
   if (path.startsWith('/activate')) return <CaregiverActivation />;
@@ -102,15 +104,7 @@ function Home() {
     <SiteHeader audience="caregiver"/>
 
     <main>
-      <section className="hero">
-        <div className="wrap">
-          <h1>
-            <span className="hero-title-line">Find better-paying caregiver and CNA jobs near you.</span>
-          </h1>
-          <p>One profile. Personalized matches. Always free. Preview local jobs without a resume or contact details.</p>
-          <HomeJobPreview/>
-        </div>
-      </section>
+      <HomeHero/>
 
       <section className="section" id="how">
         <div className="wrap">

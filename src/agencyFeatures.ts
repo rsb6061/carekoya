@@ -2,6 +2,7 @@ import { agencyCandidateTeaserEmail, agencyHiringNeedsEmail, withUnsubscribe } f
 import { unsubscribeLink } from './emailPreferences';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
 import { waitingInterestPreviews } from './agencyInbox';
+import { DEFAULT_COMMUTE_MILES } from './geo';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -140,34 +141,49 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
   return {processed:(rows.results||[]).length,enriched};
 }
 
+// Agency matches use real distance: the caregiver must live within reach of the agency's ZIP, where reach is the
+// larger of their own commute radius and the agency's service radius (home-care aides travel to clients' homes).
+// Miles use a flat-earth approximation with cos(39°)≈0.78 for longitude, close enough across the mid-Atlantic and
+// cheap in SQL. With no coordinates, only the same ZIP or the same city counts; the rest of the state never does.
+// A caregiver must also hold a role the agency hires for (or any direct-care role when it hasn't said).
+const AGENCY_DIST2=`((zo.lat-zc.lat)*69.0)*((zo.lat-zc.lat)*69.0)+((zo.lng-zc.lng)*53.8)*((zo.lng-zc.lng)*53.8)`;
+const AGENCY_REACH=`MAX(MAX(5,MIN(100,CASE WHEN COALESCE(c.travel_distance_miles,0)>0 THEN c.travel_distance_miles ELSE ${DEFAULT_COMMUTE_MILES} END)),COALESCE(hp.service_radius_miles,0))`;
+const AGENCY_SCORES=`
+        CASE
+          WHEN zo.lat IS NOT NULL AND zc.lat IS NOT NULL THEN
+            CASE WHEN ${AGENCY_DIST2}<=25 THEN 50 WHEN ${AGENCY_DIST2}<=100 THEN 42 WHEN ${AGENCY_DIST2}<=400 THEN 32
+              WHEN ${AGENCY_DIST2}<=${AGENCY_REACH}*${AGENCY_REACH} THEN 20 ELSE 0 END
+          WHEN coalesce(ao.zip,'')!='' AND substr(ao.zip,1,5)=substr(coalesce(c.zip,''),1,5) THEN 50
+          WHEN coalesce(ao.city,'')!='' AND lower(ao.city)=lower(coalesce(c.city,'')) AND upper(coalesce(ao.state,''))=upper(coalesce(c.state,'')) THEN 35
+          ELSE 0 END AS geography_score,
+        CASE
+          WHEN trim(coalesce(hp.roles,''))='' THEN CASE WHEN trim(coalesce(c.role,'')||coalesce(c.certifications,''))!='' THEN 15 ELSE 0 END
+          WHEN c.role!='' AND lower(hp.roles) LIKE '%'||lower(c.role)||'%' THEN 25
+          WHEN lower(hp.roles) LIKE '%caregiver%' THEN 12
+          ELSE 0 END AS role_score,
+        CASE
+          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
+          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8
+          ELSE 0 END AS freshness_score,
+        CASE WHEN ao.caregiver_relevance_score>=90 THEN 15 WHEN ao.caregiver_relevance_score>=70 THEN 10 ELSE 5 END AS provider_score`;
+const AGENCY_GEO_JOINS=`LEFT JOIN zip_geo zo ON zo.zip=substr(trim(COALESCE(ao.zip,'')),1,5) LEFT JOIN zip_geo zc ON zc.zip=substr(trim(COALESCE(c.zip,'')),1,5)`;
+
 export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:string){
   if(!env.DB)return {scored:0};
   const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 AND work_status='actively_looking' AND (auth0_email_verified=1 OR (source='legacy_carekoya' AND activation_completed_at IS NOT NULL)) LIMIT 1").bind(caregiverId).first<Row>();
   if(!caregiver||!/^[A-Z]{2}$/.test(clean(caregiver.state,20).toUpperCase()))return {scored:0};
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=? AND status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").bind(caregiverId).run();
   const result=await env.DB.prepare(`WITH scored AS (
-      SELECT ao.id AS organization_id,c.id AS caregiver_id,
-        CASE
-          WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
-          WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
-          ELSE 15 END AS geography_score,
-        CASE
-          WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
-          WHEN lower(coalesce(hp.roles,'')) LIKE '%caregiver%' THEN 12
-          ELSE 5 END AS role_score,
-        CASE
-          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
-          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8
-          ELSE 0 END AS freshness_score,
-        CASE WHEN ao.caregiver_relevance_score>=90 THEN 15 WHEN ao.caregiver_relevance_score>=70 THEN 10 ELSE 5 END AS provider_score
+      SELECT ao.id AS organization_id,c.id AS caregiver_id,${AGENCY_SCORES}
       FROM caregivers c
       CROSS JOIN agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
+      ${AGENCY_GEO_JOINS}
       WHERE c.id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND ao.is_active=1 AND COALESCE(ao.is_chain,0)=0 AND upper(coalesce(ao.state,''))=upper(c.state)
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
-      FROM scored WHERE geography_score>0
+      FROM scored WHERE geography_score>0 AND role_score>0
     )
     INSERT INTO agency_org_candidate_matches
       (id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
@@ -188,24 +204,11 @@ export async function scoreAgencyMatches(env:FeatureEnv){
   // Rescore in place: only plain 'matched' rows are cleared, so any row someone acted on keeps its state.
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").run();
   const result=await env.DB.prepare(`WITH scored AS (
-      SELECT ao.id AS organization_id,c.id AS caregiver_id,
-        CASE
-          WHEN lower(coalesce(ao.zip,''))=lower(coalesce(c.zip,'')) AND ao.zip!='' THEN 50
-          WHEN lower(coalesce(ao.city,''))=lower(coalesce(c.city,'')) AND ao.city!='' THEN 35
-          WHEN coalesce(c.state,'')!='' THEN 15
-          ELSE 10 END AS geography_score,
-        CASE
-          WHEN lower(coalesce(hp.roles,'')) LIKE '%'||lower(coalesce(c.role,''))||'%' AND c.role!='' THEN 25
-          WHEN lower(coalesce(hp.roles,'')) LIKE '%caregiver%' THEN 12
-          ELSE 5 END AS role_score,
-        CASE
-          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
-          WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8
-          ELSE 0 END AS freshness_score,
-        CASE WHEN ao.caregiver_relevance_score>=90 THEN 15 WHEN ao.caregiver_relevance_score>=70 THEN 10 ELSE 5 END AS provider_score
+      SELECT ao.id AS organization_id,c.id AS caregiver_id,${AGENCY_SCORES}
       FROM agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
       CROSS JOIN caregivers c
+      ${AGENCY_GEO_JOINS}
       WHERE ao.is_active=1 AND COALESCE(ao.is_chain,0)=0 AND c.is_active=1
         AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
         -- Agencies only match caregivers in their own state; a caregiver with no state but a Maryland ZIP counts as Maryland.
@@ -215,7 +218,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(PARTITION BY caregiver_id ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
-      FROM scored WHERE geography_score>0
+      FROM scored WHERE geography_score>0 AND role_score>0
     )
     INSERT INTO agency_org_candidate_matches
       (id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status,last_scored_at)
@@ -319,7 +322,8 @@ export async function getAgencyNetwork(request:Request,env:FeatureEnv){
   },hiringProfile:hp||null,matches});
 }
 
-export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv){
+/** Saves an agency's always-on hiring needs into its Always-on opening, then `rematch` scores that opening like any other. */
+export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv,rematch?:(employerId:string,openingId:string)=>Promise<unknown>){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
@@ -362,17 +366,8 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv){
         clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',opening.id).run();
   }
 
-  if(status!=='not_hiring'){
-    const matches=await env.DB.prepare("SELECT caregiver_id,fit_score,match_reason FROM agency_org_candidate_matches WHERE organization_id=? ORDER BY fit_score DESC LIMIT 50").bind(org.id).all<Row>();
-    for(const match of matches.results||[]){
-      await env.DB.prepare(`INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,match_reason,match_score,source)
-        VALUES (?,?,?,'matched',?,?,'agency_profile_match')
-        ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET
-          match_reason=excluded.match_reason,match_score=excluded.match_score,
-          updated_at=CURRENT_TIMESTAMP`)
-        .bind(crypto.randomUUID(),opening.id,match.caregiver_id,match.match_reason,match.fit_score).run();
-    }
-  }
+  // The opening goes through the same matcher as every other opening: commute distance, role and schedule.
+  if(status!=='not_hiring'&&rematch)await rematch(clean(employer.id,100),opening.id);
   return json({ok:true,openingId:opening.id});
 }
 

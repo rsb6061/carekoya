@@ -121,8 +121,17 @@ export function caregiverJobInviteEmail(input:{
 }
 
 export function employerCandidateInterestedEmail(input:{
-  recipientName:string; caregiverName:string; caregiverEmail:string; title:string; location:string; appLink:string; hasInterviewSlots:boolean;
+  recipientName:string; caregiverName:string; caregiverEmail:string; title:string; location:string; appLink:string; hasInterviewSlots:boolean; locked?:boolean;
 }) {
+  if(input.locked)return {
+    subject:`Interested candidate: ${input.caregiverName} — ${input.title}`,
+    html:shell('A caregiver is interested',`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.caregiverName)}</strong> said they are interested in <strong>${esc(input.title)}</strong>${input.location?' in '+esc(input.location):''}.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">You've used your free introductions. Upgrade in your workspace to see how to reach them.</p>
+      <p style="margin:26px 0"><a href="${esc(input.appLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Open recruiting workspace</a></p>`),
+    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nYou've used your free introductions. Upgrade in your workspace to see how to reach them.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
+  };
   return {
     subject:`Interested candidate: ${input.caregiverName} — ${input.title}`,
     html:shell('A caregiver is interested',`

@@ -1,6 +1,6 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
-import { contactAllowance } from './billing';
+import { contactAllowance, lockedIntroductions } from './billing';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
@@ -229,11 +229,14 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(!opening)return json({ok:false,error:'Opening not found'},{status:404});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const allowance=await contactAllowance(env,workspaceId);
-  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free candidate contacts. Upgrade to keep contacting caregivers.`},{status:402});
-  const limit=Math.min(allowance.remaining,Math.max(1,Math.min(20,asNumber(body.limit)||5)));
+  // Inviting is free while free introductions remain; an introduction is counted when a caregiver says yes.
+  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free introductions. Upgrade to keep inviting caregivers.`},{status:402});
+  // The employer may pick exactly who to invite; without a pick, the top matches by score are invited.
+  const chosen=Array.isArray(body.pipelineIds)?[...new Set(body.pipelineIds.map(v=>clean(v,100)).filter(Boolean))].slice(0,50):[];
+  const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));
   const rows=await env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.is_active=1 AND c.work_status='actively_looking'
   AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
-  AND c.email IS NOT NULL AND c.email!='' ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,limit).all<Record<string,unknown>>();
+  AND c.email IS NOT NULL AND c.email!=''${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
@@ -324,7 +327,9 @@ export async function getCandidateResponse(url:URL,env:FeatureEnv){
   const token=clean(url.searchParams.get('token'),300);
   const row=await responseRecord(env,token);
   if(!row)return json({ok:false,error:'This job-response link is invalid.'},{status:404});
-  const slots=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now') ORDER BY starts_at ASC LIMIT 20").bind(row.opening_id).all<Record<string,unknown>>();
+  // Past the employer's free introductions, booking waits until the employer can see who they're meeting.
+  const locked=(await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100));
+  const slots=locked?{results:[]}:await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now') ORDER BY starts_at ASC LIMIT 20").bind(row.opening_id).all<Record<string,unknown>>();
   return json({ok:true,opportunity:{
     company:row.company_name,title:row.title,role:row.role,city:row.city,state:row.state,zip:row.zip,
     payMin:row.pay_min,payMax:row.pay_max,shift:row.shift_preferences,requirements:row.requirements,
@@ -355,7 +360,8 @@ export async function respondToInviteForCaregiver(env:FeatureEnv,caregiverId:str
 async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,choice:string,channel:'web'|'dashboard'){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   if(choice==='interested'){
-    await env.DB.prepare("UPDATE candidate_pipeline SET stage='interested',response_value='interested',response_at=CURRENT_TIMESTAMP,responded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
+    // Millisecond time: free introductions go to the earliest yeses, so two in the same second must still have an order.
+    await env.DB.prepare("UPDATE candidate_pipeline SET stage='interested',response_value='interested',response_at=?,responded_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(new Date().toISOString(),row.pipeline_id).run();
     await env.DB.prepare("UPDATE caregivers SET work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.caregiver_id).run();
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,'actively_looking','job_interest',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),row.caregiver_id).run();
@@ -365,14 +371,16 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
       const slotCount=await env.DB.prepare("SELECT COUNT(*) AS count FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now')").bind(row.opening_id).first<{count:number}>();
       const caregiverName=publicName(row.first_name,row.last_name,row.display_name);
       const location=[clean(row.city,120),clean(row.state,80),clean(row.zip,20)].filter(Boolean).join(', ');
+      const locked=(await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100));
       const notice=employerCandidateInterestedEmail({
+        locked,
         recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',
         caregiverName,
-        caregiverEmail:clean(row.email,320),
+        caregiverEmail:locked?'':clean(row.email,320),
         title:clean(row.title,200),
         location,
         appLink:'https://carejoys.com/app',
-        hasInterviewSlots:asNumber(slotCount?.count)>0
+        hasInterviewSlots:!locked&&asNumber(slotCount?.count)>0
       });
       try{
         const sent=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
@@ -405,6 +413,7 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
   if(!env.DB||!env.EMAIL)return json({ok:false,error:'Email service is not configured'},{status:503});
   if(!row||row.response_value!=='interested')return json({ok:false,error:'Confirm interest before booking an interview.'},{status:400});
   if(row.interview_booked_at)return json({ok:false,error:'You already booked an interview for this opening.'},{status:409});
+  if((await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100)))return json({ok:false,error:'The employer will reach out to set up an interview.'},{status:409});
   const slot=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE id=? AND opening_id=? LIMIT 1").bind(slotId,row.opening_id).first<Record<string,unknown>>();
   if(!slot||slot.status!=='available'||Date.parse(clean(slot.starts_at,80))<=Date.now())return json({ok:false,error:'That interview time is no longer available.'},{status:409});
   const claimed=await env.DB.prepare("UPDATE interview_slots SET status='booked',booked_pipeline_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='available' AND datetime(starts_at)>datetime('now')").bind(row.pipeline_id,slotId).run();

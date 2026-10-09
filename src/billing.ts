@@ -28,17 +28,38 @@ export function freeContacts(env:BillingEnv){
   return Number.isFinite(n)?Math.max(0,n):DEFAULT_FREE_CONTACTS;
 }
 
+// Every introduction an employer has had: a caregiver who said yes to one of their openings, or who sent their
+// profile to the employer's claimed agency from a job page or an AI assistant. `at` orders them, earliest first.
+const INTRODUCTIONS_SQL=`SELECT cp.id,julianday(COALESCE(cp.response_at,cp.responded_at,cp.updated_at)) AS at FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id
+    WHERE o.employer_id=? AND cp.response_value='interested'
+  UNION ALL
+  SELECT ai.id,julianday(ai.created_at) AS at FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id
+    WHERE ao.claimed_employer_id=?`;
+
 /**
- * How many caregivers this employer may contact now. Matching and browsing stay free;
- * contacting beyond the free allowance needs an active subscription.
+ * The employer's introductions: an introduction is a caregiver who said they're interested in one of the employer's
+ * openings or sent their profile to the employer's agency, which is what /pricing sells. Inviting, matching and browsing stay free. Once the free introductions are
+ * used, new invitations wait for a subscription.
  */
 export async function contactAllowance(env:BillingEnv,employerId:string){
   if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,used:0,free:0,remaining:Infinity};
   const billing=await env.DB.prepare('SELECT status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employerId).first<Row>();
   const subscribed=ACTIVE_STATUSES.has(clean(billing?.status,40));
-  const used=asNum((await env.DB.prepare('SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=? AND cp.contacted_at IS NOT NULL').bind(employerId).first<Row>())?.count);
+  const used=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM (${INTRODUCTIONS_SQL})`).bind(employerId,employerId).first<Row>())?.count);
   const free=freeContacts(env);
   return {enabled:true,subscribed,used,free,remaining:subscribed?Infinity:Math.max(0,free-used)};
+}
+
+/**
+ * Introductions (pipeline ids and agency interest ids) past the free ones, while the employer has no subscription. Their contact details
+ * stay hidden until the employer upgrades. The earliest yeses are the free ones.
+ */
+export async function lockedIntroductions(env:BillingEnv,employerId:string):Promise<Set<string>>{
+  const allowance=await contactAllowance(env,employerId);
+  if(!allowance.enabled||allowance.subscribed||allowance.used<=allowance.free||!env.DB)return new Set();
+  const rows=await env.DB.prepare(`SELECT id FROM (${INTRODUCTIONS_SQL}) ORDER BY at ASC,id ASC LIMIT -1 OFFSET ?`)
+    .bind(employerId,employerId,allowance.free).all<Row>();
+  return new Set((rows.results||[]).map(r=>clean(r.id,100)));
 }
 
 export async function billingStatus(request:Request,env:BillingEnv){
