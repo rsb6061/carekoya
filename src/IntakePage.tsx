@@ -3,6 +3,7 @@ import { TurnstileField } from './TurnstileField';
 import { useCaregiverAuth } from './caregiverAuth';
 import { Shell } from './LoginPage';
 import { AgencyFinder } from './AgencyFinder';
+import { ScheduleEditor } from './ScheduleEditor';
 import './workspace.css';
 
 type Kind = 'employer' | 'school';
@@ -100,10 +101,11 @@ function IntakePage({ kind }: { kind: Kind }) {
           <label>Phone (optional)<input name="phone" defaultValue={known?.phone || ''} key={'ph'+(known?.phone||'')} /></label>
         </div>
         <details className="intake-more">
-          <summary>Add shift, pay and requirements (optional)</summary>
+          <summary>Add schedule, pay and requirements (optional)</summary>
           <div className="intake-form">
-            <div className="form-grid"><label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label><label>Transportation<select name="transportationRequired" defaultValue=""><option value="">Not specified</option><option value="yes">Required</option><option value="no">Not required</option></select></label></div>
+            <ScheduleEditor />
             <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" min="0" /></label><label>Max pay / hr<input type="number" name="payMax" min="0" /></label></div>
+            <label>Transportation<select name="transportationRequired" defaultValue=""><option value="">Not specified</option><option value="yes">Required</option><option value="no">Not required</option></select></label>
             <label>Must-have requirements<textarea name="hiringNotes" rows={3} placeholder="Experience, credential, schedule, client requirements..." /></label>
           </div>
         </details>

@@ -146,6 +146,14 @@ describe('distance matching', ()=>{
     const match=await (await call(`/api/openings/${id}/match`,{method:'POST',headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(match.top.map((c:any)=>c.id).sort()).toEqual(['baltimore','towson']);
   });
+  it('stores an opening schedule and shows it as plain-words shift hours', async()=>{
+    const schedule={days:{mon:{start:'07:00',end:'15:00'},tue:{start:'07:00',end:'15:00'},sat:{start:'23:00',end:'07:00'}},liveIn:false};
+    const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA',role:'CNA',zip:'21201',shifts:'ignored',schedule:JSON.stringify(schedule)})});
+    const {id}=await created.json() as any;
+    const row=await DB.prepare('SELECT shift_preferences,schedule_json FROM openings WHERE id=?').bind(id).first() as any;
+    expect(row.shift_preferences).toBe('Mon, Tue 7am–3pm · Sat 11pm–7am');
+    expect(JSON.parse(row.schedule_json)).toEqual(schedule);
+  });
   it('caregiver signup infers state and city outside Maryland', async()=>{
     const res=await call('/api/caregivers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({firstName:'Nia',lastName:'York',email:'nia@example.com',phone:'5550100',zip:'10001',role:'HHA'})});
     expect(res.status).toBe(201);

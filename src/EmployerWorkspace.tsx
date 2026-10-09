@@ -8,6 +8,7 @@ import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { JobsWidgetCard } from './JobsWidgetCard';
 import { AgencyInbox } from './AgencyInboxTab';
 import { TalentCard, type TalentCandidate } from './TalentCard';
+import { ScheduleEditor } from './ScheduleEditor';
 import './workspace.css';
 
 type Opening={
@@ -471,7 +472,7 @@ export function EmployerWorkspace(){
           <div className="form-grid"><label>Role<select name="role" required defaultValue=""><option value="" disabled>Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>Caregiver</option><option>DSP</option></select></label><label>ZIP<input name="zip" /></label></div>
           <div className="form-grid"><label>City<input name="city" /></label><label>State<input name="state" /></label></div>
           <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" /></label><label>Max pay / hr<input type="number" name="payMax" /></label></div>
-          <label>Shift<input name="shifts" placeholder="Days, nights, weekends" /></label>
+          <ScheduleEditor/>
           <label>Requirements<textarea name="requirements" rows={4} placeholder="Experience, credential, schedule, client requirements..." /></label>
           <label className="check-row"><input type="checkbox" name="transportationRequired" /><span>Reliable transportation required</span></label>
           <button className="button submit-button">{pendingApproval?'Create opening':'Create & match'}</button>

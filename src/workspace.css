@@ -325,3 +325,19 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .admin-video-list{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
 .admin-video-card{border:1px solid var(--lavender);border-radius:16px;padding:14px;background:#fff}
 .admin-video-card h3{margin:0 0 2px}
+.schedule-editor{border:0;padding:0;margin:0;min-width:0;display:grid;gap:10px}
+.schedule-editor legend{font-weight:600;color:var(--ink);padding:0;margin-bottom:4px}
+.schedule-help{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+.schedule-presets{display:flex;flex-wrap:wrap;gap:6px}
+.schedule-preset{border:1px solid var(--lavender);background:var(--paper);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--ink);cursor:pointer}
+.schedule-preset:hover:not(:disabled){background:#efeaff}
+.schedule-preset:disabled{opacity:.5;cursor:default}
+.schedule-rows{display:grid;gap:6px}
+.schedule-row{display:grid;grid-template-columns:76px minmax(0,1fr) auto minmax(0,1fr) 52px;align-items:center;gap:8px;min-height:44px}
+.schedule-day{display:flex!important;align-items:center;gap:8px;font-weight:600!important;font-size:14px!important;margin:0!important}
+.intake-form .schedule-day input{width:17px;height:17px;padding:0;margin:0}
+.intake-form .schedule-row input[type=time]{padding:8px 10px;border-radius:12px;min-width:0}
+.schedule-to,.schedule-hours{font-size:13px;color:var(--muted)}
+.schedule-off{grid-column:2/-1;font-size:13px;color:var(--muted)}
+.schedule-summary{margin:0;font-size:14px;font-weight:600;color:var(--ink)}
+@media (max-width:640px){.schedule-row{grid-template-columns:58px minmax(0,1fr) auto minmax(0,1fr);gap:4px}.schedule-hours{display:none}.intake-form .schedule-row input[type=time]{padding:8px 4px;font-size:14px}}

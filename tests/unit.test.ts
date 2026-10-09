@@ -3,6 +3,7 @@ import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
+import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from '../src/schedule';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
@@ -44,6 +45,40 @@ describe('employer required role matching',()=>{
     const unrelated={role:'DSP',zip:'21201',state:'MD',geo_lat:39.29,geo_lng:-76.61,work_status:'actively_looking',last_confirmed_at:'2026-10-01T12:00:00Z'};
     expect(scoreCandidate(opening,unrelated,Date.parse('2026-10-02T12:00:00Z')).score).toBe(0);
     expect(scoreCandidate(opening,{...unrelated,role:'CNA'},Date.parse('2026-10-02T12:00:00Z')).score).toBeGreaterThan(0);
+  });
+});
+
+describe('opening schedule', ()=>{
+  const weekdayDays={mon:{start:'07:00',end:'15:00'},tue:{start:'07:00',end:'15:00'},wed:{start:'07:00',end:'15:00'},thu:{start:'07:00',end:'15:00'},fri:{start:'07:00',end:'15:00'}};
+  it('keeps only valid days and summarizes neighboring days with the same hours', ()=>{
+    const s=parseOpeningSchedule(JSON.stringify({days:{...weekdayDays,sat:{start:'19:00',end:'07:00'},sun:{start:'25:00',end:'07:00'}}}));
+    expect(Object.keys(s.days)).toEqual(['mon','tue','wed','thu','fri','sat']);
+    expect(scheduleSummary(s)).toBe('Mon–Fri 7am–3pm · Sat 7pm–7am');
+    expect(weeklyHours(s)).toBe(52);
+  });
+  it('counts a shift as workable when the caregiver covers it that day, including overnight', ()=>{
+    const s=parseOpeningSchedule({days:{mon:{start:'07:00',end:'15:00'},tue:{start:'23:00',end:'07:00'},sat:{start:'07:00',end:'19:00'}}});
+    const grid={days:{mon:['morning'],tue:['overnight'],sat:['morning']}};
+    expect(scheduleFit(s,JSON.stringify(grid))).toEqual({shifts:3,workable:2});
+    expect(scheduleFit(s,JSON.stringify({days:{...grid.days,sat:['morning','evening']}}))).toEqual({shifts:3,workable:3});
+    expect(scheduleFit(s,null)).toBeNull();
+  });
+  it('matches live-in only to caregivers open to live-in', ()=>{
+    const s=parseOpeningSchedule({days:{},liveIn:true});
+    expect(scheduleFit(s,JSON.stringify({days:{mon:['morning']},liveIn:true}))).toEqual({shifts:1,workable:1});
+    expect(scheduleFit(s,JSON.stringify({days:{mon:['morning']}}))).toEqual({shifts:1,workable:0});
+  });
+  it('scores schedule fit in place of shift words', ()=>{
+    const opening={role:'CNA',zip:'21201',state:'MD',geo_lat:BALTIMORE.lat,geo_lng:BALTIMORE.lng,schedule_json:JSON.stringify({days:weekdayDays})};
+    const base={role:'CNA',geo_lat:BALTIMORE.lat,geo_lng:BALTIMORE.lng,work_status:'actively_looking',last_confirmed_at:'2026-09-30T12:00:00Z'};
+    const all=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{mon:['morning'],tue:['morning'],wed:['morning'],thu:['morning'],fri:['morning']}})},NOW);
+    const some=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{mon:['morning'],tue:['morning']}})},NOW);
+    const none=scoreCandidate(opening,{...base,availability_json:JSON.stringify({days:{sat:['overnight']}})},NOW);
+    expect(all.reasons).toContain('available all 5 shifts');
+    expect(some.reasons).toContain('available 2 of 5 shifts');
+    expect(none.reasons).toContain('schedule does not overlap');
+    expect(all.score).toBeGreaterThan(some.score);
+    expect(some.score).toBeGreaterThan(none.score);
   });
 });
 
