@@ -1,10 +1,10 @@
+import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
-import { parseHourlyMinimum } from './payMatching';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
+import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, fitTitle, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
@@ -15,7 +15,7 @@ import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
-import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest, acquisitionChannels } from './admin';
+import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runReactivationReminders, runScheduledOutreach } from './outreach';
 import { listText } from './listField';
 import { summarizeJobsBatch, type AiBinding } from './jobSummary';
@@ -25,7 +25,7 @@ import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
-import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -398,7 +398,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"About CareJoys | Caregiver Recruiting Network",
       description:"CareJoys connects care employers, caregivers, and training programs through current availability, interest confirmation, interviews, and hires.",
       canonical:"/about",
-      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p></main>',
+      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a caregiver recruiting and placement network.</strong> It connects care employers, caregivers, and caregiver training programs so hiring can move from relevant local match to confirmed interest to interview with less manual chasing.</p><h2>Who CareJoys is for</h2><ul><li>Care employers hiring CNAs, GNAs, HHAs, PCAs, caregivers and related direct-care workers.</li><li>Caregivers who want one reusable work profile and relevant local opportunities.</li><li>Caregiver training programs that want tracked graduate placement outcomes.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p><p><a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing</a> · <a href="/training-programs/maryland">Maryland training programs</a> · <a href="/">CareJoys home</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
@@ -425,8 +425,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const stateLinks=data.states.map(s=>'<li><a href="'+jobsHubPath(s.state)+'">Caregiver jobs in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join("");
     const cityLinks=data.cities.map(c=>'<li><a href="'+jobsHubPath(c.state,c.slug)+'">Caregiver jobs in '+htmlEscape(c.city)+', '+c.state.code+'</a> ('+c.count+')</li>').join("");
     return seoAsset(request,env,{
-      title:"Caregiver Jobs by State and City: CNA, HHA & PCA"+(data.page>1?" (Page "+data.page+")":"")+" | CareJoys",
-      description:trimAtWord((data.total?data.total+" current caregiver jobs":"Caregiver jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city, state or ZIP, upload one resume, and apply to CNA, HHA, PCA, DSP and caregiver openings.",160),
+      title:data.page>1?fitTitle("Caregiver Jobs by State and City, Page "+data.page):"Caregiver Jobs by State and City: CNA, HHA & PCA | CareJoys",
+      description:trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current caregiver jobs":"Caregiver jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city, state or ZIP, upload one resume, and apply to CNA, HHA, PCA, DSP and caregiver openings.",160),
       canonical,
       // Searches and role filters are views of this page, not pages of their own.
       robots:data.total>0&&!role&&!q?undefined:"noindex,follow",
@@ -469,8 +469,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     // Thin pages (no jobs, filtered views, small cities) stay out of the index but still help the people who land on them.
     const indexable=data.total>0&&!role&&(!data.city||data.total>=CITY_PAGE_MIN_JOBS);
     return seoAsset(request,env,{
-      title:trimAtWord("Caregiver Jobs in "+place+": CNA, "+(isMaryland?"GNA, ":"")+"HHA & PCA"+(data.page>1?" (Page "+data.page+")":"")+" | CareJoys",70),
-      description:trimAtWord((data.total?data.total+" current caregiver jobs in "+place+". ":"Caregiver jobs in "+place+". ")+"Upload one resume, let CareJoys build your profile, and apply to CNA, GNA, HHA, PCA, DSP and caregiver openings.",160),
+      title:data.page>1?fitTitle("Caregiver Jobs in "+place+", Page "+data.page):fitTitle("Caregiver Jobs in "+place+": CNA, "+(isMaryland?"GNA, ":"")+"HHA & PCA"),
+      description:trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current caregiver jobs in "+place+". ":"Caregiver jobs in "+place+". ")+"Upload one resume, let CareJoys build your profile, and apply to CNA, GNA, HHA, PCA, DSP and caregiver openings.",160),
       canonical,
       robots:indexable?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
@@ -572,7 +572,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       const name=String(org.canonical_name||"Caregiver Training Program");
       const credentials=String(org.credential_categories||"CNA/GNA");
       return seoAsset(request,env,{
-        title:(name+" CNA/GNA Training | CareJoys").slice(0,68),
+        title:fitTitle(name+" CNA/GNA Training"),
         description:(name+" is a Maryland caregiver training organization with "+Number(org.location_count||rows.results?.length||1)+" active program location"+(Number(org.location_count||1)===1?"":"s")+". View "+credentials+" training and CareJoys graduate placement.").slice(0,165),
         canonical:"/training-programs/"+encodeURIComponent(slug),
         snapshot:'<main><h1>'+htmlEscape(name)+"</h1><p>Maryland caregiver training program · "+htmlEscape(credentials)+'</p><ul>'+locations+'</ul><p><a href="/training-programs/maryland">Browse all Maryland caregiver training programs</a></p></main>',
@@ -977,6 +977,9 @@ async function handleCaregiver(request: Request, env: Env) {
   const city=zipInfo?.city||"";
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
+  const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
+  if((data!.payMin!==undefined&&data!.payMin!==null&&data!.payMin!==''||!!clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  const desiredWage=floor?'$'+floor+'+/hr':'';
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   // This form has no sign-in, so it may create a profile but never change one that already exists.
   if(initiallyExisting)return json({ok:false,needsVerifiedSignIn:true,error:"This email already has a CareJoys profile. Sign in at carejoys.com/login to update it."},{status:409});
@@ -984,19 +987,19 @@ async function handleCaregiver(request: Request, env: Env) {
 
   if(!initiallyExisting){
     await env.DB.prepare(`INSERT OR IGNORE INTO caregivers
-      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,transportation,source,work_status,last_confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','actively_looking',NULL)`)
+      (id,first_name,last_name,display_name,email,phone,city,zip,state,role,shift_preferences,desired_wage,hourly_rate_min,transportation,source,work_status,last_confirmed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'organic','unknown',NULL)`)
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),city||null,zip,state,clean(data!.role,80),
-        clean(data!.shifts,500),clean(data!.desiredWage,80),clean(data!.transportation,80)).run();
+        clean(data!.shifts,500),desiredWage,floor||null,clean(data!.transportation,80)).run();
   }
   const canonical=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=?,zip=?,city=COALESCE(NULLIF(?,''),city),state=CASE WHEN ?!='' THEN ? ELSE state END,
-    role=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,work_status='actively_looking',last_confirmed_at=NULL,
+    role=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,
     is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(first,last,(first+" "+last).trim(),clean(data!.phone,40),zip,city,state,state,clean(data!.role,80),
-      clean(data!.shifts,500),clean(data!.desiredWage,80),parseHourlyMinimum(data!.desiredWage),clean(data!.transportation,80),id).run();
+      clean(data!.shifts,500),desiredWage,floor||null,clean(data!.transportation,80),id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1077,14 +1080,16 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const languages=clean(data!.languages,1000);
   const years=Math.max(0,Math.min(60,Number(data!.yearsExperience||0)||0));
   const shifts=clean(data!.shifts,500);
-  const desiredWage=clean(data!.desiredWage,80);
+  const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
+  if((data!.payMin!==undefined&&data!.payMin!==null&&data!.payMin!==''||!!clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  const desiredWage=floor?'$'+floor+'+/hr':'';
   const transportation=clean(data!.transportation,80);
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',NULL,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,hourly_rate_min,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','unknown',NULL,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-        shifts,desiredWage,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
+        shifts,desiredWage,floor||null,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
 
   const canonical=auth0Sub
@@ -1094,9 +1099,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,transportation=?,travel_distance_miles=?,hourly_rate_min=?,work_status='actively_looking',last_confirmed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE NULL END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,work_status=CASE WHEN work_status='closed' THEN 'unknown' ELSE work_status END,last_confirmed_at=CASE WHEN work_status='closed' THEN NULL ELSE last_confirmed_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
-      shifts,desiredWage,transportation,travel||null,parseHourlyMinimum(desiredWage),authIdentity?.emailVerified?1:0,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
+      shifts,desiredWage,floor||null,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
   const referralSlug=clean(data!.referralSlug,120);
   if(referralSlug){
@@ -1242,7 +1247,7 @@ async function handleSchool(request: Request, env: Env) {
     .bind(id,clean(data!.organizationName,250),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.city,120),clean(data!.state,80),clean(data!.programTypes,500),clean(data!.graduatingCount,50),clean(data!.notes,1500)).run();
   return json({ok:true,id},{status:201});
 }
-const SEARCHABLE_CAREGIVER="c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1) AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))";
+const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))";
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
@@ -1252,7 +1257,7 @@ async function searchCandidates(url: URL, env: Env) {
   const freshness=clean(url.searchParams.get("freshness"),30);
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
@@ -1284,7 +1289,7 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
     careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:c.bio,employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
     licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
-    shifts:c.shift_preferences,travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
+    shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
     distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
   };
@@ -1356,7 +1361,9 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const openingId=clean(url.searchParams.get("openingId"),80);
   let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at,c.profile_photo_url,
     CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email
-    FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?`;
+    FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
+      AND (cp.stage!='matched' OR (c.is_active=1 AND c.work_status='actively_looking'
+       AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))))`;
   const args:unknown[]=[workspaceId];
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
@@ -1504,8 +1511,8 @@ export default {
       if(request.method==="POST"&&url.pathname==="/api/admin/clarity/pull") return json(await pullClarityInsights(env,{force:true}));
       if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
-        const [funnel,outreach,employers,acquisition]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env),acquisitionChannels(env)]);
-        return json({ok:true,admin,funnel,outreach,employers,acquisition});
+        const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
+        return json({ok:true,admin,funnel,outreach,employers});
       }
       const approve=url.pathname.match(/^\/api\/admin\/employers\/([^/]+)\/approve$/);
       if(request.method==="POST"&&approve) return approveEmployer(env,decodeURIComponent(approve[1]),admin.email||"admin_token");
@@ -1674,14 +1681,13 @@ export default {
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
-        // Separate from legacy bulk outreach; independent school cap and suppression list.
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
-        // Up to 15 an hour within the daily cap, so the domain doesn't send hundreds at once.
+        // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
           const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
           const counts=await hiringInviteCounts(env);
-          await sendAgencyHiringInvites(env,Math.min(15,cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
         }
         return;
       }
@@ -1689,7 +1695,7 @@ export default {
         // The last 24 hours of Clarity insights into D1. No-op until CLARITY_API_TOKEN is set.
         await pullClarityInsights(env).catch(()=>null);
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
-        // School outreach stays manual-only.
+        // School introductions have a separate enabled flag and cap on the hourly cron.
         await runScheduledOutreach(env);
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);

@@ -1,4 +1,5 @@
-import { jobFit, jobConflict } from '../src/caregiverApi';
+import { hourlyPayFloor } from '../src/payPreferences';
+import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -149,7 +150,7 @@ describe('billing', ()=>{
   });
 });
 
-import { employmentTypeSchema, jobPageTitle, jobPostingJsonLd, payText, trimAtWord } from '../src/seo';
+import { employmentTypeSchema, fitTitle, jobPageTitle, jobPostingJsonLd, payText, trimAtWord } from '../src/seo';
 import { parseJobsHubPath, slugify, usState } from '../src/usStates';
 import { emailMatchesAgencyDomain, maskEmail, normalizeDomain } from '../src/agencySelfServe';
 
@@ -157,6 +158,9 @@ describe('seo helpers', ()=>{
   it('trims at a word boundary', ()=>{
     expect(trimAtWord('Certified Nursing Assistant overnight shift',30)).toBe('Certified Nursing Assistant');
     expect(trimAtWord('short',30)).toBe('short');
+    expect(fitTitle('Caregiver Jobs in Ohio')).toBe('Caregiver Jobs in Ohio | CareJoys');
+    expect(fitTitle('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA')).toBe('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA');
+    expect(fitTitle('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA plus more words here').length).toBeLessThanOrEqual(60);
   });
   it('drops the employer before cutting the job title', ()=>{
     expect(jobPageTitle('CNA','Acme Care')).toBe('CNA | Acme Care | CareJoys');
@@ -383,6 +387,17 @@ describe('jobFit', ()=>{
   });
 });
 
+describe('hourly wage floor parsing',()=>{
+  it('handles numeric minimums and the legacy desired-wage ranges',()=>{
+    expect(hourlyPayFloor('$20–24/hr')).toBe(20);
+    expect(hourlyPayFloor('$24+/hr')).toBe(24);
+    expect(hourlyPayFloor('21.50 per hour')).toBe(21.5);
+    expect(hourlyPayFloor('50000/year')).toBeNull();
+    expect(hourlyPayFloor('not sure')).toBeNull();
+    expect(hourlyPayFloor(250)).toBeNull();
+  });
+});
+
 describe('strict job suitability', ()=>{
   const caregiver={role:'CNA',certifications:'CNA, CPR',hourly_rate_min:21,shift_preferences:'Days',employment_types:'full_time'};
   it('excludes a licensed role the worker does not hold, not an ordinary caregiver role',()=>{
@@ -426,5 +441,14 @@ describe('job summaries', ()=>{
     expect(parseSummary('Here is the summary:\nHome care aide role supporting seniors in Rockport.\n- Help with bathing and meals\n* Driver license required\n\n1. Weekend shifts')).toBe('Home care aide role supporting seniors in Rockport. • Help with bathing and meals • Driver license required • Weekend shifts');
     expect(parseSummary('- only bullets')).toBeNull();
     expect(parseSummary('NO_DETAILS')).toBe('');
+  });
+});
+
+describe('availabilityByDay', ()=>{
+  it('groups neighboring days with the same shifts', ()=>{
+    const days={mon:['morning'],tue:['morning'],wed:['morning'],thu:['morning'],fri:['morning'],sat:['overnight'],sun:['overnight']};
+    expect(availabilityByDay({days,liveIn:false})).toBe('Mon–Fri: mornings · Sat–Sun: overnights');
+    expect(availabilityByDay({days:{...days,wed:[]},liveIn:false})).toBe('Mon–Tue: mornings · Thu–Fri: mornings · Sat–Sun: overnights');
+    expect(availabilityByDay({days:{mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[]},liveIn:true})).toBe('');
   });
 });

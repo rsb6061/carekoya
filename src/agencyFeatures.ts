@@ -142,7 +142,7 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
 
 export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:string){
   if(!env.DB)return {scored:0};
-  const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 AND (source='legacy_carekoya' OR auth0_email_verified=1) LIMIT 1").bind(caregiverId).first<Row>();
+  const caregiver=await env.DB.prepare("SELECT id,state FROM caregivers WHERE id=? AND is_active=1 AND work_status='actively_looking' AND (auth0_email_verified=1 OR (source='legacy_carekoya' AND activation_completed_at IS NOT NULL)) LIMIT 1").bind(caregiverId).first<Row>();
   if(!caregiver||!/^[A-Z]{2}$/.test(clean(caregiver.state,20).toUpperCase()))return {scored:0};
   await env.DB.prepare("DELETE FROM agency_org_candidate_matches WHERE caregiver_id=? AND status='matched' AND caregiver_interest IS NULL AND agency_interest IS NULL").bind(caregiverId).run();
   const result=await env.DB.prepare(`WITH scored AS (
@@ -163,7 +163,7 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
       FROM caregivers c
       CROSS JOIN agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
-      WHERE c.id=? AND c.is_active=1 AND ao.is_active=1 AND upper(coalesce(ao.state,''))=upper(c.state)
+      WHERE c.id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND ao.is_active=1 AND upper(coalesce(ao.state,''))=upper(c.state)
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
@@ -206,8 +206,8 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       FROM agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
       CROSS JOIN caregivers c
-      WHERE ao.is_active=1 AND c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1)
-        AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
+      WHERE ao.is_active=1 AND c.is_active=1
+        AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
         -- Agencies only match caregivers in their own state; a caregiver with no state but a Maryland ZIP counts as Maryland.
         AND upper(coalesce(ao.state,''))=upper(CASE WHEN coalesce(c.state,'')!='' THEN c.state
           WHEN CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219 THEN 'MD' ELSE '' END)
@@ -242,7 +242,7 @@ async function candidatePreviews(env:FeatureEnv,orgId:string,limit=5){
   if(!env.DB)return [];
   const rows=await env.DB.prepare(`SELECT m.fit_score,c.role,c.city,c.state,c.years_experience,c.work_status,c.last_confirmed_at
     FROM agency_org_candidate_matches m JOIN caregivers c ON c.id=m.caregiver_id
-    WHERE m.organization_id=? AND c.is_active=1
+    WHERE m.organization_id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
     ORDER BY m.fit_score DESC,m.last_scored_at DESC LIMIT ?`).bind(orgId,limit).all<Row>();
   return (rows.results||[]).map(r=>({
     role:clean(r.role,80)||'Caregiver',
@@ -302,7 +302,7 @@ export async function getAgencyNetwork(request:Request,env:FeatureEnv){
   const hp=await env.DB.prepare("SELECT * FROM agency_org_hiring_profiles WHERE organization_id=?").bind(org.id).first<Row>();
   const rows=await env.DB.prepare(`SELECT m.fit_score,m.match_reason,m.status,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.role,c.certifications,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at
     FROM agency_org_candidate_matches m JOIN caregivers c ON c.id=m.caregiver_id
-    WHERE m.organization_id=? AND c.is_active=1
+    WHERE m.organization_id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
     ORDER BY m.fit_score DESC LIMIT 50`).bind(org.id).all<Row>();
   const matches=(rows.results||[]).map(r=>({
     caregiverId:r.caregiver_id,
@@ -381,7 +381,8 @@ const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primar
       COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o
     JOIN agency_org_candidate_matches m ON m.organization_id=o.id
-    JOIN caregivers c ON c.id=m.caregiver_id
+    JOIN caregivers c ON c.id=m.caregiver_id AND c.is_active=1 AND c.work_status='actively_looking'
+      AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
@@ -497,6 +498,10 @@ export async function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo
       }
       sent++;
     }catch(error){
+      // A sending limit is the account's, not this agency's: stop the batch and leave everyone queued for a later run.
+      const code=String((error as {code?:unknown})?.code||'');
+      const message=error instanceof Error?error.message:'';
+      if(/LIMIT_EXCEEDED/.test(code)||/quota|limit exceeded/i.test(message))break;
       await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'hiring_needs_invite_failed',?,?)")
         .bind(crypto.randomUUID(),org.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
       failed++;
@@ -578,7 +583,7 @@ export async function startTestAgency(env:FeatureEnv,email:string,sourceId=''){
           CASE WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-30 days') THEN 15
             WHEN c.last_confirmed_at IS NOT NULL AND datetime(c.last_confirmed_at)>=datetime('now','-90 days') THEN 8 ELSE 0 END AS f
         FROM caregivers c
-        WHERE c.is_active=1 AND (c.source='legacy_carekoya' OR c.auth0_email_verified=1) AND (c.work_status='actively_looking' OR (c.source='legacy_carekoya' AND c.work_status='unknown'))
+        WHERE c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
           AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
         ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
   }

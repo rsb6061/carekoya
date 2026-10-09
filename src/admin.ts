@@ -1,12 +1,12 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
-import { resetTestAgency, startTestAgency, hiringInviteCounts } from './agencyFeatures';
+import { resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
 import { workerFunnelReport } from './workerFunnel';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;REACTIVATION_REMINDER_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -98,6 +98,21 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
   const pageViews=await db.prepare(`SELECT COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')}`).first<Row>();
   const topPaths=await db.prepare(`SELECT path,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY path ORDER BY count DESC LIMIT 12`).all<Row>();
   const topSources=await db.prepare(`SELECT COALESCE(NULLIF(utm_source,''),NULLIF(referrer_host,''),'direct') AS source,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY 1 ORDER BY count DESC LIMIT 12`).all<Row>();
+  const invites=await db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today FROM agency_outreach_events WHERE event_type='hiring_needs_invite'").first<Row>();
+  const school=await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM training_programs WHERE is_active=1 AND upper(state)='MD' AND trim(COALESCE(email,''))!='') AS contactable,
+    (SELECT COUNT(*) FROM training_program_outreach WHERE event_type IN ('school_intro','school_intro_manual')) AS intros,
+    (SELECT COUNT(*) FROM training_programs WHERE claimed_school_lead_id IS NOT NULL) AS claimed,
+    (SELECT COUNT(*) FROM caregiver_referrals) AS referred`).first<Row>();
+  const programRows=await db.prepare(`SELECT tp.id,tp.program_name,tp.city,tp.provider_type,tp.email,MIN(src.slug) AS referral_slug
+    FROM training_programs tp
+    LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
+    WHERE tp.is_active=1 AND upper(tp.state)='MD' AND trim(COALESCE(tp.email,''))!=''
+      AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(tp.email)))
+      AND NOT EXISTS (SELECT 1 FROM training_program_outreach po WHERE po.training_program_id=tp.id AND po.event_type IN ('school_intro','school_intro_manual'))
+    GROUP BY tp.id
+    ORDER BY CASE WHEN tp.provider_type='Freestanding Program' THEN 0 WHEN tp.provider_type='College' THEN 1 ELSE 2 END,tp.program_name
+    LIMIT 15`).all<Row>();
   const num=(row:Row|null,key:string)=>asNum(row?.[key]);
   return {
     window:modifier?windowKey:'all',
@@ -106,6 +121,17 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     workerFunnel:await workerFunnelReport(env,windowKey),
     reactivation:{legacyTotal:num(activation,'legacy_total'),sent:num(activation,'sent'),opened:num(activation,'opened'),completed:num(activation,'completed'),activelyLooking:num(activation,'actively_looking')},
     agencyClaims:{teasersSent:num(agencies,'teasers_sent'),teasersOpened:num(agencies,'teasers_opened'),claimsRequested:num(agencies,'claims_requested'),claimed:num(agencies,'claimed')},
+    outreachChannels:{
+      agencyHiring:{enabled:String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true',
+        cap:Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0)),
+        today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly'},
+      generalBulk:{enabled:String(env.OUTREACH_ENABLED||'').toLowerCase()==='true'},
+      reactivationReminders:{enabled:String(env.REACTIVATION_REMINDER_ENABLED||'').toLowerCase()==='true'},
+      schools:{mode:String((env as AdminEnv & {SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED||'').toLowerCase()==='true'?'automatic':'manual',contactable:num(school,'contactable'),intros:num(school,'intros'),claimed:num(school,'claimed'),
+        referrals:num(school,'referred'),prospects:(programRows.results||[]).map(p=>({
+          id:p.id,name:p.program_name,city:p.city,type:p.provider_type,email:p.email,referralSlug:p.referral_slug
+        }))}
+    },
     jobApplies:jobApplies.results||[],
     traffic:{pageViews:num(pageViews,'count'),topPaths:topPaths.results||[],topSources:topSources.results||[]}
   };
@@ -163,13 +189,6 @@ export async function adminAgencySearch(env:AdminEnv,q:string){
     FROM agency_organizations o WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 ${term?'AND lower(o.canonical_name) LIKE ?':"AND o.id IN (SELECT agency_organization_id FROM caregiver_jobs WHERE status='current' AND is_published=1)"}
     ORDER BY jobs DESC,matches DESC LIMIT 12`).bind(...(term?['%'+term+'%']:[])).all<Row>();
   return json({ok:true,agencies:(rows.results||[]).map(r=>({id:r.id,name:r.canonical_name,city:r.city,state:r.state,jobs:asNum(r.jobs),matches:asNum(r.matches),claimed:!!r.claimed_employer_id}))});
-}
-
-export async function acquisitionChannels(env:AdminEnv){
- const agency=await hiringInviteCounts(env);
- const school=await env.DB!.prepare("SELECT COUNT(*) AS total, SUM(datetime(created_at)>=datetime('now','start of day')) AS today FROM training_program_outreach WHERE event_type='school_intro'").first<Row>();
- const eligibleSchools=await env.DB!.prepare("SELECT COUNT(*) AS count FROM training_programs p WHERE p.is_active=1 AND upper(coalesce(p.state,''))='MD' AND p.email IS NOT NULL AND trim(p.email)!='' AND p.claimed_school_lead_id IS NULL AND EXISTS(SELECT 1 FROM school_referral_codes rc WHERE rc.training_program_id=p.id AND rc.status='active') AND NOT EXISTS(SELECT 1 FROM training_program_outreach o WHERE o.training_program_id=p.id AND o.event_type IN ('school_intro','school_intro_failed')) AND NOT EXISTS(SELECT 1 FROM email_suppressions s WHERE s.email=lower(trim(p.email)))").first<Row>();
- return {agencyHiring:{enabled:(env as AdminEnv&{AGENCY_HIRING_INVITES_ENABLED?:string}).AGENCY_HIRING_INVITES_ENABLED==='true',cap:Number((env as AdminEnv&{AGENCY_HIRING_INVITE_DAILY_CAP?:string}).AGENCY_HIRING_INVITE_DAILY_CAP||60),...agency},schools:{enabled:(env as AdminEnv&{SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED==='true',cap:Number((env as AdminEnv&{SCHOOL_OUTREACH_DAILY_CAP?:string}).SCHOOL_OUTREACH_DAILY_CAP||15),today:asNum(school?.today),total:asNum(school?.total),eligible:asNum(eligibleSchools?.count)}};
 }
 
 export { outreachStatus };

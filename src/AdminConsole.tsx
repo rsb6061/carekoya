@@ -13,6 +13,12 @@ type Overview={
     employerFunnel:Array<{step:string;count:number}>;
     caregiverSignups:Array<{source:string}&Count>;
     workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
+    outreachChannels:{
+      agencyHiring:{enabled:boolean;cap:number;today:number;total:number;schedule:string};
+      generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean};
+      schools:{mode:string;contactable:number;intros:number;claimed:number;referrals:number;
+        prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
+    };
     reactivation:{legacyTotal:number;sent:number;opened:number;completed:number;activelyLooking:number};
     agencyClaims:{teasersSent:number;teasersOpened:number;claimsRequested:number;claimed:number};
     jobApplies:Array<{event_type:string}&Count>;
@@ -23,7 +29,6 @@ type Overview={
     today:Array<{kind:'reactivation'|'agency_teasers';cap:number;sentToday:number}>;
     recentRuns:Array<{kind:string;trigger:string;attempted:number;sent:number;failed:number;created_at:string}>;
   };
-  acquisition?:{agencyHiring:{enabled:boolean;cap:number;today:number;total:number};schools:{enabled:boolean;cap:number;today:number;total:number;eligible:number}};
   employers:Array<{id:string;company_name:string;contact_name?:string;email:string;zip?:string;created_at:string;last_login_at?:string;openings:number;contacted:number;interviews:number;claimed_agency?:string;approval:string}>;
 };
 
@@ -81,8 +86,8 @@ type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
-  type AdminSection='overview'|'employers'|'caregivers'|'jobs'|'advanced';
-  const allowedSections:AdminSection[]=['overview','employers','caregivers','jobs','advanced'];
+  type AdminSection='overview'|'employers'|'caregivers'|'jobs'|'outreach'|'advanced';
+  const allowedSections:AdminSection[]=['overview','employers','caregivers','jobs','outreach','advanced'];
   const [section,setSection]=useState<AdminSection>(()=>{
     const hash=window.location.hash.slice(1) as AdminSection;
     return allowedSections.includes(hash)?hash:'overview';
@@ -167,11 +172,11 @@ export function AdminConsole(){
     <header className="app-header admin-app-header"><div className="app-wrap header-inner admin-header-inner">
       <a className="brand" href="/">CareJoys <span className="admin-brand-tag">Admin</span></a>
       <nav className="app-nav admin-section-nav" aria-label="Admin sections">
-        {(['overview','employers','caregivers','jobs','advanced'] as const).map(tab=><button key={tab}
+        {(['overview','employers','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
           className={'nav-button '+(section===tab?'active':'')}
           aria-current={section===tab?'page':undefined}
           onClick={()=>goToSection(tab)}>
-          {{overview:'Overview',employers:'Employers',caregivers:'Caregivers',jobs:'Jobs',advanced:'Advanced'}[tab]}
+          {{overview:'Overview',employers:'Employers',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
           {tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
         </button>)}
       </nav>
@@ -181,19 +186,20 @@ export function AdminConsole(){
       <div className="admin-page-heading">
         <div><div className="modal-kicker">CareJoys operations</div><h1>{{
           overview:'Your business at a glance',employers:'Employer approvals & accounts',
-          caregivers:'Caregiver growth',jobs:'Job coverage & applications',advanced:'Advanced operations'
+          caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
         <p>{{
           overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
           employers:'Review new employers before giving them access to candidate profiles.',
           caregivers:'Track worker profiles, recruiting campaigns and application activity.',
           jobs:'Check how much job inventory the application agent can work with.',
+          outreach:'See which campaigns are running, review school prospects and measure real responses.',
           advanced:'Outreach controls, test environments and technical diagnostics.'
         }[section]}</p></div>
         <button className="button secondary" onClick={()=>void load()} disabled={busy}>Refresh data</button>
       </div>
       {notice&&<div className="alert-status workspace-alert" role="status">{notice}</div>}
-      {(section==='overview'||section==='caregivers'||section==='jobs'||section==='advanced')&&<div className="admin-date-row">
+      {(section==='overview'||section==='caregivers'||section==='jobs'||section==='outreach'||section==='advanced')&&<div className="admin-date-row">
         <span>Reporting period</span>
         {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':k+' days'}</button>)}
         <small>Approval queue always shows all pending employers.</small>
@@ -294,11 +300,44 @@ export function AdminConsole(){
         </section>
         <JobSites/>
       </>}
-      {section==='advanced'&&<>
-        {data.acquisition&&<section className="section-block"><div className="section-heading"><h2>Acquisition channels (independent schedules)</h2><p>Bulk outreach off does not stop agency hiring invitations, school outreach, or worker reminders.</p></div><div className="admin-stat-grid"><Stat label="Agency hiring invites" value={data.acquisition.agencyHiring.today+' / '+data.acquisition.agencyHiring.cap} sub={(data.acquisition.agencyHiring.enabled?'Enabled':'Paused')+' · '+data.acquisition.agencyHiring.total+' ever'}/><Stat label="Training school invitations" value={data.acquisition.schools.today+' / '+data.acquisition.schools.cap} sub={(data.acquisition.schools.enabled?'Enabled':'Paused')+' · '+data.acquisition.schools.eligible+' eligible · '+data.acquisition.schools.total+' ever'}/><Stat label="Legacy bulk outreach" value={data.outreach.enabled?'Enabled':'Paused'} sub="Separate caregiver reactivation and agency teaser campaigns"/></div></section>}
-        <section className="section-block"><div className="section-heading"><h2>Technical diagnostics</h2><p>These tools are for operational testing and troubleshooting, not day-to-day business review.</p></div>
+      {section==='advanced'&&<section className="section-block"><div className="section-heading"><h2>Technical diagnostics</h2><p>Technical testing and troubleshooting.</p></div>
           <a className="button secondary" href="/api/admin/health" target="_blank" rel="noopener noreferrer">Open raw system health</a>
-        </section>
+        </section>}
+      {section==='outreach'&&<>
+        <section className="section-block admin-campaigns">
+  <div className="section-heading"><h2>What's actually sending</h2>
+    <p>Separate outbound channels with independent schedules and caps. A disabled bulk campaign does not stop hourly agency hiring invitations.</p></div>
+  <div className="admin-stat-grid">
+    <Stat label="Agency hiring invites" value={f.outreachChannels.agencyHiring.enabled?'On':'Off'} sub={f.outreachChannels.agencyHiring.today+' / '+f.outreachChannels.agencyHiring.cap+' sent today · '+f.outreachChannels.agencyHiring.total+' lifetime; hourly checks'}/>
+    <Stat label="General bulk outreach" value={f.outreachChannels.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation & agency teasers, separate from hiring invites"/>
+    <Stat label="Reactivation reminders" value={f.outreachChannels.reactivationReminders.enabled?'On':'Off'} sub="Independent legacy-caregiver reminder campaign"/>
+    <Stat label="Training-school invitations" value={f.outreachChannels.schools.mode==='automatic'?'On':'Manual'} sub={f.outreachChannels.schools.intros+' recorded introductions · independent daily cap'}/>
+  </div>
+  <div className="admin-info-note">Agency hiring invites are governed by AGENCY_HIRING_INVITES_ENABLED and their own daily cap, not OUTREACH_ENABLED. Bulk agency teasers are separate. School invitations have a separate schedule and cap, independent of general bulk outreach.</div>
+</section>
+<section className="section-block admin-school-outreach">
+  <div className="section-heading"><h2>Maryland training-school prospects</h2><p>Start with freestanding CNA academies and colleges. These are contact leads, not confirmed partners. Drafting an email here does not count as a sent introduction.</p></div>
+  <div className="admin-stat-grid">
+    <Stat label="Contactable programs" value={f.outreachChannels.schools.contactable}/>
+    <Stat label="Recorded school introductions" value={f.outreachChannels.schools.intros}/>
+    <Stat label="Programs claimed" value={f.outreachChannels.schools.claimed}/>
+    <Stat label="Caregivers referred by schools" value={f.outreachChannels.schools.referrals}/>
+  </div>
+  <div className="settings-card" style={{marginTop:16}}>
+    {f.outreachChannels.schools.prospects.length===0?<p>No contactable, uncontacted programs remain in this sample. Review the directory enrichment queue.</p>:
+      f.outreachChannels.schools.prospects.map(p=>{
+        const url=p.referralSlug?'https://carejoys.com/school/'+encodeURIComponent(p.referralSlug):'https://carejoys.com/training-programs/maryland';
+        const subject='Free career placement resource for your CNA/GNA graduates';
+        const body='Hello,\n\nCareJoys helps Maryland caregivers and CNA/GNA graduates discover nearby jobs matched to pay and schedule preferences, without requiring a resume. It is free for programs and graduates.\n\nYour program can review the free resource here: '+url+'\n\nWould your placement coordinator be open to sharing it with upcoming graduates?\n\nCareJoys';
+        const href='mailto:'+encodeURIComponent(p.email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
+        return <div className="agency-existing-slot" key={p.id} style={{padding:'10px 0',borderBottom:'1px solid var(--lavender)'}}>
+          <div><strong>{p.name}</strong><div className="job-meta">{p.type} · {p.city||'Maryland'} · {p.email}</div></div>
+          <a className="button secondary" href={href}>Draft intro</a>
+        </div>;
+      })}
+  </div>
+</section>
+
         <section className="section-block">
         <div className="section-heading"><h2>Bulk outreach & test tools</h2><p>{data.outreach.enabled?'Daily sends are on (15:41 UTC).':'Daily sends are off. Set OUTREACH_ENABLED to "true" in wrangler.jsonc to turn them on.'} {data.outreach.unsubscribes} unsubscribed.</p></div>
         <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(380px,100%),1fr))',alignItems:'start'}}>{data.outreach.today.map(t=><div className="settings-card" key={t.kind}>
@@ -338,7 +377,8 @@ export function AdminConsole(){
         </div>
         {data.outreach.recentRuns.length>0&&<div className="settings-card" style={{marginTop:12}}>{data.outreach.recentRuns.map(r=><div className="job-meta" key={r.created_at+r.kind}>{day(r.created_at)} · {KIND_LABELS[r.kind]||r.kind} · {r.trigger} · sent {r.sent}{r.failed?`, failed ${r.failed}`:''}</div>)}</div>}
       </section>
-        <section className="section-block">
+      </>}
+      {section==='advanced'&&<><section className="section-block">
         <div className="section-heading"><h2>Traffic</h2><p>{f.traffic.pageViews} page views. Cookie-less, path only.</p></div>
         <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(320px,100%),1fr))'}}>
           <div className="settings-card"><div className="modal-kicker">Top pages</div>{f.traffic.topPaths.map(p=><div className="job-meta" key={p.path}>{p.count} · {p.path}</div>)}</div>

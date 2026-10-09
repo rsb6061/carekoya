@@ -1,3 +1,4 @@
+import { hourlyPayFloor } from './payPreferences';
 import { listText } from './listField';
 import { type FeatureEnv, respondToInviteForCaregiver, bookInterviewForCaregiver } from './serverFeatures';
 import { freshnessLabel, commuteRadiusMiles } from './matching';
@@ -5,7 +6,7 @@ import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZ
 import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
 import { caregiverApplicationEmail } from './email';
 import { normalizeTitle } from './jobDiscovery';
-import { jobMeetsPayFloor, minimumHourlyPay } from './payMatching';
+import { jobMeetsPayFloor } from './payMatching';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -24,11 +25,11 @@ const unauthorized=()=>json({ok:false,error:'Sign in required'},{status:401});
 export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!env.DB||!identity?.sub)return null;
   const bySub=await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.sub).first<{id:string}>();
-  if(bySub){if(identity.emailVerified)await env.DB.prepare("UPDATE caregivers SET auth0_email_verified=1,last_confirmed_at=CASE WHEN work_status='actively_looking' AND last_confirmed_at IS NULL THEN CURRENT_TIMESTAMP ELSE last_confirmed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(bySub.id).run();return bySub.id;
+  if(bySub)return bySub.id;
   if(!identity.emailVerified||!identity.email)return null;
   const byEmail=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.email).first<{id:string}>();
   if(!byEmail)return null;
-  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,last_confirmed_at=CASE WHEN work_status='actively_looking' AND last_confirmed_at IS NULL THEN CURRENT_TIMESTAMP ELSE last_confirmed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(auth0SubOf(identity),byEmail.id).run();
+  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(auth0SubOf(identity),byEmail.id).run();
   return byEmail.id;
 }
 
@@ -47,7 +48,7 @@ export function jobConflict(c:Row,j:Row):string|null{
     const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
     if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
   }
-  if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay or pay not disclosed';
+  if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay or pay undisclosed';
   const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
   const offered=clean(j.employment_type).toLowerCase().replace(/[^a-z,]+/g,'_');
   if(wants.length&&offered&&['full_time','part_time','per_diem','temporary','contract'].some(v=>offered.includes(v))&&!wants.some(v=>offered.includes(v)))return 'employment type conflict';
@@ -79,9 +80,9 @@ export function jobFit(c:Row,j:Row,distanceMiles:number|null,radius:number,now=D
   if([...needs].some(k=>mine.has(k)))score+=40;
   else if([...needs].some(k=>LICENSED.includes(k)))score-=30;
   else score+=20;
-  const myMin=minimumHourlyPay(c)||0;
+  const myMin=Number(c.hourly_rate_min||hourlyPayFloor(c.desired_wage)||0);
   const jobTop=Number(j.pay_max||j.pay_min||0);
-  const hourly=!clean(j.pay_period)||/hour|hr/i.test(clean(j.pay_period));
+  const hourly=!clean(j.pay_period)||/hour/i.test(clean(j.pay_period));
   if(myMin>0&&jobTop>0&&hourly)score+=jobTop>=myMin?15:-15;
   if(distanceMiles!==null)score+=Math.round(25*Math.max(0,1-distanceMiles/Math.max(radius,1)));
   const wantHours=clean(c.employment_types).split(',').filter(Boolean);
@@ -228,7 +229,7 @@ export const DAYS=['mon','tue','wed','thu','fri','sat','sun'] as const;
 export const BLOCKS=['morning','afternoon','evening','overnight'] as const;
 type Availability={days:Record<string,string[]>;liveIn:boolean};
 const listOf=(v:unknown)=>clean(v,2000).split(',').map(x=>x.trim()).filter(Boolean);
-function parseAvailability(v:unknown):Availability{
+export function parseAvailability(v:unknown):Availability{
   let raw:any=null;
   try{raw=JSON.parse(clean(v,4000)||'null')}catch{raw=null}
   const days:Record<string,string[]>={};
@@ -243,6 +244,20 @@ export function availabilitySummary(a:Availability){
   if(weekends&&!weekdays)parts.push('Weekends only');else if(weekends)parts.push('Weekends');
   if(a.liveIn)parts.push('Live-in');
   return parts.join(', ');
+}
+
+/** Day-by-day schedule for employers, grouping neighboring days that share the same shifts: "Mon–Fri: mornings · Sat: overnights". */
+export function availabilityByDay(a:Availability){
+  const day:Record<string,string>={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
+  const block:Record<string,string>={morning:'mornings',afternoon:'afternoons',evening:'evenings',overnight:'overnights'};
+  const groups:{from:string;to:string;blocks:string}[]=[];
+  for(const d of DAYS){
+    const blocks=a.days[d].map(b=>block[b]).join(', ');
+    const last=groups[groups.length-1];
+    if(blocks&&last&&last.blocks===blocks&&DAYS.indexOf(last.to as typeof DAYS[number])===DAYS.indexOf(d)-1)last.to=d;
+    else if(blocks)groups.push({from:d,to:d,blocks});
+  }
+  return groups.map(g=>(g.from===g.to?day[g.from]:day[g.from]+'–'+day[g.to])+': '+g.blocks).join(' · ');
 }
 
 /** The full caregiver profile editor at /dashboard/profile. Saving also counts as confirming they're available. */
@@ -280,7 +295,7 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
       pick(d?.workConditions,['pets','smokers']).join(','),
       payMin||null,payMin?'$'+payMin+'+/hr':'',clean(d?.transportation,80),travel||null,
       workStatus,workStatus==='actively_looking'?1:0,caregiverId).run();
-  if(workStatus!=='actively_looking'){
+  {
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),caregiverId,workStatus).run();
   }
@@ -314,8 +329,10 @@ export async function updateCaregiverPreferences(request:Request,env:FeatureEnv,
   const zipInfo=await lookupZip(env.DB,zip);
   const state=zipInfo?.state||await stateForZip(env.DB,zip);
   const travel=Math.max(0,Math.min(100,asNum(data?.travelMiles)));
-  await env.DB.prepare(`UPDATE caregivers SET zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),shift_preferences=?,desired_wage=?,travel_distance_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind(zip,zipInfo?.city||'',state,clean(data?.shifts,500),clean(data?.desiredWage,80),travel||null,caregiverId).run();
+  const floor=hourlyPayFloor(data?.payMin??data?.desiredWage);
+  if(clean(data?.desiredWage)&&floor===null)return json({ok:false,error:'Enter a valid hourly pay minimum.'},{status:400});
+  await env.DB.prepare(`UPDATE caregivers SET zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),shift_preferences=?,desired_wage=?,hourly_rate_min=?,travel_distance_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(zip,zipInfo?.city||'',state,clean(data?.shifts,500),floor?'$'+floor+'+/hr':'',floor||null,travel||null,caregiverId).run();
   const matchedOpenings=await rematch(caregiverId);
   return json({ok:true,matchedOpenings});
 }

@@ -5,8 +5,8 @@ import { loadModules, createEnv, seed, addEmployerSession, finishSession, tokenF
 const mod=await loadModules();
 function fresh(){const t=createEnv();seed(t.db);return t;}
 function addCaregiver(db,{id='cg-1',email='sam@example.com',first='Sam',phone='410-555-0199',role='GNA',state='MD',zip='21201',certs='GNA'}={}){
-  db.prepare(`INSERT INTO caregivers(id,first_name,last_name,display_name,email,phone,zip,state,city,role,certifications,shift_preferences,work_status,last_confirmed_at,auth0_sub)
-    VALUES (?,?,?,?,?,?,?,?,'Baltimore',?,?,'Nights','actively_looking',CURRENT_TIMESTAMP,?)`).run(id,first,'Rivera',first+' Rivera',email,phone,zip,state,role,certs,'auth0|'+id);
+  db.prepare(`INSERT INTO caregivers(id,first_name,last_name,display_name,email,phone,zip,state,city,role,certifications,shift_preferences,work_status,last_confirmed_at,auth0_sub,auth0_email_verified)
+    VALUES (?,?,?,?,?,?,?,?,'Baltimore',?,?,'Nights','actively_looking',CURRENT_TIMESTAMP,?,1)`).run(id,first,'Rivera',first+' Rivera',email,phone,zip,state,role,certs,'auth0|'+id);
   return id;
 }
 async function claimed(t,orgId='org-a',employerId='emp-a',email='owner@harbor.example'){
