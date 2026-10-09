@@ -381,7 +381,8 @@ const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primar
       COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o
     JOIN agency_org_candidate_matches m ON m.organization_id=o.id
-    JOIN caregivers c ON c.id=m.caregiver_id
+    JOIN caregivers c ON c.id=m.caregiver_id AND c.is_active=1 AND c.work_status='actively_looking'
+      AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))

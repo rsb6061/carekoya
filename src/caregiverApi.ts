@@ -282,7 +282,7 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
       pick(d?.workConditions,['pets','smokers']).join(','),
       payMin||null,payMin?'$'+payMin+'+/hr':'',clean(d?.transportation,80),travel||null,
       workStatus,workStatus==='actively_looking'?1:0,caregiverId).run();
-  if(workStatus!=='actively_looking'){
+  {
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),caregiverId,workStatus).run();
   }
