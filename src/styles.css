@@ -395,3 +395,13 @@ a{color:inherit;text-decoration:none}
   .home-preview-options input,.home-preview-options select{max-width:100%;width:100%}
   .home-preview-results{padding:17px}
 }
+
+/* Live claim search suggestions stay attached to the search form and never cover the claim panel. */
+#claim-agency{scroll-margin-top:100px}
+.agency-finder-search-wrap{position:relative}
+.agency-finder-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:20;max-height:330px;overflow-y:auto;background:#fff;border:1px solid var(--lavender);border-radius:17px;box-shadow:0 15px 35px rgba(32,27,63,.14);padding:5px}
+.agency-finder-option{appearance:none;display:grid;gap:3px;width:100%;padding:12px 14px;border:0;border-radius:11px;background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.agency-finder-option strong{font-size:15px}
+.agency-finder-option span{color:var(--muted);font-size:13px}
+.agency-finder-option:hover,.agency-finder-option.active,.agency-finder-option:focus-visible{background:var(--cream);outline-offset:-2px}
+.agency-finder-dropdown-status{padding:12px 14px;font-size:14px;color:var(--muted)}

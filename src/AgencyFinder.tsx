@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 
 // Self-serve agency claiming, used on the public employer pages and inside the workspace.
@@ -55,30 +55,100 @@ function AgencyRow({agency,onClaim,busy}:{agency:AgencyResult;onClaim:(a:AgencyR
   </div>;
 }
 
-/** Public "find your agency" search for /hire-caregivers/{state}. */
+/** Public agency claim search: show matching agencies as the visitor types. */
 export function AgencyFinder({stateCode}:{stateCode?:string}){
   const [q,setQ]=useState('');
   const [zip,setZip]=useState('');
   const [results,setResults]=useState<AgencyResult[]|null>(null);
+  const [suggestions,setSuggestions]=useState<AgencyResult[]>([]);
+  const [showSuggestions,setShowSuggestions]=useState(false);
+  const [activeIndex,setActiveIndex]=useState(-1);
   const [claiming,setClaiming]=useState<AgencyResult|null>(null);
   const [loading,setLoading]=useState(false);
+  const [suggestLoading,setSuggestLoading]=useState(false);
+  const [suggestError,setSuggestError]=useState(false);
+  const validQuery=q.trim().length>=2||/^\d{5}$/.test(zip.trim());
+
+  useEffect(()=>{
+    if(!validQuery){setSuggestions([]);setShowSuggestions(false);setSuggestLoading(false);setSuggestError(false);setActiveIndex(-1);return;}
+    const controller=new AbortController();
+    const timer=window.setTimeout(async()=>{
+      setSuggestLoading(true);setSuggestError(false);
+      const params=new URLSearchParams({q:q.trim(),zip:zip.trim()});
+      if(stateCode)params.set('state',stateCode);
+      try{
+        const response=await fetch('/api/agency/search?'+params.toString(),{signal:controller.signal});
+        if(!response.ok)throw new Error('Agency search unavailable');
+        const data=await response.json() as {agencies?:AgencyResult[]};
+        if(controller.signal.aborted)return;
+        setSuggestions(data.agencies||[]);
+        setActiveIndex(-1);
+      }catch{
+        if(!controller.signal.aborted){setSuggestions([]);setSuggestError(true);}
+      }finally{if(!controller.signal.aborted)setSuggestLoading(false)}
+    },250);
+    return ()=>{window.clearTimeout(timer);controller.abort()};
+  },[q,zip,stateCode,validQuery]);
+
+  function chooseAgency(agency:AgencyResult){
+    setQ(agency.name);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setActiveIndex(-1);
+    if(agency.claimed)setResults([agency]);
+    else setClaiming(agency);
+  }
+
+  function onSearchKey(e:KeyboardEvent<HTMLInputElement>){
+    if(!showSuggestions||!suggestions.length)return;
+    if(e.key==='ArrowDown'){e.preventDefault();setActiveIndex(i=>(i+1)%suggestions.length);}
+    else if(e.key==='ArrowUp'){e.preventDefault();setActiveIndex(i=>(i<=0?suggestions.length-1:i-1));}
+    else if(e.key==='Escape'){e.preventDefault();setShowSuggestions(false);setActiveIndex(-1);}
+    else if(e.key==='Enter'&&activeIndex>=0){e.preventDefault();chooseAgency(suggestions[activeIndex]);}
+  }
 
   async function search(e:FormEvent){
-    e.preventDefault();setLoading(true);
+    e.preventDefault();
+    if(!validQuery)return;
+    setShowSuggestions(false);setLoading(true);
     try{
-      const params=new URLSearchParams({q,zip});
+      const params=new URLSearchParams({q:q.trim(),zip:zip.trim()});
       if(stateCode)params.set('state',stateCode);
-      const data=await (await fetch('/api/agency/search?'+params.toString())).json() as {agencies?:AgencyResult[]};
+      const response=await fetch('/api/agency/search?'+params.toString());
+      if(!response.ok)throw new Error('Agency search unavailable');
+      const data=await response.json() as {agencies?:AgencyResult[]};
       setResults(data.agencies||[]);
     }catch{setResults([])}finally{setLoading(false)}
   }
 
   return <div className="agency-finder settings-card">
-    <form className="agency-finder-form" onSubmit={search}>
-      <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Agency name" aria-label="Agency name" />
-      <input value={zip} onChange={e=>setZip(e.target.value)} placeholder="ZIP" inputMode="numeric" maxLength={5} aria-label="Agency ZIP" />
-      <button className="btn" disabled={loading||(q.trim().length<2&&zip.trim().length<5)}>{loading?'Searching…':'Find my agency'}</button>
-    </form>
+    <div className="agency-finder-search-wrap"
+      onBlurCapture={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node|null))setShowSuggestions(false)}}>
+      <form className="agency-finder-form" onSubmit={search}>
+        <input value={q} onChange={e=>{setQ(e.target.value);setResults(null);setShowSuggestions(true)}}
+          onFocus={()=>{if(validQuery)setShowSuggestions(true)}} onKeyDown={onSearchKey}
+          placeholder="Agency name" aria-label="Agency name" role="combobox" aria-autocomplete="list"
+          aria-controls="agency-search-suggestions" aria-expanded={showSuggestions&&validQuery}
+          aria-activedescendant={showSuggestions&&activeIndex>=0?'agency-suggestion-'+activeIndex:undefined}
+          autoComplete="off"/>
+        <input value={zip} onChange={e=>{setZip(e.target.value.replace(/\D/g,'').slice(0,5));setResults(null);setShowSuggestions(true)}}
+          onFocus={()=>{if(validQuery)setShowSuggestions(true)}} placeholder="ZIP (optional)"
+          inputMode="numeric" pattern="[0-9]*" maxLength={5} aria-label="Agency ZIP"/>
+        <button className="btn" disabled={loading||!validQuery}>{loading?'Searching…':'Find my agency'}</button>
+      </form>
+      {showSuggestions&&validQuery&&<div className="agency-finder-dropdown" id="agency-search-suggestions" role="listbox" aria-label="Matching agencies">
+        {suggestLoading?<div className="agency-finder-dropdown-status" role="status">Finding agencies…</div>
+        :suggestError?<div className="agency-finder-dropdown-status">Search unavailable. Try Find my agency.</div>
+        :suggestions.length?suggestions.map((agency,i)=><button key={agency.id} id={'agency-suggestion-'+i}
+            type="button" role="option" aria-selected={i===activeIndex}
+            className={'agency-finder-option'+(i===activeIndex?' active':'')}
+            onMouseDown={e=>e.preventDefault()} onClick={()=>chooseAgency(agency)}>
+            <strong>{agency.name}</strong>
+            <span>{[agency.city,agency.state,agency.zip].filter(Boolean).join(' · ')}{agency.claimed?' · Already claimed':''}</span>
+          </button>)
+        :<div className="agency-finder-dropdown-status">No agencies match. Try another name or ZIP.</div>}
+      </div>}
+    </div>
     {results&&(results.length?<div className="agency-results">{results.map(a=><AgencyRow key={a.id} agency={a} onClaim={setClaiming}/>)}</div>
       :<p className="agency-finder-empty">No match yet. <a className="text-link" href="/hire-caregivers">Create a workspace</a> and CareJoys will link your agency once it’s in the directory.</p>)}
     {claiming&&<ClaimPanel agency={claiming} onClose={()=>setClaiming(null)}/>}

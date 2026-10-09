@@ -78,6 +78,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     <p className="login-sub">{kind === 'employer'
       ? 'Tell us who you need. CareJoys creates the opening, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>
+    {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a>.</p>}
     <form className="intake-form" onSubmit={handleSubmit}>
       {kind === 'employer' ? <>
         <div className="form-grid">
