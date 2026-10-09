@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Bell, LayoutGrid, Mail, Search, Send, Sparkles } from 'lucide-react';
 import { HomeJobPreview } from './HomeJobPreview';
 
 type HomeJob={id:string;title:string;employerName:string;city:string;state:string;payMin:number|null;payMax:number|null;firstSeenAt:string;applyForMe:boolean};
@@ -52,16 +51,15 @@ function DashboardPreview({stats}:{stats:Stats|null}){
     <aside className="dash-side" aria-hidden="true">
       <div className="dash-brand"><span>C</span> CareJoys</div>
       <div className="dash-nav-label">Dashboard</div>
-      <div className="dash-nav active"><LayoutGrid size={15}/> My matches</div>
-      <div className="dash-nav"><Search size={15}/> Browse jobs</div>
-      <div className="dash-nav"><Send size={15}/> Applications</div>
-      <div className="dash-nav"><Mail size={15}/> Weekly email</div>
+      <div className="dash-nav active">My matches</div>
+      <div className="dash-nav">Browse jobs</div>
+      <div className="dash-nav">Applications</div>
+      <div className="dash-nav">Weekly email</div>
     </aside>
     <div className="dash-main">
       <div className="dash-top">
         <strong>New jobs CareJoys found</strong>
-        <span className="dash-search"><Search size={14} aria-hidden="true"/> CNA, caregiver, GNA…</span>
-        <Bell size={17} aria-hidden="true" className="dash-bell"/>
+        <span className="dash-search">Search CNA, caregiver, GNA jobs…</span>
       </div>
       {stats&&<div className="dash-stats">
         <div><b>{stats.jobs.toLocaleString('en-US')}</b><span>open caregiver jobs</span></div>
@@ -73,7 +71,7 @@ function DashboardPreview({stats}:{stats:Stats|null}){
           <span className="dash-card-employer">{j.employerName}</span>
           <strong>{j.title}</strong>
           <span className="dash-card-meta">{j.city}, {j.state}{pay(j)?' · '+pay(j):''}</span>
-          <span className="dash-card-foot"><em>{ago(j.firstSeenAt)}</em>{j.applyForMe&&<span className="dash-chip"><Sparkles size={12} aria-hidden="true"/> Apply for me</span>}</span>
+          <span className="dash-card-foot"><em>{ago(j.firstSeenAt)}</em><span className="dash-apply">{j.applyForMe?'Apply for me':'Apply'}</span></span>
         </a>):[0,1,2,3].map(i=><div key={i} className="dash-card skeleton" style={{background:TINTS[i]}} aria-hidden="true"/>)}
       </div>
     </div>
