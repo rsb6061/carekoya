@@ -1,4 +1,5 @@
 import { caregiverForIdentity, nearbyJobsFor, type CaregiverIdentity } from './caregiverApi';
+import { recordWorkerPreview } from './workerFunnel';
 import { lookupZip } from './geo';
 import { isSuppressed, unsubscribeLink } from './emailPreferences';
 import { withUnsubscribe, type EmailBinding } from './email';
@@ -13,12 +14,12 @@ const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c));
 
 /** Anonymous job preview. Does not read or store visitor identity. */
-export async function previewPublicJobs(url:URL,env:FeatureEnv){
+export async function previewPublicJobs(url:URL,env:FeatureEnv,request?:Request){
   if(!env.DB)return json({ok:false,error:'Jobs are temporarily unavailable.'},{status:503});
   const zip=clean(url.searchParams.get('zip'),5);
   if(!/^\d{5}$/.test(zip))return json({ok:false,error:'Enter a five-digit ZIP code.'},{status:400});
   const geo=await lookupZip(env.DB,zip);
-  if(!geo)return json({ok:true,jobs:[],total:0});
+  if(!geo){await recordWorkerPreview(env,request?.headers.get('X-CareJoys-Funnel-Id'),false).catch(()=>{});return json({ok:true,jobs:[],total:0});}
   const role=clean(url.searchParams.get('role'),30);
   const allowed=['Caregiver','CNA','GNA','HHA','PCA','DSP'];
   if(!allowed.includes(role))return json({ok:false,error:'Choose a caregiver role.'},{status:400});
@@ -28,7 +29,8 @@ export async function previewPublicJobs(url:URL,env:FeatureEnv){
   const candidate:Row={role,certifications:role,zip,state:geo.state,city:geo.city,geo_lat:geo.lat,geo_lng:geo.lng,
     hourly_rate_min:min,shift_preferences:shifts,travel_distance_miles:25,employment_types:''};
   const jobs=await nearbyJobsFor(env,candidate,3);
-  return json({ok:true,jobs,total:jobs.length},{headers:{'cache-control':'public,max-age=60'}});
+  await recordWorkerPreview(env,request?.headers.get('X-CareJoys-Funnel-Id'),jobs.length>0).catch(()=>{});
+  return json({ok:true,jobs,total:jobs.length},{headers:{'cache-control':'no-store'}});
 }
 
 /** Resume signup checkbox: never opt anyone in unless they explicitly checked it. */

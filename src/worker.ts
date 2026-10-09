@@ -1,6 +1,7 @@
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
+import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
@@ -964,7 +965,7 @@ async function handleCaregiver(request: Request, env: Env) {
   if(rejectBot(data)) return json({ok:true},{status:201});
   const guard=await publicFormGuard(request,env,"caregiver_signup",data,10,60);
   if(guard) return guard;
-  const error=requireFields(data,["firstName","lastName","email","phone","zip","role"]);
+  const error=requireFields(data,["firstName","lastName","email","zip","role"]);
   if(error) return json({ok:false,error},{status:400});
   const email=clean(data!.email,320).toLowerCase();
   if(!emailLooksValid(email)) return json({ok:false,error:"Enter a valid email address"},{status:400});
@@ -1016,7 +1017,7 @@ async function handleCaregiver(request: Request, env: Env) {
   }
 
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
-  await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
   const openingMatches=caregiver?await matchCaregiverToOpenings(env,id,"caregiver_signup"):0;
@@ -1042,14 +1043,13 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const authIdentity=await caregiverAuthIdentity(request,env);
   const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60);
   if(guard)return guard;
-  const error=requireFields(data,["firstName","lastName","email","phone","zip","role"]);
+  const error=requireFields(data,["firstName","lastName","email","zip","role"]);
   if(error)return json({ok:false,error},{status:400});
 
   const email=(authIdentity?.email||clean(data!.email,320)).toLowerCase();
   if(!emailLooksValid(email))return json({ok:false,error:"Enter a valid email address"},{status:400});
   const zip=clean(data!.zip,10);
   if(!/^\d{5}$/.test(zip))return json({ok:false,error:"Enter a valid 5-digit ZIP code"},{status:400});
-  if(!phoneLooksValid(clean(data!.phone,40)))return json({ok:false,error:"Enter a valid 10-digit mobile phone number"},{status:400});
   const state=(clean(data!.state,2).toUpperCase()||await stateForZip(env.DB,zip)||"").slice(0,2);
   if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
 
@@ -1112,6 +1112,8 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
     }
   }
 
+  await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(id).first<Record<string,unknown>>();
   // Employer openings are scored after the response goes out so the caregiver is not kept waiting.
@@ -1456,7 +1458,7 @@ export default {
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
-    if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
 
@@ -1464,6 +1466,7 @@ export default {
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
       const identity=await caregiverAuthIdentity(request,env);
       if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/worker-activity")return recordWorkerJobActivity(request,env,identity);
       if(url.pathname==="/api/me/job-alerts"&&(request.method==="GET"||request.method==="POST")) return caregiverAlertSettings(request,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
       if(url.pathname==="/api/me/resume") return handleMyResume(request,env,identity);

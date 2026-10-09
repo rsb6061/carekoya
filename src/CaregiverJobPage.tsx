@@ -51,6 +51,10 @@ export function CaregiverJobPage(){
       if(res.ok)setMe(await res.json() as MyProfile);
     })().catch(()=>{});
   },[auth.isAuthenticated]);
+  useEffect(()=>{
+    if(!auth.isAuthenticated||!job?.id||!me?.caregiver)return;
+    void fetch('/api/me/worker-activity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:job.id})}).catch(()=>{});
+  },[auth.isAuthenticated,job?.id,!!me?.caregiver]);
   const profile=me?.caregiver||null;
   const alreadyApplied=!!applied||!!me?.applications?.some(a=>a.jobId===id&&a.appliedOnCareJoys);
   const myApplication=me?.applications?.find(a=>a.jobId===id&&a.appliedOnCareJoys);
