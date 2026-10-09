@@ -6,6 +6,7 @@ import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
@@ -152,13 +153,14 @@ async function careJoysChildSitemap(env:Env,name:string){
       {url:SEO_ORIGIN+"/hire-caregivers/maryland"},
       {url:SEO_ORIGIN+"/caregiver-resume"},
       {url:SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland"},
+      {url:SEO_ORIGIN+REGISTRY_PATH,lastmod:REGISTRIES_CHECKED},
       {url:SEO_ORIGIN+"/agent"},
       {url:SEO_ORIGIN+"/training-programs/maryland"},
       {url:SEO_ORIGIN+"/cna-classes/baltimore"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland"},
       {url:SEO_ORIGIN+"/gna-jobs/maryland/baltimore"}
     ];
-    return sitemapXml(entries.map(e=>({...e,lastmod:STATIC_CONTENT_UPDATED})));
+    return sitemapXml(entries.map(e=>({...e,lastmod:e.lastmod||STATIC_CONTENT_UPDATED})));
   }
   if(name==="locations"){
     const {states,cities,cnaStates,cnaCities}=await hubLocations(env);
@@ -260,6 +262,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
 - Caregiver resume builder and job matching: https://carejoys.com/caregiver-resume
 - How to become a caregiver in Maryland: https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland
+- Nurse aide (CNA) registry by state, with official lookups and phone numbers: https://carejoys.com/resources/nurse-aide-registry-by-state
 - Maryland caregiver training programs: https://carejoys.com/training-programs/maryland
 - Individual training organizations: https://carejoys.com/training-programs/{slug}
 - Sitemap: https://carejoys.com/sitemap.xml
@@ -636,6 +639,23 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       canonical:"/resources/how-to-become-a-caregiver-in-maryland",
       snapshot:'<main><h1>How to become a CNA or caregiver in Maryland</h1><p>There is more than one path into caregiving. Personal-care and companion roles may use employer-based training, while certified nursing-assistant work follows Maryland Board of Nursing requirements.</p><h2>Do you need caregiver certification in Maryland?</h2><p>Not for every caregiver job. Maryland Residential Service Agencies may train staff directly or use approved outside trainers. Maryland changed its nursing-assistant framework effective April 1, 2026; new nursing-assistant applicants generally enter through the CNA-I pathway.</p><h2>Check a Maryland CNA or GNA certification</h2><p>Employers and caregivers can confirm a CNA or GNA certification with the license verification lookup on the Maryland Board of Nursing website.</p><p><a href="/training-programs/maryland">Find Maryland caregiver training programs</a> · <a href="/caregiver-jobs/maryland">Find caregiver jobs in Maryland</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"Article","headline":"How to Become a Caregiver in Maryland","mainEntityOfPage":SEO_ORIGIN+"/resources/how-to-become-a-caregiver-in-maryland","publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":[{"@type":"Thing","name":"Caregiver careers in Maryland"},{"@type":"Thing","name":"CNA-I training"}]}
+    });
+  }
+  if(url.pathname===REGISTRY_PATH){
+    const rows=NURSE_AIDE_REGISTRIES.map(r=>{
+      const contacts=r.also?[r,r.also]:[r];
+      const cells=(f:(c:typeof contacts[number])=>string)=>'<td>'+contacts.map(f).join("<br>")+'</td>';
+      return '<tr id="'+r.slug+'"><th scope="row">'+htmlEscape(r.name)+'</th>'
+        +cells(c=>'<a href="'+htmlEscape(c.registryUrl)+'">'+htmlEscape(c.agency)+'</a>'+(c===r&&r.note?'<br>'+htmlEscape(r.note):''))
+        +cells(c=>c.lookupUrl?'<a href="'+htmlEscape(c.lookupUrl)+'">'+htmlEscape(c.lookupLabel||'Lookup')+'</a>':'Contact the registry')
+        +cells(c=>htmlEscape(c.phone||'See registry site'))+'</tr>';
+    }).join("");
+    return seoAsset(request,env,{
+      title:"Nurse Aide (CNA) Registry by State: Lookups and Phone Numbers | CareJoys",
+      description:"Official nurse aide registry for all 50 states and DC, with each state's CNA certification lookup and phone number. Check, renew or transfer a CNA certification.",
+      canonical:REGISTRY_PATH,
+      snapshot:'<main><h1>Nurse aide registry by state</h1><p>Every state keeps a registry of certified nurse aides. Use it to check a CNA certification, renew, update your name or address, or transfer your certification from another state. Below is the official registry for all 50 states and DC, with each state\'s online lookup and phone number. Links last checked '+REGISTRIES_CHECKED+'. CareJoys is not a registry or credentialing body; confirm requirements with the state.</p><table><thead><tr><th>State</th><th>Registry</th><th>Look up a certification</th><th>Phone</th></tr></thead><tbody>'+rows+'</tbody></table><h2>Transferring your CNA to another state</h2><p>Most states let a nurse aide who is active and in good standing on another state\'s registry apply to join theirs, often called reciprocity or endorsement. Apply to the registry in the state you are moving to. Rules, forms and fees differ by state.</p><p><a href="/caregiver-jobs">Find CNA and caregiver jobs near you</a> · <a href="/resources/how-to-become-a-caregiver-in-maryland">How to become a CNA in Maryland</a></p></main>',
+      jsonLd:{"@context":"https://schema.org","@type":"WebPage","name":"Nurse aide registry by state","url":SEO_ORIGIN+REGISTRY_PATH,"dateModified":REGISTRIES_CHECKED,"isPartOf":{"@id":SEO_ORIGIN+"/#website"},"publisher":{"@id":SEO_ORIGIN+"/#organization"},"about":{"@type":"Thing","name":"Nurse aide registry"}}
     });
   }
   if(url.pathname==="/training-programs/maryland"){

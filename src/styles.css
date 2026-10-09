@@ -46,6 +46,15 @@ a{color:inherit;text-decoration:none}
 .job-tags{margin-top:11px}
 .jobcta{margin-top:0;padding:24px;border:1px solid #d8d2ff;border-radius:26px;background:#f0edff;display:flex;align-items:center;justify-content:space-between;gap:22px}
 .jobcta>div{display:flex;flex-direction:column;gap:5px}
+.registry-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:20px;background:var(--paper)}
+.registry-table{width:100%;border-collapse:collapse;font-size:15px}
+.registry-table th,.registry-table td{padding:12px 16px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+.registry-table thead th{font-size:13px;color:var(--muted);font-weight:550}
+.registry-table tbody tr:last-child>*{border-bottom:0}
+.registry-table tbody tr{scroll-margin-top:110px}
+.registry-table tbody tr:target{background:#f0edff}
+.registry-table tbody th{white-space:nowrap;font-weight:550}
+@media (max-width:640px){.registry-table thead{display:none}.registry-table tbody tr{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:14px 16px;border-bottom:1px solid var(--line)}.registry-table tbody tr:last-child{border-bottom:0}.registry-table tbody th,.registry-table tbody td{padding:0;border:0}.registry-table tbody th{grid-column:1/-1}.registry-table tbody td:nth-child(2){grid-column:1/-1}}
 .jobcta strong{font-size:16px;font-weight:600;letter-spacing:-.015em}
 .jobcta span{font-size:15px;color:var(--muted);line-height:1.5}
 .jobcta .btn{white-space:nowrap}
