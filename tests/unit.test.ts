@@ -8,7 +8,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision } from '../src/jobDiscovery';
+import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -259,6 +259,28 @@ describe('job location by agency state', ()=>{
     expect(publicationDecision(job)).toEqual({publish:true,reason:'explicit_state_location'});
     expect(publicationDecision({...job,state:'',zip:'23219'}).publish).toBe(true);
     expect(publicationDecision({...job,state:'',zip:''})).toEqual({publish:false,reason:'missing_state_evidence'});
+  });
+  it('quarantines contradictory state/ZIP evidence before publishing',()=>{
+    const job={sourceProvider:'generic_html',sourceJobId:'',sourceUrl:'https://agency.example/jobs/cna',sourceListingUrl:'https://agency.example/jobs',
+      title:'CNA - Day shift',role:'CNA',city:'Baltimore',state:'MD',zip:'21201',employmentType:'',payMin:null,payMax:null,descriptionText:'',
+      classifierReason:'',confidence:96,datePosted:'',validThrough:''};
+    expect(publicationDecision({...job,state:'VA'}).reason).toBe('state_zip_mismatch');
+    expect(publicationDecision(job).publish).toBe(true);
+    expect(publicationDecision(job,{primary_website:'https://agency.example'}).publish).toBe(true);
+    expect(publicationDecision({...job,sourceListingUrl:'https://different-franchise.example/jobs'},{primary_website:'https://agency.example'}).reason).toBe('source_employer_mismatch');
+  });
+  it('canonicalizes exact duplicates within an employer but separates distinct shifts or locations',()=>{
+    const a=canonicalJobIdentity('Agency-1','CNA - Day Shift','BALTIMORE','MD','21201');
+    expect(a).toBe(canonicalJobIdentity('agency-1','CNA - Day Shift','Baltimore','md','21201'));
+    expect(a).not.toBe(canonicalJobIdentity('agency-2','CNA - Day Shift','Baltimore','MD','21201'));
+    expect(a).not.toBe(canonicalJobIdentity('agency-1','CNA - Night Shift','Baltimore','MD','21201'));
+  });
+  it('never publishes expired requisitions and obvious non-job pages',()=>{
+    const job={sourceProvider:'generic_html',sourceJobId:'',sourceUrl:'https://agency.example/jobs/cna',sourceListingUrl:'https://agency.example/jobs',
+      title:'CNA - Day shift',role:'CNA',city:'Baltimore',state:'MD',zip:'21201',employmentType:'',payMin:null,payMax:null,descriptionText:'',
+      classifierReason:'',confidence:96,datePosted:'',validThrough:'2020-01-01'};
+    expect(publicationDecision(job).reason).toBe('expired');
+    expect(publicationDecision({...job,validThrough:'',title:'Caregiver of the Year Award'}).reason).toBe('not_a_job_posting');
   });
   it('keeps training pages and councils off the jobs list but not jobs that mention training', ()=>{
     expect(notAJobPosting('Our CNA Leadership Council','https://www.genesiscareers.jobs/nurse-aide-training')).toBe(true);
