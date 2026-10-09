@@ -16,7 +16,7 @@ type Overview={
     outreachChannels:{
       agencyHiring:{enabled:boolean;cap:number;today:number;total:number;schedule:string};
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean};
-      schools:{mode:string;contactable:number;intros:number;claimed:number;referrals:number;
+      schools:{mode:string;cap:number;today:number;contactable:number;intros:number;claimed:number;referrals:number;
         prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
     };
     reactivation:{legacyTotal:number;sent:number;opened:number;completed:number;activelyLooking:number};
@@ -311,9 +311,9 @@ export function AdminConsole(){
     <Stat label="Agency hiring invites" value={f.outreachChannels.agencyHiring.enabled?'On':'Off'} sub={f.outreachChannels.agencyHiring.today+' / '+f.outreachChannels.agencyHiring.cap+' sent today · '+f.outreachChannels.agencyHiring.total+' lifetime; hourly checks'}/>
     <Stat label="General bulk outreach" value={f.outreachChannels.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation & agency teasers, separate from hiring invites"/>
     <Stat label="Reactivation reminders" value={f.outreachChannels.reactivationReminders.enabled?'On':'Off'} sub="Independent legacy-caregiver reminder campaign"/>
-    <Stat label="Training-school invitations" value="Manual" sub={f.outreachChannels.schools.intros+' recorded introductions · no automatic sending'}/>
+    <Stat label="Training-school invitations" value={f.outreachChannels.schools.mode==='automatic'?'On':'Manual'} sub={f.outreachChannels.schools.today+' / '+f.outreachChannels.schools.cap+' sent today · '+f.outreachChannels.schools.intros+' recorded introductions'}/>
   </div>
-  <div className="admin-info-note">Agency hiring invites are governed by AGENCY_HIRING_INVITES_ENABLED and their own daily cap, not OUTREACH_ENABLED. Bulk agency teasers are separate. School outreach is intentionally manual while the program-partner pitch is validated.</div>
+  <div className="admin-info-note">Agency hiring invites are governed by AGENCY_HIRING_INVITES_ENABLED and their own daily cap, not OUTREACH_ENABLED. Bulk agency teasers are separate. School invitations have a separate schedule and cap, independent of general bulk outreach.</div>
 </section>
 <section className="section-block admin-school-outreach">
   <div className="section-heading"><h2>Maryland training-school prospects</h2><p>Start with freestanding CNA academies and colleges. These are contact leads, not confirmed partners. Drafting an email here does not count as a sent introduction.</p></div>

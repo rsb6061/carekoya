@@ -2,6 +2,7 @@ import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
+import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, fitTitle, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
@@ -1680,6 +1681,7 @@ export default {
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
+        await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
@@ -1693,7 +1695,7 @@ export default {
         // The last 24 hours of Clarity insights into D1. No-op until CLARITY_API_TOKEN is set.
         await pullClarityInsights(env).catch(()=>null);
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
-        // School outreach stays manual-only.
+        // School introductions have a separate enabled flag and cap on the hourly cron.
         await runScheduledOutreach(env);
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);

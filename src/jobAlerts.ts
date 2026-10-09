@@ -78,7 +78,7 @@ export async function sendWeeklyJobDigests(env:AlertEnv,limit=50){
     FROM caregiver_job_alert_preferences p JOIN caregivers c ON c.id=p.caregiver_id
     LEFT JOIN zip_geo zg ON zg.zip=substr(trim(COALESCE(c.zip,'')),1,5)
     WHERE p.email_enabled=1 AND c.auth0_email_verified=1 AND c.email IS NOT NULL AND c.email!=''
-    AND COALESCE(c.work_status,'') NOT IN ('closed','merged_duplicate')
+    AND c.is_active=1 AND c.work_status='actively_looking'
     AND (p.last_sent_at IS NULL OR datetime(p.last_sent_at)<=datetime('now','-7 days'))
     ORDER BY COALESCE(p.last_sent_at,'') ASC,c.created_at ASC LIMIT ?`).bind(Math.max(1,Math.min(limit,100))).all<Row>();
   let sent=0,skipped=0;
@@ -89,7 +89,7 @@ export async function sendWeeklyJobDigests(env:AlertEnv,limit=50){
     if(!jobs.length){skipped++;continue;}
     const signature=jobs.map(j=>j.id).join('|');
     const existing=await env.DB.prepare('SELECT last_jobs_signature FROM caregiver_job_alert_preferences WHERE caregiver_id=? AND email_enabled=1').bind(id).first<Row>();
-    if(!existing||existing.last_jobs_signature===signature){skipped++;continue;}
+    if(!existing){skipped++;continue;} // A recurring weekly digest may legitimately contain the same jobs.
     const content=emailBody(clean(c.first_name,60),jobs);
     const unsubscribe=await unsubscribeLink(env.DB,email,'weekly_job_digest');
     const body=withUnsubscribe(content,unsubscribe.link);
