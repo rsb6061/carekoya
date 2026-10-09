@@ -55,15 +55,15 @@ export function jobConflict(c:Row,j:Row):string|null{
   const shift=cleanShift(clean(c.shift_preferences));
   const jobShift=cleanShift([clean(j.title),clean(j.shift_preferences)].join(' '));
   const labels:{name:string;re:RegExp}[]=[
-    {name:'day',re:/\\b(day|days|morning|mornings)\\b/},
-    {name:'evening',re:/\\b(evening|evenings|afternoon|afternoons)\\b/},
-    {name:'night',re:/\\b(night|nights|overnight|overnights)\\b/}
+    {name:'day',re:/\b(day|days|morning|mornings)\\b/},
+    {name:'evening',re:/\b(evening|evenings|afternoon|afternoons)\\b/},
+    {name:'night',re:/\b(night|nights|overnight|overnights)\\b/}
   ];
   const candidate=labels.filter(x=>x.re.test(shift)).map(x=>x.name);
   const advertised=labels.filter(x=>x.re.test(jobShift)).map(x=>x.name);
   if(candidate.length&&advertised.length&&!candidate.some(v=>advertised.includes(v)))return 'shift conflict';
-  const weekendsOnly=/\\bweekends? only\\b/.test(shift);
-  const jobWeekdaysOnly=/\\bweekdays? only\\b/.test(jobShift)||/\\bmonday (through|to|-) friday\\b/.test(jobShift);
+  const weekendsOnly=/\bweekends? only\b/.test(shift);
+  const jobWeekdaysOnly=/\bweekdays? only\b/.test(jobShift)||/\bmonday (through|to|-) friday\b/.test(jobShift);
   if(weekendsOnly&&jobWeekdaysOnly)return 'schedule conflict';
   return null;
 }
