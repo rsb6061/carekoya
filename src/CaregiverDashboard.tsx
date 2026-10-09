@@ -176,7 +176,7 @@ export function CaregiverDashboard(){
       <section className="section-block">
         <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
         <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
-        <p className="job-meta">Text alerts are not available yet. You can turn emails off here or unsubscribe from any digest.</p>
+        <p className="job-meta">Turn weekly job emails off here or unsubscribe from any digest.</p>
       </section>
       <section className="section-block">
         <div className="section-heading"><h2>Best matches near you</h2><p>Ranked by your credentials, pay and distance, within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>

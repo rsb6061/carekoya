@@ -50,8 +50,7 @@ export function CaregiverActivation(){
       const data=Object.fromEntries(fd.entries()) as Record<string,unknown>;
       data.token=token;
       data.workStatus=workStatus;
-      data.smsConsent=fd.get('smsConsent')==='on';
-      const result=await api<any>('/api/activate',{method:'POST',body:JSON.stringify(data)});
+        const result=await api<any>('/api/activate',{method:'POST',body:JSON.stringify(data)});
       setCompletedStatus(result.status||workStatus);
       setStatus('done');
     }catch(err){
