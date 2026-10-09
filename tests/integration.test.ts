@@ -72,6 +72,26 @@ describe('auth boundaries', ()=>{
   });
 });
 
+describe('admin privileges do not approve an employer account',()=>{
+  it('shows the owner’s separate test employer in the approval queue and requires a manual click',async()=>{
+    const email='myersrebeccal@gmail.com';
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('acre-test','AcrePermit','Owner',?,'21030','CNA','active')").bind(email).run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('acre-session','acre-test',?,?)")
+      .bind(await sha256Hex('acre-session-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    const sessionHeaders={cookie:'cj_session=acre-session-cookie'};
+    const dashboard=await call('/api/workspace',{headers:sessionHeaders});
+    expect((await dashboard.json() as any).approval).toEqual({approved:false,reason:'pending'});
+    expect((await call('/api/candidates?zip=21030',{headers:sessionHeaders})).status).toBe(403);
+    const result=await (await call('/api/admin/overview',{headers:{authorization:'Bearer administrator'}},{ADMIN_TOKEN:'administrator'})).json() as any;
+    const row=result.employers.find((e:any)=>e.id==='acre-test');
+    expect(row?.approval).toBe('pending');
+    const approval=await call('/api/admin/employers/acre-test/approve',{method:'POST',headers:{authorization:'Bearer administrator','content-type':'application/json'},body:'{}'},{ADMIN_TOKEN:'administrator'});
+    expect(approval.status).toBe(200);
+    const approved=await call('/api/workspace',{headers:sessionHeaders});
+    expect((await approved.json() as any).approval).toEqual({approved:true,reason:'manual'});
+  });
+});
+
 describe('employer approval', ()=>{
   it('free-mail employers wait for an admin before seeing caregivers; company emails do not', async()=>{
     await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('empfree','Solo Care','Sam','sam@gmail.com','21201','CNA','active')").run();

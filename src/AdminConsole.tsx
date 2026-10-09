@@ -27,6 +27,16 @@ type Overview={
 
 const STEP_LABELS:Record<string,string>={employers:'Employer signups',openings:'Openings',matched:'Matches',contacted:'Contacted',interested:'Interested',interviews:'Interviews booked',hired:'Hired'};
 const KIND_LABELS:Record<string,string>={reactivation:'Caregiver reactivation',agency_teasers:'Agency teasers'};
+const caregiverSourceLabel=(source:string)=>({
+  legacy_carekoya:'Imported legacy caregivers',resume_upload:'Resume signups',organic:'Direct caregiver signups',school_referral:'School referrals'
+} as Record<string,string>)[source]||source.replace(/_/g,' ');
+const applicationEventLabel=(event:string)=>({
+  external_redirect_clicked:'Clicked external application',carejoys_applied:'Applied through CareJoys',
+  apply_started:'Application started',apply_completed:'Application submitted'
+} as Record<string,string>)[event]||event.replace(/_/g,' ');
+const approvalLabel=(status:string)=>({
+  manual:'Approved manually',agency:'Verified agency',business_email:'Company email (automatic)'
+} as Record<string,string>)[status]||status;
 const pct=(a:number,b:number)=>b>0?Math.round(a/b*100)+'%':'—';
 const day=(iso?:string)=>iso?new Date(iso.replace(' ','T')+(iso.endsWith('Z')?'':'Z')).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
 
@@ -69,6 +79,18 @@ type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
+  type AdminSection='overview'|'employers'|'caregivers'|'jobs'|'advanced';
+  const allowedSections:AdminSection[]=['overview','employers','caregivers','jobs','advanced'];
+  const [section,setSection]=useState<AdminSection>(()=>{
+    const hash=window.location.hash.slice(1) as AdminSection;
+    return allowedSections.includes(hash)?hash:'overview';
+  });
+  function goToSection(next:AdminSection){
+    setSection(next);
+    window.history.replaceState(null,'','#'+next);
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  const [employerQuery,setEmployerQuery]=useState('');
   const [windowKey,setWindowKey]=useState('30');
   const [notice,setNotice]=useState('');
   const [busy,setBusy]=useState(false);
@@ -135,26 +157,134 @@ export function AdminConsole(){
   if(!data)return <div className="loading-screen">{notice||'Loading admin…'}</div>;
   const f=data.funnel;
   const steps=f.employerFunnel;
+  const pending=data.employers.filter(e=>e.approval==='pending');
+  const caregiverNew=f.caregiverSignups.reduce((sum,row)=>sum+row.count,0);
+
 
   return <div>
-    <header className="app-header"><div className="app-wrap header-inner">
-      <a className="brand" href="/">CareJoys</a>
-      <nav className="app-nav">
-        {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':`${k} days`}</button>)}
-        <a className="nav-link" href="/api/admin/health" target="_blank">Raw health</a>
-        <AccountMenu/>
+    <header className="app-header admin-app-header"><div className="app-wrap header-inner admin-header-inner">
+      <a className="brand" href="/">CareJoys <span className="admin-brand-tag">Admin</span></a>
+      <nav className="app-nav admin-section-nav" aria-label="Admin sections">
+        {(['overview','employers','caregivers','jobs','advanced'] as const).map(tab=><button key={tab}
+          className={'nav-button '+(section===tab?'active':'')}
+          aria-current={section===tab?'page':undefined}
+          onClick={()=>goToSection(tab)}>
+          {{overview:'Overview',employers:'Employers',caregivers:'Caregivers',jobs:'Jobs',advanced:'Advanced'}[tab]}
+          {tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
+        </button>)}
       </nav>
+      <AccountMenu/>
     </div></header>
-    <main className="app-wrap app-content">
+    <main className="app-wrap app-content admin-main">
+      <div className="admin-page-heading">
+        <div><div className="modal-kicker">CareJoys operations</div><h1>{{
+          overview:'Your business at a glance',employers:'Employer approvals & accounts',
+          caregivers:'Caregiver growth',jobs:'Job coverage & applications',advanced:'Advanced operations'
+        }[section]}</h1>
+        <p>{{
+          overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
+          employers:'Review new employers before giving them access to candidate profiles.',
+          caregivers:'Track worker profiles, recruiting campaigns and application activity.',
+          jobs:'Check how much job inventory the application agent can work with.',
+          advanced:'Outreach controls, test environments and technical diagnostics.'
+        }[section]}</p></div>
+        <button className="button secondary" onClick={()=>void load()} disabled={busy}>Refresh data</button>
+      </div>
       {notice&&<div className="alert-status workspace-alert" role="status">{notice}</div>}
-
-      <section className="section-block" style={{marginTop:0}}>
-        <div className="section-heading"><h2>Employer funnel</h2><p>Signup to hire, {f.window==='all'?'all time':`last ${f.window} days`}. Percent is conversion from the previous step.</p></div>
-        <div style={grid}>{steps.map((s,i)=><Stat key={s.step} label={STEP_LABELS[s.step]||s.step} value={s.count} sub={i>1?pct(s.count,steps[i-1].count):undefined}/>)}</div>
+      {(section==='overview'||section==='caregivers'||section==='jobs'||section==='advanced')&&<div className="admin-date-row">
+        <span>Reporting period</span>
+        {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':k+' days'}</button>)}
+        <small>Approval queue always shows all pending employers.</small>
+      </div>}
+      {section==='overview'&&<>
+        {pending.length>0?<section className="admin-alert-card">
+          <div><strong>{pending.length} employer{pending.length===1?'':'s'} need approval</strong>
+            <p>{pending.slice(0,3).map(e=>e.company_name).join(', ')}{pending.length>3?' and more':''}. Review these before they can contact caregivers.</p></div>
+          <button className="button" onClick={()=>goToSection('employers')}>Review employers</button>
+        </section>:<div className="admin-ok-note"><strong>Employer approvals are up to date.</strong> New review requests will appear here.</div>}
+        <section className="section-block admin-overview-cards">
+          <div className="admin-stat-grid">
+            <Stat label="Employer signups" value={f.employerFunnel[0]?.count||0} sub="New hiring accounts in period"/>
+            <Stat label="Caregiver profiles added" value={caregiverNew} sub="Includes imported profiles; not all are active"/>
+            <Stat label="Invitations sent" value={f.employerFunnel.find(x=>x.step==='contacted')?.count||0} sub="Employer contact events in period"/>
+            <Stat label="Workers interested" value={f.employerFunnel.find(x=>x.step==='interested')?.count||0} sub="Positive candidate replies in period"/>
+          </div>
+        </section>
+        <section className="section-block" style={{marginTop:0}}>
+        <div className="section-heading"><h2>Hiring activity</h2><p>Separate counts of new employers, openings and candidate actions for this period. These are not a sequential conversion cohort.</p></div>
+        <div style={grid}>{steps.map(s=><Stat key={s.step} label={STEP_LABELS[s.step]||s.step} value={s.count}/>)}</div>
       </section>
+        <section className="section-block">
+          <div className="section-heading"><h2>What to do next</h2><p>CareJoys is still building a reliably reachable candidate network.</p></div>
+          <div className="admin-next-grid">
+            <button className="settings-card admin-next-action" onClick={()=>goToSection('employers')}><strong>Approve & activate employers</strong><span>Review pending accounts, then have them view matches and contact consenting caregivers.</span></button>
+            <button className="settings-card admin-next-action" onClick={()=>goToSection('caregivers')}><strong>Grow the active worker network</strong><span>Check new profiles, confirmed legacy workers and application activity.</span></button>
+            <button className="settings-card admin-next-action" onClick={()=>goToSection('jobs')}><strong>Inspect job inventory</strong><span>Review supported application sites and test the candidate application assistant.</span></button>
+          </div>
+        </section>
+      </>}
+      {section==='employers'&&
+<section className="section-block admin-employers">
+  <div className="section-heading"><h2>Review employers</h2>
+    <p>Approve only organizations you recognize. This gives access to caregiver matches and introductions; it does not claim a licensed agency directory listing.</p></div>
+  <div className="admin-approval-summary">
+    <div><strong>{pending.length} waiting for approval</strong><span>Accounts using personal email addresses</span></div>
+    <button className="button secondary" disabled={busy} onClick={()=>void load()}>Refresh requests</button>
+  </div>
+  {pending.length>0?<div className="admin-approval-grid">{pending.map(e=><article className="settings-card admin-approval-card" key={e.id}>
+    <div className="admin-status-label">Needs review</div>
+    <h3>{e.company_name||'Unnamed employer'}</h3>
+    <p>{[e.contact_name,e.email].filter(Boolean).join(' · ')}</p>
+    <p className="job-meta">Joined {day(e.created_at)} · {e.openings} opening{e.openings===1?'':'s'} · ZIP {e.zip||'not provided'}</p>
+    <button className="button" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve employer</button>
+  </article>)}</div>:<div className="settings-card admin-quiet"><strong>No employer accounts awaiting approval.</strong><p>Personal-email employers appear here. Verified company-domain employers and claimed agencies receive automatic access.</p></div>}
+  <div className="admin-subheading"><h3>All employer accounts</h3><input className="pipeline-select" value={employerQuery} onChange={e=>setEmployerQuery(e.target.value)} aria-label="Search employers" placeholder="Search company or email"/></div>
+  <div className="settings-card admin-table-scroll">
+    <table className="admin-data-table">
+      <thead><tr><th>Employer</th><th>Contact</th><th>Openings</th><th>Contacted</th><th>Interviews</th><th>Access</th></tr></thead>
+      <tbody>{data.employers.filter(e=>[e.company_name,e.contact_name,e.email,e.claimed_agency].join(' ').toLowerCase().includes(employerQuery.trim().toLowerCase())).map(e=><tr key={e.id}>
+        <td><strong>{e.company_name}</strong><small>Joined {day(e.created_at)} · Last login {day(e.last_login_at)}</small></td>
+        <td>{e.contact_name||'—'}<small>{e.email}</small></td>
+        <td>{e.openings}</td><td>{e.contacted}</td><td>{e.interviews}</td>
+        <td>{e.approval==='pending'?<button className="button secondary" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve</button>:<span className="admin-access-status">{approvalLabel(e.approval)}{e.claimed_agency?' · Agency claimed':''}</span>}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>
+</section>
+}
+      {section==='caregivers'&&<>
+        <section className="section-block admin-caregiver-summary">
+          <div className="admin-stat-grid">
+            <Stat label="Profiles created" value={caregiverNew} sub="During selected reporting period"/>
+            <Stat label="Imported legacy profiles" value={f.reactivation.legacyTotal} sub="Existing records, not new organic signups"/>
+            <Stat label="Legacy workers confirmed" value={f.reactivation.completed} sub="Completed reactivation in selected period"/>
+            <Stat label="Confirmed looking" value={f.reactivation.activelyLooking} sub="Among reactivated legacy workers"/>
+          </div>
+        </section>
+        <section className="section-block">
+        <div className="section-heading"><h2>Profile acquisition by source</h2><p>Counts of caregiver profiles created during the selected period, including imported legacy records.</p></div>
+        <div style={grid}>
+          {f.caregiverSignups.length===0?<Stat label="New caregivers" value={0}/>:f.caregiverSignups.map(s=><Stat key={s.source} label={caregiverSourceLabel(s.source)} value={s.count}/>)}
 
-      <section className="section-block">
-        <div className="section-heading"><h2>Outreach</h2><p>{data.outreach.enabled?'Daily sends are on (15:41 UTC).':'Daily sends are off. Set OUTREACH_ENABLED to "true" in wrangler.jsonc to turn them on.'} {data.outreach.unsubscribes} unsubscribed.</p></div>
+        </div>
+      </section>
+        <div className="admin-info-note"><strong>Not yet a verified acquisition funnel.</strong> Page views aren't distinct job seekers. ZIP preview → signup → verified email → returning worker requires linked event tracking; the existing totals don't establish those conversion rates.</div>
+      </>}
+      {section==='jobs'&&<>
+        <section className="section-block">
+          <div className="section-heading"><h2>Caregiver applications</h2><p>Actions tracked on job listings during this reporting period. These are not confirmed hires.</p></div>
+          <div className="admin-stat-grid">
+            {f.jobApplies.length?f.jobApplies.map(a=><Stat key={a.event_type} label={applicationEventLabel(a.event_type)} value={a.count}/>):<Stat label="Tracked job actions" value={0}/>}
+          </div>
+        </section>
+        <JobSites/>
+      </>}
+      {section==='advanced'&&<>
+        <section className="section-block"><div className="section-heading"><h2>Technical diagnostics</h2><p>These tools are for operational testing and troubleshooting, not day-to-day business review.</p></div>
+          <a className="button secondary" href="/api/admin/health" target="_blank" rel="noopener noreferrer">Open raw system health</a>
+        </section>
+        <section className="section-block">
+        <div className="section-heading"><h2>Bulk outreach & test tools</h2><p>{data.outreach.enabled?'Daily sends are on (15:41 UTC).':'Daily sends are off. Set OUTREACH_ENABLED to "true" in wrangler.jsonc to turn them on.'} {data.outreach.unsubscribes} unsubscribed.</p></div>
         <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(380px,100%),1fr))',alignItems:'start'}}>{data.outreach.today.map(t=><div className="settings-card" key={t.kind}>
           <div className="job-meta">{KIND_LABELS[t.kind]}</div>
           <div style={{fontSize:30,fontWeight:600}}>{t.sentToday} / {t.cap}</div>
@@ -192,48 +322,17 @@ export function AdminConsole(){
         </div>
         {data.outreach.recentRuns.length>0&&<div className="settings-card" style={{marginTop:12}}>{data.outreach.recentRuns.map(r=><div className="job-meta" key={r.created_at+r.kind}>{day(r.created_at)} · {KIND_LABELS[r.kind]||r.kind} · {r.trigger} · sent {r.sent}{r.failed?`, failed ${r.failed}`:''}</div>)}</div>}
       </section>
-
-      <section className="section-block">
-        <div className="section-heading"><h2>Caregiver supply</h2></div>
-        <div style={grid}>
-          {f.caregiverSignups.length===0?<Stat label="New caregivers" value={0}/>:f.caregiverSignups.map(s=><Stat key={s.source} label={s.source.replace(/_/g,' ')} value={s.count}/>)}
-          {f.jobApplies.map(a=><Stat key={a.event_type} label={a.event_type.replace(/_/g,' ')} value={a.count}/>)}
-        </div>
-      </section>
-
-      <JobSites/>
-
-      <section className="section-block">
+        <section className="section-block">
         <div className="section-heading"><h2>Traffic</h2><p>{f.traffic.pageViews} page views. Cookie-less, path only.</p></div>
         <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(320px,100%),1fr))'}}>
           <div className="settings-card"><div className="modal-kicker">Top pages</div>{f.traffic.topPaths.map(p=><div className="job-meta" key={p.path}>{p.count} · {p.path}</div>)}</div>
           <div className="settings-card"><div className="modal-kicker">Top sources</div>{f.traffic.topSources.map(s=><div className="job-meta" key={s.source}>{s.count} · {s.source}</div>)}</div>
         </div>
       </section>
-
-      <section className="section-block">
-        <div className="section-heading"><h2>Recent employers{data.employers.filter(e=>e.approval==='pending').length?` · ${data.employers.filter(e=>e.approval==='pending').length} waiting for approval`:''}</h2><p>Employers on personal email addresses (Gmail, Yahoo…) can't see caregiver profiles until you approve them. Company emails and claimed agencies get in automatically.</p></div>
-        <div className="settings-card" style={{overflowX:'auto'}}>
-          <table style={{width:'100%',borderCollapse:'collapse',fontSize:14}}>
-            <thead><tr style={{textAlign:'left'}}>{['Company','Contact','Signed up','Last login','Openings','Contacted','Interviews','Agency','Access'].map(h=><th key={h} style={{padding:'6px 8px'}}>{h}</th>)}</tr></thead>
-            <tbody>{data.employers.map(e=><tr key={e.id} style={{borderTop:'1px solid var(--line)'}}>
-              <td style={{padding:'6px 8px'}}>{e.company_name}</td>
-              <td style={{padding:'6px 8px'}}>{[e.contact_name,e.email].filter(Boolean).join(' · ')}</td>
-              <td style={{padding:'6px 8px'}}>{day(e.created_at)}</td>
-              <td style={{padding:'6px 8px'}}>{day(e.last_login_at)}</td>
-              <td style={{padding:'6px 8px'}}>{e.openings}</td>
-              <td style={{padding:'6px 8px'}}>{e.contacted}</td>
-              <td style={{padding:'6px 8px'}}>{e.interviews}</td>
-              <td style={{padding:'6px 8px'}}>{e.claimed_agency||''}</td>
-              <td style={{padding:'6px 8px'}}>{e.approval==='pending'
-                ?<button className="button secondary" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve</button>
-                :({manual:'Approved',agency:'Agency',business_email:'Company email',admin:'Admin'} as Record<string,string>)[e.approval]||e.approval}</td>
-            </tr>)}</tbody>
-          </table>
-        </div>
-      </section>
+      </>}
     </main>
   </div>;
+
 }
 
 type JobSite={site:string;jobs:number;supported:boolean;sampleJobId:string};

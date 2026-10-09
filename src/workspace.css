@@ -245,3 +245,69 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .agency-existing-slot{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:14px}
 .agency-existing-slot .text-button{white-space:nowrap}
 @media(max-width:640px){.intake-agency-claim{padding:16px;margin-top:40px}.agency-existing-slot{align-items:flex-start;flex-wrap:wrap}}
+
+/* Admin console: operational navigation and meaningful approvals above diagnostics. */
+.admin-header-inner{max-width:100%;border-radius:23px;flex-wrap:wrap;gap:12px}
+.admin-brand-tag{display:inline-block;color:#5d5780;font-size:12px;font-family:inherit;font-weight:700;letter-spacing:.02em;text-transform:uppercase;margin-left:8px}
+.admin-section-nav{flex:1;justify-content:center;flex-wrap:wrap;gap:4px}
+.admin-section-nav .nav-button{font-size:14px;padding:9px 15px}
+.admin-nav-count{display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:21px;margin-left:6px;border-radius:999px;color:#fff;background:#aa493d;font-size:12px;font-weight:700}
+.admin-main{padding-top:30px}
+.admin-page-heading{display:flex;align-items:center;justify-content:space-between;gap:24px}
+.admin-page-heading h1{font:400 clamp(32px,4.2vw,54px)/1.06 var(--display);letter-spacing:-.04em;margin:5px 0 8px}
+.admin-page-heading p{font-size:16px;line-height:1.55;color:var(--muted);margin:0;max-width:780px}
+.admin-page-heading .button{flex-shrink:0}
+.admin-date-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:26px 0 12px;color:var(--muted);font-size:13px}
+.admin-date-row>span{font-weight:650;margin-right:10px;color:var(--ink)}
+.admin-date-row small{margin-left:auto;font-size:12px}
+.admin-stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.admin-stat-grid .settings-card{min-height:126px}
+.admin-stat-grid .settings-card>div:first-child{font-weight:600;color:#59536e}
+.admin-alert-card{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:25px 28px;margin-top:26px;border:1px solid #ded0b3;background:#fff8eb;border-radius:22px}
+.admin-alert-card strong{font-size:20px}
+.admin-alert-card p{margin:6px 0 0;color:var(--muted);line-height:1.5}
+.admin-alert-card .button{flex-shrink:0}
+.admin-ok-note{background:#f5faf6;border:1px solid #d4e8dc;border-radius:18px;padding:17px 22px;margin-top:24px;color:#2c694c}
+.admin-ok-note strong{margin-right:10px}
+.admin-overview-cards{margin-top:25px}
+.admin-next-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.admin-next-action{display:flex;flex-direction:column;align-items:flex-start;gap:12px;text-align:left;cursor:pointer;line-height:1.5}
+.admin-next-action strong{font-size:18px;color:var(--ink)}
+.admin-next-action span{font-size:14px;color:var(--muted)}
+.admin-next-action:hover{border-color:var(--blue)}
+.admin-approval-summary{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:20px 0;padding:20px;border:1px solid var(--lavender);background:#f1efff;border-radius:18px}
+.admin-approval-summary div{display:grid;gap:4px}
+.admin-approval-summary strong{font-size:20px}
+.admin-approval-summary span{font-size:14px;color:var(--muted)}
+.admin-approval-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(265px,1fr));gap:14px}
+.admin-approval-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.admin-approval-card h3{font:400 28px/1.1 var(--display);margin:0}
+.admin-approval-card p{margin:0;overflow-wrap:anywhere}
+.admin-approval-card .button{margin-top:8px}
+.admin-status-label{color:#8a442b;font-weight:750;font-size:12px;text-transform:uppercase;letter-spacing:.07em}
+.admin-quiet p{margin:9px 0 0;color:var(--muted)}
+.admin-subheading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:32px 0 14px}
+.admin-subheading h3{font:400 27px/1.2 var(--display);margin:0}
+.admin-subheading input{width:300px;max-width:100%}
+.admin-table-scroll{overflow-x:auto}
+.admin-data-table{border-collapse:collapse;width:100%;font-size:14px;min-width:800px}
+.admin-data-table th{text-align:left;color:#59526c;font-size:12px;font-weight:750;padding:11px 10px;white-space:nowrap}
+.admin-data-table td{padding:14px 10px;border-top:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+.admin-data-table small{display:block;color:var(--muted);font-size:12px;line-height:1.5;margin-top:4px}
+.admin-access-status{font-size:13px;color:#236f49;font-weight:600}
+.admin-info-note{margin:22px 0;padding:18px 22px;border-left:3px solid #9589d5;border-radius:8px;background:#f4f0ff;color:#4b4562;line-height:1.55}
+.admin-info-note strong{display:block;margin-bottom:5px;color:var(--ink)}
+@media(max-width:900px){
+ .admin-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .admin-next-grid{grid-template-columns:1fr}
+ .admin-date-row small{margin-left:0;width:100%;margin-top:5px}
+}
+@media(max-width:640px){
+ .admin-section-nav{order:3;flex:0 0 100%;justify-content:flex-start;overflow-x:auto;flex-wrap:nowrap}
+ .admin-section-nav .nav-button{white-space:nowrap}
+ .admin-page-heading{flex-direction:column;align-items:flex-start}
+ .admin-approval-summary,.admin-alert-card{align-items:flex-start;flex-direction:column}
+ .admin-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .admin-subheading{flex-direction:column;align-items:stretch}
+ .admin-subheading input{width:100%}
+}
