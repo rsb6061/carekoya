@@ -361,6 +361,13 @@ a{color:inherit;text-decoration:none}
 .plan-list li{position:relative;padding:14px 0 14px 34px;border-bottom:1px solid #e7e1f5;font-size:15px;line-height:1.45;font-weight:500}
 .plan-list li::before{content:"✓";position:absolute;left:0;top:15px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:12px;display:grid;place-items:center}
 @media(max-width:900px){.pricing-grid{grid-template-columns:1fr;gap:32px}.plan-card{padding:24px}}
+.pricing-supply{margin:24px 0 8px;max-width:520px}
+.pricing-supply .search{grid-template-columns:minmax(0,1fr) auto;margin-top:0}
+.pricing-supply .search input{min-width:0;width:100%}
+.pricing-grid>div{min-width:0}
+.pricing-supply-result{margin-top:12px;font-size:15px;line-height:1.5}
+.pricing-steps{margin:28px 0 0;padding-left:20px;max-width:620px}
+.pricing-steps li{margin:0 0 12px;line-height:1.5}
 .search.jobs-search{grid-template-columns:1fr auto;max-width:560px}
 .hub-quick-states{margin-top:16px}
 .hub-quick-states .pill,.hub-other-states a{text-decoration:none}

@@ -53,6 +53,15 @@ describe('auth boundaries', ()=>{
     expect(body.tables).toBeUndefined();
     expect(body.jobScanSamples).toBeUndefined();
   });
+  it('pricing supply check returns only counts and hides small ones', async()=>{
+    expect((await call('/api/public/caregiver-supply?zip=abc')).status).toBe(400);
+    const body=await (await call('/api/public/caregiver-supply?zip=21201')).json() as any;
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body).sort()).toEqual(['caregivers','caregiversBelow','city','found','jobs','miles','ok','state','zip']);
+    // Baltimore has two seeded verified caregivers: too few to show as a number.
+    expect(body.caregivers).toBeNull();
+    expect(body.caregiversBelow).toBe(5);
+  });
   it('admin and stats endpoints require an admin', async()=>{
     for(const path of ['/api/admin/overview','/api/admin/health','/api/activation-stats'])expect((await call(path)).status).toBe(401);
     // A normal employer session is not an admin.
