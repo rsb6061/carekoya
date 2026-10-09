@@ -250,6 +250,9 @@ describe('job location by agency state', ()=>{
     expect(normalizeCity('BALTIMORE MD')).toBe('Baltimore');
     expect(normalizeCity('Bel Air')).toBe('Bel Air');
     expect(normalizeCity('Ellicott City')).toBe('Ellicott City');
+    expect(normalizeCity('9701 Veirs Dr')).toBe('');
+    expect(normalizeCity('414 West Jefferson, Mahnomen')).toBe('Mahnomen');
+    expect(normalizeCity('262 Chapman Rd, Ste 204')).toBe('');
   });
   it('reads any state from ATS location strings', ()=>{
     expect(locationStringParts('Richmond, VA 23219')).toEqual({city:'Richmond',state:'VA',zip:'23219'});
