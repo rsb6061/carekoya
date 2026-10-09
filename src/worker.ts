@@ -2,6 +2,7 @@ import { accountSession, accountStatus, closeAccountSide, signedInHome, employer
 import { type EmailBinding } from './email';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { parseHourlyMinimum } from './payMatching';
+import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
@@ -1673,6 +1674,8 @@ export default {
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
+        // Separate from legacy bulk outreach; independent school cap and suppression list.
+        await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // Up to 15 an hour within the daily cap, so the domain doesn't send hundreds at once.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){

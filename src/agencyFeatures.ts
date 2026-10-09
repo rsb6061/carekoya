@@ -454,7 +454,7 @@ const HIRING_INVITE_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
-      AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND e.event_type IN ('hiring_needs_invite','hiring_needs_invite_failed'))
+      AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE (e.organization_id=o.id OR lower(trim(e.recipient_email))=lower(trim(o.primary_email))) AND e.event_type IN ('hiring_needs_invite','hiring_needs_invite_failed','candidate_teaser'))
     GROUP BY o.id
     ORDER BY COUNT(j.id) DESC
     LIMIT ?`;

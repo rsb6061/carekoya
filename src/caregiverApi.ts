@@ -24,11 +24,11 @@ const unauthorized=()=>json({ok:false,error:'Sign in required'},{status:401});
 export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!env.DB||!identity?.sub)return null;
   const bySub=await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.sub).first<{id:string}>();
-  if(bySub){if(identity.emailVerified)await env.DB.prepare('UPDATE caregivers SET auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(bySub.id).run();return bySub.id;
+  if(bySub){if(identity.emailVerified)await env.DB.prepare("UPDATE caregivers SET auth0_email_verified=1,last_confirmed_at=CASE WHEN work_status='actively_looking' AND last_confirmed_at IS NULL THEN CURRENT_TIMESTAMP ELSE last_confirmed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(bySub.id).run();return bySub.id;
   if(!identity.emailVerified||!identity.email)return null;
   const byEmail=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(identity.email).first<{id:string}>();
   if(!byEmail)return null;
-  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(auth0SubOf(identity),byEmail.id).run();
+  await env.DB.prepare("UPDATE caregivers SET auth0_sub=COALESCE(auth0_sub,?),auth0_email_verified=1,last_confirmed_at=CASE WHEN work_status='actively_looking' AND last_confirmed_at IS NULL THEN CURRENT_TIMESTAMP ELSE last_confirmed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(auth0SubOf(identity),byEmail.id).run();
   return byEmail.id;
 }
 
