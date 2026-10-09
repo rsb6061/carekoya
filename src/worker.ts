@@ -1673,11 +1673,11 @@ export default {
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
-        // Up to 15 an hour within the daily cap, so the domain doesn't send hundreds at once.
+        // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
           const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
           const counts=await hiringInviteCounts(env);
-          await sendAgencyHiringInvites(env,Math.min(15,cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
         }
         return;
       }
