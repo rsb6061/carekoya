@@ -9,7 +9,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { icimsJobLinks, icimsSearchUrl, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
+import { icimsJobLinks, icimsSearchUrl, icimsSitemapJobs, roleClassification, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -486,6 +486,17 @@ describe('senior living chain boards', ()=>{
       {url:'https://jobs-brookdale.icims.com/jobs/274632/care-assistant/job',title:'Care Assistant',id:274632},
       {url:'https://jobs-brookdale.icims.com/jobs/280292/cook/job',title:'Cook',id:280292}
     ]);
+  });
+  it('reads caregiving postings from an iCIMS sitemap', ()=>{
+    const xml='<urlset><url><loc>https://asl-frontlinewagedisplay.icims.com/jobs/intro</loc></url>'
+      +'<url><loc>https://asl-frontlinewagedisplay.icims.com/jobs/282910/memory-care-caregiver/job</loc></url>'
+      +'<url><loc> https://asl-frontlinewagedisplay.icims.com/jobs/282910/memory-care-caregiver/job </loc></url></urlset>';
+    expect(icimsSitemapJobs(xml)).toEqual([{url:'https://asl-frontlinewagedisplay.icims.com/jobs/282910/memory-care-caregiver/job',title:'memory care caregiver',id:282910}]);
+  });
+  it('counts senior living care titles as caregiver jobs', ()=>{
+    for(const title of ['Care Assistant','Resident Care Associate','Care Partner - Nights','memory care caregiver'])expect(roleClassification(title)?.role).toBe('Caregiver');
+    expect(roleClassification('Resident Care Coordinator')).toBeNull();
+    expect(roleClassification('Cook')).toBeNull();
   });
   it('walks a long posting list a slice a day', ()=>{
     const items=[1,2,3,4,5];
