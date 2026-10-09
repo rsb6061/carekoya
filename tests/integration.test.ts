@@ -53,6 +53,15 @@ describe('auth boundaries', ()=>{
     expect(body.tables).toBeUndefined();
     expect(body.jobScanSamples).toBeUndefined();
   });
+  it('pricing supply check returns only counts and hides small ones', async()=>{
+    expect((await call('/api/public/caregiver-supply?zip=abc')).status).toBe(400);
+    const body=await (await call('/api/public/caregiver-supply?zip=21201')).json() as any;
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body).sort()).toEqual(['caregivers','caregiversBelow','city','found','jobs','miles','ok','state','zip']);
+    // Baltimore has two seeded verified caregivers: too few to show as a number.
+    expect(body.caregivers).toBeNull();
+    expect(body.caregiversBelow).toBe(5);
+  });
   it('admin and stats endpoints require an admin', async()=>{
     for(const path of ['/api/admin/overview','/api/admin/health','/api/activation-stats'])expect((await call(path)).status).toBe(401);
     // A normal employer session is not an admin.
@@ -462,11 +471,15 @@ describe('pay preferences and verified caregiver availability',()=>{
     expect(after.candidates.some((c:any)=>c.id===id)).toBe(true);
   });
   it('shows separate agency and school outreach campaigns with their actual configured status',async()=>{
-    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'60',OUTREACH_ENABLED:'false'});
+    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'20',OUTREACH_ENABLED:'false',WEEKLY_DIGEST_ENABLED:'true'});
     expect(res.status).toBe(200);
     const body=await res.json() as any;
     expect(body.funnel.outreachChannels.agencyHiring.enabled).toBe(true);
-    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(60);
+    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(20);
+    expect(body.funnel.outreachChannels.agencyHiring.perHour).toBe(1);
+    expect(body.funnel.outreachChannels.agencyInboxAlerts.unclaimedEnabled).toBe(false);
+    expect(body.funnel.outreachChannels.weeklyDigest.enabled).toBe(true);
+    expect(typeof body.funnel.outreachChannels.reactivationReminders.sent).toBe('number');
     expect(body.funnel.outreachChannels.generalBulk.enabled).toBe(false);
     expect(body.funnel.outreachChannels.schools.mode).toBe('manual');
   });

@@ -126,7 +126,7 @@ function Home() {
               <div className="job-tags"><span className="pill">Resume optional</span></div>
             </div>
             <div className="step">
-              <div className="modal-kicker">3 · Interview</div>
+              <div className="modal-kicker">3 · Get matched</div>
               <h3>Return to better matches</h3>
               <p className="meta">Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p>
               <div className="job-tags"><span className="pill">Optional email alerts</span></div>
@@ -153,7 +153,7 @@ function Home() {
           <h2>For caregiver training programs</h2>
           <div className="jobs">
             <div className="job">
-              <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can introduce graduating cohorts to local employers and track placement outcomes.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
+              <div><h3>Turn graduation day into a hiring pipeline</h3><div className="meta">CNA/GNA and other direct-care training programs can give graduates a free CareJoys link to nearby jobs and see how many get hired. In a training program? Ask your school for its CareJoys link.</div><div className="job-tags"><span className="pill">Free for schools</span><span className="pill">Cohort placement</span></div></div>
               <div className="school-home-actions"><a className="btn secondary" href="/training-programs/maryland">Find your Maryland program</a><a className="text-button" href="/add-training-program">Program not listed? Request addition</a></div>
             </div>
           </div>
@@ -165,12 +165,12 @@ function Home() {
           <h2>Better matches with your preferences.</h2>
           <div className="jobs">
             <div className="job">
-              <div><h3>You control your availability</h3><div className="meta">Older caregiver profiles can remain discoverable, but their availability is clearly labeled unconfirmed until they refresh it. Recent confirmations rank higher.</div></div>
-              <span className="pill">Freshness shown explicitly</span>
+              <div><h3>You decide who sees your profile</h3><div className="meta">Employers only see you after you verify your email and say you're looking. Pause anytime from your dashboard.</div></div>
+              <span className="pill">Your choice</span>
             </div>
             <div className="job">
-              <div><h3>For care employers</h3><div className="meta">CareJoys also helps employers connect with interested local care professionals. <a href="/hire-caregivers">Hire caregivers</a>.</div></div>
-              <span className="pill">Persistent workforce graph</span>
+              <div><h3>Hiring caregivers?</h3><div className="meta">Home-care agencies, assisted living and senior-care communities can meet local caregivers who want the work. <a href="/pricing">See how it works</a>.</div></div>
+              <span className="pill">For employers</span>
             </div>
           </div>
         </div>

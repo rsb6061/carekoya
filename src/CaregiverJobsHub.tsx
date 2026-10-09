@@ -128,7 +128,7 @@ function NationalJobsPage(){
           <div className="hub-breadcrumb"><a href="/">CareJoys</a> › Caregiver jobs</div>
           <div className="modal-kicker">Caregiver jobs</div>
           <h1>Caregiver jobs near you</h1>
-          <p>Search by city, state or ZIP. Upload your resume once and CareJoys matches you with caregiver jobs and employers near you.</p>
+          <p>Search by city, state or ZIP. Create one free profile, resume optional, and CareJoys matches you with caregiver jobs and employers near you.</p>
           <JobsSearch defaultValue={q}/>
           {data&&data.states.length>0&&<div className="hub-quick-states job-tags">
             {data.states.slice(0,8).map(s=><a className="pill" key={s.code} href={'/caregiver-jobs/'+s.slug}>{s.name}</a>)}
@@ -164,7 +164,7 @@ function NationalJobsPage(){
         {loading&&!data
           ?<div className="empty"><strong>Loading states…</strong></div>
           :!data||data.states.length===0
-            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs now.</strong><div>Upload your resume above and we’ll match you as openings are confirmed.</div></div>
+            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed.</div></div>
             :<div className="state-grid">{data.states.map(s=><a key={s.code} className="state-card" href={'/caregiver-jobs/'+s.slug}><strong>{s.name}</strong><span>{s.count} job{s.count===1?'':'s'}</span></a>)}</div>}
         {data&&data.cities.length>0&&<div className="hub-cities">
           <h3>Popular cities</h3>
@@ -240,8 +240,8 @@ function StateJobsPage(){
           <div className="modal-kicker">{program?program.name:state.name+' caregivers'}</div>
           <h1>{program?'Get matched after training.':'Caregiver jobs in '+place}</h1>
           <p>{program
-            ?'Upload your resume once. CareJoys builds your caregiver profile and matches you with care employers near you.'
-            :'Upload your resume once. CareJoys matches you with caregiver jobs and employers near you.'}</p>
+            ?'Create one free profile, resume optional. CareJoys matches you with care employers near you.'
+            :'Create one free profile, resume optional. CareJoys matches you with caregiver jobs and employers near you.'}</p>
           {!program&&<JobsSearch/>}
         </div>
 
@@ -264,7 +264,7 @@ function StateJobsPage(){
         {jobsLoading&&!hub
           ?<div className="empty"><strong>Loading current openings…</strong></div>
           :!hub||hub.jobs.length===0
-            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs in {place} now.</strong><div>Upload your resume above and we’ll match you as openings are confirmed, or <a className="text-link" href="/caregiver-jobs">browse jobs in other states</a>.</div></div>
+            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs in {place} now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed, or <a className="text-link" href="/caregiver-jobs">browse jobs in other states</a>.</div></div>
             :<JobList jobs={hub.jobs}/>}
 
         {hub&&<Pager page={hub.page} pages={hub.pages} onChange={setPage}/>}
