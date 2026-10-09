@@ -22,6 +22,12 @@ export function trimAtWord(text:string,max:number){
   return (space>max*0.6?cut.slice(0,space):t.slice(0,max)).replace(/[\s|·,–-]+$/,'');
 }
 
+/** "Main | CareJoys" when it fits in `max`; otherwise the brand is dropped first, then words from the end of `main`. */
+export function fitTitle(main:string,max=60){
+  const branded=main.replace(/\s+/g,' ').trim()+' | CareJoys';
+  return branded.length<=max?branded:trimAtWord(main,max);
+}
+
 /** "Title | Employer | CareJoys" within `max`, dropping the employer before cutting the job title. */
 export function jobPageTitle(title:string,employer:string,max=65){
   const full=title+' | '+employer+' | CareJoys';
