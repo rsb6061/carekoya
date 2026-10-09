@@ -48,7 +48,7 @@ export function jobConflict(c:Row,j:Row):string|null{
     const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
     if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
   }
-  if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay or pay undisclosed';
+  if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay';
   const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
   const offered=clean(j.employment_type).toLowerCase().replace(/[^a-z,]+/g,'_');
   if(wants.length&&offered&&['full_time','part_time','per_diem','temporary','contract'].some(v=>offered.includes(v))&&!wants.some(v=>offered.includes(v)))return 'employment type conflict';
