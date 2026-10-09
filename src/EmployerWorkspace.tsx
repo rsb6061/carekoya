@@ -9,6 +9,7 @@ import { JobsWidgetCard } from './JobsWidgetCard';
 import { AgencyInbox } from './AgencyInboxTab';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
+import { MatchList, type MatchRow } from './MatchList';
 import './workspace.css';
 
 type Opening={
@@ -24,11 +25,7 @@ type AgencyMatch={
 };
 type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]};
 type Candidate=TalentCandidate;
-type PipelineRow={
-  id:string;opening_id:string;title:string;opening_role:string;caregiver_id:string;contact_email?:string|null;
-  name:string;city?:string;state?:string;role?:string;certifications?:string;
-  match_score?:number;match_reason?:string;stage:string;freshness?:string;interview_at?:string;profilePhotoUrl?:string;
-};
+type PipelineRow=MatchRow;
 type SessionEmployer={id:string;companyName:string;contactName:string;email:string;zip?:string};
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -194,7 +191,7 @@ export function EmployerWorkspace(){
     setMessage('Matching caregivers…','info');
     try{
       const result=await api<any>('/api/openings/'+openingId+'/match',{method:'POST'});
-      if(result.matched)setMessage(result.matched+' caregiver'+(result.matched===1?'':'s')+' matched. Review matches and send invitations when ready. Interview times are optional.');
+      if(result.matched)setMessage(result.matched+' caregiver'+(result.matched===1?'':'s')+' matched. Pick who to invite below.');
       else setMessage('No caregivers match this opening yet. CareJoys keeps looking and adds matches as caregivers near you join.','info');
       await refreshWorkspace();
       setIntakeOpeningId(openingId);
@@ -204,18 +201,22 @@ export function EmployerWorkspace(){
     }
   }
 
-  async function contact(openingId:string){
-    if(!session||pendingApproval)return;
-    setMessage('Contacting top matches…','info');
+  /** Invites the chosen caregivers, one request per opening they matched. */
+  async function invite(rows:PipelineRow[]){
+    if(!session||pendingApproval||!rows.length)return;
+    setMessage('Sending invitations…','info');
+    let sent=0,failed=0;
     try{
-      const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({limit:5})});
-      setMessage(result.sent?result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.':(result.failed?'No invitations were delivered. '+result.failed+' failed.':'No eligible uncontacted matches for this opening. Review matches or return to openings.'),result.sent?'ok':'info');
-      await refreshWorkspace();
-      setIntakeOpeningId(openingId);
-      setTab('pipeline');
+      for(const openingId of [...new Set(rows.map(r=>r.opening_id))]){
+        const ids=rows.filter(r=>r.opening_id===openingId).map(r=>r.id);
+        const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds:ids})});
+        sent+=Number(result.sent||0);failed+=Number(result.failed||0);
+      }
+      setMessage(sent?sent+' caregiver'+(sent===1?'':'s')+' invited. Each one gets an email with this job and can say they’re interested.'+(failed?' '+failed+' failed.':''):(failed?'No invitations were delivered. '+failed+' failed.':'Those caregivers can’t be invited right now.'),sent?'ok':'info');
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not contact matches','error');
+      setMessage(error instanceof Error?error.message:'Could not send invitations','error');
     }
+    await refreshWorkspace();
   }
 
   async function openBilling(kind:'checkout'|'portal'){
@@ -225,10 +226,13 @@ export function EmployerWorkspace(){
     }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing','error')}
   }
 
-  async function moveStage(id:string,stage:string){
+  async function decide(row:PipelineRow,stage:'hired'|'rejected'){
     if(!session)return;
-    await api('/api/pipeline/'+id,{method:'PATCH',body:JSON.stringify({stage})});
-    await refreshWorkspace();
+    if(stage==='rejected'&&!window.confirm('Mark '+row.name+' as not a fit for '+row.title+'?'))return;
+    try{
+      await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({stage})});
+      await refreshWorkspace();
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not update this caregiver','error')}
   }
 
   async function openInterviewSlots(opening:Opening){
@@ -321,7 +325,7 @@ export function EmployerWorkspace(){
       <nav className="app-nav">
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='inbox'?'active':'')} onClick={()=>setTab('inbox')}>Inbox{inboxWaiting?` (${inboxWaiting})`:''}</button>}
         <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>
-        <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Pipeline</button>
+        <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Candidates</button>
         <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='jobs'?'active':'')} onClick={()=>setTab('jobs')}>Jobs</button>}
         {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring preferences</button>}
@@ -336,8 +340,8 @@ export function EmployerWorkspace(){
       </section>
 
       <div className="result-summary workspace-summary">
-        <strong>{openings.filter(o=>o.status==='open').length} open roles</strong>
-        <span>{pendingApproval?'—':counts.matched} matched</span><span>{pendingApproval?'—':counts.contacted} contacted</span><span>{pendingApproval?'—':counts.interested} interested</span>
+        <strong>{openings.filter(o=>o.status==='open').length} open role{openings.filter(o=>o.status==='open').length===1?'':'s'}</strong>
+        <span>{pendingApproval?'—':counts.matched} to review</span><span>{pendingApproval?'—':counts.contacted} invited</span><span>{pendingApproval?'—':counts.interested} interested</span>
         <span>{pendingApproval?'—':counts.interview} interviews</span><span>{pendingApproval?'—':counts.hired} hired</span>
       </div>
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
@@ -361,6 +365,7 @@ export function EmployerWorkspace(){
               {o.shift_preferences&&<span className="badge">{o.shift_preferences}</span>}
               {payLabel({payMin:o.pay_min,payMax:o.pay_max,payPeriod:'hour'})&&<span className="badge">{payLabel({payMin:o.pay_min,payMax:o.pay_max,payPeriod:'hour'})}</span>}
               <span className="status">{o.source==='agency_profile'?'Always-on':o.source==='employer_intake'?'Created from your request':(o.status||'open')}</span>
+              {pipeline.some(p=>p.opening_id===o.id)&&<span className="badge">{pipeline.filter(p=>p.opening_id===o.id).length} matched · {pipeline.filter(p=>p.opening_id===o.id&&['interested','interview','hired'].includes(p.stage)).length} interested</span>}
               {Number(o.available_interview_slots||0)>0&&<span className="badge">{o.available_interview_slots} interview time{Number(o.available_interview_slots)===1?'':'s'} ready</span>}
             </div>
             <button type="button" className="opening-interview-link" onClick={()=>void openInterviewSlots(o)}>{Number(o.available_interview_slots||0)>0?'Manage interview times':'Set interview times'}</button>
@@ -373,36 +378,21 @@ export function EmployerWorkspace(){
       </section>}
 
       {tab==='pipeline'&&<section className="section-block">
-        <div className="section-heading">
-          <h2>{intakeOpening?'Your caregiver matches':'Candidate pipeline'}</h2>
-          <p>{intakeOpening?'CareJoys ranked the strongest local matches for this opening.':'Interested responses and interview bookings update automatically.'}</p>
-        </div>
-        <div className="empty-actions" style={{marginBottom:16}}><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All openings</button>{intakeOpening&&<button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>View full pipeline</button>}{agencyNetwork.agency&&<button className="button secondary" onClick={()=>setTab('jobs')}>Agency job listings</button>}</div>
-        {intakeOpening&&<div className="agency-next-action">
-          <div>
-            <strong>Review matches and invite caregivers</strong>
-            <p>{Number(intakeOpening.available_interview_slots||0)>0?'Caregivers can respond directly or book your available times.':'Invite your best matches now. You can coordinate interviews directly, or add bookable times whenever you like.'}</p>
+        {intakeOpening?<div className="match-opening-head">
+          <button className="text-button" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All openings</button>
+          <h2>Matches for {intakeOpening.title}</h2>
+          <div className="job-meta">{[intakeOpening.role,[intakeOpening.city,intakeOpening.state].filter(Boolean).join(', ')+(intakeOpening.zip?' '+intakeOpening.zip:''),intakeOpening.shift_preferences,payLabel({payMin:intakeOpening.pay_min,payMax:intakeOpening.pay_max,payPeriod:'hour'})].filter(Boolean).join(' · ')}</div>
+          <div className="match-opening-links">
+            <span>{visiblePipeline.filter(p=>p.stage==='matched').length} not yet invited · {visiblePipeline.filter(p=>['contacted','interested','interview','hired'].includes(p.stage)).length} invited</span>
+            <button className="text-button" onClick={()=>void openInterviewSlots(intakeOpening)}>{Number(intakeOpening.available_interview_slots||0)>0?'Manage interview times ('+intakeOpening.available_interview_slots+')':'Add interview times (optional)'}</button>
+            <button className="text-button" onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>All candidates</button>
           </div>
-          <div className="hero-actions">
-            <button className="button" disabled={pendingApproval||!visiblePipeline.some(p=>p.stage==='matched')} onClick={()=>contact(intakeOpening.id)}>{visiblePipeline.some(p=>p.stage==='matched')?'Contact up to 5':'No matches to contact'}</button>
-            <button className="button secondary" onClick={()=>void openInterviewSlots(intakeOpening)}>{Number(intakeOpening.available_interview_slots||0)>0?'Manage interview times':'Add interview times (optional)'}</button>
-          </div>
+        </div>:<div className="section-heading">
+          <h2>All candidates</h2>
+          <p>Everyone matched to your openings. Interest and interview bookings update automatically.</p>
         </div>}
-        {visiblePipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates in the pipeline yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and commute preferences, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Search talent network</button></div></div>:
-        <div className="job-list">{visiblePipeline.map((row,i)=><article className={'job-card '+cardTone(i)} key={row.id}>
-          <div className="job-card-main">
-            <div className="job-card-title-row"><div className="candidate-name-row">{row.profilePhotoUrl?<img className="candidate-avatar" src={row.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{row.name?.slice(0,1)||'?'}</span>}<h3>{row.name}</h3></div></div>
-            <div className="job-meta">{[row.role,row.city,row.state].filter(Boolean).join(' · ')}</div>
-            {row.contact_email&&<div className="job-meta"><a href={'mailto:'+row.contact_email}>Email interested caregiver: {row.contact_email}</a></div>}
-            <div className="job-badges"><span className="badge">{row.match_score||0}% match</span><span className="status">{row.title}</span><span className="status">{row.freshness}</span>{row.interview_at&&<span className="status applied">{new Date(row.interview_at).toLocaleString()}</span>}</div>
-          </div>
-          <div className="job-card-side">
-            <select className="pipeline-select" value={row.stage} onChange={e=>moveStage(row.id,e.target.value)}>
-              <option value="matched">Matched</option><option value="contacted">Contacted</option><option value="interested">Interested</option>
-              <option value="interview">Interview booked</option><option value="hired">Hired</option><option value="rejected">Rejected</option>
-            </select>
-          </div>
-        </article>)}</div>}
+        {visiblePipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Search talent network</button></div></div>:
+        <MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide}/>}
       </section>}
 
       {tab==='talent'&&<section className="section-block">

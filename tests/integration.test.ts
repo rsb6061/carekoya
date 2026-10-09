@@ -200,6 +200,28 @@ describe('employer booking and approval gates', ()=>{
 });
 
 describe('optional interview scheduling and verified owner admin', ()=>{
+  it('invites only the caregivers the employer picked and keeps caregiver-only stages out of manual edits', async()=>{
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA picked',role:'CNA',zip:'21201'})})).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers});
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(rows.length).toBeGreaterThan(1);
+    const pick=rows.find((r:any)=>r.caregiver_id==='towson');
+    expect(pick.profile.name).toBe(pick.name);
+    expect(pick.match_reasons).toContain('role match');
+    expect(pick.profile.email).toBeUndefined();
+    sent.length=0;
+    const outcome=await (await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:[pick.id]})})).json() as any;
+    expect(outcome.sent).toBe(1);
+    expect(sent.map(m=>m.to)).toEqual(['towson@example.com']);
+    const after=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(after.filter((r:any)=>r.stage==='contacted').map((r:any)=>r.caregiver_id)).toEqual(['towson']);
+    const other=after.find((r:any)=>r.caregiver_id!=='towson');
+    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'interview'})})).status).toBe(400);
+    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'rejected'})})).status).toBe(200);
+    const final=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(final.find((r:any)=>r.id===other.id)).toMatchObject({stage:'rejected',rejected_reason:'employer_not_a_fit',interview_at:null});
+  });
   it('sends an introduction without interview slots and reveals contact email only after the worker explicitly agrees', async()=>{
     const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
     const opened=await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA day position',role:'CNA',zip:'21201'})});

@@ -15,7 +15,7 @@ const TRANSPORT:Record<string,string>={own_car:'Has own car',reliable_transporta
 const HOURS:Record<string,string>={full_time:'Full time',part_time:'Part time',per_diem:'Per diem'};
 
 /** The rest of the profile, below the summary card: bio, experience, skills, languages and logistics. */
-function TalentDetails({candidate:c}:{candidate:TalentCandidate}){
+export function TalentDetails({candidate:c}:{candidate:TalentCandidate}){
   const hours=(c.employmentTypes||'').split(',').map(x=>HOURS[x.trim()]||x.trim()).filter(Boolean).join(', ');
   const rows:[string,string][]=([
     ['Schedule',c.schedule||''],
