@@ -1,3 +1,4 @@
+import { hourlyPayFloor } from './payPreferences';
 import { listText } from './listField';
 import { type FeatureEnv, respondToInviteForCaregiver, bookInterviewForCaregiver } from './serverFeatures';
 import { freshnessLabel, commuteRadiusMiles } from './matching';
@@ -46,7 +47,7 @@ export function jobConflict(c:Row,j:Row):string|null{
     const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
     if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
   }
-  const min=Number(c.hourly_rate_min||0);
+  const min=Number(c.hourly_rate_min||hourlyPayFloor(c.desired_wage)||0);
   const advertisedMax=Number(j.pay_max||j.pay_min||0);
   if(min>0&&advertisedMax>0&&(!j.pay_period||/hour|hr/i.test(clean(j.pay_period)))&&advertisedMax<min)return 'below minimum hourly pay';
   const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
@@ -80,7 +81,7 @@ export function jobFit(c:Row,j:Row,distanceMiles:number|null,radius:number,now=D
   if([...needs].some(k=>mine.has(k)))score+=40;
   else if([...needs].some(k=>LICENSED.includes(k)))score-=30;
   else score+=20;
-  const myMin=Number(c.hourly_rate_min||0);
+  const myMin=Number(c.hourly_rate_min||hourlyPayFloor(c.desired_wage)||0);
   const jobTop=Number(j.pay_max||j.pay_min||0);
   const hourly=!clean(j.pay_period)||/hour/i.test(clean(j.pay_period));
   if(myMin>0&&jobTop>0&&hourly)score+=jobTop>=myMin?15:-15;
@@ -295,7 +296,7 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
       pick(d?.workConditions,['pets','smokers']).join(','),
       payMin||null,payMin?'$'+payMin+'+/hr':'',clean(d?.transportation,80),travel||null,
       workStatus,workStatus==='actively_looking'?1:0,caregiverId).run();
-  if(workStatus!=='actively_looking'){
+  {
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),caregiverId,workStatus).run();
   }
@@ -329,8 +330,10 @@ export async function updateCaregiverPreferences(request:Request,env:FeatureEnv,
   const zipInfo=await lookupZip(env.DB,zip);
   const state=zipInfo?.state||await stateForZip(env.DB,zip);
   const travel=Math.max(0,Math.min(100,asNum(data?.travelMiles)));
-  await env.DB.prepare(`UPDATE caregivers SET zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),shift_preferences=?,desired_wage=?,travel_distance_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-    .bind(zip,zipInfo?.city||'',state,clean(data?.shifts,500),clean(data?.desiredWage,80),travel||null,caregiverId).run();
+  const floor=hourlyPayFloor(data?.payMin??data?.desiredWage);
+  if(clean(data?.desiredWage)&&floor===null)return json({ok:false,error:'Enter a valid hourly pay minimum.'},{status:400});
+  await env.DB.prepare(`UPDATE caregivers SET zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),shift_preferences=?,desired_wage=?,hourly_rate_min=?,travel_distance_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(zip,zipInfo?.city||'',state,clean(data?.shifts,500),floor?'$'+floor+'+/hr':'',floor||null,travel||null,caregiverId).run();
   const matchedOpenings=await rematch(caregiverId);
   return json({ok:true,matchedOpenings});
 }
