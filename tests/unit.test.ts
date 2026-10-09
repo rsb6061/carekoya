@@ -1,4 +1,4 @@
-import { jobFit, jobConflict } from '../src/caregiverApi';
+import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -426,5 +426,14 @@ describe('job summaries', ()=>{
     expect(parseSummary('Here is the summary:\nHome care aide role supporting seniors in Rockport.\n- Help with bathing and meals\n* Driver license required\n\n1. Weekend shifts')).toBe('Home care aide role supporting seniors in Rockport. • Help with bathing and meals • Driver license required • Weekend shifts');
     expect(parseSummary('- only bullets')).toBeNull();
     expect(parseSummary('NO_DETAILS')).toBe('');
+  });
+});
+
+describe('availabilityByDay', ()=>{
+  it('groups neighboring days with the same shifts', ()=>{
+    const days={mon:['morning'],tue:['morning'],wed:['morning'],thu:['morning'],fri:['morning'],sat:['overnight'],sun:['overnight']};
+    expect(availabilityByDay({days,liveIn:false})).toBe('Mon–Fri: mornings · Sat–Sun: overnights');
+    expect(availabilityByDay({days:{...days,wed:[]},liveIn:false})).toBe('Mon–Tue: mornings · Thu–Fri: mornings · Sat–Sun: overnights');
+    expect(availabilityByDay({days:{mon:[],tue:[],wed:[],thu:[],fri:[],sat:[],sun:[]},liveIn:true})).toBe('');
   });
 });

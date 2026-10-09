@@ -813,6 +813,7 @@ describe('shared sign-in', ()=>{
     expect(view.visible).toBe(true);
     expect(view.candidate.name).toBe('Bea M.');
     expect(view.candidate.shifts).toBe('Mornings, Overnights, Weekends, Live-in');
+    expect(view.candidate.schedule).toBe('Mon: mornings, overnights · Sat: mornings');
     expect(JSON.stringify(view)).not.toMatch(/4105550123|baltimore@example\.com/);
   });
 
