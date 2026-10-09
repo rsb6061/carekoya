@@ -56,7 +56,7 @@ jobs:
       - name: Build canonical agency organizations
         run: |
           node scripts/build-agency-organizations.mjs /tmp/agency-organizations.sql
-          for f in /tmp/agency-organizations.part-*.sql; do npx wrangler d1 execute DB --remote --file="$f"; done
+          bash scripts/run-sql-parts.sh /tmp/agency-organizations.part-*.sql
 
       - name: Verify Maryland agency universe
         run: |
