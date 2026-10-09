@@ -171,7 +171,7 @@ describe('optional interview scheduling and verified owner admin', ()=>{
     expect(before.pipeline.every((p:any)=>p.contact_email==null)).toBe(true);
     const invite=sent.find(m=>m.to==='baltimore@example.com');
     expect(invite?.html).toContain('/respond?token=');
-    const token=decodeURIComponent(invite!.html!.match(/respond\\?token=([^"&\\s]+)/)![1]);
+    const token=decodeURIComponent(invite!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
     const interest=await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})});
     expect(interest.status).toBe(200);
     const after=await (await call('/api/pipeline?openingId='+id,{headers})).json() as any;
