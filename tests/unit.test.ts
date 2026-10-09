@@ -445,6 +445,25 @@ describe('job summaries', ()=>{
     expect(parseSummary('- only bullets')).toBeNull();
     expect(parseSummary('NO_DETAILS')).toBe('');
   });
+
+  it('records a hung model call as a failure and still summarizes the rest of the batch', async ()=>{
+    const { summarizeJobsBatch } = await import('../src/jobSummary');
+    const rows=[{id:'hang',title:'CNA',employer_name:'A',description_text:'x'.repeat(100)},{id:'ok',title:'GNA',employer_name:'B',description_text:'y'.repeat(100)}];
+    const updates:unknown[][]=[];
+    const DB={prepare:(sql:string)=>({bind:(...v:unknown[])=>({
+      all:async<T>()=>({results:rows as T[]}),
+      run:async()=>{updates.push([sql.includes('summary_error=?')?'error':'summary',...v]);return {}}
+    })})};
+    const AI={run:async(_m:string,input:Record<string,unknown>)=>{
+      const msg=(input.messages as Array<{content:string}>)[1].content;
+      if(msg.includes('Employer: A'))return new Promise(()=>{});
+      return {response:'GNA role at an assisted living community in Towson.\n- Night shifts'};
+    }};
+    const result=await summarizeJobsBatch({DB,AI},10,50);
+    expect(result).toEqual({attempted:2,summarized:1,failed:1});
+    expect(updates).toContainEqual(['error','summary timed out','hang']);
+    expect(updates).toContainEqual(['summary','GNA role at an assisted living community in Towson. • Night shifts',100,'ok']);
+  });
 });
 
 describe('availabilityByDay', ()=>{

@@ -46,11 +46,19 @@ export async function summarizeJob(env:SummaryEnv,job:{title:string;employer:str
   return parseSummary(clean(out?.response,4000));
 }
 
+/** A Workers AI call that hangs is given up on, so it can't stall the batch until the cron is cut off. */
+export const SUMMARY_TIMEOUT_MS=45000;
+const SUMMARY_CONCURRENCY=4;
+const withTimeout=<T>(work:Promise<T>,ms:number)=>new Promise<T>((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error('summary timed out')),ms);
+  work.then(v=>{clearTimeout(timer);resolve(v)},e=>{clearTimeout(timer);reject(e)});
+});
+
 /**
  * Summarizes live jobs that have no summary yet, or whose description changed length since.
  * A failure is recorded and retried a day later, so a bad posting can't eat every run.
  */
-export async function summarizeJobsBatch(env:SummaryEnv,limit:number){
+export async function summarizeJobsBatch(env:SummaryEnv,limit:number,timeoutMs=SUMMARY_TIMEOUT_MS){
   if(!env.DB||!env.AI||limit<1)return {attempted:0,summarized:0,failed:0};
   const rows=await env.DB.prepare(`SELECT id,title,employer_name,description_text FROM caregiver_jobs
     WHERE is_published=1 AND status='current' AND length(COALESCE(description_text,''))>=80
@@ -58,19 +66,24 @@ export async function summarizeJobsBatch(env:SummaryEnv,limit:number){
       AND (summary_error IS NULL OR datetime(summarized_at)<datetime('now','-1 day'))
     ORDER BY COALESCE(date_posted,first_seen_at) DESC LIMIT ?`).bind(limit).all<Row>();
   let summarized=0,failed=0;
-  for(const row of rows.results||[]){
+  const one=async(row:Row)=>{
     const description=clean(row.description_text,8000);
     try{
-      const summary=await summarizeJob(env,{title:clean(row.title,200),employer:clean(row.employer_name,200),description});
+      const summary=await withTimeout(summarizeJob(env,{title:clean(row.title,200),employer:clean(row.employer_name,200),description}),timeoutMs);
       if(summary===null)throw new Error('empty summary');
-      await env.DB.prepare("UPDATE caregiver_jobs SET summary_text=?,summary_source_len=?,summary_error=NULL,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
+      await env.DB!.prepare("UPDATE caregiver_jobs SET summary_text=?,summary_source_len=?,summary_error=NULL,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
         .bind(summary,description.length,row.id).run();
       summarized++;
     }catch(error){
       failed++;
-      await env.DB.prepare("UPDATE caregiver_jobs SET summary_error=?,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
+      await env.DB!.prepare("UPDATE caregiver_jobs SET summary_error=?,summarized_at=CURRENT_TIMESTAMP WHERE id=?")
         .bind((error instanceof Error?error.message:'summary failed').slice(0,300),row.id).run();
     }
-  }
+  };
+  // A few at a time: each call waits seconds on the model, so one-by-one a run summarized only a handful of jobs.
+  const queue=[...(rows.results||[])];
+  await Promise.all(Array.from({length:Math.min(SUMMARY_CONCURRENCY,queue.length)},async()=>{
+    for(let row=queue.shift();row;row=queue.shift())await one(row);
+  }));
   return {attempted:(rows.results||[]).length,summarized,failed};
 }

@@ -1687,7 +1687,8 @@ export default {
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
   },
   async scheduled(event:{cron?:string},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
-    ctx.waitUntil((async()=>{
+    // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
+    const work=(async()=>{
       if(event.cron==="*/5 * * * *"){
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
@@ -1703,7 +1704,7 @@ export default {
       }
       if(event.cron==="2,32,47 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
-        await summarizeJobsBatch(env,50).catch(()=>null);
+        await summarizeJobsBatch(env,100).catch(()=>null);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         await enrichAgencyBatch(env,30);
         return;
@@ -1733,6 +1734,8 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         return;
       }
-    })());
+    })();
+    ctx.waitUntil(work);
+    await work.catch(()=>null);
   }
 };
