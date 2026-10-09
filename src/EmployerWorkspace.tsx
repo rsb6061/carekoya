@@ -62,6 +62,7 @@ export function EmployerWorkspace(){
   const [candidates,setCandidates]=useState<Candidate[]>([]);
   const [talentState,setTalentState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
   const [talentTotal,setTalentTotal]=useState(0);
+  const [talentSearchedZip,setTalentSearchedZip]=useState('');
   const firstTalentLoad=useRef('');
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
   const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'|'jobs'>(()=>{const t=new URLSearchParams(window.location.search).get('tab');return t==='inbox'?'inbox':'openings'});
@@ -142,10 +143,13 @@ export function EmployerWorkspace(){
     setTalentState('loading');
     const params=new URLSearchParams();
     Object.entries(chosen).forEach(([k,v])=>{if(v&&(k==='radius'||v!=='all'))params.set(k,v)});
+    const primaryRole=openings.find(o=>o.status==='open')?.role;
+    if(primaryRole&&!chosen.role)params.set('preferredRole',primaryRole);
     try{
       const data=await api<{total:number;candidates:Candidate[]}>('/api/candidates?'+params.toString());
       setCandidates(data.candidates||[]);
       setTalentTotal(data.total||0);
+      setTalentSearchedZip(chosen.zip);
       setTalentState('ready');
       setTab('talent');
       setMessage('');
@@ -401,7 +405,7 @@ export function EmployerWorkspace(){
       </section>}
 
       {tab==='talent'&&<section className="section-block">
-        <div className="section-heading"><h2>Talent network</h2><p>Browse employer-visible caregivers, ranked by commute fit, confirmed availability and distance.</p></div>
+        <div className="section-heading"><h2>Talent network</h2><p>Browse all available caregivers. Prioritizes local commutes, hiring needs and confirmed availability.</p></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role: CNA, HHA, caregiver" />
           <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" />
@@ -413,7 +417,7 @@ export function EmployerWorkspace(){
         {talentState==='loading'?<div className="empty"><strong>Loading available caregivers…</strong></div>:
          talentState==='error'?<div className="empty"><strong>Couldn't load the network.</strong><div>Retry the search to view available profiles.</div></div>:
          talentState==='ready'&&candidates.length===0?<div className="empty"><strong>No employer-visible caregivers match these filters yet.</strong><div>Caregivers must confirm their availability and verify their profiles before employers can see them. Try All distances and clear the role or state filters.</div></div>:
-         talentState==='ready'?<><p className="talent-results-meta" role="status">{talentTotal} available caregiver{talentTotal===1?'':'s'} · {filters.zip?'Nearest to '+filters.zip+' first · ':''}Verified and actively looking</p><div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div></>:
+         talentState==='ready'?<><p className="talent-results-meta" role="status">{talentTotal} available caregiver{talentTotal===1?'':'s'} · {talentSearchedZip?'Near '+talentSearchedZip+' prioritized · ':''}Employer-visible and actively looking</p><div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div></>:
          <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
