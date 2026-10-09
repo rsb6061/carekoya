@@ -149,7 +149,53 @@ describe('employer booking and approval gates', ()=>{
     expect(drop.status).toBe(200);
     expect((await (await call(path,{headers})).json() as any).slots[0].status).toBe('cancelled');
     expect((await call(path,{method:'POST',headers,body:JSON.stringify({action:'cancel',slotId:slots[0].id})})).status).toBe(409);
-    expect((await call('/api/openings/'+opening.id+'/contact',{method:'POST',headers,body:'{}'})).status).toBe(400);
+    // Removal leaves no availability, but introductions remain an independent feature.
+    const noSlots=await call('/api/openings/'+opening.id+'/contact',{method:'POST',headers,body:'{}'});
+    expect(noSlots.status).toBe(200);
+  });
+});
+
+describe('optional interview scheduling and verified owner admin', ()=>{
+  it('sends an introduction without interview slots and reveals contact email only after the worker explicitly agrees', async()=>{
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
+    const opened=await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA day position',role:'CNA',zip:'21201'})});
+    const id=(await opened.json() as any).id;
+    const match=await call('/api/openings/'+id+'/match',{method:'POST',headers});
+    expect(match.status).toBe(200);
+    sent.length=0;
+    const contact=await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({limit:2})});
+    const outcome=await contact.json() as any;
+    expect(contact.status).toBe(200);
+    expect(outcome.sent).toBeGreaterThan(0);
+    const before=await (await call('/api/pipeline?openingId='+id,{headers})).json() as any;
+    expect(before.pipeline.every((p:any)=>p.contact_email==null)).toBe(true);
+    const invite=sent.find(m=>m.to==='baltimore@example.com');
+    expect(invite?.html).toContain('/respond?token=');
+    const token=decodeURIComponent(invite!.html!.match(/respond\\?token=([^"&\\s]+)/)![1]);
+    const interest=await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})});
+    expect(interest.status).toBe(200);
+    const after=await (await call('/api/pipeline?openingId='+id,{headers})).json() as any;
+    expect(after.pipeline.find((p:any)=>p.caregiver_id==='baltimore')?.contact_email).toBe('baltimore@example.com');
+    const employerNotice=sent.find(m=>m.subject.startsWith('Interested candidate:'));
+    expect(employerNotice?.html).toContain('baltimore@example.com');
+    const slots=await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any;
+    expect(slots.slots).toHaveLength(0);
+  });
+  it('authorizes the designated owner only after a real email-based account session',async()=>{
+    const owner='myersrebeccal@gmail.com';
+    const other='unapproved_admin@example.com';
+    expect((await DB.prepare('SELECT email FROM admin_authorizations WHERE email=?').bind(owner).first()) as any).toMatchObject({email:owner});
+    for(const [label,email] of [['owner',owner],['outsider',other]]){
+      const secret='admin-test-'+label;
+      await DB.prepare('INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES (?,?,?,?)')
+        .bind(crypto.randomUUID(),email,await sha256Hex(secret),new Date(Date.now()+86400000).toISOString()).run();
+      const check=await call('/api/admin/overview',{headers:{cookie:'__Host-cj_account='+secret}});
+      expect(check.status).toBe(label==='owner'?200:401);
+    }
+    sent.length=0;
+    const response=await call('/api/admin/auth/request',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({email:owner})});
+    expect(response.status).toBe(200);
+    expect(sent.some(m=>m.to===owner)).toBe(true);
   });
 });
 

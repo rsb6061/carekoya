@@ -161,6 +161,7 @@ export function CaregiverDashboard(){
             <div className="job-meta">{[invite.company,[invite.city,invite.state].filter(Boolean).join(', '),pay(invite.payMin,invite.payMax),invite.shifts].filter(Boolean).join(' · ')}</div>
             <div className="job-badges"><span className={invite.interviewBooked||invite.response==='interested'?'status applied':'status'}>{inviteStatus(invite)}</span>{invite.interviewAt&&<span className="badge">{when(invite.interviewAt)}</span>}</div>
             {invite.requirements&&<div className="job-card-cue">{invite.requirements}</div>}
+            {!invite.response&&invite.stage==='contacted'&&<p className="job-meta">If you choose interested, this employer can see your contact email and follow up directly. Interview scheduling is optional.</p>}
             {!invite.response&&invite.stage==='contacted'&&<div className="empty-actions">
               <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
               <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
