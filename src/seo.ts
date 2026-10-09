@@ -2,7 +2,7 @@ import type { FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, rowGeo, zipGeoJoin } from './geo';
 import { decodeHtml, normalizeTitle } from './jobDiscovery';
 import { descriptionBlocks, normalizePay, payLabel } from './jobFormat';
-import { US_STATES, jobsHubPath, slugify, usState, type UsState } from './usStates';
+import { US_STATES, jobsHubPath, parseJobsHubPath, slugify, usState, type UsState } from './usStates';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):(typeof v==='number'?String(v):'');
@@ -14,6 +14,10 @@ export const JOBS_PER_PAGE=50;
 export const CITY_PAGE_MIN_JOBS=3;
 /** States need this many current jobs before their jobs and hire-caregivers pages are indexable. */
 export const STATE_PAGE_MIN_JOBS=5;
+/** A state, city or metro needs this many current CNA or GNA jobs before its /cna-jobs page is indexable. */
+export const CNA_PAGE_MIN_JOBS=10;
+/** SQL (no table alias) for jobs a CNA can apply to: CNA or GNA roles, or caregiver jobs that ask for a CNA. */
+export const CNA_JOB_SQL="(upper(COALESCE(role,'')) IN ('CNA','GNA') OR lower(COALESCE(roles_json,'')) LIKE '%\"cna\"%' OR lower(COALESCE(roles_json,'')) LIKE '%\"gna\"%')";
 
 /** Cuts at the last word boundary so titles never end mid-word. */
 export function trimAtWord(text:string,max:number){
@@ -191,6 +195,15 @@ export const METROS:Metro[]=[
     'Rochester','Rochester Hills','Auburn Hills','Pontiac','Waterford','Clarkston','Lake Orion','Oxford','Commerce Township',
     'Wixom','Milford','Royal Oak','Ferndale','Madison Heights','Warren','Sterling Heights','Clinton Township','Macomb',
     'Shelby Township','Grosse Pointe']},
+  {state:'TX',slug:'houston',name:'Houston',area:'Houston, Sugar Land, Katy and the surrounding suburbs',zipPrefixes:['770','772','773','774','775'],places:[
+    'Houston','Sugar Land','Katy','Humble','Kingwood','Conroe','The Woodlands','Spring','Cypress','Tomball','Pearland','Friendswood',
+    'League City','Webster','Seabrook','Pasadena','Baytown','Missouri City','Stafford','Richmond','Rosenberg','Bellaire','Arcola']},
+  {state:'TX',slug:'dallas',name:'Dallas',area:'Dallas and its suburbs',zipPrefixes:['750','751','752','753'],places:[
+    'Dallas','East Dallas','Lake Highlands','Garland','Mesquite','Irving','Plano','Richardson','Carrollton','Farmers Branch','Addison',
+    'Desoto','DeSoto','Cedar Hill','Duncanville','Grand Prairie','Mckinney','McKinney','Frisco','Allen','Rowlett','Rockwall','Sunnyvale',
+    'Forney','Coppell','Lewisville','Flower Mound','Highland Village','Little Elm']},
+  {state:'NC',slug:'raleigh',name:'Raleigh',area:'Raleigh and Wake and Johnston counties',zipPrefixes:['275','276'],places:[
+    'Raleigh','Cary','Garner','Clayton','Apex','Wake Forest','Knightdale','Wendell','Zebulon','Fuquay-Varina','Holly Springs','Morrisville','Smithfield']},
   {state:'MA',slug:'boston',name:'Boston',area:'Boston and its inner suburbs',zipPrefixes:['020','021','022','024'],places:[
     'Boston','Allston','Brighton','Hyde Park','South Boston','Mattapan','Dorchester','Roxbury','Jamaica Plain','Roslindale',
     'West Roxbury','Charlestown','East Boston','Cambridge','Somerville','Brookline','Newton','Waltham','Watertown','Belmont',
@@ -206,12 +219,12 @@ function metroWhere(m:Metro){
     args:[m.state,...m.places.map(p=>p.toLowerCase()),...m.zipPrefixes] as unknown[]};
 }
 /** Current job counts per metro, optionally limited to one state. */
-export async function metroTotals(env:FeatureEnv,stateCode=''){
+export async function metroTotals(env:FeatureEnv,stateCode='',cna=false){
   if(!env.DB)return [] as {metro:Metro;count:number;lastmod:string}[];
   const db=env.DB;
   return Promise.all(METROS.filter(m=>!stateCode||m.state===stateCode).map(async metro=>{
     const w=metroWhere(metro);
-    const row=await db.prepare(`SELECT COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql}`).bind(...w.args).first<Row>();
+    const row=await db.prepare(`SELECT COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql}${cna?' AND '+CNA_JOB_SQL:''}`).bind(...w.args).first<Row>();
     return {metro,count:asNum(row?.count),lastmod:clean(row?.lastmod,40)};
   }));
 }
@@ -222,20 +235,21 @@ function withMetros<T extends {slug:string;count:number}>(rows:T[],totals:{metro
 }
 
 /** One page of a state (or city) jobs hub plus the cities worth linking to. */
-export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:string;role?:string;page?:number}){
+export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:string;role?:string;page?:number;cna?:boolean}){
   const empty={jobs:[] as Row[],total:0,city:'',cities:[] as {city:string;slug:string;count:number}[],page:1,pages:1,metro:null as Metro|null,places:[] as {city:string;slug:string;count:number}[]};
   if(!env.DB)return empty;
+  const cnaOnly=opts.cna?' AND '+CNA_JOB_SQL:'';
   const cityRows=((await env.DB.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs
-    WHERE is_published=1 AND status='current' AND state=? AND COALESCE(city,'')!='' GROUP BY lower(city) ORDER BY count DESC LIMIT 200`)
+    WHERE is_published=1 AND status='current' AND state=? AND COALESCE(city,'')!=''${cnaOnly} GROUP BY lower(city) ORDER BY count DESC LIMIT 200`)
     .bind(opts.state.code).all<Row>()).results||[]);
-  const metros=await metroTotals(env,opts.state.code);
+  const metros=await metroTotals(env,opts.state.code,!!opts.cna);
   const cities=withMetros(cityRows.map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug),
     metros,t=>({city:t.metro.name,slug:t.metro.slug,count:t.count}));
   const metro=opts.citySlug?metroFor(opts.state.code,opts.citySlug):null;
   let city=opts.citySlug?cities.find(c=>c.slug===opts.citySlug)?.city||'':'';
   if(opts.citySlug&&!city&&cityRows.length>=200){
     // Big states have more cities than the linked list; the sitemap still links their pages.
-    const all=((await env.DB.prepare(`SELECT DISTINCT city FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state=? AND COALESCE(city,'')!=''`)
+    const all=((await env.DB.prepare(`SELECT DISTINCT city FROM caregiver_jobs WHERE is_published=1 AND status='current' AND state=? AND COALESCE(city,'')!=''${cnaOnly}`)
       .bind(opts.state.code).all<Row>()).results||[]);
     city=all.map(r=>clean(r.city,120)).find(c=>slugify(c)===opts.citySlug)||'';
   }
@@ -244,6 +258,7 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
   const args:unknown[]=[opts.state.code];
   if(metro&&city){const w=metroWhere(metro);where="is_published=1 AND status='current' AND "+w.sql;args.splice(0,args.length,...w.args)}
   else if(city){where+=' AND lower(city)=lower(?)';args.push(city)}
+  where+=cnaOnly;
   if(opts.role){where+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,\'\')) LIKE lower(?))';args.push(opts.role,'%"'+opts.role+'"%')}
   const total=asNum((await env.DB.prepare('SELECT COUNT(*) AS count FROM caregiver_jobs WHERE '+where).bind(...args).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
@@ -259,7 +274,8 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
 
 /** States and cities with enough current jobs to deserve an indexable hub page. */
 export async function hubLocations(env:FeatureEnv){
-  if(!env.DB)return {states:[] as {state:UsState;count:number;lastmod:string}[],cities:[] as {state:UsState;slug:string;count:number;lastmod:string}[]};
+  if(!env.DB)return {states:[] as {state:UsState;count:number;lastmod:string}[],cities:[] as {state:UsState;slug:string;count:number;lastmod:string}[],
+    cnaStates:[] as {state:UsState;count:number;lastmod:string}[],cnaCities:[] as {state:UsState;slug:string;count:number;lastmod:string}[]};
   const stateRows=(await env.DB.prepare("SELECT state,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE is_published=1 AND status='current' GROUP BY state").all<Row>()).results||[];
   const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count),lastmod:clean(r.lastmod,40)})).filter((s):s is {state:UsState;count:number;lastmod:string}=>!!s.state&&s.count>=STATE_PAGE_MIN_JOBS);
   const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs
@@ -268,7 +284,16 @@ export async function hubLocations(env:FeatureEnv){
   const cities=cityRows.map(r=>({state:usState(clean(r.state,20)),slug:slugify(clean(r.city,120)),count:asNum(r.count),lastmod:clean(r.lastmod,40)}))
     .filter((c):c is {state:UsState;slug:string;count:number;lastmod:string}=>!!c.state&&!!c.slug&&!metros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug));
   for(const t of metros){const state=usState(t.metro.state);if(state)cities.push({state,slug:t.metro.slug,count:t.count,lastmod:t.lastmod})}
-  return {states,cities};
+  // /cna-jobs pages: the same places, counting only jobs a CNA can apply to.
+  const cnaStateRows=(await env.DB.prepare(`SELECT state,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE is_published=1 AND status='current' AND ${CNA_JOB_SQL} GROUP BY state HAVING COUNT(*)>=?`).bind(CNA_PAGE_MIN_JOBS).all<Row>()).results||[];
+  const cnaStates=cnaStateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count),lastmod:clean(r.lastmod,40)})).filter((s):s is {state:UsState;count:number;lastmod:string}=>!!s.state);
+  const cnaMetros=(await metroTotals(env,'',true)).filter(t=>t.count>=CNA_PAGE_MIN_JOBS);
+  const cnaCityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs
+    WHERE is_published=1 AND status='current' AND COALESCE(city,'')!='' AND ${CNA_JOB_SQL} GROUP BY state,lower(city) HAVING COUNT(*)>=?`).bind(CNA_PAGE_MIN_JOBS).all<Row>()).results||[];
+  const cnaCities=cnaCityRows.map(r=>({state:usState(clean(r.state,20)),slug:slugify(clean(r.city,120)),count:asNum(r.count),lastmod:clean(r.lastmod,40)}))
+    .filter((c):c is {state:UsState;slug:string;count:number;lastmod:string}=>!!c.state&&!!c.slug&&!cnaMetros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug));
+  for(const t of cnaMetros){const state=usState(t.metro.state);if(state)cnaCities.push({state,slug:t.metro.slug,count:t.count,lastmod:t.lastmod})}
+  return {states,cities,cnaStates,cnaCities};
 }
 
 const PUBLISHED="is_published=1 AND status='current'";
@@ -307,8 +332,20 @@ const CITY_KEY_SQL="trim(replace(replace(replace(replace(replace(lower(city),'.'
  * Accepts "Texas", "TX", "Houston", "Houston, TX" and "Houston Texas".
  */
 export async function resolveJobsSearch(env:FeatureEnv,query:string):Promise<{zip:string}|{path:string}|null>{
-  const q=query.replace(/\s+/g,' ').trim().slice(0,120);
+  // "cna jobs towson", "CNA Baltimore" and "gna jobs in maryland" open the place's /cna-jobs page.
+  const raw=query.replace(/\s+/g,' ').trim().slice(0,120);
+  const cna=/\b[cg]nas?\b/i.test(raw);
+  const q=raw.replace(/\b(?:[cg]nas?|caregivers?|jobs?|openings?|hiring|near me|in)\b/gi,' ').replace(/\s+/g,' ').trim()||raw;
   if(!q)return null;
+  const found=await resolvePlace(env,q);
+  if(cna&&found&&'path' in found){
+    const hub=parseJobsHubPath(found.path);
+    if(hub)return {path:jobsHubPath(hub.state,hub.citySlug,true)};
+  }
+  return found;
+}
+
+async function resolvePlace(env:FeatureEnv,q:string):Promise<{zip:string}|{path:string}|null>{
   const zip=q.match(/^(\d{5})(?:-\d{4})?$/);
   if(zip)return {zip:zip[1]};
   const whole=usState(q);
@@ -380,10 +417,11 @@ export async function stateHiringStats(env:FeatureEnv,state:UsState):Promise<Sta
 }
 
 /** Pay, roles and top employers across a metro's current jobs, for the metro jobs page. */
-export async function metroJobStats(env:FeatureEnv,metro:Metro){
+export async function metroJobStats(env:FeatureEnv,metro:Metro,cna=false){
   const out={roles:[] as {role:string;count:number}[],employers:[] as {name:string;count:number}[],hourly:null as StateHiringStats['hourly']};
   if(!env.DB)return out;
-  const w=metroWhere(metro);
+  const base=metroWhere(metro);
+  const w={sql:base.sql+(cna?' AND '+CNA_JOB_SQL:''),args:base.args};
   const [roles,employers,payRows]=await Promise.all([
     env.DB.prepare(`SELECT role,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql} AND COALESCE(role,'')!='' GROUP BY role ORDER BY count DESC`).bind(...w.args).all<Row>(),
     env.DB.prepare(`SELECT employer_name,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND ${w.sql} AND COALESCE(employer_name,'')!='' GROUP BY employer_name ORDER BY count DESC,employer_name LIMIT 8`).bind(...w.args).all<Row>(),
@@ -396,13 +434,14 @@ export async function metroJobStats(env:FeatureEnv,metro:Metro){
   return out;
 }
 
-export function metroJobStatsHtml(metro:Metro,s:Awaited<ReturnType<typeof metroJobStats>>){
+export function metroJobStatsHtml(metro:Metro,s:Awaited<ReturnType<typeof metroJobStats>>,kind='Caregiver'){
+  const jobs=kind==='CNA'?'CNA':'caregiver';
   const name='the '+htmlText(metro.name)+' area';
   const parts:string[]=[];
-  if(s.hourly)parts.push('<h2>Caregiver pay in '+name+'</h2><p>Across '+s.hourly.sample+' current caregiver jobs in '+name+' that list an hourly rate, the middle posted rate is '+dollars(s.hourly.median)+
+  if(s.hourly)parts.push('<h2>'+kind+' pay in '+name+'</h2><p>Across '+s.hourly.sample+' current '+jobs+' jobs in '+name+' that list an hourly rate, the middle posted rate is '+dollars(s.hourly.median)+
     ' an hour. Half of them pay between '+dollars(s.hourly.low)+' and '+dollars(s.hourly.high)+'.</p>');
   if(s.roles.length)parts.push('<h2>Roles hiring in '+name+'</h2><ul>'+s.roles.map(r=>'<li>'+htmlText(ROLE_NAMES[r.role]||r.role)+': '+r.count+' open job'+(r.count===1?'':'s')+'</li>').join('')+'</ul>');
-  if(s.employers.length)parts.push('<h2>Employers with the most open caregiver jobs in '+name+'</h2><p>'+s.employers.map(e=>htmlText(e.name)+' ('+e.count+')').join(', ')+'.</p>');
+  if(s.employers.length)parts.push('<h2>Employers with the most open '+jobs+' jobs in '+name+'</h2><p>'+s.employers.map(e=>htmlText(e.name)+' ('+e.count+')').join(', ')+'.</p>');
   return parts.join('');
 }
 

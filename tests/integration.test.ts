@@ -620,6 +620,39 @@ describe('audit fixes: SEO responses', ()=>{
       await DB.prepare("DELETE FROM caregiver_jobs WHERE id IN ('job-towson-1','job-towson-2','job-towson-3','job-parkville','job-phoenix-az')").run();
     }
   });
+  it('CNA pages list only CNA and GNA jobs, link to the caregiver page, and the search box opens them', async()=>{
+    const ids=Array.from({length:10},(_,i)=>'job-cna-'+i);
+    for(const id of ids)await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,'CNA Nights','CNA','Sunrise Home Care','Towson','MD','21204','current',1)")
+      .bind(id,id,'https://sunrisecare.test/jobs/'+id).run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-companion','org-test','job-companion','test','https://sunrisecare.test/jobs/c','Companion','Caregiver','Sunrise Home Care','Towson','MD','21204','current',1)").run();
+    try{
+      // Two Baltimore CNA jobs from earlier fixtures plus ten Towson ones; the companion job stays on the caregiver page only.
+      const page=await call('/cna-jobs/maryland/baltimore',{},htmlAssets);
+      expect(page.status).toBe(200);
+      const html=await page.text();
+      expect(html).toContain('<title>CNA Jobs in Baltimore, MD Area: GNA &amp; Nursing Assistant</title>');
+      expect(html).toContain('<h1>CNA and GNA jobs in the Baltimore area</h1>');
+      expect(html).toContain('12 current CNA and GNA jobs in the Baltimore area');
+      expect(html).not.toContain('Companion');
+      expect(html).not.toContain('noindex');
+      expect(html).toContain('<a href="/caregiver-jobs/maryland/baltimore">See all 13 caregiver jobs in the Baltimore area</a>');
+      const caregiver=await (await call('/caregiver-jobs/maryland/baltimore',{},htmlAssets)).text();
+      expect(caregiver).toContain('<h1>Caregiver jobs in the Baltimore area</h1>');
+      expect(caregiver).toContain('<a href="/cna-jobs/maryland/baltimore">See 12 CNA and GNA jobs in the Baltimore area</a>');
+      const go=async(q:string)=>(await call('/caregiver-jobs?q='+encodeURIComponent(q),{},htmlAssets)).headers.get('location');
+      expect(await go('cna jobs towson')).toBe('https://carejoys.com/cna-jobs/maryland/towson');
+      expect(await go('CNA Baltimore, MD')).toBe('https://carejoys.com/cna-jobs/maryland/baltimore');
+      expect(await go('gna jobs in maryland')).toBe('https://carejoys.com/cna-jobs/maryland');
+      const api=await (await call('/api/public/jobs-hub?state=MD&city=baltimore&cna=1')).json() as any;
+      expect([api.total,api.cna,api.sibling]).toEqual([12,true,13]);
+      const sitemap=await (await call('/sitemaps/locations.xml')).text();
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland/baltimore</loc>');
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland/towson</loc>');
+      expect(sitemap).toContain('<loc>https://carejoys.com/cna-jobs/maryland</loc>');
+    }finally{
+      await DB.prepare("DELETE FROM caregiver_jobs WHERE id LIKE 'job-cna-%' OR id='job-companion'").run();
+    }
+  });
   it('/caregiver-jobs lists every state with jobs and the search box resolves places', async()=>{
     await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-tx','org-test','job-tx','test','https://sunrisecare.test/jobs/2','HHA Weekends','HHA','Sunrise Home Care','San Antonio','TX','78201','current',1)").run();
     const page=await call('/caregiver-jobs',{},htmlAssets);
