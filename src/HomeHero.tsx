@@ -13,17 +13,6 @@ const pay=(j:HomeJob)=>{
   if(j.payMin&&j.payMax&&j.payMin!==j.payMax)return fmt(j.payMin)+'–'+fmt(j.payMax)+'/hr';
   return j.payMax?fmt(j.payMax)+'/hr':'';
 };
-function ago(sqlTime:string){
-  const t=Date.parse(sqlTime.replace(' ','T')+'Z');
-  if(!Number.isFinite(t))return 'New';
-  const mins=Math.max(1,Math.round((Date.now()-t)/60000));
-  if(mins<60)return 'Found '+mins+' min ago';
-  const hours=Math.round(mins/60);
-  if(hours<24)return 'Found '+hours+' hr ago';
-  const days=Math.round(hours/24);
-  return 'Found '+days+(days===1?' day':' days')+' ago';
-}
-const TINTS=['#fff3c9','#dcf5e7','#e6e1ff','#ffe1e6'];
 
 // One request serves both the hero and the dashboard section.
 let statsRequest:Promise<Stats|null>|null=null;
@@ -63,35 +52,28 @@ export function HomeMatchesSection(){
   </section>;
 }
 
-// A picture of the caregiver dashboard, filled with the newest real openings so it never shows made-up jobs.
+// A scaled-down copy of the real caregiver dashboard (/dashboard), filled with the newest real openings.
+const TONES=['sky','mint','lilac','peach'];
 function DashboardPreview({stats}:{stats:Stats|null}){
   const jobs=stats?.latest||[];
   return <div className="dash-preview" aria-label="Preview of the CareJoys caregiver dashboard">
-    <aside className="dash-side" aria-hidden="true">
-      <div className="dash-brand"><span>C</span> CareJoys</div>
-      <div className="dash-nav-label">Dashboard</div>
-      <div className="dash-nav active">My matches</div>
-      <div className="dash-nav">Browse jobs</div>
-      <div className="dash-nav">Applications</div>
-      <div className="dash-nav">Weekly email</div>
-    </aside>
-    <div className="dash-main">
-      <div className="dash-top">
-        <strong>New jobs CareJoys found</strong>
-        <span className="dash-search">Search CNA, caregiver, GNA jobs…</span>
+    <div className="dash-bar" aria-hidden="true">
+      <span className="dash-brand">CareJoys</span>
+      <span className="dash-bar-links"><span>Jobs</span><span className="dash-account"><span className="dash-avatar">M</span>Maria ▾</span></span>
+    </div>
+    <div className="dash-body">
+      <div className="dash-head">
+        <div><div className="dash-hi">Hi Maria.</div><div className="dash-sub">CNA · Baltimore · MD</div></div>
+        <span className="dash-pill" aria-hidden="true"><span className="dash-ring"/>Edit profile<span className="dash-pct">80% complete</span></span>
       </div>
-      {stats&&<div className="dash-stats">
-        <div><b>{stats.jobs.toLocaleString('en-US')}</b><span>open caregiver jobs</span></div>
-        <div><b>{stats.newThisWeek.toLocaleString('en-US')}</b><span>found this week</span></div>
-        <div><b>{rounded(stats.employersWatched)}</b><span>employers checked weekly</span></div>
-      </div>}
+      <div className="dash-section-head"><strong>Best matches near you</strong><span>Ranked by your credentials, pay and distance.</span></div>
       <div className="dash-cards">
-        {jobs.length?jobs.map((j,i)=><a key={j.id} className="dash-card" href={'/jobs/'+encodeURIComponent(j.id)} style={{background:TINTS[i%TINTS.length]}}>
-          <span className="dash-card-employer">{j.employerName}</span>
+        {jobs.length?jobs.map((j,i)=><a key={j.id} className={'dash-card dash-'+TONES[i%4]} href={'/jobs/'+encodeURIComponent(j.id)}>
           <strong>{j.title}</strong>
-          <span className="dash-card-meta">{j.city}, {j.state}{pay(j)?' · '+pay(j):''}</span>
-          <span className="dash-card-foot"><em>{ago(j.firstSeenAt)}</em><span className="dash-apply">{j.applyForMe?'Apply for me':'Apply'}</span></span>
-        </a>):[0,1,2,3].map(i=><div key={i} className="dash-card skeleton" style={{background:TINTS[i]}} aria-hidden="true"/>)}
+          <span className="dash-card-meta">{j.employerName} · {j.city}, {j.state}</span>
+          {pay(j)&&<span className="dash-badge">{pay(j)}</span>}
+          <span className="dash-apply">{j.applyForMe?'Apply for me':'Apply'}</span>
+        </a>):[0,1,2,3].map(i=><div key={i} className={'dash-card skeleton dash-'+TONES[i]} aria-hidden="true"/>)}
       </div>
     </div>
   </div>;
