@@ -32,11 +32,47 @@ export async function caregiverForIdentity(env:FeatureEnv,identity:CaregiverIden
 }
 
 const CREDENTIALS=['cna','gna','hha','pca','dsp','cmt','lpn','rn'];
+const KEY_LICENSES=new Set(['cna','gna','cmt','lpn','rn']);
+const cleanShift=(v:string)=>v.toLowerCase().replace(/[^a-z]+/g,' ');
+/** Explicit hard conflicts, never inferred from an unlisted pay/schedule/qualification. */
+export function jobConflict(c:Row,j:Row):string|null{
+  const mine=credentialsIn([clean(c.role),clean(c.certifications)].join(' ').toLowerCase());
+  const titleText=[clean(j.role),clean(j.title)].join(' ').toLowerCase();
+  const requirements=credentialsIn(titleText);
+  // Mixed-role jobs are acceptable if at least one advertised role matches the candidate.
+  const licensed=[...requirements].filter(k=>KEY_LICENSES.has(k));
+  if(licensed.length&&!licensed.some(k=>mine.has(k))){
+    // For an explicit licensed-only title, never suggest an unqualified candidate.
+    const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
+    if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
+  }
+  const min=Number(c.hourly_rate_min||0);
+  const advertisedMax=Number(j.pay_max||j.pay_min||0);
+  if(min>0&&advertisedMax>0&&(!j.pay_period||/hour|hr/i.test(clean(j.pay_period)))&&advertisedMax<min)return 'below minimum hourly pay';
+  const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
+  const offered=clean(j.employment_type).toLowerCase().replace(/[^a-z,]+/g,'_');
+  if(wants.length&&offered&&['full_time','part_time','per_diem','temporary','contract'].some(v=>offered.includes(v))&&!wants.some(v=>offered.includes(v)))return 'employment type conflict';
+  const shift=cleanShift(clean(c.shift_preferences));
+  const jobShift=cleanShift([clean(j.title),clean(j.shift_preferences)].join(' '));
+  const labels:{name:string;re:RegExp}[]=[
+    {name:'day',re:/\\b(day|days|morning|mornings)\\b/},
+    {name:'evening',re:/\\b(evening|evenings|afternoon|afternoons)\\b/},
+    {name:'night',re:/\\b(night|nights|overnight|overnights)\\b/}
+  ];
+  const candidate=labels.filter(x=>x.re.test(shift)).map(x=>x.name);
+  const advertised=labels.filter(x=>x.re.test(jobShift)).map(x=>x.name);
+  if(candidate.length&&advertised.length&&!candidate.some(v=>advertised.includes(v)))return 'shift conflict';
+  const weekendsOnly=/\\bweekends? only\\b/.test(shift);
+  const jobWeekdaysOnly=/\\bweekdays? only\\b/.test(jobShift)||/\\bmonday (through|to|-) friday\\b/.test(jobShift);
+  if(weekendsOnly&&jobWeekdaysOnly)return 'schedule conflict';
+  return null;
+}
 const LICENSED=['cna','gna','cmt','lpn','rn'];
 const credentialsIn=(text:string)=>new Set(CREDENTIALS.filter(k=>new RegExp('\\b'+k+'\\b').test(text)));
 
 /** How well a job fits a caregiver (higher is better): credentials first, then pay, distance, hours and freshness. */
 export function jobFit(c:Row,j:Row,distanceMiles:number|null,radius:number,now=Date.now()){
+  if(jobConflict(c,j))return -100000;
   let score=0;
   const mine=credentialsIn([clean(c.role),clean(c.certifications)].join(' ').toLowerCase());
   const jobText=[clean(j.role),clean(j.title)].join(' ').toLowerCase();
@@ -71,7 +107,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   }else if(clean(c.state)){jobsSql+=' AND j.state=?';jobArgs.push(clean(c.state))}
   jobsSql+=" ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted='' THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT 200";
   const jobRows=await env.DB.prepare(jobsSql).bind(...jobArgs).all<Row>();
-  return (jobRows.results||[]).map((j,i)=>{const g=rowGeo(j);const d=geo&&g?haversineMiles(geo,g):null;return {j,d,i,fit:jobFit(c,j,d,radius)}})
+  return (jobRows.results||[]).filter(j=>!jobConflict(c,j)).map((j,i)=>{const g=rowGeo(j);const d=geo&&g?haversineMiles(geo,g):null;return {j,d,i,fit:jobFit(c,j,d,radius)}})
     .filter(x=>!geo||(x.d!==null&&x.d<=radius))
     .sort((a,b)=>b.fit-a.fit||a.i-b.i).slice(0,limit)
     .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:!!clean(j.claimed_employer_id),distanceMiles:d===null?null:Math.round(d*10)/10}));
