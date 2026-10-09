@@ -190,14 +190,15 @@ export function schoolPlacementInviteEmail(input:{
   claimLink:string;
 }) {
   return {
-    subject:`Free placement network for ${input.programName} graduates`,
-    html:shell('Free placement network for your CNA/GNA graduates',`
-      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.contactName||'there')},</p>
-      <p style="font-size:16px;line-height:1.6;color:#5f5972">CareJoys is building a free Maryland placement network for nursing-assistant graduates. Students create one caregiver profile and can be connected with relevant local care employers based on role, location, shifts, and availability.</p>
-      <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>There is no charge to the training program or graduate.</strong></p>
-      <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Set up ${esc(input.programName)}</a></p>
-      <p style="font-size:14px;line-height:1.6;color:#6e6882">Each program gets a unique graduate referral link plus placement attribution from signup through employer interest, interview, and hire.</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys is building a free Maryland placement network for nursing-assistant graduates. Students create one caregiver profile and can be connected with relevant local care employers. There is no charge to the training program or graduate.\n\nSet up ${input.programName}:\n${input.claimLink}\n\nEach program gets a unique graduate referral link plus placement attribution from signup through interview and hire.\n\nCareJoys · carejoys.com`
+    subject:`A free job page for ${input.programName} graduates`,
+    html:shell('A free job page for your CNA/GNA graduates',`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      <p style="${P}">CareJoys lists current caregiver, CNA and GNA jobs near your graduates in one place, with pay shown up front. Graduates can look at nearby jobs before they sign up, and they choose which employers see their profile.</p>
+      <p style="${P}"><strong>It's free for your program and your graduates.</strong></p>
+      <p style="${P}">${esc(input.programName)} already has its own CareJoys page. Share it with students, and set it up to see how many graduates find work:</p>
+      <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">See ${esc(input.programName)}'s page</a></p>
+      <p style="${P}">One more ask: could you add the link to your website's career resources or "after graduation" page? Suggested line: <em>Find CNA and caregiver jobs near you: CareJoys (free)</em>, linking to ${esc(input.claimLink)}</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys lists current caregiver, CNA and GNA jobs near your graduates in one place, with pay shown up front. Graduates can look at nearby jobs before they sign up, and they choose which employers see their profile. It's free for your program and your graduates.\n\n${input.programName} already has its own CareJoys page. Share it with students, and set it up to see how many graduates find work:\n${input.claimLink}\n\nOne more ask: could you add the link to your website's career resources or "after graduation" page? Suggested line: "Find CNA and caregiver jobs near you: CareJoys (free)", linking to ${input.claimLink}\n\nCareJoys · carejoys.com`
   };
 }
 
