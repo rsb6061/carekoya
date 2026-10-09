@@ -119,7 +119,7 @@ export function PricingPage(){
         <div>
           <div className="modal-kicker">For home-care agencies</div>
           <h1>Hire caregivers who want the job.</h1>
-          <p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested before you spend time on them. Already listed? <a className="text-link" href="/hire-caregivers/maryland#claim-agency">Claim your agency free.</a></p>
+          <p>CareJoys matches your openings with local CNAs, GNAs, HHAs, PCAs and caregivers, then confirms who is interested before you spend time on them. Already listed? <a className="text-link" href="/hire-caregivers#claim-agency">Claim your agency free.</a></p>
         </div>
         <div className="pricing-offer">
           <div className="pricing-toggle" role="group" aria-label="Billing period">

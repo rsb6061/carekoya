@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { TurnstileField } from './TurnstileField';
 import { useCaregiverAuth } from './caregiverAuth';
 import { Shell } from './LoginPage';
+import { AgencyFinder } from './AgencyFinder';
 import './workspace.css';
 
 type Kind = 'employer' | 'school';
@@ -42,6 +43,13 @@ function IntakePage({ kind }: { kind: Kind }) {
   // A signed-in employer's company, name, phone and ZIP are already on file.
   const [known, setKnown] = useState<{companyName?:string;contactName?:string;phone?:string;zip?:string}|null>(null);
   useEffect(() => {
+    if(kind!=='employer')return;
+    const goToClaim=()=>{if(window.location.hash==='#claim-agency')window.requestAnimationFrame(()=>document.getElementById('claim-agency')?.scrollIntoView({block:'start'}))};
+    goToClaim();
+    window.addEventListener('hashchange',goToClaim);
+    return ()=>window.removeEventListener('hashchange',goToClaim);
+  },[kind,auth.loading]);
+  useEffect(() => {
     if (kind !== 'employer' || !auth.isAuthenticated) return;
     fetch('/api/session').then(r => r.ok ? r.json() : null).then((d: any) => setKnown(d?.employer || {})).catch(() => setKnown({}));
   }, [kind, auth.isAuthenticated]);
@@ -78,7 +86,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     <p className="login-sub">{kind === 'employer'
       ? 'Tell us who you need. CareJoys creates the opening, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>
-    {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a>.</p>}
+    {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="#claim-agency">Claim your agency free</a>.</p>}
     <form className="intake-form" onSubmit={handleSubmit}>
       {kind === 'employer' ? <>
         <div className="form-grid">
@@ -109,7 +117,13 @@ function IntakePage({ kind }: { kind: Kind }) {
       </>}
       <TurnstileField onToken={setTurnstileToken} />
       {status === 'error' && <div className="notice">{message}</div>}
-      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Find matches' : 'Request addition'}</button>
+      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Create opening & continue' : 'Request addition'}</button>
     </form>
-  </div></Shell>;
+  </div>
+  {kind==='employer'&&<section id="claim-agency" className="intake-agency-claim" aria-label="Claim your agency">
+    <h2>Already a licensed home-care agency?</h2>
+    <p>Find your agency in our directory and claim it free. We’ll verify your agency before linking its jobs and caregiver matches to your workspace.</p>
+    <AgencyFinder/>
+  </section>}
+  </Shell>;
 }

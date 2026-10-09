@@ -276,6 +276,14 @@ export async function interviewSlots(request:Request,env:FeatureEnv,workspaceId:
     return json({ok:true,slots:rows.results||[]});
   }
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
+  if(data?.action==='cancel'){
+    const slotId=clean(data.slotId,100);
+    if(!slotId)return json({ok:false,error:'Choose an interview time to remove.'},{status:400});
+    const removed=await env.DB.prepare("UPDATE interview_slots SET status='cancelled',updated_at=CURRENT_TIMESTAMP WHERE id=? AND opening_id=? AND employer_id=? AND status='available' AND datetime(starts_at)>datetime('now')")
+      .bind(slotId,openingId,workspaceId).run();
+    if(asNumber(removed.meta?.changes)!==1)return json({ok:false,error:'This time is no longer available to remove.'},{status:409});
+    return json({ok:true,removed:1});
+  }
   const raw=Array.isArray(data?.slots)?data!.slots as Record<string,unknown>[]:[];
   if(raw.length<1||raw.length>10)return json({ok:false,error:'Add 1–10 interview times.'},{status:400});
   let added=0;
