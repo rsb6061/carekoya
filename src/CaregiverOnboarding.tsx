@@ -67,7 +67,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [emailAlerts,setEmailAlerts]=useState(false);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
   const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
-  const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);return draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')?'
+  const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);return draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')?('$'+p.get('payMin')+'+/hr'):'',shifts:p.get('shifts')||''};});
   const [parsed,setParsed]=useState<ParsedResume|null>(draft?.parsed||null);
   const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(draft?.fileMeta||null);
   const [needsState,setNeedsState]=useState(false);
