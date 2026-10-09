@@ -1,7 +1,7 @@
 import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
-import { homeStats, homeStatsResponse, roundedCount } from './homeStats';
+import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
@@ -346,7 +346,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const jobTotal=jobStates.reduce((sum,s)=>sum+s.count,0);
     const topStates=[...jobStates].sort((a,b)=>b.count-a.count).slice(0,12);
     const stats=await homeStats(env).catch(()=>null);
-    const watched=stats?.employersWatched?roundedCount(stats.employersWatched)+' ':'';
+    const watched=stats&&stats.employersWatched>=1000?Math.floor(stats.employersWatched/1000)+'k+ ':'';
     const homeMore='<h2>How CareJoys works for caregivers</h2><ol><li>Search caregiver, CNA, HHA and PCA jobs near your ZIP code and see pay, shifts and distance first.</li>'+
       '<li>Create one free profile with your pay, shift and commute preferences. A resume is optional.</li>'+
       '<li>Get matched to better jobs and choose which employers see your profile. Optional weekly job emails.</li></ol>'+
@@ -358,7 +358,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"CNA & Caregiver Jobs Near You, Free to Apply | CareJoys",
       description:"Be first to better-paying CNA and caregiver jobs near you. CareJoys AI checks employer job pages every week and helps you apply. Free.",
       canonical:"/",
-      snapshot:'<main><h1>Be first to every better-paying CNA and caregiver job near you. Let AI do the legwork.</h1><p>CareJoys checks the job pages of '+watched+'home-care agencies, nursing homes and senior-care employers every week and shows you new openings with pay. On jobs marked Apply for me, CareJoys AI fills in the employer\'s application from your free profile. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Be first to every better-paying CNA and caregiver job near you. Let AI do the legwork.</h1><p>CareJoys finds jobs from '+watched+'home-care agencies and assisted living facilities and matches you with the best ones, automatically. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}

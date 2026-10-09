@@ -7,6 +7,8 @@ type Stats={jobs:number;states:number;employersWatched:number;newThisWeek:number
 
 // Rounded down to the hundred so the claim stays true between refreshes.
 const rounded=(n:number)=>n<1000?n.toLocaleString('en-US'):(Math.floor(n/100)*100).toLocaleString('en-US')+'+';
+// "22k+": rounded down to the thousand.
+const thousands=(n:number)=>Math.floor(n/1000)+'k+';
 const pay=(j:HomeJob)=>{
   const fmt=(n:number)=>'$'+(Number.isInteger(n)?n:n.toFixed(2));
   if(j.payMin&&j.payMax&&j.payMin!==j.payMax)return fmt(j.payMin)+'–'+fmt(j.payMax)+'/hr';
@@ -29,7 +31,7 @@ export function HomeHero(){
   useEffect(()=>{
     fetch('/api/public/home-stats').then(r=>r.ok?r.json():null).then(b=>{if(b?.ok)setStats(b)}).catch(()=>{});
   },[]);
-  const watched=stats?.employersWatched?rounded(stats.employersWatched)+' ':'';
+  const watched=stats&&stats.employersWatched>=1000?thousands(stats.employersWatched)+' ':'';
   return <section className="hero home-ai-hero">
     <div className="wrap">
       <div className="ai-badge"><Sparkles size={15} aria-hidden="true"/> AI job agent for caregivers <span>Free</span></div>
@@ -37,7 +39,7 @@ export function HomeHero(){
         <span className="hero-title-line">Be first to every better-paying CNA and caregiver job near you.</span>{' '}
         <span className="hero-title-accent">Let AI do the legwork.</span>
       </h1>
-      <p>CareJoys checks the job pages of {watched&&<strong>{watched}</strong>}home-care agencies, nursing homes and senior-care employers every week and shows you new openings with pay. On jobs marked <strong>Apply&nbsp;for&nbsp;me</strong>, CareJoys AI fills in the employer’s application from your free profile.</p>
+      <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
       <HomeJobPreview/>
       <div className="also-on">
         <span>Also available in</span>

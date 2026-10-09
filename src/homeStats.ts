@@ -38,8 +38,3 @@ export async function homeStatsResponse(env:FeatureEnv){
   return new Response(JSON.stringify({ok:true,...stats}),{headers:{'content-type':'application/json; charset=utf-8','cache-control':'public,max-age=600'}});
 }
 
-/** "22,400+": rounds down to the hundred so the claim stays true between refreshes. */
-export function roundedCount(n:number){
-  if(n<1000)return n.toLocaleString('en-US');
-  return (Math.floor(n/100)*100).toLocaleString('en-US')+'+';
-}
