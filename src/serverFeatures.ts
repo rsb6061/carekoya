@@ -231,7 +231,9 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   const allowance=await contactAllowance(env,workspaceId);
   if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free candidate contacts. Upgrade to keep contacting caregivers.`},{status:402});
   const limit=Math.min(allowance.remaining,Math.max(1,Math.min(20,asNumber(body.limit)||5)));
-  const rows=await env.DB.prepare("SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.email IS NOT NULL AND c.email!='' ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?").bind(openingId,limit).all<Record<string,unknown>>();
+  const rows=await env.DB.prepare("SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.is_active=1 AND c.work_status='actively_looking'
+  AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
+  AND c.email IS NOT NULL AND c.email!='' ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?").bind(openingId,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();

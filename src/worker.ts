@@ -1360,7 +1360,9 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const openingId=clean(url.searchParams.get("openingId"),80);
   let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.years_experience,c.desired_wage,c.shift_preferences,c.work_status,c.last_confirmed_at,c.profile_photo_url,
     CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email
-    FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?`;
+    FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
+      AND (cp.stage!='matched' OR (c.is_active=1 AND c.work_status='actively_looking'
+       AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))))`;
   const args:unknown[]=[workspaceId];
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
