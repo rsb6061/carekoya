@@ -1694,7 +1694,8 @@ export default {
     if(url.pathname===MCP_PATH) return handleMcp(request,env);
     if(request.method==="GET"&&(url.pathname==="/.well-known/mcp/server-card.json"||url.pathname==="/.well-known/mcp.json"))
       return json(mcpServerCard(),{headers:{"cache-control":"public,max-age=3600","access-control-allow-origin":"*"}});
-    const seoResponse=await publicSeoPage(request,url,env);
+    // A busy or locked database (e.g. during a bulk import) must not take the site down; serve the plain app shell instead.
+    const seoResponse=await publicSeoPage(request,url,env).catch(err=>{console.error("seo page failed",err);return null;});
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
     if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
