@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
-import { HomeHero } from './HomeHero';
+import { HomeHero, HomeMatchesSection } from './HomeHero';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -101,7 +101,7 @@ function Home() {
     if(!auth.loading&&auth.isAuthenticated)window.location.replace(homePath(auth.roles,lastDashboard()));
   },[auth.loading,auth.isAuthenticated]);
   return <div>
-    <SiteHeader audience="caregiver"/>
+    <SiteHeader audience="caregiver" cta/>
 
     <main>
       <HomeHero/>
@@ -133,6 +133,8 @@ function Home() {
         </div>
       </section>
 
+      <HomeMatchesSection/>
+
       <section className="section" id="caregivers">
         <div className="wrap">
           <h2>For caregivers</h2>
@@ -158,21 +160,6 @@ function Home() {
         </div>
       </section>
 
-      <section className="section">
-        <div className="wrap">
-          <h2>Better matches with your preferences.</h2>
-          <div className="jobs">
-            <div className="job">
-              <div><h3>You decide who sees your profile</h3><div className="meta">Employers only see you after you verify your email and say you're looking. Pause anytime from your dashboard.</div></div>
-              <span className="pill">Your choice</span>
-            </div>
-            <div className="job">
-              <div><h3>Hiring caregivers?</h3><div className="meta">Home-care agencies, assisted living and senior-care communities can meet local caregivers who want the work. <a href="/pricing">See how it works</a>.</div></div>
-              <span className="pill">For employers</span>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <SiteFooter/>
