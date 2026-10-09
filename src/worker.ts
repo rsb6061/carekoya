@@ -1280,6 +1280,7 @@ const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' A
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
+  const preferredRole=clean(url.searchParams.get("preferredRole"),80).toLowerCase();
   const zip=normalizeZip(url.searchParams.get("zip"));
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
@@ -1312,7 +1313,10 @@ async function searchCandidates(url: URL, env: Env) {
       const aCommute=a.distanceMiles!==null&&a.distanceMiles<=commuteRadiusMiles(a.c)?0:1;
       const bCommute=b.distanceMiles!==null&&b.distanceMiles<=commuteRadiusMiles(b.c)?0:1;
       const aAge=ageDays(a.c.last_confirmed_at)??9999,bAge=ageDays(b.c.last_confirmed_at)??9999;
-      return aCommute-bCommute||(aAge<=30?0:1)-(bAge<=30?0:1)||
+      const roleText=(c:Record<string,unknown>)=>[c.role,c.certifications,c.specialties].map(v=>clean(v,500).toLowerCase()).join(' ');
+      const aRole=preferredRole&&!roleText(a.c).includes(preferredRole)?1:0;
+      const bRole=preferredRole&&!roleText(b.c).includes(preferredRole)?1:0;
+      return aCommute-bCommute||aRole-bRole||(aAge<=30?0:1)-(bAge<=30?0:1)||
         (a.distanceMiles??9999)-(b.distanceMiles??9999)||aAge-bAge;
     });
   }
