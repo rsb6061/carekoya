@@ -63,7 +63,7 @@
     "AGENCY_TEASER_DAILY_CAP": "10",
     // "Verify your agency needs" invites to agencies whose jobs CareJoys lists; separate from OUTREACH_ENABLED.
     "AGENCY_HIRING_INVITES_ENABLED": "true",
-    "AGENCY_HIRING_INVITE_DAILY_CAP": "60",
+    "AGENCY_HIRING_INVITE_DAILY_CAP": "20",
     // School outreach is an independent daily channel (no more than 5 per hourly run).
     "SCHOOL_OUTREACH_ENABLED": "true",
     "SCHOOL_OUTREACH_DAILY_CAP": "15",
