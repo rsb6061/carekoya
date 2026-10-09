@@ -130,6 +130,13 @@ describe('distance matching', ()=>{
     expect(body.candidates.find((c:any)=>c.id==='towson').distanceMiles).toBeGreaterThan(5);
     const wide=await (await call('/api/candidates?zip=21201&radius=50',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(wide.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','dc','towson']);
+    // Default directory browse exposes eligible nationwide supply but ranks realistic
+    // local commutes ahead of distant caregivers, instead of silently cutting to 25 mi.
+    const all=await (await call('/api/candidates?zip=21201&radius=all',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(all.radiusMiles).toBeNull();
+    expect(all.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','dc','la','towson']);
+    expect(all.candidates.slice(0,2).map((c:any)=>c.id)).toEqual(['baltimore','towson']);
+    expect(all.candidates.find((c:any)=>c.id==='la').distanceMiles).toBeGreaterThan(100);
   });
   it('opening match uses commute radius and infers location from ZIP', async()=>{
     const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA days',role:'CNA',zip:'21201'})});
