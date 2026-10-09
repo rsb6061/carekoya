@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react';
+import { CHECKLIST } from './checklist';
 // A caregiver as employers see them in Talent network search. The caregiver's own "View my profile"
 // preview renders this same card, so what they see is exactly what employers see.
 
 export type TalentCandidate={
   id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
   certifications?:string;specialties?:string;languages?:string;careSettings?:string;preferredSettings?:string;bio?:string;
-  employmentTypes?:string;startAvailability?:string;licensed?:boolean;licenseState?:string;hasResume?:boolean;
+  employmentTypes?:string;startAvailability?:string;licensed?:boolean;licenseState?:string;hasResume?:boolean;checklist?:string[];
   yearsExperience?:number;desiredWage?:string;transportation?:string;
   shifts?:string;schedule?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;introVideoUrl?:string;distanceMiles?:number|null;
 };
@@ -15,7 +16,7 @@ const TRANSPORT:Record<string,string>={own_car:'Has own car',reliable_transporta
 const HOURS:Record<string,string>={full_time:'Full time',part_time:'Part time',per_diem:'Per diem'};
 
 /** The rest of the profile, below the summary card: bio, experience, skills, languages and logistics. */
-function TalentDetails({candidate:c}:{candidate:TalentCandidate}){
+export function TalentDetails({candidate:c,hideChecklist=false}:{candidate:TalentCandidate;hideChecklist?:boolean}){
   const hours=(c.employmentTypes||'').split(',').map(x=>HOURS[x.trim()]||x.trim()).filter(Boolean).join(', ');
   const rows:[string,string][]=([
     ['Schedule',c.schedule||''],
@@ -29,6 +30,7 @@ function TalentDetails({candidate:c}:{candidate:TalentCandidate}){
     ['Start',START[c.startAvailability||'']||''],
     ['Travel',[c.travelMiles?'Up to '+c.travelMiles+' miles':'',TRANSPORT[c.transportation||'']||c.transportation||''].filter(Boolean).join(' · ')],
     ['Resume',c.hasResume?'On file, shared when they apply or say yes':''],
+    ['Checked',hideChecklist?'':CHECKLIST.filter(([k])=>c.checklist?.includes(k)).map(([,label])=>label).join(' · ')],
   ] as [string,string][]).filter(([,v])=>v);
   if(!c.bio&&!rows.length)return null;
   return <div className="talent-details">
@@ -38,7 +40,7 @@ function TalentDetails({candidate:c}:{candidate:TalentCandidate}){
 }
 
 /** "Watch intro video": asks for a short-lived signed player link only when someone actually wants to watch. */
-function IntroVideo({url}:{url:string}){
+export function IntroVideo({url}:{url:string}){
   const [player,setPlayer]=useState('');
   const [state,setState]=useState<'idle'|'loading'|'error'>('idle');
   const [error,setError]=useState('');
@@ -58,7 +60,7 @@ function IntroVideo({url}:{url:string}){
 
 export function TalentCard({candidate,tone,expanded=false,status}:{candidate:TalentCandidate;tone:string;expanded?:boolean;status?:ReactNode}){
   const c=candidate;
-  const hasDetails=!!(c.schedule||c.bio||c.yearsExperience||c.licensed||c.specialties||c.careSettings||c.preferredSettings||c.languages||c.employmentTypes||START[c.startAvailability||'']||c.travelMiles||c.transportation||c.hasResume);
+  const hasDetails=!!(c.schedule||c.bio||c.yearsExperience||c.licensed||c.specialties||c.careSettings||c.preferredSettings||c.languages||c.employmentTypes||START[c.startAvailability||'']||c.travelMiles||c.transportation||c.hasResume||c.checklist?.length);
   const details=<TalentDetails candidate={candidate}/>;
   return <article className={'job-card '+tone}>
     <div className="job-card-main"><div className="candidate-name-row">{candidate.profilePhotoUrl?<img className="candidate-avatar" src={candidate.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{candidate.name?.slice(0,1)||'?'}</span>}<h3>{candidate.name}</h3>{status&&<div className="talent-card-status">{status}</div>}</div><div className="job-meta">{[candidate.role,candidate.city,candidate.state,candidate.distanceMiles!=null?candidate.distanceMiles+' mi away':''].filter(Boolean).join(' · ')}</div>

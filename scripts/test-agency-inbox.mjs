@@ -162,3 +162,17 @@ test('hourly rescoring keeps match rows a caregiver acted on',async()=>{
   assert.equal(t.db.prepare("SELECT caregiver_interest FROM agency_org_candidate_matches WHERE organization_id='org-a' AND caregiver_id='cg-1'").get().caregiver_interest,'interested');
   assert.equal(t.db.prepare("SELECT COUNT(*) n FROM agency_org_candidate_matches WHERE caregiver_id='cg-1'").get().n,before);
 });
+
+test('agency matches need real distance, not just the same state',async()=>{
+  const t=fresh();
+  addCaregiver(t.db);
+  addCaregiver(t.db,{id:'cg-far',email:'far@example.com',zip:'21502'});
+  await mod.scoreAgencyMatches(t.env);
+  const orgsFor=id=>t.db.prepare("SELECT organization_id FROM agency_org_candidate_matches WHERE caregiver_id=? ORDER BY organization_id").all(id).map(r=>r.organization_id);
+  assert.deepEqual(orgsFor('cg-1'),['org-a','org-b']);
+  assert.deepEqual(orgsFor('cg-far'),[]);
+  // A hiring profile that names other roles drops a caregiver without them.
+  t.db.prepare("INSERT INTO agency_org_hiring_profiles(organization_id,hiring_status,roles) VALUES ('org-b','hiring','HHA')").run();
+  await mod.scoreAgencyMatches(t.env);
+  assert.deepEqual(orgsFor('cg-1'),['org-a']);
+});

@@ -8,6 +8,7 @@ import {
   type ApplyAnswerKey, type ApplyProfile, type ApplyProvider
 } from './applyAgentRules';
 import type { ApplicationAgentRunResult, ObservedQuestion, PendingQuestion } from './applyAgentBrowser';
+import { loadResume, resumeDownload } from './resumeFile';
 
 type Row=Record<string,unknown>;
 export type ApplyEnv=FeatureEnv&{BROWSER?:unknown};
@@ -50,14 +51,6 @@ export async function saveResumeFile(request:Request,env:FeatureEnv,caregiverId:
   return json({ok:true,resume:{fileName:name,byteSize:body.byteLength}});
 }
 
-async function loadResume(env:FeatureEnv,caregiverId:string){
-  const row=await env.DB!.prepare('SELECT file_blob,file_name,content_type FROM caregiver_resume_files WHERE caregiver_id=? LIMIT 1')
-    .bind(caregiverId).first<{file_blob:ArrayBuffer|number[];file_name:string;content_type:string}>();
-  if(!row)return null;
-  const bytes=row.file_blob instanceof ArrayBuffer?new Uint8Array(row.file_blob):new Uint8Array(row.file_blob as number[]);
-  return {name:row.file_name,mimeType:row.content_type,bytes};
-}
-
 /** Signed-in caregiver's own resume: GET downloads it, POST replaces it. */
 export async function handleMyResume(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null){
   if(!identity)return json({ok:false,error:'Sign in required'},{status:401});
@@ -65,11 +58,9 @@ export async function handleMyResume(request:Request,env:FeatureEnv,identity:Car
   const caregiverId=await caregiverForIdentity(env,identity);
   if(!caregiverId)return json({ok:false,error:'Add your resume on CareJoys first.',needsProfile:true},{status:404});
   if(request.method==='POST')return saveResumeFile(request,env,caregiverId);
-  const resume=await loadResume(env,caregiverId);
-  if(!resume)return json({ok:false,error:'No resume file yet.'},{status:404});
-  return new Response(resume.bytes,{headers:{'content-type':resume.mimeType,'content-disposition':'attachment; filename="'+resume.name.replace(/"/g,'')+'"',
-    'cache-control':'private,no-store','x-content-type-options':'nosniff'}});
+  return resumeDownload(env,caregiverId);
 }
+
 
 async function rememberedAnswers(env:FeatureEnv,caregiverId:string){
   const rows=await env.DB!.prepare('SELECT answer_key,value FROM caregiver_application_answers WHERE caregiver_id=?').bind(caregiverId).all<Row>();

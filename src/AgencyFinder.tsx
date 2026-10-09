@@ -191,7 +191,7 @@ export function AgencySuggestions({onLinked}:{onLinked:()=>void}){
 type AgencyJob={id:string;title:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;sourceUrl:string;published:boolean;hidden:boolean;lastSeenAt?:string;applyClicks:number};
 
 /** The claimed agency's scraped jobs, with hide/show. Edits happen on the agency's own careers page. */
-export function AgencyJobsPanel(){
+export function AgencyJobsPanel({onRecruit}:{onRecruit?:(openingId:string)=>void}={}){
   const [jobs,setJobs]=useState<AgencyJob[]|null>(null);
   const [busy,setBusy]=useState('');
   async function load(){
@@ -205,6 +205,13 @@ export function AgencyJobsPanel(){
       await load();
     }finally{setBusy('')}
   }
+  async function recruit(job:AgencyJob){
+    setBusy(job.id);
+    try{
+      const d=await (await fetch('/api/agency/jobs/'+encodeURIComponent(job.id),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'recruit'})})).json() as {openingId?:string};
+      if(d.openingId)onRecruit?.(d.openingId);
+    }finally{setBusy('')}
+  }
   if(!jobs)return null;
   return <div className="agency-jobs">
     <div className="section-heading agency-match-head"><h2>Your published jobs</h2><p>CareJoys reads these from your careers page. To change one, update it there and CareJoys picks it up on the next scan; hide any you don’t want shown.</p></div>
@@ -213,7 +220,7 @@ export function AgencyJobsPanel(){
       <div className="job-card-main"><h3>{job.hidden?job.title:<a href={'/jobs/'+encodeURIComponent(job.id)} target="_blank">{job.title}</a>}</h3>
         <div className="job-meta">{[job.role,[job.city,job.state].filter(Boolean).join(', '),job.applyClicks?job.applyClicks+' apply click'+(job.applyClicks===1?'':'s'):''].filter(Boolean).join(' · ')}</div>
         <div className="job-badges"><span className={job.hidden?'status':'status applied'}>{job.hidden?'Hidden on CareJoys':'Live on CareJoys'}</span><a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer">Your listing ↗</a></div></div>
-      <div className="job-card-actions"><button className="button secondary" disabled={busy===job.id} onClick={()=>toggle(job)}>{job.hidden?'Show again':'Hide'}</button></div>
+      <div className="job-card-actions">{onRecruit&&!job.hidden&&<button className="button" disabled={busy===job.id} onClick={()=>void recruit(job)}>Find caregivers for this job</button>}<button className="button secondary" disabled={busy===job.id} onClick={()=>toggle(job)}>{job.hidden?'Show again':'Hide'}</button></div>
     </article>)}</div>}
   </div>;
 }
