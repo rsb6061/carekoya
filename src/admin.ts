@@ -3,10 +3,11 @@ import { employerApproval } from './employerApproval';
 import { resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
 import { workerFunnelReport } from './workerFunnel';
+import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;REACTIVATION_REMINDER_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -99,6 +100,17 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
   const topPaths=await db.prepare(`SELECT path,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY path ORDER BY count DESC LIMIT 12`).all<Row>();
   const topSources=await db.prepare(`SELECT COALESCE(NULLIF(utm_source,''),NULLIF(referrer_host,''),'direct') AS source,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY 1 ORDER BY count DESC LIMIT 12`).all<Row>();
   const invites=await db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today FROM agency_outreach_events WHERE event_type='hiring_needs_invite'").first<Row>();
+  // The other automatic senders, so the Outreach tab lists every channel that can email someone.
+  const inboxAlerts=await db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN event_type='interest_notify' THEN 1 ELSE 0 END),0) AS claimed,
+    COALESCE(SUM(CASE WHEN event_type='interest_activation' THEN 1 ELSE 0 END),0) AS unclaimed
+    FROM agency_outreach_events WHERE event_type IN ('interest_notify','interest_activation') AND datetime(created_at)>datetime('now','-1 day')`).first<Row>();
+  const digest=await db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN p.email_enabled=1 THEN 1 ELSE 0 END),0) AS subscribed,
+    COALESCE(SUM(CASE WHEN p.email_enabled=1 AND c.auth0_email_verified=1 THEN 1 ELSE 0 END),0) AS verified,
+    COALESCE(SUM(CASE WHEN p.last_sent_at IS NOT NULL AND datetime(p.last_sent_at)>datetime('now','-7 days') THEN 1 ELSE 0 END),0) AS sent_week
+    FROM caregiver_job_alert_preferences p JOIN caregivers c ON c.id=p.caregiver_id`).first<Row>();
+  const reminders=await db.prepare("SELECT COALESCE(SUM(sent),0) AS sent FROM outreach_runs WHERE kind='reactivation_reminder'").first<Row>();
   const school=await db.prepare(`SELECT
     (SELECT COUNT(*) FROM training_programs WHERE is_active=1 AND upper(state)='MD' AND trim(COALESCE(email,''))!='') AS contactable,
     (SELECT COUNT(*) FROM training_program_outreach WHERE event_type IN ('school_intro','school_intro_manual')) AS intros,
@@ -114,6 +126,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     ORDER BY CASE WHEN tp.provider_type='Freestanding Program' THEN 0 WHEN tp.provider_type='College' THEN 1 ELSE 2 END,tp.program_name
     LIMIT 15`).all<Row>();
   const num=(row:Row|null,key:string)=>asNum(row?.[key]);
+  const on=(v:unknown)=>String(v||'').toLowerCase()==='true';
+  const hiringCap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
   return {
     window:modifier?windowKey:'all',
     employerFunnel:['employers','openings','matched','contacted','interested','interviews','hired'].map(step=>({step,count:num(funnel,step)})),
@@ -122,11 +136,15 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     reactivation:{legacyTotal:num(activation,'legacy_total'),sent:num(activation,'sent'),opened:num(activation,'opened'),completed:num(activation,'completed'),activelyLooking:num(activation,'actively_looking')},
     agencyClaims:{teasersSent:num(agencies,'teasers_sent'),teasersOpened:num(agencies,'teasers_opened'),claimsRequested:num(agencies,'claims_requested'),claimed:num(agencies,'claimed')},
     outreachChannels:{
-      agencyHiring:{enabled:String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true',
-        cap:Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0)),
+      agencyHiring:{enabled:on(env.AGENCY_HIRING_INVITES_ENABLED),cap:hiringCap,
+        // Same pacing as the hourly cron in worker.ts: the daily cap spread over 24 runs.
+        perHour:Math.min(hiringCap,Math.max(1,Math.ceil(hiringCap/24))),
         today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly'},
-      generalBulk:{enabled:String(env.OUTREACH_ENABLED||'').toLowerCase()==='true'},
-      reactivationReminders:{enabled:String(env.REACTIVATION_REMINDER_ENABLED||'').toLowerCase()==='true'},
+      generalBulk:{enabled:on(env.OUTREACH_ENABLED)},
+      reactivationReminders:{enabled:on(env.REACTIVATION_REMINDER_ENABLED),sent:num(reminders,'sent')},
+      agencyInboxAlerts:{claimedLast24h:num(inboxAlerts,'claimed'),unclaimedLast24h:num(inboxAlerts,'unclaimed'),
+        unclaimedEnabled:on(env.OUTREACH_ENABLED),dailyLimit:AGENCY_EMAILS_PER_DAY},
+      weeklyDigest:{enabled:on(env.WEEKLY_DIGEST_ENABLED),subscribed:num(digest,'subscribed'),verified:num(digest,'verified'),sentLast7Days:num(digest,'sent_week')},
       schools:{mode:'manual',contactable:num(school,'contactable'),intros:num(school,'intros'),claimed:num(school,'claimed'),
         referrals:num(school,'referred'),prospects:(programRows.results||[]).map(p=>({
           id:p.id,name:p.program_name,city:p.city,type:p.provider_type,email:p.email,referralSlug:p.referral_slug

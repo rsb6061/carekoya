@@ -440,11 +440,15 @@ describe('pay preferences and verified caregiver availability',()=>{
     expect(after.candidates.some((c:any)=>c.id===id)).toBe(true);
   });
   it('shows separate agency and school outreach campaigns with their actual configured status',async()=>{
-    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'60',OUTREACH_ENABLED:'false'});
+    const res=await call('/api/admin/overview',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken',AGENCY_HIRING_INVITES_ENABLED:'true',AGENCY_HIRING_INVITE_DAILY_CAP:'20',OUTREACH_ENABLED:'false',WEEKLY_DIGEST_ENABLED:'true'});
     expect(res.status).toBe(200);
     const body=await res.json() as any;
     expect(body.funnel.outreachChannels.agencyHiring.enabled).toBe(true);
-    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(60);
+    expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(20);
+    expect(body.funnel.outreachChannels.agencyHiring.perHour).toBe(1);
+    expect(body.funnel.outreachChannels.agencyInboxAlerts.unclaimedEnabled).toBe(false);
+    expect(body.funnel.outreachChannels.weeklyDigest.enabled).toBe(true);
+    expect(typeof body.funnel.outreachChannels.reactivationReminders.sent).toBe('number');
     expect(body.funnel.outreachChannels.generalBulk.enabled).toBe(false);
     expect(body.funnel.outreachChannels.schools.mode).toBe('manual');
   });
