@@ -339,10 +339,10 @@ export function EmployerWorkspace(){
               <span className="status">{o.source==='agency_profile'?'Always-on':o.source==='employer_intake'?'Created from your request':(o.status||'open')}</span>
               {Number(o.available_interview_slots||0)>0&&<span className="badge">{o.available_interview_slots} interview time{Number(o.available_interview_slots)===1?'':'s'} ready</span>}
             </div>
+            <button type="button" className="opening-interview-link" onClick={()=>void openInterviewSlots(o)}>{Number(o.available_interview_slots||0)>0?'Manage interview times':'Set interview times'}</button>
           </div>
           <div className="job-card-side opening-actions">
             <button className="button secondary" disabled={pendingApproval} title={pendingApproval?'Matching unlocks after account approval':undefined} onClick={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}}>{pendingApproval?'Matches available after approval':'View matches'}</button>
-            <button className="button secondary" onClick={()=>void openInterviewSlots(o)}>{Number(o.available_interview_slots||0)>0?'Manage interview times':'Set interview times'}</button>
             {pendingApproval&&<span className="opening-next-step">Invitations unlock after account approval.</span>}
           </div>
         </article>)}</div>}
