@@ -451,7 +451,7 @@ export function EmployerWorkspace(){
 
       {tab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
-        <AgencyJobsPanel/>
+        <AgencyJobsPanel onRecruit={openingId=>void (async()=>{await refreshWorkspace();await runMatch(openingId)})()}/>
       </section>}
 
       {showOpening&&<div className="modal-backdrop" onMouseDown={()=>setShowOpening(false)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>

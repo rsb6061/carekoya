@@ -1433,4 +1433,16 @@ describe('agency always-on opening', ()=>{
     expect(ids).not.toContain('dc');
     expect(rows.find((r:any)=>r.caregiver_id==='baltimore').match_reasons).toContain('role match');
   });
+  it('turns one of the agency’s job listings into an opening with matches', async()=>{
+    await DB.prepare(`INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published)
+      VALUES ('job-recruit','org-claimed','dr','ats','https://acme.test/jobs/1','Certified Nursing Assistant (CNA) - Weekends','','Acme Care','Baltimore','MD','21201',18,21,'hour','current',1)`).run();
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+    const first=await (await call('/api/agency/jobs/job-recruit',{method:'POST',headers,body:JSON.stringify({action:'recruit'})})).json() as any;
+    const again=await (await call('/api/agency/jobs/job-recruit',{method:'POST',headers,body:JSON.stringify({action:'recruit'})})).json() as any;
+    expect(again.openingId).toBe(first.openingId);
+    expect(await DB.prepare('SELECT title,role,zip,pay_min,pay_max,source FROM openings WHERE id=?').bind(first.openingId).first())
+      .toEqual({title:'Certified Nursing Assistant (CNA) - Weekends',role:'CNA',zip:'21201',pay_min:18,pay_max:21,source:'agency_job'});
+    const match=await (await call('/api/openings/'+first.openingId+'/match',{method:'POST',headers})).json() as any;
+    expect(match.top.map((c:any)=>c.id)).toContain('baltimore');
+  });
 });

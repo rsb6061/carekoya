@@ -200,11 +200,13 @@ export async function updateAgencyJob(request:Request,env:FeatureEnv,jobId:strin
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
-  const job=await env.DB.prepare(`SELECT j.id,j.publication_reason,COALESCE(ao.is_test,0) AS is_test FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
+  const job=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.city,j.state,j.zip,j.pay_min,j.pay_max,j.pay_period,j.publication_reason,j.agency_organization_id,COALESCE(ao.is_test,0) AS is_test
+    FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
     WHERE j.id=? AND ao.claimed_employer_id=? AND j.status='current' LIMIT 1`).bind(jobId,employer.id).first<Row>();
   if(!job)return json({ok:false,error:'Job not found'},{status:404});
   const data=await request.json().catch(()=>null) as Row|null;
   const action=clean(data?.action,10);
+  if(action==='recruit')return json({ok:true,openingId:await openingForJob(env,clean(employer.id,100),job)});
   if(action==='hide'){
     await env.DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='hidden_by_employer',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
   }else if(action==='show'){
@@ -212,8 +214,25 @@ export async function updateAgencyJob(request:Request,env:FeatureEnv,jobId:strin
     // A test agency's copied jobs go back to looking live in its panel but are never published.
     if(asNum(job.is_test)===1)await env.DB.prepare("UPDATE caregiver_jobs SET publication_reason=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(TEST_JOB_REASON,jobId).run();
     else await env.DB.prepare("UPDATE caregiver_jobs SET is_published=1,publication_reason='employer_restored',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(jobId).run();
-  }else return json({ok:false,error:'Choose hide or show'},{status:400});
+  }else return json({ok:false,error:'Choose hide, show or recruit'},{status:400});
   return json({ok:true});
+}
+
+const OPENING_ROLES=['CNA','GNA','HHA','PCA','DSP','Caregiver'];
+
+/** The opening that recruits for one of the agency's own job listings, created from the listing the first time. */
+async function openingForJob(env:FeatureEnv,employerId:string,job:Row){
+  const existing=await env.DB!.prepare("SELECT id FROM openings WHERE employer_id=? AND caregiver_job_id=? AND status='open' ORDER BY created_at DESC LIMIT 1").bind(employerId,job.id).first<{id:string}>();
+  if(existing)return existing.id;
+  const roleText=(clean(job.role,80)+' '+clean(job.title,200)).toUpperCase();
+  const role=OPENING_ROLES.find(r=>new RegExp('\\b'+r.toUpperCase()+'\\b').test(roleText))||'Caregiver';
+  const hourly=!clean(job.pay_period,20)||clean(job.pay_period,20)==='hour';
+  const id=crypto.randomUUID();
+  await env.DB!.prepare(`INSERT INTO openings(id,employer_id,title,role,city,state,zip,pay_min,pay_max,status,source,agency_organization_id,caregiver_job_id)
+    VALUES (?,?,?,?,?,?,?,?,?,'open','agency_job',?,?)`)
+    .bind(id,employerId,clean(job.title,200)||role+' opening',role,clean(job.city,120),clean(job.state,80),clean(job.zip,20).slice(0,5),
+      hourly?asNum(job.pay_min)||null:null,hourly?asNum(job.pay_max)||null:null,clean(job.agency_organization_id,100),clean(job.id,100)).run();
+  return id;
 }
 
 const WIDGET_CORS={'access-control-allow-origin':'*','access-control-allow-methods':'GET, OPTIONS','access-control-allow-headers':'content-type'};
