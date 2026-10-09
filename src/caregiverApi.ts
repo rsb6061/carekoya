@@ -55,9 +55,9 @@ export function jobConflict(c:Row,j:Row):string|null{
   const shift=cleanShift(clean(c.shift_preferences));
   const jobShift=cleanShift([clean(j.title),clean(j.shift_preferences)].join(' '));
   const labels:{name:string;re:RegExp}[]=[
-    {name:'day',re:/\b(day|days|morning|mornings)\\b/},
-    {name:'evening',re:/\b(evening|evenings|afternoon|afternoons)\\b/},
-    {name:'night',re:/\b(night|nights|overnight|overnights)\\b/}
+    {name:'day',re:/\b(day|days|morning|mornings)\b/},
+    {name:'evening',re:/\b(evening|evenings|afternoon|afternoons)\b/},
+    {name:'night',re:/\b(night|nights|overnight|overnights)\b/}
   ];
   const candidate=labels.filter(x=>x.re.test(shift)).map(x=>x.name);
   const advertised=labels.filter(x=>x.re.test(jobShift)).map(x=>x.name);
