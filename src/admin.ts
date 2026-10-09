@@ -102,6 +102,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
   const school=await db.prepare(`SELECT
     (SELECT COUNT(*) FROM training_programs WHERE is_active=1 AND upper(state)='MD' AND trim(COALESCE(email,''))!='') AS contactable,
     (SELECT COUNT(*) FROM training_program_outreach WHERE event_type IN ('school_intro','school_intro_manual')) AS intros,
+    (SELECT COUNT(*) FROM training_program_outreach WHERE event_type='school_intro' AND datetime(created_at)>=datetime('now','start of day')) AS today,
     (SELECT COUNT(*) FROM training_programs WHERE claimed_school_lead_id IS NOT NULL) AS claimed,
     (SELECT COUNT(*) FROM caregiver_referrals) AS referred`).first<Row>();
   const programRows=await db.prepare(`SELECT tp.id,tp.program_name,tp.city,tp.provider_type,tp.email,MIN(src.slug) AS referral_slug
@@ -127,7 +128,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
         today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly'},
       generalBulk:{enabled:String(env.OUTREACH_ENABLED||'').toLowerCase()==='true'},
       reactivationReminders:{enabled:String(env.REACTIVATION_REMINDER_ENABLED||'').toLowerCase()==='true'},
-      schools:{mode:String((env as AdminEnv & {SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED||'').toLowerCase()==='true'?'automatic':'manual',contactable:num(school,'contactable'),intros:num(school,'intros'),claimed:num(school,'claimed'),
+      schools:{mode:String((env as AdminEnv & {SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED||'').toLowerCase()==='true'?'automatic':'manual',cap:Math.max(0,Math.min(100,Number((env as AdminEnv & {SCHOOL_OUTREACH_DAILY_CAP?:string}).SCHOOL_OUTREACH_DAILY_CAP||15)||0)),today:num(school,'today'),contactable:num(school,'contactable'),intros:num(school,'intros'),claimed:num(school,'claimed'),
         referrals:num(school,'referred'),prospects:(programRows.results||[]).map(p=>({
           id:p.id,name:p.program_name,city:p.city,type:p.provider_type,email:p.email,referralSlug:p.referral_slug
         }))}
