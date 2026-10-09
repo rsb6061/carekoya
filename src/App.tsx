@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
+import { HomeJobPreview } from './HomeJobPreview';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -94,53 +95,41 @@ function Home() {
     if(!auth.loading&&auth.isAuthenticated)window.location.replace(homePath(auth.roles,lastDashboard()));
   },[auth.loading,auth.isAuthenticated]);
   return <div>
-    <SiteHeader audience="employer"/>
+    <SiteHeader audience="caregiver"/>
 
     <main>
       <section className="hero">
         <div className="wrap">
           <h1>
-            <span className="hero-title-line">Caregiver recruiting near you.</span>{' '}
-            <span className="hero-title-line">Interviews ready for you.</span>
+            <span className="hero-title-line">Find better-paying caregiver and CNA jobs near you.</span>
           </h1>
-          <p>CareJoys helps home-care agencies and employers match with local caregivers ready to work.</p>
-          <form className="search" action="/hire-caregivers" method="get">
-            <select name="role" defaultValue="">
-              <option value="">All caregiver roles</option>
-              <option value="CNA">CNA</option>
-              <option value="GNA">GNA</option>
-              <option value="HHA">HHA</option>
-              <option value="PCA">PCA</option>
-              <option value="Caregiver">Caregiver</option>
-            </select>
-            <input name="zip" placeholder="Hiring ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} aria-label="Hiring ZIP code" />
-            <button className="btn" type="submit">Hire caregivers</button>
-          </form>
+          <p>One profile. Personalized matches. Always free. Preview local jobs without a resume or contact details.</p>
+          <HomeJobPreview/>
         </div>
       </section>
 
       <section className="section" id="how">
         <div className="wrap">
           <div className="modal-kicker">How CareJoys works</div>
-          <h2>From hiring need to interview</h2>
+          <h2>From finding work to your next opportunity</h2>
           <div className="steps">
             <div className="step">
               <div className="modal-kicker">1 · Find</div>
-              <h3>Find the right local caregivers</h3>
-              <p className="meta">Search by role, geography, shift, pay expectations, commute, and availability freshness.</p>
-              <div className="job-tags"><span className="pill">Fresh talent network</span></div>
+              <h3>Preview nearby jobs</h3>
+              <p className="meta">Start with your ZIP and role. Compare real local openings before creating a profile.</p>
+              <div className="job-tags"><span className="pill">No signup required</span></div>
             </div>
             <div className="step">
               <div className="modal-kicker">2 · Confirm</div>
-              <h3>Confirm who is actually interested</h3>
-              <p className="meta">CareJoys is designed to reactivate candidates and confirm fit before your team spends time chasing them.</p>
-              <div className="job-tags"><span className="pill">Automated activation</span></div>
+              <h3>Create one reusable profile</h3>
+              <p className="meta">Tell CareJoys your pay, commute and schedule preferences. Uploading a resume is optional.</p>
+              <div className="job-tags"><span className="pill">Resume optional</span></div>
             </div>
             <div className="step">
               <div className="modal-kicker">3 · Interview</div>
-              <h3>Move qualified people into interviews</h3>
-              <p className="meta">Track matched, contacted, interested, qualified, interview, and hired stages in one simple recruiting workspace.</p>
-              <div className="job-tags"><span className="pill">Interview-ready</span></div>
+              <h3>Return to better matches</h3>
+              <p className="meta">Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p>
+              <div className="job-tags"><span className="pill">Optional email alerts</span></div>
             </div>
           </div>
         </div>
@@ -173,14 +162,14 @@ function Home() {
 
       <section className="section">
         <div className="wrap">
-          <h2>Measure hires, not database size.</h2>
+          <h2>Better matches with your preferences.</h2>
           <div className="jobs">
             <div className="job">
-              <div><h3>Availability is a live signal</h3><div className="meta">Older caregiver profiles can remain discoverable, but their availability is clearly labeled unconfirmed until they refresh it. Recent confirmations rank higher.</div></div>
+              <div><h3>You control your availability</h3><div className="meta">Older caregiver profiles can remain discoverable, but their availability is clearly labeled unconfirmed until they refresh it. Recent confirmations rank higher.</div></div>
               <span className="pill">Freshness shown explicitly</span>
             </div>
             <div className="job">
-              <div><h3>Every recruiting interaction improves the network</h3><div className="meta">Responses, preferences, interviews, and hires create a longitudinal workforce record rather than a one-time lead.</div></div>
+              <div><h3>For care employers</h3><div className="meta">CareJoys also helps employers connect with interested local care professionals. <a href="/hire-caregivers">Hire caregivers</a>.</div></div>
               <span className="pill">Persistent workforce graph</span>
             </div>
           </div>

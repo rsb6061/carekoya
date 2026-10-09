@@ -1,9 +1,0 @@
-// Local-only config for integration tests: just the D1 binding, no remote bindings.
-{
-  "name": "carejoys-test",
-  "main": "../src/worker.ts",
-  "compatibility_date": "2026-09-25",
-  "d1_databases": [
-    { "binding": "DB", "database_name": "carejoys", "database_id": "test-local", "migrations_dir": "../migrations" }
-  ]
-}

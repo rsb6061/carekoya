@@ -84,11 +84,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   if(!caregiverId)return json({ok:true,caregiver:null});
   const c=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Row>();
   if(!c)return json({ok:true,caregiver:null});
-  // Signing in counts as looking for work unless they said otherwise, so there's no availability box to click.
-  const refreshed=await env.DB.prepare(`UPDATE caregivers SET work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1
-    WHERE id=? AND COALESCE(work_status,'unknown') IN ('unknown','actively_looking')
-      AND (last_confirmed_at IS NULL OR datetime(last_confirmed_at)<datetime('now','-1 day'))`).bind(caregiverId).run();
-  if(Number(refreshed.meta?.changes||0)>0){c.work_status='actively_looking';c.last_confirmed_at=new Date().toISOString()}
+  // Viewing a dashboard is not an availability confirmation.
 
   const invites=await env.DB.prepare(`SELECT cp.id,cp.stage,cp.response_value,cp.contacted_at,cp.interview_at,cp.interview_booked_at,cp.opening_id,
       o.title,o.role,o.city,o.state,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,e.company_name
