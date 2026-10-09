@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
-import { HomeHero } from './HomeHero';
+import { HomeHero, HomeMatchesSection } from './HomeHero';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -132,6 +132,8 @@ function Home() {
           </div>
         </div>
       </section>
+
+      <HomeMatchesSection/>
 
       <section className="section" id="caregivers">
         <div className="wrap">

@@ -25,11 +25,21 @@ function ago(sqlTime:string){
 }
 const TINTS=['#fff3c9','#dcf5e7','#e6e1ff','#ffe1e6'];
 
-export function HomeHero(){
+// One request serves both the hero and the dashboard section.
+let statsRequest:Promise<Stats|null>|null=null;
+function useHomeStats(){
   const [stats,setStats]=useState<Stats|null>(null);
   useEffect(()=>{
-    fetch('/api/public/home-stats').then(r=>r.ok?r.json():null).then(b=>{if(b?.ok)setStats(b)}).catch(()=>{});
+    statsRequest??=fetch('/api/public/home-stats').then(r=>r.ok?r.json():null).then(b=>b?.ok?b as Stats:null).catch(()=>null);
+    let live=true;
+    statsRequest.then(s=>{if(live)setStats(s)});
+    return ()=>{live=false};
   },[]);
+  return stats;
+}
+
+export function HomeHero(){
+  const stats=useHomeStats();
   const watched=stats&&stats.employersWatched>=1000?thousands(stats.employersWatched)+' ':'';
   return <section className="hero home-ai-hero">
     <div className="wrap">
@@ -39,6 +49,15 @@ export function HomeHero(){
       </h1>
       <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
       <HomeJobPreview/>
+    </div>
+  </section>;
+}
+
+export function HomeMatchesSection(){
+  const stats=useHomeStats();
+  return <section className="section" id="matches">
+    <div className="wrap">
+      <h2>Automatically matching caregivers with the best jobs</h2>
       <DashboardPreview stats={stats}/>
     </div>
   </section>;
