@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Bot, LayoutGrid, Mail, MessageCircle, Search, Send, Sparkles } from 'lucide-react';
+import { Bell, LayoutGrid, Mail, Search, Send, Sparkles } from 'lucide-react';
 import { HomeJobPreview } from './HomeJobPreview';
 
 type HomeJob={id:string;title:string;employerName:string;city:string;state:string;payMin:number|null;payMax:number|null;firstSeenAt:string;applyForMe:boolean};
@@ -41,12 +41,6 @@ export function HomeHero(){
       </h1>
       <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
       <HomeJobPreview/>
-      <div className="also-on">
-        <span>Also available in</span>
-        <a href="/agent"><Bot size={15} aria-hidden="true"/> Claude</a>
-        <a href="/agent"><MessageCircle size={15} aria-hidden="true"/> ChatGPT</a>
-        <a href="/caregiver-resume"><Mail size={15} aria-hidden="true"/> Weekly job email</a>
-      </div>
       <DashboardPreview stats={stats}/>
     </div>
   </section>;
