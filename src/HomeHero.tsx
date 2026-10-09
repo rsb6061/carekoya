@@ -34,7 +34,6 @@ export function HomeHero(){
   const watched=stats&&stats.employersWatched>=1000?thousands(stats.employersWatched)+' ':'';
   return <section className="hero home-ai-hero">
     <div className="wrap">
-      <div className="ai-badge"><Sparkles size={15} aria-hidden="true"/> AI job agent for caregivers <span>Free</span></div>
       <h1>
         <span className="hero-title-line">Be first to every better-paying CNA and caregiver job near you.</span>{' '}
         <span className="hero-title-accent">Let AI do the legwork.</span>
