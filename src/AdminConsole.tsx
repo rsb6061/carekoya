@@ -210,7 +210,10 @@ export function AdminConsole(){
             <Stat label="Workers interested" value={f.employerFunnel.find(x=>x.step==='interested')?.count||0} sub="Positive candidate replies in period"/>
           </div>
         </section>
-        PIPELINE
+        <section className="section-block" style={{marginTop:0}}>
+        <div className="section-heading"><h2>Hiring activity</h2><p>Separate counts of new employers, openings and candidate actions for this period. These are not a sequential conversion cohort.</p></div>
+        <div style={grid}>{steps.map(s=><Stat key={s.step} label={STEP_LABELS[s.step]||s.step} value={s.count}/>)}</div>
+      </section>
         <section className="section-block">
           <div className="section-heading"><h2>What to do next</h2><p>CareJoys is still building a reliably reachable candidate network.</p></div>
           <div className="admin-next-grid">
@@ -220,7 +223,35 @@ export function AdminConsole(){
           </div>
         </section>
       </>}
-      {section==='employers'&&EMPLOYERS}
+      {section==='employers'&&
+<section className="section-block admin-employers">
+  <div className="section-heading"><h2>Review employers</h2>
+    <p>Approve only organizations you recognize. This gives access to caregiver matches and introductions; it does not claim a licensed agency directory listing.</p></div>
+  <div className="admin-approval-summary">
+    <div><strong>{pending.length} waiting for approval</strong><span>Accounts using personal email addresses</span></div>
+    <button className="button secondary" disabled={busy} onClick={()=>void load()}>Refresh requests</button>
+  </div>
+  {pending.length>0?<div className="admin-approval-grid">{pending.map(e=><article className="settings-card admin-approval-card" key={e.id}>
+    <div className="admin-status-label">Needs review</div>
+    <h3>{e.company_name||'Unnamed employer'}</h3>
+    <p>{[e.contact_name,e.email].filter(Boolean).join(' · ')}</p>
+    <p className="job-meta">Joined {day(e.created_at)} · {e.openings} opening{e.openings===1?'':'s'} · ZIP {e.zip||'not provided'}</p>
+    <button className="button" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve employer</button>
+  </article>)}</div>:<div className="settings-card admin-quiet"><strong>No employer accounts awaiting approval.</strong><p>Personal-email employers appear here. Verified company-domain employers and claimed agencies receive automatic access.</p></div>}
+  <div className="admin-subheading"><h3>All employer accounts</h3><input className="pipeline-select" value={employerQuery} onChange={e=>setEmployerQuery(e.target.value)} aria-label="Search employers" placeholder="Search company or email"/></div>
+  <div className="settings-card admin-table-scroll">
+    <table className="admin-data-table">
+      <thead><tr><th>Employer</th><th>Contact</th><th>Openings</th><th>Contacted</th><th>Interviews</th><th>Access</th></tr></thead>
+      <tbody>{data.employers.filter(e=>[e.company_name,e.contact_name,e.email,e.claimed_agency].join(' ').toLowerCase().includes(employerQuery.trim().toLowerCase())).map(e=><tr key={e.id}>
+        <td><strong>{e.company_name}</strong><small>Joined {day(e.created_at)} · Last login {day(e.last_login_at)}</small></td>
+        <td>{e.contact_name||'—'}<small>{e.email}</small></td>
+        <td>{e.openings}</td><td>{e.contacted}</td><td>{e.interviews}</td>
+        <td>{e.approval==='pending'?<button className="button secondary" disabled={busy} onClick={()=>void approve(e.id,e.company_name)}>Approve</button>:<span className="admin-access-status">{approvalLabel(e.approval)}{e.claimed_agency?' · Agency claimed':''}</span>}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>
+</section>
+}
       {section==='caregivers'&&<>
         <section className="section-block admin-caregiver-summary">
           <div className="admin-stat-grid">
@@ -230,7 +261,13 @@ export function AdminConsole(){
             <Stat label="Confirmed looking" value={f.reactivation.activelyLooking} sub="Among reactivated legacy workers"/>
           </div>
         </section>
-        CAREGIVERS
+        <section className="section-block">
+        <div className="section-heading"><h2>Profile acquisition by source</h2><p>Counts of caregiver profiles created during the selected period, including imported legacy records.</p></div>
+        <div style={grid}>
+          {f.caregiverSignups.length===0?<Stat label="New caregivers" value={0}/>:f.caregiverSignups.map(s=><Stat key={s.source} label={caregiverSourceLabel(s.source)} value={s.count}/>)}
+
+        </div>
+      </section>
         <div className="admin-info-note"><strong>Not yet a verified acquisition funnel.</strong> Page views aren't distinct job seekers. ZIP preview → signup → verified email → returning worker requires linked event tracking; the existing totals don't establish those conversion rates.</div>
       </>}
       {section==='jobs'&&<>
@@ -246,8 +283,52 @@ export function AdminConsole(){
         <section className="section-block"><div className="section-heading"><h2>Technical diagnostics</h2><p>These tools are for operational testing and troubleshooting, not day-to-day business review.</p></div>
           <a className="button secondary" href="/api/admin/health" target="_blank" rel="noopener noreferrer">Open raw system health</a>
         </section>
-        OUTREACH
-        TRAFFIC
+        <section className="section-block">
+        <div className="section-heading"><h2>Bulk outreach & test tools</h2><p>{data.outreach.enabled?'Daily sends are on (15:41 UTC).':'Daily sends are off. Set OUTREACH_ENABLED to "true" in wrangler.jsonc to turn them on.'} {data.outreach.unsubscribes} unsubscribed.</p></div>
+        <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(380px,100%),1fr))',alignItems:'start'}}>{data.outreach.today.map(t=><div className="settings-card" key={t.kind}>
+          <div className="job-meta">{KIND_LABELS[t.kind]}</div>
+          <div style={{fontSize:30,fontWeight:600}}>{t.sentToday} / {t.cap}</div>
+          <div className="job-meta">sent today{t.kind==='reactivation'?` · ${data.outreach.reactivationQueue} still to reach`:''}</div>
+          <div className="empty-actions" style={{marginTop:10}}>
+            <button className="button secondary" disabled={busy} onClick={()=>void test(t.kind)}>Send test to me</button>
+            <button className="button secondary" disabled={busy||t.sentToday>=t.cap} onClick={()=>void run(t.kind)}>Send today’s remaining</button>
+          </div>
+        </div>)}
+          <div className="settings-card" style={{gridColumn:'1/-1'}}>
+            <div className="job-meta">Agency walkthrough</div>
+            <div style={{fontWeight:600,margin:'6px 0'}}>{sourceAgency?sourceAgency.name+' (test copy)':'CareJoys Test Agency'}</div>
+            <div className="job-meta">Pick a real agency below to copy its profile, current jobs and matched caregivers (or none for a generic Baltimore agency). The live teaser comes to you so you can claim it and onboard like that agency would. The real agency is never contacted or changed, and the copy never shows publicly.</div>
+            <input style={{width:'100%',marginTop:10}} className="pipeline-select" value={agencyQuery} onChange={e=>setAgencyQuery(e.target.value)} placeholder="Search agencies (blank = most jobs)" />
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(300px,100%),1fr))',gap:4,marginTop:6,maxHeight:220,overflow:'auto'}}>
+              {agencyOptions.map(a=><button key={a.id} className={'nav-button '+(sourceAgency?.id===a.id?'active':'')} style={{textAlign:'left'}} onClick={()=>setSourceAgency(sourceAgency?.id===a.id?null:a)}>
+                {a.name} · {[a.city,a.state].filter(Boolean).join(', ')} · {a.jobs} jobs · {a.matches} matches{a.claimed?' · claimed':''}
+              </button>)}
+            </div>
+            <input style={{width:'100%',marginTop:8}} className="pipeline-select" type="email" value={testEmail} onChange={e=>setTestEmail(e.target.value)} placeholder="Send to (blank = your admin email), e.g. you+agency@gmail.com" />
+            <div className="empty-actions" style={{marginTop:10}}>
+              <button className="button secondary" disabled={busy} onClick={()=>void agencyTest()}>Send me a live agency teaser</button>
+              <button className="button secondary" disabled={busy} onClick={()=>void agencyTest(true)}>Reset test agency</button>
+            </div>
+          </div>
+        </div>
+        <div style={{...grid,marginTop:12}}>
+          <Stat label="Legacy caregivers" value={f.reactivation.legacyTotal}/>
+          <Stat label="Reactivation sent" value={f.reactivation.sent}/>
+          <Stat label="Opened" value={f.reactivation.opened} sub={pct(f.reactivation.opened,f.reactivation.sent)}/>
+          <Stat label="Confirmed" value={f.reactivation.completed} sub={`${f.reactivation.activelyLooking} looking`}/>
+          <Stat label="Agency teasers" value={f.agencyClaims.teasersSent}/>
+          <Stat label="Teasers opened" value={f.agencyClaims.teasersOpened} sub={pct(f.agencyClaims.teasersOpened,f.agencyClaims.teasersSent)}/>
+          <Stat label="Agencies claimed" value={f.agencyClaims.claimed} sub={`${f.agencyClaims.claimsRequested} requested`}/>
+        </div>
+        {data.outreach.recentRuns.length>0&&<div className="settings-card" style={{marginTop:12}}>{data.outreach.recentRuns.map(r=><div className="job-meta" key={r.created_at+r.kind}>{day(r.created_at)} · {KIND_LABELS[r.kind]||r.kind} · {r.trigger} · sent {r.sent}{r.failed?`, failed ${r.failed}`:''}</div>)}</div>}
+      </section>
+        <section className="section-block">
+        <div className="section-heading"><h2>Traffic</h2><p>{f.traffic.pageViews} page views. Cookie-less, path only.</p></div>
+        <div style={{...grid,gridTemplateColumns:'repeat(auto-fit,minmax(min(320px,100%),1fr))'}}>
+          <div className="settings-card"><div className="modal-kicker">Top pages</div>{f.traffic.topPaths.map(p=><div className="job-meta" key={p.path}>{p.count} · {p.path}</div>)}</div>
+          <div className="settings-card"><div className="modal-kicker">Top sources</div>{f.traffic.topSources.map(s=><div className="job-meta" key={s.source}>{s.count} · {s.source}</div>)}</div>
+        </div>
+      </section>
       </>}
     </main>
   </div>;
