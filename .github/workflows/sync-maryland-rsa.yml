@@ -1,0 +1,65 @@
+name: Sync Maryland Care Agencies
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/sync-maryland-rsa.trigger
+  schedule:
+    - cron: '23 10 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+      - run: npm install xlsx --no-save
+
+      - name: Apply agency schema
+        run: npm run db:migrations:apply
+
+      - name: Download official Maryland agency directories
+        run: |
+          BASE="https://health.maryland.gov/ohcq/docs/Provider-Listings/Excel"
+          curl --fail-with-body --location --retry 4 --retry-delay 2 -A "Mozilla/5.0 CareJoys/1.0" \
+            "$BASE/Health-Care-Staff-Agencies-EXCEL.xlsx" -o /tmp/maryland-hcsa.xlsx
+          curl --fail-with-body --location --retry 4 --retry-delay 2 -A "Mozilla/5.0 CareJoys/1.0" \
+            "$BASE/Home-Health-Agencies-EXCEL.xlsx" -o /tmp/maryland-hha.xlsx
+          curl --fail-with-body --location --retry 4 --retry-delay 2 -A "Mozilla/5.0 CareJoys/1.0" \
+            "$BASE/Residential-Service-Agencies-EXCEL.xlsx" -o /tmp/maryland-rsa.xlsx
+          test -s /tmp/maryland-hcsa.xlsx
+          test -s /tmp/maryland-hha.xlsx
+          test -s /tmp/maryland-rsa.xlsx
+
+      - name: Parse directories and build D1 upsert
+        run: |
+          node scripts/import-maryland-agencies.mjs \
+            --hcsa /tmp/maryland-hcsa.xlsx \
+            --hha /tmp/maryland-hha.xlsx \
+            --rsa /tmp/maryland-rsa.xlsx \
+            --output /tmp/maryland-agencies.sql
+
+      - name: Import agencies into CareJoys
+        run: npx wrangler d1 execute DB --remote --file=/tmp/maryland-agencies.sql
+
+      - name: Build canonical agency organizations
+        run: |
+          node scripts/build-agency-organizations.mjs /tmp/agency-organizations.sql
+          npx wrangler d1 execute DB --remote --file=/tmp/agency-organizations.sql
+
+      - name: Verify Maryland agency universe
+        run: |
+          npx wrangler d1 execute DB --remote --command="SELECT provider_type,COUNT(*) AS active_records,SUM(caregiver_match_eligible) AS match_eligible FROM agencies WHERE source LIKE 'maryland_ohcq_%' AND is_active=1 GROUP BY provider_type ORDER BY provider_type;"
+          npx wrangler d1 execute DB --remote --command="SELECT COUNT(DISTINCT organization_key) AS unique_organizations,COUNT(*) AS licensed_records,SUM(caregiver_match_eligible) AS match_eligible_records FROM agencies WHERE source LIKE 'maryland_ohcq_%' AND is_active=1;"
+          npx wrangler d1 execute DB --remote --command="SELECT jurisdiction,COUNT(*) AS match_eligible FROM agencies WHERE source LIKE 'maryland_ohcq_%' AND is_active=1 AND caregiver_match_eligible=1 GROUP BY jurisdiction ORDER BY match_eligible DESC LIMIT 15;"

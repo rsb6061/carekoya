@@ -1,0 +1,862 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { getPlatformProxy } from 'wrangler';
+import worker from '../src/worker';
+import { unsubscribeLink } from '../src/emailPreferences';
+import { runOutreach } from '../src/outreach';
+import { runDataForSeoJobs } from '../src/dataforseo';
+import { pullClarityInsights } from '../src/clarity';
+import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
+
+// Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
+type DB=any;
+let proxy:Awaited<ReturnType<typeof getPlatformProxy>>;
+let DB:DB;
+const sent:Array<{to:string;subject:string;headers?:Record<string,string>;html?:string}>=[];
+const EMAIL={send:async(m:any)=>{sent.push(m);return {messageId:'test-'+sent.length}}};
+const ASSETS={fetch:async()=>new Response('asset')};
+const env=(extra:Record<string,unknown>={})=>({DB,EMAIL,ASSETS,...extra}) as any;
+const call=(path:string,init:RequestInit={},extra:Record<string,unknown>={})=>worker.fetch(new Request('https://carejoys.com'+path,init),env(extra));
+
+async function sha256Hex(value:string){
+  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+const SESSION='test-session-token';
+const recent=new Date(Date.now()-86400000).toISOString();
+
+async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}){
+  const row={id,first_name:id,last_name:'Test',email:id+'@example.com',zip,state:'',role:'CNA',work_status:'actively_looking',last_confirmed_at:recent,source:'organic',is_active:1,...extra};
+  const keys=Object.keys(row);
+  await DB.prepare(`INSERT INTO caregivers(${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`).bind(...Object.values(row)).run();
+}
+
+beforeAll(async()=>{
+  proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
+  DB=(proxy.env as any).DB;
+  for(const t of ['caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+    await DB.prepare(`DELETE FROM ${t}`).run();
+  }
+  await addCaregiver('baltimore','21201');
+  await addCaregiver('towson','21204');
+  await addCaregiver('dc','20001');
+  await addCaregiver('la','90001');
+  await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp1','Acme Care','Pat','pat@acme.test','21201','CNA','active')").run();
+  await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s1','emp1',?,?)").bind(await sha256Hex(SESSION),new Date(Date.now()+86400000).toISOString()).run();
+},120000);
+afterAll(async()=>{await proxy?.dispose()});
+
+describe('auth boundaries', ()=>{
+  it('public health exposes only aggregate counts', async()=>{
+    const body=await (await call('/api/health')).json() as any;
+    expect(body.ok).toBe(true);
+    expect(Object.keys(body.counts).sort()).toEqual(['duplicateCaregiverEmails','publishedCaregiverJobs','scannedJobSources']);
+    expect(body.tables).toBeUndefined();
+    expect(body.jobScanSamples).toBeUndefined();
+  });
+  it('admin and stats endpoints require an admin', async()=>{
+    for(const path of ['/api/admin/overview','/api/admin/health','/api/activation-stats'])expect((await call(path)).status).toBe(401);
+    // A normal employer session is not an admin.
+    expect((await call('/api/admin/overview',{headers:{cookie:'cj_session='+SESSION}},{ADMIN_EMAILS:'boss@carejoys.com'})).status).toBe(401);
+  });
+  it('admin access works by token or by allowlisted employer session', async()=>{
+    const byToken=await call('/api/admin/overview?window=all',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'});
+    expect(byToken.status).toBe(200);
+    const body=await byToken.json() as any;
+    expect(body.funnel.employerFunnel.map((s:any)=>s.step)).toEqual(['employers','openings','matched','contacted','interested','interviews','hired']);
+    expect(body.outreach.enabled).toBe(false);
+    expect((await call('/api/admin/health',{headers:{cookie:'cj_session='+SESSION}},{ADMIN_EMAILS:'pat@acme.test'})).status).toBe(200);
+  });
+  it('caregiver dashboard requires sign-in', async()=>{
+    expect((await call('/api/me')).status).toBe(401);
+    expect((await call('/api/me/availability',{method:'POST',body:'{}'})).status).toBe(401);
+  });
+});
+
+describe('employer approval', ()=>{
+  it('free-mail employers wait for an admin before seeing caregivers; company emails do not', async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('empfree','Solo Care','Sam','sam@gmail.com','21201','CNA','active')").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s2','empfree',?,?)").bind(await sha256Hex('free-session'),new Date(Date.now()+86400000).toISOString()).run();
+    sent.length=0;
+    const asFree=(extra:Record<string,unknown>={})=>call('/api/candidates?zip=21201',{headers:{cookie:'cj_session=free-session'}},{ADMIN_EMAILS:'boss@carejoys.com',...extra});
+    const blocked=await asFree();
+    expect(blocked.status).toBe(403);
+    expect(((await blocked.json()) as any).pendingApproval).toBe(true);
+    expect(sent.map(m=>m.to)).toEqual([['boss@carejoys.com']]);
+    await asFree();
+    expect(sent).toHaveLength(1);
+    expect((await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).status).toBe(200);
+    const ws=await (await call('/api/workspace',{headers:{cookie:'cj_session=free-session'}})).json() as any;
+    expect(ws.approval).toEqual({approved:false,reason:'pending'});
+    const approved=await call('/api/admin/employers/empfree/approve',{method:'POST',headers:{authorization:'Bearer t0ken','content-type':'application/json'},body:'{}'},{ADMIN_TOKEN:'t0ken'});
+    expect(approved.status).toBe(200);
+    expect((await asFree()).status).toBe(200);
+  });
+});
+
+describe('distance matching', ()=>{
+  it('talent search returns caregivers within the radius, nearest-first among equally fresh', async()=>{
+    const res=await call('/api/candidates?zip=21201&radius=25',{headers:{cookie:'cj_session='+SESSION}});
+    const body=await res.json() as any;
+    expect(body.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','towson']);
+    expect(body.candidates.find((c:any)=>c.id==='towson').distanceMiles).toBeGreaterThan(5);
+    const wide=await (await call('/api/candidates?zip=21201&radius=50',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(wide.candidates.map((c:any)=>c.id).sort()).toEqual(['baltimore','dc','towson']);
+  });
+  it('opening match uses commute radius and infers location from ZIP', async()=>{
+    const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA days',role:'CNA',zip:'21201'})});
+    const {id}=await created.json() as any;
+    const opening=await DB.prepare('SELECT city,state FROM openings WHERE id=?').bind(id).first();
+    expect(opening).toEqual({city:'Baltimore',state:'MD'});
+    const match=await (await call(`/api/openings/${id}/match`,{method:'POST',headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(match.top.map((c:any)=>c.id).sort()).toEqual(['baltimore','towson']);
+  });
+  it('caregiver signup infers state and city outside Maryland', async()=>{
+    const res=await call('/api/caregivers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({firstName:'Nia',lastName:'York',email:'nia@example.com',phone:'5550100',zip:'10001',role:'HHA'})});
+    expect(res.status).toBe(201);
+    const row=await DB.prepare("SELECT city,state FROM caregivers WHERE email='nia@example.com'").first();
+    expect(row).toEqual({city:'New York',state:'NY'});
+  });
+});
+
+describe('outreach', ()=>{
+  it('unsubscribe needs a POST and then suppresses the address', async()=>{
+    const {link,headers}=await unsubscribeLink(DB,'Optout@Example.com','test');
+    expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+    const path=link.replace('https://carejoys.com','');
+    expect(await (await call(path)).text()).toContain('<form method="post">');
+    expect(await DB.prepare("SELECT email FROM email_suppressions").first()).toBeNull();
+    await call(path,{method:'POST'});
+    expect(await DB.prepare("SELECT email FROM email_suppressions").first()).toEqual({email:'optout@example.com'});
+  });
+  it('reactivation skips unsubscribed addresses and stops at the daily cap', async()=>{
+    await addCaregiver('legacy1','21201',{source:'legacy_carekoya',work_status:'unknown',last_confirmed_at:null});
+    await addCaregiver('legacy2','21204',{source:'legacy_carekoya',work_status:'unknown',last_confirmed_at:null});
+    await addCaregiver('optout','21204',{source:'legacy_carekoya',work_status:'unknown',last_confirmed_at:null,email:'optout@example.com'});
+    sent.length=0;
+    const first=await runOutreach(env({REACTIVATION_DAILY_CAP:'1'}),'reactivation','admin') as any;
+    expect(first.sent).toBe(1);
+    const second=await runOutreach(env({REACTIVATION_DAILY_CAP:'1'}),'reactivation','admin') as any;
+    expect(second.skipped).toBe('daily_cap_reached');
+    const third=await runOutreach(env({REACTIVATION_DAILY_CAP:'5'}),'reactivation','admin') as any;
+    expect(third.sent).toBe(1);
+    expect(sent.map(m=>m.to)).not.toContain('optout@example.com');
+    expect(sent[0].headers?.['List-Unsubscribe']).toMatch(/^<https:\/\/carejoys\.com\/api\/unsubscribe\?token=/);
+    expect(sent[0].html).toContain('/activate?token=');
+    // The emailed activation link works.
+    const token=decodeURIComponent(sent[0].html!.match(/activate\?token=([^"&]+)/)![1]);
+    expect((await call('/api/activate?token='+encodeURIComponent(token))).status).toBe(200);
+  });
+  it('admin test send emails only the signed-in admin and counts toward nothing', async()=>{
+    sent.length=0;
+    const runCount=async()=>((await DB.prepare("SELECT COUNT(*) AS n FROM outreach_runs").first()) as {n:number}).n;
+    const before=await runCount();
+    const post=(kind:string)=>call('/api/admin/outreach/test',{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify({kind})},{ADMIN_EMAILS:'pat@acme.test'});
+    expect((await post('reactivation')).status).toBe(200);
+    expect((await post('agency_teasers')).status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual(['pat@acme.test','pat@acme.test']);
+    expect(sent.every(m=>m.subject.startsWith('[Test] '))).toBe(true);
+    expect(await runCount()).toBe(before);
+  });
+  it('admin agency walkthrough sends a live teaser for a hidden test agency', async()=>{
+    sent.length=0;
+    const post=(body:object)=>call('/api/admin/agency-test',{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify(body)},{ADMIN_EMAILS:'pat@acme.test'});
+    const res=await post({});
+    expect(res.status).toBe(200);
+    expect((await res.json() as any).result.candidateCount).toBeGreaterThan(0);
+    expect(sent.map(m=>m.to)).toEqual(['pat@acme.test']);
+    expect(sent[0].subject.startsWith('[Test] ')).toBe(true);
+    const token=decodeURIComponent((sent[0].html||'').match(/agency\?token=([^"&\s]+)/)![1]);
+    const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
+    expect(teaser.agency.name).toBe('CareJoys Test Agency');
+    expect(teaser.candidateCount).toBeGreaterThan(0);
+    expect(Array.isArray(teaser.jobs)).toBe(true);
+    // Hidden from public search and not counted as real outreach.
+    expect((await (await call('/api/agency/search?q=carejoys')).json() as any).agencies).toEqual([]);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE event_type='candidate_teaser'").first()).toEqual({n:0});
+    expect((await post({reset:true})).status).toBe(200);
+    expect((await call('/api/agency/teaser?token='+encodeURIComponent(token))).status).toBe(404);
+  });
+  it('scheduled outreach does nothing until enabled', async()=>{
+    sent.length=0;
+    const waits:Promise<unknown>[]=[];
+    await worker.scheduled({cron:'41 15 * * *'},env(),{waitUntil:(p)=>{waits.push(p)}});
+    await Promise.all(waits);
+    expect(sent).toHaveLength(0);
+  });
+});
+
+describe('billing gate', ()=>{
+  it('blocks contacting past the free allowance only when Stripe is configured', async()=>{
+    const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'0'};
+    const {id}=await (await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'HHA',role:'CNA',zip:'21201'})})).json() as any;
+    await call(`/api/openings/${id}/match`,{method:'POST',headers:{cookie:'cj_session='+SESSION}});
+    await DB.prepare("INSERT INTO interview_slots(id,opening_id,employer_id,starts_at,duration_minutes,timezone) VALUES ('slot1',?,'emp1',?,30,'UTC')").bind(id,new Date(Date.now()+86400000).toISOString()).run();
+    const blocked=await call(`/api/openings/${id}/contact`,{method:'POST',headers:{cookie:'cj_session='+SESSION},body:'{}'},stripe);
+    expect(blocked.status).toBe(402);
+    const status=await (await call('/api/billing',{headers:{cookie:'cj_session='+SESSION}},stripe)).json() as any;
+    expect(status).toMatchObject({enabled:true,subscribed:false,freeContactsRemaining:0});
+    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp1','active')").run();
+    const allowed=await (await call(`/api/openings/${id}/contact`,{method:'POST',headers:{cookie:'cj_session='+SESSION},body:'{}'},stripe)).json() as any;
+    expect(allowed.sent).toBeGreaterThan(0);
+    expect((await (await call('/api/billing',{headers:{cookie:'cj_session='+SESSION}})).json() as any).enabled).toBe(false);
+  });
+});
+
+describe('analytics', ()=>{
+  it('stores page views without query strings', async()=>{
+    await call('/api/events',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'page_view',path:'/activate?token=secret',referrer:'https://www.google.com/search?q=x',utmSource:'newsletter'})});
+    const row=await DB.prepare('SELECT path,referrer_host,utm_source FROM analytics_events').first();
+    expect(row).toEqual({path:'/activate',referrer_host:'google.com',utm_source:'newsletter'});
+  });
+});
+
+const HTML_SHELL='<!doctype html><html><head><title>CareJoys</title><meta name="description" content="x" /><link rel="canonical" href="https://carejoys.com/" /></head><body><div id="root"></div></body></html>';
+const htmlAssets={ASSETS:{fetch:async()=>new Response(HTML_SHELL,{headers:{'content-type':'text/html; charset=utf-8'}})}};
+const post=(path:string,body:unknown,headers:Record<string,string>={},extra:Record<string,unknown>={})=>call(path,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(body)},extra);
+
+describe('site-owner tags', ()=>{
+  const ids={CLARITY_PROJECT_ID:'abc123xyz',GOOGLE_SITE_VERIFICATION:'g-token_1',BING_SITE_VERIFICATION:'B1NG'};
+  it('adds Clarity and verification tags to public pages only when configured', async()=>{
+    const plain=await (await call('/privacy-policy',{},htmlAssets)).text();
+    expect(plain).not.toContain('clarity.ms');
+    expect(plain).not.toContain('google-site-verification');
+    const html=await (await call('/privacy-policy',{},{...htmlAssets,...ids})).text();
+    expect(html).toContain('<meta name="google-site-verification" content="g-token_1" />');
+    expect(html).toContain('<meta name="msvalidate.01" content="B1NG" />');
+    expect(html).toContain('"clarity","script","abc123xyz"');
+  });
+  it('never loads Clarity on signed-in pages', async()=>{
+    for(const path of ['/dashboard','/admin','/app']){
+      const html=await (await call(path,{},{...htmlAssets,...ids})).text();
+      expect(html).not.toContain('clarity.ms');
+      expect(html).toContain('google-site-verification');
+    }
+  });
+});
+
+describe('clarity data export', ()=>{
+  it('saves one row per breakdown, skips a second pull the same day, and stops on quota errors', async()=>{
+    await DB.prepare('DELETE FROM clarity_insights').run();
+    const urls:string[]=[];
+    const ok=async(url:any,init:any)=>{urls.push(String(url));expect(init.headers.authorization).toBe('Bearer tok');
+      return new Response(JSON.stringify([{metricName:'Traffic',information:[{totalSessionCount:'12'}]}]),{status:200});};
+    expect(await pullClarityInsights(env(),{fetcher:ok as any})).toEqual({ok:false,error:'CLARITY_API_TOKEN not set'});
+    const first=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(first.results)).toEqual(['ok','ok','ok','ok','ok']);
+    expect(urls[0]).toBe('https://www.clarity.ms/export-data/api/v1/project-live-insights?numOfDays=1');
+    expect(urls[1]).toContain('&dimension1=URL');
+    const again=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{fetcher:ok as any}) as any;
+    expect(Object.values(again.results).every(v=>v==='already pulled')).toBe(true);
+    expect(urls.length).toBe(5);
+    let calls=0;
+    const limited=async()=>{calls++;return new Response('Too many',{status:429});};
+    const forced=await pullClarityInsights(env({CLARITY_API_TOKEN:'tok'}),{force:true,fetcher:limited as any}) as any;
+    expect(calls).toBe(1);
+    expect(forced.results.total).toBe('http_429');
+    // A failed re-pull keeps the data already saved.
+    expect(await DB.prepare("SELECT payload IS NOT NULL AS kept FROM clarity_insights WHERE dimension=''").first()).toEqual({kept:1});
+    const view=await (await call('/api/admin/clarity',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(view.rows.find((r:any)=>r.dimension==='URL').data[0].metricName).toBe('Traffic');
+  });
+});
+
+describe('audit fixes: onboarding', ()=>{
+  const profile={firstName:'Ada',lastName:'Lane',phone:'4105550100',zip:'21201',role:'CNA'};
+  it('caregiver resume creates a new profile without sign-in, but will not overwrite an existing one', async()=>{
+    const created=await post('/api/caregiver-resume',{...profile,email:'ada.new@example.com'});
+    expect(created.status).toBe(201);
+    const body=await created.json() as any;
+    expect(Array.isArray(body.topJobs)).toBe(true);
+    const takeover=await post('/api/caregiver-resume',{...profile,firstName:'Mallory',email:'baltimore@example.com'});
+    expect(takeover.status).toBe(409);
+    expect((await takeover.json() as any).needsVerifiedSignIn).toBe(true);
+    expect(await DB.prepare("SELECT first_name FROM caregivers WHERE id='baltimore'").first()).toEqual({first_name:'baltimore'});
+  });
+  it('employer intake for an existing email changes nothing until the emailed link is used', async()=>{
+    sent.length=0;
+    const res=await post('/api/employers',{companyName:'Evil Co',contactName:'Eve',email:'pat@acme.test',zip:'21201',rolesNeeded:'HHA'});
+    expect(res.status).toBe(201);
+    expect(await DB.prepare("SELECT company_name FROM employer_leads WHERE id='emp1'").first()).toEqual({company_name:'Acme Care'});
+    expect(await DB.prepare("SELECT count(*) AS n FROM openings WHERE employer_id='emp1' AND source='employer_intake'").first()).toEqual({n:0});
+    const token=decodeURIComponent(sent[0].html!.match(/token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    expect(verified.status).toBe(200);
+    expect((await verified.json() as any).redirect).toContain('opening=');
+    expect(await DB.prepare("SELECT count(*) AS n FROM openings WHERE employer_id='emp1' AND source='employer_intake'").first()).toEqual({n:1});
+  });
+});
+
+describe('audit fixes: SEO responses', ()=>{
+  beforeAll(async()=>{
+    await DB.prepare("DELETE FROM agency_teaser_tokens WHERE organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM agency_outreach_events WHERE organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE agency_organization_id='org-test'").run();
+    await DB.prepare("DELETE FROM agency_organizations WHERE id='org-test'").run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,city,state,is_active) VALUES ('org-test','org-test','Sunrise Home Care','sunrisecare.test','https://sunrisecare.test','Baltimore','MD',1)").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published) VALUES ('job-test','org-test','job-test','test','https://sunrisecare.test/jobs/1','CNA - Day Shift','CNA','Sunrise Home Care','Baltimore','MD','21201',18,22,'hour','current',1)").run();
+  });
+  it('job pages carry JobPosting data and missing jobs are gone', async()=>{
+    const page=await call('/jobs/job-test',{},htmlAssets);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('"@type":"JobPosting"');
+    expect((await call('/jobs/does-not-exist',{},htmlAssets)).status).toBe(410);
+  });
+  it('unknown pages are a real 404 and www redirects to the apex', async()=>{
+    expect((await call('/definitely-not-a-page',{},htmlAssets)).status).toBe(404);
+    const www=await worker.fetch(new Request('https://www.carejoys.com/about'),env(htmlAssets));
+    expect(www.status).toBe(301);
+    expect(www.headers.get('location')).toBe('https://carejoys.com/about');
+  });
+  it('sitemap is an index of child sitemaps', async()=>{
+    const index=await (await call('/sitemap.xml')).text();
+    expect(index).toContain('<sitemapindex');
+    expect(index).toContain('/sitemaps/pages.xml');
+    expect(await (await call('/sitemaps/jobs-1.xml')).text()).toContain('/jobs/job-test');
+  });
+  it('state hubs render for any state', async()=>{
+    const md=await call('/caregiver-jobs/maryland',{},htmlAssets);
+    expect(md.status).toBe(200);
+    expect(await md.text()).toContain('CNA - Day Shift');
+    const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
+    expect(hub.total).toBeGreaterThan(0);
+  });
+  it('/caregiver-jobs lists every state with jobs and the search box resolves places', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-tx','org-test','job-tx','test','https://sunrisecare.test/jobs/2','HHA Weekends','HHA','Sunrise Home Care','San Antonio','TX','78201','current',1)").run();
+    const page=await call('/caregiver-jobs',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<link rel="canonical" href="https://carejoys.com/caregiver-jobs" />');
+    expect(html).toContain('href="/caregiver-jobs/maryland"');
+    expect(html).toContain('href="/caregiver-jobs/texas"');
+    const api=await (await call('/api/public/jobs-national')).json() as any;
+    expect(api.states.map((s:any)=>s.code).sort()).toEqual(['MD','TX']);
+    const go=async(q:string)=>(await call('/caregiver-jobs?q='+encodeURIComponent(q),{},htmlAssets));
+    expect((await go('Texas')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas');
+    expect((await go('md')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/maryland');
+    expect((await go('san antonio')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas/san-antonio');
+    expect((await go('Baltimore, MD')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/maryland/baltimore');
+    expect((await go('Austin TX')).headers.get('location')).toBe('https://carejoys.com/caregiver-jobs/texas');
+    // A ZIP or an unknown place stays on the page, out of the index.
+    const zip=await go('21201');
+    expect(zip.status).toBe(200);
+    expect(await zip.text()).toContain('noindex');
+    expect((await go('Nowhereville')).status).toBe(200);
+    const sitemap=await (await call('/sitemaps/locations.xml')).text();
+    expect(sitemap).toContain('<loc>https://carejoys.com/caregiver-jobs</loc>');
+    expect(sitemap).toContain('/caregiver-jobs/texas<');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-tx'").run();
+  });
+});
+
+describe('audit fixes: agency self-serve', ()=>{
+  it('a work email at the agency domain gets a link that claims the agency', async()=>{
+    sent.length=0;
+    const start=await post('/api/agency/claim/start',{organizationId:'org-test',email:'owner@sunrisecare.test'});
+    expect(start.status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual(['owner@sunrisecare.test']);
+    const token=decodeURIComponent(sent[0].html!.match(/token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    const cookieHeader=verified.headers.get('set-cookie')!;
+    const session=decodeURIComponent(cookieHeader.match(/cj_session=([^;]+)/)![1]);
+    const org=await DB.prepare("SELECT claimed_employer_id FROM agency_organizations WHERE id='org-test'").first() as any;
+    expect(org.claimed_employer_id).toBeTruthy();
+    // Once claimed, the agency's website widget can read its jobs from any origin.
+    const widget=await call('/api/public/agency-jobs/org-test');
+    expect(widget.headers.get('access-control-allow-origin')).toBe('*');
+    const feed=await widget.json() as any;
+    expect(feed.jobs.map((j:any)=>[j.id,j.url])).toEqual([['job-test','https://carejoys.com/jobs/job-test?ref=widget']]);
+    expect((await call('/api/public/agency-jobs/no-such-org')).status).toBe(404);
+    // The new owner can hide a scraped job, and it drops off public pages.
+    const auth={cookie:'cj_session='+session};
+    expect((await (await call('/api/agency/jobs',{headers:auth})).json() as any).jobs.map((j:any)=>j.id)).toEqual(['job-test']);
+    expect((await post('/api/agency/jobs/job-test',{action:'hide'},auth)).status).toBe(200);
+    expect(await DB.prepare("SELECT is_published FROM caregiver_jobs WHERE id='job-test'").first()).toEqual({is_published:0});
+    expect((await call('/jobs/job-test',{},htmlAssets)).status).toBe(410);
+  });
+  it('an email outside the agency domain cannot claim it', async()=>{
+    expect((await post('/api/agency/claim/start',{organizationId:'org-test',email:'someone@gmail.com'})).status).toBe(409);
+  });
+});
+
+describe('DataForSEO pull in the Worker', ()=>{
+  const listing=(n:number,extra:Record<string,unknown>={})=>({title:'Agency '+n,category:'Home help service agency',place_id:'place-'+n,cid:String(n),
+    phone:'+1804555'+String(1000+n),url:'https://agency'+n+'.example/',address_info:{address:n+' Main St',city:'Richmond',zip:'23219',region:'Virginia'},
+    rating:{value:4.5,votes_count:n},...extra});
+  function fakeApi(pages:any[][],total:number){
+    const calls:any[]=[];
+    const original=globalThis.fetch;
+    globalThis.fetch=(async(_url:string,init:any)=>{
+      const task=JSON.parse(init.body)[0];
+      calls.push(task);
+      const virginia=task.filters?.[0]?.[2]==='Virginia'&&task.categories?.[0]==='home_help_service_agency';
+      if(task.limit===1)return new Response(JSON.stringify({status_code:20000,cost:0.01,tasks:[{status_code:20000,result:[{total_count:virginia?total:0,items:[]}]}]}));
+      const page=pages.shift()||[];
+      return new Response(JSON.stringify({status_code:20000,cost:0.5,tasks:[{status_code:20000,result:[{total_count:total,items:page,offset_token:pages.length?'next':''}]}]}));
+    }) as any;
+    return {calls,restore:()=>{globalThis.fetch=original}};
+  }
+  const creds={DATAFORSEO_LOGIN:'me@example.com',DATAFORSEO_PASSWORD:'pw'};
+  const job=(id:string,mode:string,maxCost=10)=>DB.prepare("INSERT INTO dataforseo_import_jobs(id,states,mode,max_cost) VALUES (?,?,?,?)").bind(id,'VA',mode,maxCost).run();
+  const status=(id:string)=>DB.prepare('SELECT * FROM dataforseo_import_jobs WHERE id=?').bind(id).first();
+
+  it('an estimate only counts listings', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('est','estimate');
+    const api=fakeApi([],1500);
+    try{await runDataForSeoJobs(env(creds))}finally{api.restore()}
+    const row=await status('est') as any;
+    expect(row.status).toBe('estimated');
+    expect(row.listings).toBe(1500);
+    expect(api.calls.every(c=>c.limit===1)).toBe(true);
+    expect(JSON.parse(row.plan_json)).toEqual([expect.objectContaining({state:'VA',category:'home_help_service_agency',filterValue:'Virginia',total:1500})]);
+  });
+
+  it('an import pages through listings, saves agencies and retires stale ones', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await DB.prepare("DELETE FROM agencies WHERE source='google_business'").run();
+    await DB.prepare("INSERT INTO agencies(id,source,source_key,name,state,is_active,last_source_sync_at) VALUES ('old','google_business','place:gone','Closed Agency','VA',1,'2020-01-01 00:00:00')").run();
+    await job('imp','import');
+    const api=fakeApi([[listing(1),listing(2),listing(3,{address_info:{region:'Maryland'}})],[listing(4),listing(5,{title:'Richmond Medical Supply'})]],5);
+    try{
+      await runDataForSeoJobs(env(creds)); // probes
+      expect((await status('imp') as any).status).toBe('running');
+      await runDataForSeoJobs(env(creds)); // both pages
+    }finally{api.restore()}
+    const row=await status('imp') as any;
+    expect(row.status).toBe('done');
+    expect(row.agencies).toBe(4);
+    expect(api.calls.filter(c=>c.limit===1000)[1].offset_token).toBe('next');
+    const saved=(await DB.prepare("SELECT name,state,phone,website,rating,caregiver_match_eligible,is_active FROM agencies WHERE source='google_business' ORDER BY name").all()).results as any[];
+    expect(saved.map(r=>r.name)).toEqual(['Agency 1','Agency 2','Agency 4','Closed Agency','Richmond Medical Supply']);
+    expect(saved.find(r=>r.name==='Agency 1')).toMatchObject({state:'VA',phone:'(804) 555-1001',website:'https://agency1.example/',rating:4.5,caregiver_match_eligible:1,is_active:1});
+    expect(saved.find(r=>r.name==='Richmond Medical Supply').caregiver_match_eligible).toBe(0);
+    expect(saved.find(r=>r.name==='Closed Agency').is_active).toBe(0);
+  });
+
+  it('stops before passing the spend cap', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('cap','import',0.6);
+    const api=fakeApi([[listing(1)],[listing(2)],[listing(3)]],3000);
+    try{await runDataForSeoJobs(env(creds));await runDataForSeoJobs(env(creds))}finally{api.restore()}
+    const row=await status('cap') as any;
+    expect(row.status).toBe('stopped');
+    expect(row.spent).toBeLessThanOrEqual(0.6+0.5);
+    expect(api.calls.filter(c=>c.limit===1000).length).toBe(1);
+  });
+
+  it('fails clearly without credentials', async()=>{
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('nocreds','estimate');
+    await runDataForSeoJobs(env());
+    const row=await status('nocreds') as any;
+    expect(row.status).toBe('failed');
+    expect(row.error).toMatch(/DATAFORSEO_LOGIN/);
+  });
+});
+
+describe('shared sign-in', ()=>{
+  const ACCOUNT=/__Host-cj_account=([^;]+)/;
+  async function signIn(email:string,next=''){
+    sent.length=0;
+    const requested=await post('/api/login/request',{email,next});
+    expect(requested.status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual([email]);
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token});
+    expect(verified.status).toBe(200);
+    const cookies=verified.headers.get('set-cookie')||'';
+    const account=decodeURIComponent(cookies.match(ACCOUNT)![1]);
+    const employer=cookies.match(/__Host-cj_session=([^;]+)/);
+    const cookie='__Host-cj_account='+account+(employer?'; __Host-cj_session='+employer[1]:'');
+    return {body:await verified.json() as any,cookie,token};
+  }
+
+  it('a caregiver signs in by email and lands on their dashboard', async()=>{
+    const {body,cookie,token}=await signIn('baltimore@example.com');
+    expect(body.redirect).toBe('/dashboard');
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.caregiver.id).toBe('baltimore');
+    // The whole saved profile comes back, so applying to a job doesn't ask for it again.
+    for(const key of ['firstName','lastName','phone','zip','role','shifts','transportation','specialties'])expect(me.caregiver).toHaveProperty(key);
+    // An email sign-in is not an Auth0 subject, so nothing is written there.
+    expect(await DB.prepare("SELECT auth0_sub FROM caregivers WHERE id='baltimore'").first()).toEqual({auth0_sub:null});
+    // Links work once.
+    expect((await post('/api/login/verify',{token})).status).toBe(400);
+  });
+
+  it('a signed-in caregiver can update the profile that blocked an anonymous resubmit', async()=>{
+    const {cookie}=await signIn('towson@example.com');
+    const res=await post('/api/caregiver-resume',{firstName:'Tia',lastName:'Test',email:'towson@example.com',phone:'4105550101',zip:'21204',role:'GNA'},{cookie});
+    expect(res.status).toBe(200);
+    expect(await DB.prepare("SELECT first_name,role FROM caregivers WHERE id='towson'").first()).toEqual({first_name:'Tia',role:'GNA'});
+  });
+
+  it('an agency or employer lands in the hiring workspace with the same sign-in', async()=>{
+    const {body,cookie}=await signIn('pat@acme.test');
+    expect(body.redirect).toBe('/app');
+    expect(body.roles).toEqual({caregiver:false,employer:true,admin:false,school:false});
+    const session=await (await call('/api/session',{headers:{cookie}})).json() as any;
+    expect(session.employer.id).toBe('emp1');
+  });
+
+  it('a new agency lands in the hiring workspace and can set it up without a second email', async()=>{
+    const {body,cookie}=await signIn('new.owner@homecare.test','/app');
+    expect(body.redirect).toBe('/app');
+    const account=await (await call('/api/account',{headers:{cookie}})).json() as any;
+    expect(account).toMatchObject({signedIn:true,email:'new.owner@homecare.test',roles:{caregiver:false,employer:false}});
+    sent.length=0;
+    const res=await post('/api/employers',{companyName:'Home Care Co',contactName:'Nia',email:'new.owner@homecare.test',zip:'21201',rolesNeeded:'CNA'},{cookie});
+    expect(res.status).toBe(201);
+    const created=await res.json() as any;
+    expect(created.redirect).toContain('/app?opening=');
+    expect(sent.length).toBe(0);
+    expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.employer).toBe(true);
+  });
+
+  it('the hiring workspace opens from the shared sign-in when its own session is missing', async()=>{
+    const {cookie}=await signIn('pat@acme.test');
+    const accountOnly=cookie.split('; ')[0];
+    const res=await call('/api/session',{headers:{cookie:accountOnly}});
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).employer.id).toBe('emp1');
+    expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
+    // A caregiver-only sign-in still has no workspace.
+    const caregiver=(await signIn('baltimore@example.com')).cookie;
+    expect((await call('/api/session',{headers:{cookie:caregiver}})).status).toBe(401);
+  });
+
+  it('signing in as someone else drops a workspace session left in the browser', async()=>{
+    sent.length=0;
+    await post('/api/login/request',{email:'baltimore@example.com'});
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token},{cookie:'__Host-cj_session='+SESSION});
+    const cookies=verified.headers.get('set-cookie')||'';
+    expect(cookies).toContain('__Host-cj_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+    expect(cookies).toContain('__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+  });
+
+  it('an emailed workspace link also signs in to the shared account', async()=>{
+    sent.length=0;
+    await post('/api/auth/request',{email:'pat@acme.test'});
+    const token=decodeURIComponent(sent[0].html!.match(/auth\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/auth/verify',{token});
+    expect(verified.status).toBe(200);
+    const cookies=verified.headers.get('set-cookie')||'';
+    expect(cookies).toContain('__Host-cj_session=');
+    const account=decodeURIComponent(cookies.match(ACCOUNT)![1]);
+    const status=await (await call('/api/account',{headers:{cookie:'__Host-cj_account='+account}})).json() as any;
+    expect(status).toMatchObject({signedIn:true,email:'pat@acme.test',roles:{employer:true}});
+  });
+
+  it('admins reach /admin through the shared sign-in alone', async()=>{
+    await DB.prepare('DELETE FROM rate_limits').run();
+    const {cookie}=await signIn('pat@acme.test');
+    const accountOnly=cookie.split('; ')[0];
+    expect((await call('/api/admin/health',{headers:{cookie:accountOnly}},{ADMIN_EMAILS:'pat@acme.test'})).status).toBe(200);
+    expect((await call('/api/admin/health',{headers:{cookie:accountOnly}},{ADMIN_EMAILS:'boss@carejoys.com'})).status).toBe(401);
+  });
+
+  it('a new device opens the dashboard this account used last', async()=>{
+    await DB.prepare('DELETE FROM rate_limits').run();
+    await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('pat-cg2','Pat','Lee','pat@acme.test','21201','MD','CNA')").run();
+    const {cookie}=await signIn('pat@acme.test');
+    expect((await post('/api/account/last-dashboard',{kind:'me'},{cookie})).status).toBe(200);
+    expect((await post('/api/account/last-dashboard',{kind:'nope'},{cookie})).status).toBe(400);
+    expect((await post('/api/account/last-dashboard',{kind:'me'})).status).toBe(401);
+    // No cookie on this browser, so the account's own memory decides.
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/dashboard');
+    await post('/api/account/last-dashboard',{kind:'app'},{cookie});
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
+    await DB.prepare("DELETE FROM caregivers WHERE id='pat-cg2'").run();
+    await DB.prepare("DELETE FROM account_preferences").run();
+  });
+
+  it('a person can close their hiring workspace or remove their caregiver profile, and come back', async()=>{
+    await DB.prepare('DELETE FROM rate_limits').run();
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-close','Close Co','Cy','cy@close.test','21201','CNA','active')").run();
+    await addCaregiver('cy','21201',{email:'cy@close.test'});
+    const {cookie}=await signIn('cy@close.test');
+    expect((await post('/api/account/close',{side:'nope'},{cookie})).status).toBe(400);
+    const hiring=await post('/api/account/close',{side:'hiring'},{cookie});
+    expect(hiring.status).toBe(200);
+    expect(await hiring.json()).toMatchObject({roles:{caregiver:true,employer:false},redirect:'/dashboard'});
+    expect(hiring.headers.get('set-cookie')).toContain('__Host-cj_session=; ');
+    expect((await call('/api/session',{headers:{cookie}})).status).toBe(401);
+    const caregiver=await (await post('/api/account/close',{side:'caregiver'},{cookie})).json() as any;
+    expect(caregiver.roles).toMatchObject({caregiver:false,employer:false});
+    expect(await DB.prepare("SELECT work_status,is_active FROM caregivers WHERE id='cy'").first()).toEqual({work_status:'closed',is_active:0});
+    expect(((await (await call('/api/me',{headers:{cookie}})).json()) as any).caregiver).toBe(null);
+    expect(((await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json()) as any).candidates.some((c:any)=>c.caregiverId==='cy'||c.id==='cy')).toBe(false);
+    // Building a profile again with the same signed-in email brings it back.
+    const back=await post('/api/caregiver-resume',{firstName:'Cy',lastName:'Test',email:'cy@close.test',phone:'4105550102',zip:'21201',role:'CNA'},{cookie});
+    expect(back.status).toBe(200);
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.caregiver).toBe(true);
+  });
+
+  it('signed-in visitors skip the marketing home page for their own dashboard', async()=>{
+    await DB.prepare('DELETE FROM rate_limits').run();
+    const caregiver=(await signIn('baltimore@example.com')).cookie;
+    const res=await call('/',{headers:{cookie:caregiver},redirect:'manual'});
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/dashboard');
+    const agency=(await signIn('pat@acme.test')).cookie.split('; ')[0];
+    expect((await call('/',{headers:{cookie:agency+'; cj_last_dashboard=app'},redirect:'manual'})).headers.get('location')).toBe('/app');
+    // Signed out, or a stale cookie: the normal home page.
+    expect((await call('/',{redirect:'manual'})).status).toBe(200);
+    expect((await call('/',{headers:{cookie:'__Host-cj_account=stale'},redirect:'manual'})).status).toBe(200);
+  });
+
+  it('the public config no longer mentions Auth0', async()=>{
+    const config=await (await call('/api/config')).json() as any;
+    expect(config).not.toHaveProperty('auth0Domain');
+    expect(config).toHaveProperty('googleSignIn');
+  });
+
+  it('an email with both roles returns to the dashboard it used last', async()=>{
+    await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('pat-cg','Pat','Lee','pat@acme.test','21201','MD','CNA')").run();
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
+    sent.length=0;
+    await post('/api/login/request',{email:'pat@acme.test'});
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token},{cookie:'cj_last_dashboard=me'});
+    expect(((await verified.json()) as any).redirect).toBe('/dashboard');
+    await DB.prepare("DELETE FROM caregivers WHERE id='pat-cg'").run();
+  });
+
+  it('training-program staff sign in like everyone else and land on their placement dashboard', async()=>{
+    await DB.prepare("INSERT INTO school_leads(id,organization_name,contact_name,email,status) VALUES ('sl-test','Test Nursing School','Dana Lee','dana@school.test','claimed')").run();
+    await DB.prepare("INSERT INTO training_programs(id,source,source_key,program_name,claimed_school_lead_id) VALUES ('tp-test','test','tp-test','Test CNA Program','sl-test')").run();
+    const {body,cookie}=await signIn('dana@school.test');
+    expect(body.roles.school).toBe(true);
+    expect(body.redirect).toBe('/school-dashboard');
+    const dash=await call('/api/school/dashboard',{headers:{cookie}});
+    expect(dash.status).toBe(200);
+    expect(((await dash.json()) as any).school.name).toBe('Test CNA Program');
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).name).toBe('Dana');
+    await DB.prepare("DELETE FROM training_programs WHERE id='tp-test'").run();
+    await DB.prepare("DELETE FROM school_leads WHERE id='sl-test'").run();
+  });
+
+  it('a caregiver saves their full profile, including when they can work', async()=>{
+    const {cookie}=await signIn('baltimore@example.com');
+    const res=await post('/api/me/profile',{firstName:'Bea',lastName:'More',phone:'4105550123',zip:'21201',role:'CNA',
+      certifications:['CNA','CPR / First Aid'],licenseNumber:'A123',licenseState:'md',yearsExperience:4,specialties:['Hoyer lift'],careSettings:['Home care'],languages:['English'],
+      availability:{days:{mon:['morning','overnight'],sat:['morning'],tue:['bogus']},liveIn:true},employmentTypes:['full_time','nope'],startAvailability:'2_weeks',
+      workConditions:['pets'],payMin:19,transportation:'own_car',travelMiles:15},{cookie});
+    expect(res.status).toBe(200);
+    const row=await DB.prepare("SELECT shift_preferences,employment_types,license_state,desired_wage,work_status FROM caregivers WHERE id='baltimore'").first() as any;
+    expect(row).toEqual({shift_preferences:'Mornings, Overnights, Weekends, Live-in',employment_types:'full_time',license_state:'MD',desired_wage:'$19+/hr',work_status:'actively_looking'});
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.caregiver.availability.days.mon).toEqual(['morning','overnight']);
+    expect(me.caregiver.availability.days.tue).toEqual([]);
+    expect(me.caregiver.availability.liveIn).toBe(true);
+    expect(me.caregiver.workConditions).toEqual(['pets']);
+  });
+
+  it('a caregiver previews their card exactly as employers see it, without contact details', async()=>{
+    expect((await call('/api/me/employer-view')).status).toBe(401);
+    const {cookie}=await signIn('baltimore@example.com');
+    const view=await (await call('/api/me/employer-view',{headers:{cookie}})).json() as any;
+    expect(view.visible).toBe(true);
+    expect(view.candidate.name).toBe('Bea M.');
+    expect(view.candidate.shifts).toBe('Mornings, Overnights, Weekends, Live-in');
+    expect(JSON.stringify(view)).not.toMatch(/4105550123|baltimore@example\.com/);
+  });
+
+  it('old /me links redirect to the caregiver dashboard at /dashboard', async()=>{
+    const res=await call('/me/profile?x=1',{redirect:'manual'});
+    expect(res.status).toBe(301);
+    expect(new URL(res.headers.get('location')!).pathname+new URL(res.headers.get('location')!).search).toBe('/dashboard/profile?x=1');
+  });
+
+  it('never sends anyone off-site or into /admin without being an admin', async()=>{
+    expect((await signIn('ada.new@example.com','//evil.example/x')).body.redirect).toBe('/dashboard');
+    expect((await signIn('ada.new@example.com','/admin')).body.redirect).toBe('/dashboard');
+    expect((await signIn('ada.new@example.com','/welcome')).body.redirect).toBe('/dashboard');
+    expect((await signIn('ada.new@example.com','/jobs/abc')).body.redirect).toBe('/jobs/abc');
+  });
+
+  it('a signed-in caregiver applies in one click; claimed employers get it in their Inbox', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-claimed','org-claimed','Acme Care','acme.test','jobs@acme.test','Baltimore','MD','21201',1,'emp1')").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active) VALUES ('org-open','org-open','Bay Home Care','bay.test','jobs@bay.test','Baltimore','MD','21201',1)").run();
+    for(const [id,org,name] of [['job-claimed','org-claimed','Acme Care'],['job-open','org-open','Bay Home Care']]){
+      await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,?,?,'test',?,'CNA Days','CNA',?,'Baltimore','MD','21201','current',1)")
+        .bind(id,org,id,'https://'+org+'.test/apply',name).run();
+    }
+    expect((await post('/api/me/apply/job-claimed',{})).status).toBe(401);
+    const {cookie}=await signIn('dc@example.com');
+    sent.length=0;
+    const first=await post('/api/me/apply/job-claimed',{},{cookie});
+    expect(first.status).toBe(201);
+    expect(await first.json()).toMatchObject({status:'applied',employerOnCareJoys:true,applicationUrl:'https://org-claimed.test/apply'});
+    expect(await DB.prepare("SELECT source FROM agency_interests WHERE organization_id='org-claimed' AND caregiver_id='dc'").first()).toEqual({source:'job_apply'});
+    // The caregiver gets a receipt and the claimed agency hears about it.
+    expect(sent.map(m=>m.to).sort()).toEqual(['dc@example.com','pat@acme.test']);
+    sent.length=0;
+    expect(await (await post('/api/me/apply/job-claimed',{},{cookie})).json()).toMatchObject({status:'already_applied'});
+    expect(sent).toEqual([]);
+    // An unclaimed agency is not emailed while outreach is off, so the caregiver is pointed to its own site.
+    const open=await post('/api/me/apply/job-open',{},{cookie});
+    expect(await open.json()).toMatchObject({status:'applied',employerOnCareJoys:false});
+    expect(sent.map(m=>m.to)).toEqual(['dc@example.com']);
+    expect(sent[0].html).toContain('https://org-open.test/apply');
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys]).sort()).toEqual([['job-claimed',true,true],['job-open',true,false]]);
+  });
+
+  it('stores the resume file and only starts Apply for me where it can', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-paylocity','org-open','job-paylocity','test','https://recruiting.paylocity.com/Recruiting/Jobs/Details/1','HHA Days','HHA','Bay Home Care','Baltimore','MD','21201','current',1)").run();
+    expect(((await (await call('/api/public/caregiver-jobs/job-paylocity')).json()) as any).job.applyForMe).toBe(true);
+    expect(((await (await call('/api/public/caregiver-jobs/job-open')).json()) as any).job.applyForMe).toBe(false);
+    const {cookie}=await signIn('dc@example.com');
+    const pdf=new TextEncoder().encode('%PDF-1.4 test resume for apply for me');
+    const upload=(path:string,headers:Record<string,string>)=>call(path,{method:'POST',headers:{'content-type':'application/pdf','x-file-name':'Dee%20Resume.pdf',...headers},body:pdf});
+    // Not signed in, or not a PDF: refused.
+    expect((await upload('/api/me/resume',{})).status).toBe(401);
+    expect((await call('/api/me/resume',{method:'POST',headers:{cookie,'content-type':'application/pdf'},body:new TextEncoder().encode('not really a pdf file')})).status).toBe(400);
+    // Without a resume file, Apply for me asks for one... once Browser Rendering is bound.
+    expect((await post('/api/me/apply-agent/job-paylocity',{},{cookie})).status).toBe(503);
+    expect((await post('/api/me/apply-agent/job-open',{},{cookie})).status).toBe(422);
+    expect((await upload('/api/me/resume',{cookie})).status).toBe(200);
+    const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
+    expect(me.resume).toMatchObject({fileName:'Dee Resume.pdf'});
+    const download=await call('/api/me/resume',{headers:{cookie}});
+    expect(download.headers.get('content-type')).toBe('application/pdf');
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(pdf);
+  });
+
+  it('a new caregiver’s resume file is stored with the one-time token from saving the profile', async()=>{
+    const saved=await post('/api/caregiver-resume',{firstName:'Rae',lastName:'New',email:'rae.new@example.com',phone:'4105550111',zip:'21201',role:'CNA'});
+    const body=await saved.json() as any;
+    expect(body.resumeUploadToken).toBeTruthy();
+    const send=(token:string)=>call('/api/caregivers/'+body.id+'/resume-file',{method:'POST',headers:{'content-type':'application/pdf','x-carejoys-profile-token':token},body:new TextEncoder().encode('%PDF-1.4 rae resume for the test')});
+    expect((await send('wrong')).status).toBe(401);
+    expect((await send(body.resumeUploadToken)).status).toBe(200);
+    // Works once.
+    expect((await send(body.resumeUploadToken)).status).toBe(401);
+    expect(await DB.prepare("SELECT file_name,content_type FROM caregiver_resume_files WHERE caregiver_id=?").bind(body.id).first()).toEqual({file_name:'resume.pdf',content_type:'application/pdf'});
+  });
+
+  it('signing out ends every session in the browser', async()=>{
+    const {cookie}=await signIn('pat@acme.test');
+    const out=await call('/api/logout',{method:'POST',headers:{cookie}});
+    expect(out.headers.get('set-cookie')).toContain('__Host-cj_account=;');
+    expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).signedIn).toBe(false);
+    expect((await call('/api/session',{headers:{cookie}})).status).toBe(401);
+  });
+});
+
+describe('agency walkthrough from a real agency', ()=>{
+  const admin=(path:string,body?:object)=>call(path,body?{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify(body)}:{headers:{cookie:'cj_session='+SESSION}},{ADMIN_EMAILS:'pat@acme.test'});
+  beforeAll(async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,primary_email,city,state,zip,provider_types,is_active) VALUES ('org-real','org-real','Harbor Home Health','harbor.test','https://harbor.test','jobs@harbor.test','Towson','MD','21204','Residential Service Agency',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published) VALUES ('job-real','org-real','job-real','test','https://harbor.test/jobs/1','HHA - Weekends','HHA','Harbor Home Health','Towson','MD','21204',17,20,'hour','current',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_org_candidate_matches(id,organization_id,caregiver_id,fit_score,geography_score,role_score,freshness_score,provider_score,match_reason,status) VALUES ('m-real','org-real','towson',80,40,10,15,15,'{}','matched')").run();
+    await DB.prepare("INSERT OR REPLACE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-walk','Walk','Rebecca','rebecca+agency@example.com','21204','HHA','active')").run();
+    await DB.prepare("INSERT OR REPLACE INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-walk','emp-walk',?,?)").bind(await sha256Hex('walk-session'),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('admin sees which job sites current jobs use', async()=>{
+    const body=await (await admin('/api/admin/job-sites')).json() as any;
+    expect(body.total).toBeGreaterThan(0);
+    expect(body.sites.find((s:any)=>s.site==='Paylocity')).toMatchObject({supported:true,sampleJobId:'job-paylocity'});
+    expect((await call('/api/admin/job-sites')).status).toBe(401);
+  });
+
+  it('lists real agencies with data and copies one into the hidden test agency', async()=>{
+    const list=await (await admin('/api/admin/agencies?q=harbor')).json() as any;
+    expect(list.agencies[0]).toMatchObject({id:'org-real',name:'Harbor Home Health',jobs:1,matches:1});
+    sent.length=0;
+    const res=await admin('/api/admin/agency-test',{sourceId:'org-real',to:'rebecca+agency@example.com'});
+    expect(res.status).toBe(200);
+    expect((await res.json() as any).result).toMatchObject({agencyName:'Harbor Home Health (test copy)',candidateCount:1,jobCount:1,email:'rebecca+agency@example.com'});
+    // Only the admin's chosen inbox hears about it; the real agency is untouched.
+    expect(sent.map(m=>m.to)).toEqual(['rebecca+agency@example.com']);
+    expect(await DB.prepare("SELECT claimed_employer_id,teaser_send_count FROM agency_organizations WHERE id='org-real'").first()).toEqual({claimed_employer_id:null,teaser_send_count:0});
+    // The copied job never goes public.
+    expect(await DB.prepare("SELECT is_published FROM caregiver_jobs WHERE agency_organization_id='carejoys-test-agency'").first()).toEqual({is_published:0});
+    expect((await call('/jobs/test-job-real',{},htmlAssets)).status).not.toBe(200);
+  });
+
+  it('the claimed copy shows its jobs as live, and hide/show never publishes them', async()=>{
+    await DB.prepare("UPDATE agency_organizations SET claimed_employer_id='emp-walk' WHERE id='carejoys-test-agency'").run();
+    const auth={cookie:'cj_session=walk-session'};
+    const jobs=(await (await call('/api/agency/jobs',{headers:auth})).json() as any).jobs;
+    expect(jobs.map((j:any)=>[j.id,j.published])).toEqual([['test-job-real',true]]);
+    expect((await post('/api/agency/jobs/test-job-real',{action:'hide'},auth)).status).toBe(200);
+    expect((await post('/api/agency/jobs/test-job-real',{action:'show'},auth)).status).toBe(200);
+    expect(await DB.prepare("SELECT is_published,publication_reason FROM caregiver_jobs WHERE id='test-job-real'").first()).toEqual({is_published:0,publication_reason:'test_agency_copy'});
+    expect((await admin('/api/admin/agency-test',{reset:true})).status).toBe(200);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_jobs WHERE agency_organization_id='carejoys-test-agency'").first()).toEqual({n:0});
+  });
+});
+
+describe('Continue with Google', ()=>{
+  const keys={GOOGLE_CLIENT_ID:'cid.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'shh'};
+  const idToken=(claims:Record<string,unknown>)=>'h.'+btoa(JSON.stringify(claims)).replace(/=+$/,'').replace(/\+/g,'-').replace(/\//g,'_')+'.s';
+  async function start(next='/dashboard'){
+    const res=await call('/api/auth/google/start?next='+encodeURIComponent(next),{},keys);
+    expect(res.status).toBe(302);
+    const location=new URL(res.headers.get('location')!);
+    expect(location.origin).toBe('https://accounts.google.com');
+    expect(location.searchParams.get('redirect_uri')).toBe('https://carejoys.com/api/auth/google/callback');
+    const stateCookie=res.headers.get('set-cookie')!.match(/__Host-cj_google_state=([^;]+)/)![1];
+    return {state:location.searchParams.get('state')!,cookie:'__Host-cj_google_state='+stateCookie};
+  }
+  async function callback(state:string,cookie:string,claims:Record<string,unknown>){
+    const realFetch=globalThis.fetch;
+    globalThis.fetch=(async(input:RequestInfo|URL)=>String(input).startsWith('https://oauth2.googleapis.com/token')
+      ?new Response(JSON.stringify({id_token:idToken(claims)}),{headers:{'content-type':'application/json'}}):realFetch(input as any)) as typeof fetch;
+    try{return await call('/api/auth/google/callback?code=c0de&state='+encodeURIComponent(state),{headers:{cookie}},keys)}
+    finally{globalThis.fetch=realFetch}
+  }
+  const good={iss:'https://accounts.google.com',aud:keys.GOOGLE_CLIENT_ID,email:'baltimore@example.com',email_verified:true};
+
+  it('is offered only when both keys are set', async()=>{
+    expect(((await (await call('/api/config')).json()) as any).googleSignIn).toBe(false);
+    expect(((await (await call('/api/config',{},keys)).json()) as any).googleSignIn).toBe(true);
+    expect((await call('/api/auth/google/start')).headers.get('location')).toBe('https://carejoys.com/login');
+  });
+
+  it('signs a verified Google email into the same account and lands where it was headed', async()=>{
+    const {state,cookie}=await start('/dashboard');
+    const res=await callback(state,cookie,good);
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/dashboard');
+    const account=decodeURIComponent(res.headers.get('set-cookie')!.match(/__Host-cj_account=([^;]+)/)![1]);
+    const me=await (await call('/api/me',{headers:{cookie:'__Host-cj_account='+account}})).json() as any;
+    expect(me.caregiver.id).toBe('baltimore');
+  });
+
+  it('refuses a mismatched state, an unverified email or another app’s token', async()=>{
+    const {state,cookie}=await start();
+    expect((await callback('forged',cookie,good)).headers.get('location')).toBe('/login?error=google_cancelled');
+    expect((await callback(state,cookie,{...good,email_verified:false})).headers.get('location')).toBe('/login?error=google_failed');
+    expect((await callback(state,cookie,{...good,aud:'other-app'})).headers.get('location')).toBe('/login?error=google_failed');
+  });
+});
+
+describe('agency hiring-needs invites', ()=>{
+  it('emails each unclaimed agency with live jobs once, and the link opens a page showing its jobs', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,primary_contact_name,city,state,is_active) VALUES ('org-invite','org-invite','Brightway Care, LLC','jobs@brightway.test','Dana Lee','Towson','MD',1)").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-invite','org-invite','job-invite','test','https://brightway.test/jobs/1','Home Health Aide','HHA','Brightway Care','Towson','MD','current',1)").run();
+    sent.length=0;
+    const first=await sendAgencyHiringInvites(env(),50,'hello@carejoys.com');
+    const mine=sent.filter(m=>m.to==='jobs@brightway.test');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].subject).toBe('The most qualified caregivers for Brightway Care, matched to what you need');
+    expect(mine[0].html).toContain('Verify your agency needs');
+    expect(mine[0].headers?.['List-Unsubscribe']).toBeTruthy();
+    expect(sent.filter(m=>m.to==='hello@carejoys.com')).toHaveLength(1);
+    expect(first.sent).toBeGreaterThan(0);
+    const token=decodeURIComponent(mine[0].html!.match(/agency\?token=([^"&\s]+)/)![1]);
+    const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
+    expect(teaser.jobs.map((j:any)=>j.title)).toEqual(['Home Health Aide']);
+    // A second run never emails the same agency again.
+    sent.length=0;
+    await sendAgencyHiringInvites(env(),50);
+    expect(sent.filter(m=>m.to==='jobs@brightway.test')).toHaveLength(0);
+    expect(friendlyAgencyName('Sunrise Home Care Inc.')).toBe('Sunrise Home Care');
+  });
+});

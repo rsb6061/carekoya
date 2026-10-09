@@ -1,0 +1,69 @@
+name: Sync National Care Agencies
+
+# Adds home care agencies outside the Maryland licence lists from the NPI registry (free): CMS's monthly
+# NPPES bulk file, filtered to home care agency taxonomies. Google listings come from the separate
+# "DataForSEO Agency Import" workflow, which runs inside the Worker.
+# The Worker rescores caregivers against agencies every hour, so there is no scoring step here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      states:
+        description: Two-letter state codes, comma separated
+        default: VA
+        required: true
+      nppes_url:
+        description: Optional NPPES zip URL (defaults to the newest monthly file)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+      STATES: ${{ inputs.states }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Apply agency schema
+        run: npm run db:migrations:apply
+
+      - name: Download NPPES and extract home care agencies
+        env:
+          NPPES_URL: ${{ inputs.nppes_url }}
+        run: |
+          if [ -z "$NPPES_URL" ]; then
+            FILE=$(curl --fail --silent --location --retry 4 -A "Mozilla/5.0 CareJoys/1.0" https://download.cms.gov/nppes/NPI_Files.html \
+              | grep -oE 'NPPES_Data_Dissemination_[A-Za-z]+_[0-9]{4}(_V2)?\.zip' | head -1)
+            test -n "$FILE" || { echo "Could not find the monthly NPPES file; pass nppes_url"; exit 1; }
+            NPPES_URL="https://download.cms.gov/nppes/$FILE"
+          fi
+          echo "Downloading $NPPES_URL"
+          curl --fail-with-body --location --retry 4 --retry-delay 5 -A "Mozilla/5.0 CareJoys/1.0" "$NPPES_URL" -o /tmp/nppes.zip
+          # Keep the header row plus rows carrying one of the agency taxonomies; the importer does the exact filtering.
+          unzip -p /tmp/nppes.zip 'npidata_pfile_*[0-9].csv' \
+            | grep -E '^"NPI",|"253Z00000X"|"251E00000X"|"251J00000X"' \
+            | node scripts/import-nppes-agencies.mjs --states "$STATES" --output /tmp/nppes-agencies.sql
+          rm /tmp/nppes.zip
+
+      - name: Import NPI agencies
+        run: npx wrangler d1 execute DB --remote --file=/tmp/nppes-agencies.sql
+
+      - name: Build canonical agency organizations
+        run: |
+          node scripts/build-agency-organizations.mjs /tmp/agency-organizations.sql
+          npx wrangler d1 execute DB --remote --file=/tmp/agency-organizations.sql
+
+      - name: Report coverage
+        run: |
+          npx wrangler d1 execute DB --remote --command="SELECT state,source,COUNT(*) AS agencies,SUM(caregiver_match_eligible) AS eligible,SUM(CASE WHEN website IS NOT NULL AND website!='' THEN 1 ELSE 0 END) AS with_website FROM agencies WHERE is_active=1 GROUP BY state,source ORDER BY state,source;"
+          npx wrangler d1 execute DB --remote --command="SELECT state,COUNT(*) AS organizations,SUM(CASE WHEN sources LIKE '%,%' THEN 1 ELSE 0 END) AS multi_source,SUM(CASE WHEN coalesce(primary_website,'')!='' OR coalesce(primary_domain,'')!='' THEN 1 ELSE 0 END) AS crawlable,SUM(CASE WHEN coalesce(primary_email,'')!='' THEN 1 ELSE 0 END) AS emailable FROM agency_organizations WHERE is_active=1 GROUP BY state ORDER BY organizations DESC LIMIT 20;"

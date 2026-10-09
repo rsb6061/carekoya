@@ -1,0 +1,1371 @@
+import { decodeEntities, normalizePay, tidyTitle } from './jobFormat';
+import { type FeatureEnv } from './serverFeatures';
+import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
+import { US_STATES, stateForZipPrefix, usState } from './usStates';
+import { detectApplyProvider } from './applyAgentRules';
+
+type Row=Record<string,unknown>;
+const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
+const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
+const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
+  ...init,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...(init.headers||{})}
+});
+
+type DiscoveredJob={
+  sourceProvider:string;
+  sourceJobId:string;
+  sourceUrl:string;
+  sourceListingUrl:string;
+  title:string;
+  role:string;
+  city:string;
+  state:string;
+  zip:string;
+  employmentType:string;
+  payMin:number|null;
+  payMax:number|null;
+  descriptionText:string;
+  classifierReason:string;
+  confidence:number;
+  datePosted:string;
+  validThrough:string;
+  payPeriod?:string;
+  roles?:string[];
+  normalizedTitle?:string;
+};
+
+async function sha256Hex(value:string){
+  const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function fetchText(url:string,ms=7000,allowXml=false){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{
+    const res=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (compatible; CareJoysBot/1.1; +https://carejoys.com)','accept':'text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.5'},signal:controller.signal});
+    if(!res.ok)return null;
+    const type=(res.headers.get('content-type')||'').toLowerCase();
+    if(!type.includes('text/html')&&!type.includes('text/plain')&&!(allowXml&&(type.includes('xml')||type.includes('rss'))))return null;
+    return {url:res.url,text:(await res.text()).slice(0,1200000)};
+  }catch{return null}finally{clearTimeout(timer)}
+}
+async function fetchAgencyRoot(org:Row,preferred:string){
+  const candidates:string[]=[];
+  const add=(url:string)=>{if(url&&!candidates.includes(url))candidates.push(url)};
+  add(preferred);
+  const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'').replace(/^www\./,'');
+  if(domain&&!/@/.test(domain)){
+    add('https://'+domain+'/');
+    add('https://www.'+domain+'/');
+    add('https://careers.'+domain+'/');
+    add('https://jobs.'+domain+'/');
+    add('http://'+domain+'/');
+    add('http://www.'+domain+'/');
+  }
+  for(const url of candidates){
+    const page=await fetchText(url,6500);
+    if(page)return page;
+  }
+  return null;
+}
+async function fetchJson(url:string,ms=7000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{
+    const res=await fetch(url,{redirect:'follow',headers:{'user-agent':'CareJoysBot/1.0 (+https://carejoys.com)','accept':'application/json,text/plain,*/*'},signal:controller.signal});
+    if(!res.ok)return null;
+    return await res.json() as unknown;
+  }catch{return null}finally{clearTimeout(timer)}
+}
+async function fetchJsonPost(url:string,body:unknown,ms=8000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{
+    const res=await fetch(url,{
+      method:'POST',
+      redirect:'follow',
+      headers:{'user-agent':'CareJoysBot/1.0 (+https://carejoys.com)','accept':'application/json','content-type':'application/json'},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+    if(!res.ok)return null;
+    return await res.json() as unknown;
+  }catch{return null}finally{clearTimeout(timer)}
+}
+export function decodeHtml(value:string){
+  return decodeEntities(value);
+}
+function stripHtml(value:unknown,max=8000){
+  return decodeHtml(clean(value,max*2))
+    .replace(/<script[\s\S]*?<\/script>/gi,' ')
+    .replace(/<style[\s\S]*?<\/style>/gi,' ')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .slice(0,max);
+}
+function htmlText(html:string){
+  return stripHtml(html,12000);
+}
+function normalizeState(value:unknown){
+  const s=clean(value,80);
+  const known=usState(s);
+  if(known)return known.code;
+  return s.length===2?s.toUpperCase():s;
+}
+// Strips a trailing state: ", Virginia", " Maryland", ", VA" or " VA" (codes only in capitals, so "Bel Air" survives).
+const STATE_NAME_SUFFIX=new RegExp('(?:\\s*,\\s*(?:'+US_STATES.map(([,name])=>name).join('|')+')|\\s*,?\\s*(?:Maryland|MD))\\s*$','i');
+const STATE_CODE_SUFFIX=new RegExp('(?:\\s*,\\s*|\\s+)(?:'+US_STATES.map(([code])=>code).join('|')+')\\s*$');
+export function normalizeCity(value:unknown){
+  let s=decodeHtml(clean(value,140)).replace(/\s+/g,' ').replace(STATE_NAME_SUFFIX,'').replace(STATE_CODE_SUFFIX,'').trim();
+  if(!s)return '';
+  if(s===s.toUpperCase()||s===s.toLowerCase()){
+    s=s.toLowerCase().replace(/\b[a-z]/g,ch=>ch.toUpperCase());
+  }
+  return s;
+}
+function mdZip(zip:string){
+  const n=Number(zip.slice(0,3));
+  return /^\d{5}/.test(zip)&&n>=206&&n<=219;
+}
+// The state a job is judged against: the agency's own state, falling back to its ZIP, then Maryland (the original market).
+type JobState={code:string;name:string};
+function orgJobState(org:Row):JobState{
+  const s=usState(normalizeState(org.state))||usState(stateForZipPrefix(clean(org.zip,20)))||usState('MD')!;
+  return {code:s.code,name:s.name};
+}
+function zipInState(zip:string,st:JobState){
+  return st.code==='MD'?mdZip(zip):stateForZipPrefix(zip)===st.code;
+}
+function stateZipIn(text:string,st:JobState){
+  for(const m of text.matchAll(/\b\d{5}\b/g))if(zipInState(m[0],st))return m[0];
+  return '';
+}
+function stateNamePattern(name:string){
+  // "Virginia" must not match "West Virginia".
+  return (name==='Virginia'?'(?<!West )':'')+'\\b'+escapeRegex(name)+'\\b';
+}
+export function mentionsState(text:string,st:JobState){
+  if(st.code==='MD')return /\bMaryland\b/i.test(text)||/\bMD\b/.test(text);
+  // Bare two-letter codes like IN, OR or ME are common words, so only count ", VA" or "VA 22030".
+  return new RegExp(stateNamePattern(st.name),'i').test(text)||new RegExp(',\\s*'+st.code+'\\b|\\b'+st.code+'\\s+\\d{5}\\b').test(text);
+}
+export function mentionsOtherStates(text:string,st:JobState){
+  if(st.code==='MD')return /\b(VA|Virginia|DC|District of Columbia|PA|Pennsylvania|DE|Delaware|WV|West Virginia|NJ|New Jersey|NY|New York)\b/i.test(text);
+  return US_STATES.some(([code,name])=>code!==st.code&&mentionsState(text,{code,name}));
+}
+function escapeRegex(value:string){
+  return value.replace(/[\\^$.*+?()[\]{}|]/g,'\\$&');
+}
+export function normalizeTitle(value:unknown){
+  return tidyTitle(decodeHtml(clean(value,320))
+    .replace(/\u00a0/g,' ')
+    .replace(/[‐‑‒–—]+/g,' – ')
+    .replace(/\s*\+\s*/g,' + ')
+    .replace(/\s+/g,' ')
+    .trim())
+    .slice(0,220);
+}
+const ROLE_RULES:[string,RegExp][]=[
+  ['GNA',/\b(gna|geriatric nursing assistant)\b/i],
+  ['CNA',/\b(cna(?:-i)?|certified nursing assistant|nursing assistant)\b/i],
+  ['HHA',/\b(hha|home health aide)\b/i],
+  ['PCA',/\b(pca|personal care aide|personal care assistant)\b/i],
+  ['DSP',/\b(dsp|direct support professional|direct care professional|direct care worker)\b/i],
+  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver| care)?|companion care|personal\s*(?:&|and)\s*companion care|home care aide|homecare aide|private duty caregiver)\b/i],
+  ['CMT',/\b(cmt|certified medication technician)\b/i],
+  ['LPN',/\b(lpn|licensed practical nurse)\b/i],
+  ['RN',/\b(rn|registered nurse)\b/i]
+];
+const TARGET_ROLES=new Set(['GNA','CNA','HHA','PCA','DSP','Caregiver']);
+function roleClassification(title:string,description=''){
+  const normalized=normalizeTitle(title);
+  const matches:{role:string;index:number}[]=[];
+  for(const [role,re] of ROLE_RULES){
+    const m=normalized.match(re);
+    if(m&&typeof m.index==='number')matches.push({role,index:m.index});
+  }
+  matches.sort((a,b)=>a.index-b.index);
+  const titleRoles=Array.from(new Set(matches.map(m=>m.role)));
+  const target=titleRoles.filter(r=>TARGET_ROLES.has(r));
+  if(target.length)return {
+    role:target[0],
+    roles:titleRoles,
+    confidence:96,
+    reason:titleRoles.length>1?'mixed-role caregiver title: '+titleRoles.join(', '):target[0]+' title'
+  };
+  if(/\b(nurse practitioner|therapist|scheduler|coordinator|administrator|manager|director)\b/i.test(normalized))return null;
+  if(/\b(rn|registered nurse|lpn|licensed practical nurse)\b/i.test(normalized))return null;
+  const descRoles=ROLE_RULES.filter(([,re])=>re.test(description)).map(([role])=>role);
+  const descTargets=Array.from(new Set(descRoles)).filter(r=>TARGET_ROLES.has(r));
+  if(descTargets.length)return {
+    role:descTargets[0],
+    roles:Array.from(new Set(descRoles)),
+    confidence:72,
+    reason:'caregiver role appears only in job description'
+  };
+  return null;
+}
+function normalizeEmploymentType(raw:string,title='',description=''){
+  const all=(raw+' '+title+' '+description).replace(/_/g,' ').toLowerCase();
+  const out:string[]=[];
+  const add=(v:string)=>{if(!out.includes(v))out.push(v)};
+  if(/\bfull[\s-]*time\b/.test(all))add('Full time');
+  if(/\bpart[\s-]*time\b/.test(all))add('Part time');
+  if(/\bper[\s-]*diem\b|\bprn\b/.test(all))add('Per diem');
+  if(/\btemporary\b|\btemp\b/.test(all))add('Temporary');
+  if(/\bcontract\b/.test(all))add('Contract');
+  if(/\bseasonal\b/.test(all))add('Seasonal');
+  return out.join(', ');
+}
+function payPeriod(raw:unknown){
+  const s=clean(raw,80).toLowerCase().replace(/_/g,' ');
+  if(/\b(hour|hourly|hr)\b/.test(s))return 'hour';
+  if(/\b(year|yearly|annual|yr)\b/.test(s))return 'year';
+  if(/\b(week|weekly|wk)\b/.test(s))return 'week';
+  if(/\b(day|daily)\b/.test(s))return 'day';
+  if(/\b(month|monthly)\b/.test(s))return 'month';
+  return '';
+}
+function payFromText(text:string){
+  const normalized=text.replace(/(\d),(?=\d{3}\b)/g,'$1').replace(/,/g,' ');
+  const range=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:-|–|—|to)\s*\$?(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)?(hour|hr|year|yr|week|wk|day|month)\b/i);
+  if(range)return {min:Number(range[1]),max:Number(range[2]),period:payPeriod(range[3])};
+  const single=normalized.match(/\$(\d{1,6}(?:\.\d{1,2})?)\s*(?:\/|per\s+)(hour|hr|year|yr|week|wk|day|month)\b/i);
+  if(single)return {min:Number(single[1]),max:null,period:payPeriod(single[2])};
+  return {min:null,max:null,period:''};
+}
+function rootHost(value:unknown){
+  try{
+    const parts=new URL(clean(value,1000)).hostname.toLowerCase().replace(/^www\./,'').split('.');
+    return parts.slice(Math.max(0,parts.length-2)).join('.');
+  }catch{return ''}
+}
+function sameOrgDomain(url:string,org:Row){
+  const a=rootHost(url),b=rootHost(org.primary_website);
+  return !!a&&!!b&&a===b;
+}
+function badCareerUrl(url:string){
+  try{
+    const h=new URL(url).hostname.toLowerCase();
+    return /(google|bing|duckduckgo|indeed|glassdoor|ziprecruiter|linkedin|facebook|yahoo|juno)\.com$/.test(h);
+  }catch{return true}
+}
+function salaryParts(value:any){
+  let min:number|null=null,max:number|null=null,period='';
+  const raw=value?.value??value;
+  const unit=value?.unitText??raw?.unitText??raw?.unitCode;
+  if(typeof raw==='number')min=max=raw;
+  else if(raw&&typeof raw==='object'){
+    const a=Number(raw.minValue??raw.value??0),b=Number(raw.maxValue??raw.value??0);
+    if(Number.isFinite(a)&&a>0)min=a;
+    if(Number.isFinite(b)&&b>0)max=b;
+  }
+  period=payPeriod(unit);
+  return {min,max,period};
+}
+function locationParts(job:any){
+  const loc=Array.isArray(job?.jobLocation)?job.jobLocation[0]:job?.jobLocation;
+  const address=loc?.address||{};
+  return {
+    city:normalizeCity(address.addressLocality),
+    state:normalizeState(address.addressRegion),
+    zip:clean(address.postalCode,20).match(/\b\d{5}\b/)?.[0]||''
+  };
+}
+function collectJobPostingObjects(value:unknown,out:any[]=[]){
+  if(!value||typeof value!=='object')return out;
+  if(Array.isArray(value)){for(const item of value)collectJobPostingObjects(item,out);return out}
+  const obj=value as Record<string,unknown>;
+  const type=obj['@type'];
+  if(type==='JobPosting'||(Array.isArray(type)&&type.includes('JobPosting')))out.push(obj);
+  for(const child of Object.values(obj))collectJobPostingObjects(child,out);
+  return out;
+}
+function parseJsonLdJobs(html:string,pageUrl:string){
+  const rawJobs:any[]=[];
+  const re=/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  for(const match of html.matchAll(re)){
+    const raw=match[1].trim();
+    if(!raw)continue;
+    try{collectJobPostingObjects(JSON.parse(raw),rawJobs)}catch{}
+  }
+  return rawJobs.map((job:any)=>{
+    const title=clean(job.title||job.name,220);
+    const description=stripHtml(job.description,8000);
+    const cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationParts(job);
+    const salary=salaryParts(job.baseSalary);
+    const identifier=job.identifier&&typeof job.identifier==='object'?job.identifier.value:job.identifier;
+    return {
+      sourceProvider:'jsonld',
+      sourceJobId:clean(identifier,200),
+      sourceUrl:clean(job.url,1000)||pageUrl,
+      sourceListingUrl:pageUrl,
+      title,role:cls.role,city:loc.city,state:loc.state,zip:loc.zip,
+      employmentType:Array.isArray(job.employmentType)?job.employmentType.join(', '):clean(job.employmentType,120),
+      payMin:salary.min,payMax:salary.max,payPeriod:salary.period,descriptionText:description,classifierReason:cls.reason,
+      confidence:cls.confidence,datePosted:clean(job.datePosted,80),validThrough:clean(job.validThrough,80),
+      roles:cls.roles,normalizedTitle:normalizeTitle(title).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+    } as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+function atsInfo(url:string){
+  try{
+    const u=new URL(url);
+    const host=u.hostname.toLowerCase();
+    const parts=u.pathname.split('/').filter(Boolean);
+    if(host.endsWith('greenhouse.io')){
+      const board=parts[0]||'';
+      return board?{provider:'greenhouse',account:board}:null;
+    }
+    if(host==='jobs.lever.co'){
+      const account=parts[0]||'';
+      return account?{provider:'lever',account}:null;
+    }
+    if(host==='jobs.ashbyhq.com'){
+      const account=parts[0]||'';
+      return account?{provider:'ashby',account}:null;
+    }
+    if(host.includes('myworkdayjobs.com')||host.includes('workday.com'))return {provider:'workday',account:''};
+    if(host.includes('icims.com'))return {provider:'icims',account:''};
+    if(host.includes('paylocity.com'))return {provider:'paylocity',account:''};
+    if(host.includes('bamboohr.com'))return {provider:'bamboohr',account:''};
+    if(host.includes('paycomonline.net'))return {provider:'paycom',account:''};
+    if(host.includes('ultipro.com')||host.includes('ukg.com'))return {provider:'ukg',account:''};
+    if(host.includes('jazz.co')||host.includes('applytojob.com'))return {provider:'jazzhr',account:''};
+    if(host.includes('workable.com'))return {provider:'workable',account:''};
+    if(host.endsWith('careerplug.com'))return {provider:'careerplug',account:''};
+  }catch{}
+  return null;
+}
+export function locationStringParts(value:string){
+  const s=clean(value,300);
+  const zip=s.match(/\b\d{5}\b/)?.[0]||'';
+  const named=US_STATES.find(([code,name])=>mentionsState(s,{code,name}));
+  const state=named?.[0]||stateForZipPrefix(zip);
+  const city=state?normalizeCity(s.split(',')[0]):'';
+  return {city,state,zip:zip&&stateForZipPrefix(zip)===state?zip:''};
+}
+function downstreamAtsLinks(base:string,html:string){
+  const out:{url:string;provider:string}[]=[];
+  const seen=new Set<string>();
+  const re=/\b(?:href|src|action|data-src|data-url)=["']([^"']+)["']/gi;
+  for(const m of html.matchAll(re)){
+    try{
+      const url=new URL(decodeHtml(m[1]),base).toString();
+      const ats=atsInfo(url);
+      if(!ats||seen.has(url))continue;
+      seen.add(url);
+      out.push({url,provider:ats.provider});
+    }catch{}
+    if(out.length>=16)break;
+  }
+  const rawProviders=/(https?:\\?\/\\?\/[^"'<>\s]+(?:workday|myworkdayjobs|icims|paylocity|greenhouse|lever\.co|ashby|bamboohr|paycom|ultipro|ukg|applytojob|workable)[^"'<>\s]*)/gi;
+  for(const m of html.matchAll(rawProviders)){
+    try{
+      const raw=m[1].replace(/\\\//g,'/');
+      const url=new URL(raw,base).toString();
+      const ats=atsInfo(url);
+      if(!ats||seen.has(url))continue;
+      seen.add(url);
+      out.push({url,provider:ats.provider});
+    }catch{}
+    if(out.length>=16)break;
+  }
+  return out;
+}
+function sitemapCareerUrls(xml:string,org:Row){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<loc>\s*([^<]+)\s*<\/loc>/gi;
+  for(const m of xml.matchAll(re)){
+    const raw=decodeHtml(m[1]);
+    try{
+      const url=new URL(raw).toString();
+      if(seen.has(url)||!orgOrAtsUrl(url,org))continue;
+      if(!/(career|jobs?|employment|join[-_/ ]?(?:our[-_/ ]?)?team|work[-_/ ]?with[-_/ ]?us|open[-_/ ]?positions?|opportunit|hiring|apply)/i.test(url))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=20)break;
+  }
+  return out;
+}
+async function sitemapCareerCandidates(org:Row,base:string){
+  const roots:string[]=[];
+  try{
+    const u=new URL(base);
+    roots.push(u.origin+'/robots.txt',u.origin+'/sitemap.xml',u.origin+'/sitemap_index.xml',u.origin+'/wp-sitemap.xml');
+  }catch{return [] as string[]}
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const sitemapUrls:string[]=[];
+  for(const target of roots){
+    const page=await fetchText(target,5000,true);
+    if(!page)continue;
+    if(target.endsWith('/robots.txt')){
+      for(const m of page.text.matchAll(/^\s*Sitemap:\s*(https?:\/\/\S+)/gim)){
+        if(!sitemapUrls.includes(m[1]))sitemapUrls.push(m[1]);
+      }
+      continue;
+    }
+    for(const url of sitemapCareerUrls(page.text,org)){
+      if(!seen.has(url)){seen.add(url);out.push(url)}
+    }
+    for(const m of page.text.matchAll(/<loc>\s*(https?:\/\/[^<]+\.xml(?:\?[^<]*)?)\s*<\/loc>/gi)){
+      const sm=decodeHtml(m[1]);
+      if(!sitemapUrls.includes(sm))sitemapUrls.push(sm);
+      if(sitemapUrls.length>=8)break;
+    }
+  }
+  for(const sm of sitemapUrls.slice(0,8)){
+    const page=await fetchText(sm,5000,true);
+    if(!page)continue;
+    for(const url of sitemapCareerUrls(page.text,org)){
+      if(!seen.has(url)){seen.add(url);out.push(url)}
+      if(out.length>=20)return out;
+    }
+  }
+  return out;
+}
+function broadCareerLinks(base:string,html:string,org:Row){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const href=decodeHtml(m[1]);
+    const text=stripHtml(m[2],220);
+    if(!/(career|jobs?|employment|join|team|work with us|openings?|positions?|opportunit|hiring|apply)/i.test(text+' '+href))continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=12)break;
+  }
+  return out;
+}
+function careerPageLinks(base:string,html:string){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const href=decodeHtml(m[1]);
+    const text=stripHtml(m[2],180);
+    if(!/(career|jobs?|employment|join (our )?team|work with us|opportunit)/i.test(text+' '+href))continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url))continue;
+      seen.add(url);
+      out.push(url);
+    }catch{}
+    if(out.length>=5)break;
+  }
+  return out;
+}
+const COMMON_CAREER_PATHS=[
+  '/careers','/careers/','/jobs','/jobs/','/employment','/employment/',
+  '/join-our-team','/join-our-team/','/work-with-us','/work-with-us/',
+  '/open-positions','/open-positions/','/job-opportunities','/job-opportunities/',
+  '/career-opportunities','/career-opportunities/','/about/careers','/about-us/careers',
+  '/company/careers','/contact/careers'
+];
+function orgHost(org:Row){
+  const raw=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/.*$/,'').replace(/^www\./,'').toLowerCase();
+  return raw||rootHost(org.primary_website);
+}
+function orgOrAtsUrl(url:string,org:Row){
+  const ats=atsInfo(url);
+  if(ats)return true;
+  const target=rootHost(url),orgDomain=orgHost(org);
+  return !!target&&!!orgDomain&&(target===orgDomain||target.endsWith('.'+orgDomain));
+}
+async function probeCommonCareerPage(base:string){
+  for(const path of COMMON_CAREER_PATHS){
+    let url='';
+    try{url=new URL(path,base).toString()}catch{continue}
+    const page=await fetchText(url,5000);
+    if(!page)continue;
+    const text=htmlText(page.text);
+    const hasCareerSignal=/(career|employment|job opportunit|open position|join our team|work with us|now hiring|apply (?:now|today)|current openings?)/i.test(text);
+    const hasAts=downstreamAtsLinks(page.url,page.text).length>0;
+    if(!hasCareerSignal&&!hasAts)continue;
+    return page;
+  }
+  return null;
+}
+function searchResultLinks(base:string,html:string,org:Row){
+  const out:string[]=[];
+  const seen=new Set<string>();
+  const re=/href=["']([^"']+)["']/gi;
+  for(const m of html.matchAll(re)){
+    let raw=decodeHtml(m[1]).replace(/&amp;/g,'&');
+    try{
+      const wrapped=new URL(raw,base);
+      const uddg=wrapped.searchParams.get('uddg');
+      if(uddg)raw=decodeURIComponent(uddg);
+    }catch{}
+    try{
+      const url=new URL(raw,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))continue;
+      if(!atsInfo(url)&&!/(career|jobs?|employment|join|work-with-us|open-positions|opportunit)/i.test(url))continue;
+      seen.add(url);out.push(url);
+    }catch{}
+    if(out.length>=16)break;
+  }
+  return out;
+}
+async function searchCareerCandidates(org:Row){
+  const domain=orgHost(org);
+  const name=clean(org.canonical_name,220);
+  const query=domain?('site:'+domain+' careers jobs employment caregiver'):('"'+name+'" '+orgJobState(org).name+' careers caregiver jobs');
+  const engines=[
+    'https://html.duckduckgo.com/html/?q='+encodeURIComponent(query),
+    'https://www.bing.com/search?q='+encodeURIComponent(query)
+  ];
+  const out:string[]=[];
+  const seen=new Set<string>();
+  for(const searchUrl of engines){
+    const page=await fetchText(searchUrl,6500);
+    if(!page)continue;
+    for(const url of searchResultLinks(page.url,page.text,org)){
+      if(seen.has(url))continue;
+      seen.add(url);out.push(url);
+      if(out.length>=8)return out;
+    }
+  }
+  return out;
+}
+function providerJobLinks(base:string,html:string,provider:string){
+  const out:{url:string;title:string}[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const title=stripHtml(m[2],260);
+    const href=decodeHtml(m[1]);
+    const roleHit=!!roleClassification(title,'');
+    const jobLike=/(\/jobs?\/|\/careers?\/|open[-_/]?positions?|jobid=|job_id=|jobdetail|job-details|posting|position|opening|apply)/i.test(href+' '+title);
+    if(!roleHit&&!jobLike)continue;
+    try{
+      const url=new URL(href,base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url)||url===base)continue;
+      seen.add(url);
+      out.push({url,title});
+    }catch{}
+    if(out.length>=18)break;
+  }
+  return out;
+}
+async function crawlHtmlBoard(listingUrl:string,provider:string,org:Row,originUrl:string){
+  const page=await fetchText(listingUrl,8500);
+  if(!page)return {jobs:[] as DiscoveredJob[],linksSeen:0,fetchFailed:true};
+  const jobs:DiscoveredJob[]=[];
+  jobs.push(...parseJsonLdJobs(page.text,page.url).map(j=>({...j,sourceProvider:provider==='generic'?j.sourceProvider:provider,sourceListingUrl:originUrl})));
+  const links=providerJobLinks(page.url,page.text,provider);
+  for(const link of links.slice(0,14)){
+    const detail=await fetchText(link.url,6500);
+    if(!detail)continue;
+    const structured=parseJsonLdJobs(detail.text,detail.url);
+    if(structured.length){
+      jobs.push(...structured.map(j=>({...j,sourceProvider:provider==='generic'?j.sourceProvider:provider,sourceListingUrl:originUrl})));
+      continue;
+    }
+    const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+    if(generic)jobs.push({...generic,sourceProvider:provider==='generic'?'generic_html':provider,sourceListingUrl:originUrl});
+  }
+  return {jobs,linksSeen:links.length,fetchFailed:false};
+}
+async function jobsFromAtsDestination(dest:{url:string;provider:string},org:Row,originUrl:string){
+  const ats=atsInfo(dest.url);
+  let jobs:DiscoveredJob[]=[];
+  if(dest.provider==='greenhouse'&&ats?.account)jobs=await greenhouseJobs(ats.account,dest.url);
+  else if(dest.provider==='lever'&&ats?.account)jobs=await leverJobs(ats.account,dest.url);
+  else if(dest.provider==='ashby'&&ats?.account)jobs=await ashbyJobs(ats.account,dest.url);
+  else if(dest.provider==='workday')jobs=await workdayJobs(dest.url);
+  else return crawlHtmlBoard(dest.url,dest.provider,org,originUrl);
+  return {jobs:jobs.map(j=>({...j,sourceListingUrl:originUrl})),linksSeen:0,fetchFailed:false};
+}
+function headingJobsFromCareersPage(pageUrl:string,html:string,org:Row){
+  const pageText=htmlText(html).slice(0,15000);
+  if(!/(apply|application|now hiring|we are hiring|join our team|employment opportunit|open position)/i.test(pageText))return [] as DiscoveredJob[];
+  const headings:string[]=[];
+  const re=/<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/gi;
+  for(const m of html.matchAll(re)){
+    const heading=stripHtml(m[1],220);
+    const cls=roleClassification(heading,'');
+    if(cls&&cls.confidence>=90&&!headings.includes(heading))headings.push(heading);
+    if(headings.length>=8)break;
+  }
+  const jobs:DiscoveredJob[]=[];
+  const st=orgJobState(org);
+  for(const heading of headings){
+    const cls=roleClassification(heading,pageText);
+    if(!cls)continue;
+    const zip=stateZipIn(pageText,st)||clean(org.zip,20);
+    const state=mentionsState(pageText,st)||zipInState(zip,st)?st.code:normalizeState(org.state);
+    if(state!==st.code)continue;
+    jobs.push({
+      sourceProvider:'generic_html',
+      sourceJobId:'',
+      sourceUrl:pageUrl,
+      sourceListingUrl:pageUrl,
+      title:heading,
+      role:cls.role,
+      roles:cls.roles,
+      normalizedTitle:normalizeTitle(heading).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),
+      city:clean(org.city,120),
+      state:st.code,
+      zip,
+      employmentType:normalizeEmploymentType('',heading,pageText),
+      payMin:null,
+      payMax:null,
+      descriptionText:pageText.slice(0,8000),
+      classifierReason:cls.reason+' + explicit hiring/application signal on agency careers page',
+      confidence:94,
+      datePosted:'',
+      validThrough:''
+    });
+  }
+  return jobs;
+}
+
+async function greenhouseJobs(account:string,listingUrl:string){
+  const data=await fetchJson('https://boards-api.greenhouse.io/v1/boards/'+encodeURIComponent(account)+'/jobs?content=true',8000) as any;
+  if(!Array.isArray(data?.jobs))return [] as DiscoveredJob[];
+  return data.jobs.map((job:any)=>{
+    const title=clean(job.title,220),description=stripHtml(job.content,8000),cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationStringParts(clean(job.location?.name,300));
+    return {sourceProvider:'greenhouse',sourceJobId:clean(job.id,120),sourceUrl:clean(job.absolute_url,1000),sourceListingUrl:listingUrl,title,role:cls.role,
+      city:loc.city,state:loc.state,zip:loc.zip,employmentType:'',payMin:null,payMax:null,descriptionText:description,
+      classifierReason:cls.reason,confidence:cls.confidence,datePosted:clean(job.updated_at,80),validThrough:''} as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+async function leverJobs(account:string,listingUrl:string){
+  const data=await fetchJson('https://api.lever.co/v0/postings/'+encodeURIComponent(account)+'?mode=json',8000) as any;
+  if(!Array.isArray(data))return [] as DiscoveredJob[];
+  return data.map((job:any)=>{
+    const title=clean(job.text,220),description=stripHtml([job.descriptionPlain,job.description,job.additional].filter(Boolean).join(' '),8000),cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationStringParts(clean(job.categories?.location,300));
+    return {sourceProvider:'lever',sourceJobId:clean(job.id,120),sourceUrl:clean(job.hostedUrl||job.applyUrl,1000),sourceListingUrl:listingUrl,title,role:cls.role,
+      city:loc.city,state:loc.state,zip:loc.zip,employmentType:clean(job.categories?.commitment,120),payMin:null,payMax:null,descriptionText:description,
+      classifierReason:cls.reason,confidence:cls.confidence,datePosted:'',validThrough:''} as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+async function ashbyJobs(account:string,listingUrl:string){
+  const data=await fetchJson('https://api.ashbyhq.com/posting-api/job-board/'+encodeURIComponent(account),8000) as any;
+  const rows=Array.isArray(data?.jobs)?data.jobs:[];
+  return rows.map((job:any)=>{
+    const title=clean(job.title,220),description=stripHtml(job.descriptionHtml||job.descriptionPlain||'',8000),cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationStringParts(clean(job.location,300));
+    return {sourceProvider:'ashby',sourceJobId:clean(job.id||job.jobId,120),sourceUrl:clean(job.jobUrl||job.applyUrl,1000),sourceListingUrl:listingUrl,title,role:cls.role,
+      city:loc.city,state:loc.state,zip:loc.zip,employmentType:clean(job.employmentType,120),payMin:null,payMax:null,descriptionText:description,
+      classifierReason:cls.reason,confidence:cls.confidence,datePosted:clean(job.publishedAt,80),validThrough:''} as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+function workdayEndpoint(listingUrl:string){
+  try{
+    const u=new URL(listingUrl);
+    const host=u.hostname;
+    const parts=u.pathname.split('/').filter(Boolean);
+    const tenant=host.split('.')[0];
+    const site=parts.find(part=>!/^([a-z]{2}-[A-Z]{2}|[a-z]{2})$/.test(part))||'';
+    if(!site||!tenant)return null;
+    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(site)+'/jobs',host};
+  }catch{return null}
+}
+async function workdayJobs(listingUrl:string){
+  const endpoint=workdayEndpoint(listingUrl);
+  if(!endpoint)return [] as DiscoveredJob[];
+  const data=await fetchJsonPost(endpoint.url,{appliedFacets:{},limit:100,offset:0,searchText:''},9000) as any;
+  if(!Array.isArray(data?.jobPostings))return [] as DiscoveredJob[];
+  return data.jobPostings.map((job:any)=>{
+    const title=clean(job.title,220);
+    const description=stripHtml(Array.isArray(job.bulletFields)?job.bulletFields.join(' '):'',4000);
+    const cls=roleClassification(title,description);
+    if(!cls)return null;
+    const loc=locationStringParts(clean(job.locationsText,300));
+    const externalPath=clean(job.externalPath,1000);
+    const sourceUrl=externalPath?new URL(externalPath,'https://'+endpoint.host).toString():listingUrl;
+    return {
+      sourceProvider:'workday',
+      sourceJobId:clean(job.jobReqId||job.id||externalPath,160),
+      sourceUrl,sourceListingUrl:listingUrl,title,role:cls.role,
+      city:loc.city,state:loc.state,zip:loc.zip,employmentType:'',
+      payMin:null,payMax:null,descriptionText:description,classifierReason:cls.reason,
+      confidence:cls.confidence,datePosted:clean(job.postedOn,80),validThrough:''
+    } as DiscoveredJob;
+  }).filter(Boolean) as DiscoveredJob[];
+}
+
+function jobLinks(base:string,html:string){
+  const out:{url:string;title:string}[]=[];
+  const seen=new Set<string>();
+  const re=/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  for(const m of html.matchAll(re)){
+    const title=stripHtml(m[2],240);
+    if(!roleClassification(title,''))continue;
+    try{
+      const url=new URL(decodeHtml(m[1]),base).toString();
+      if(!/^https?:/i.test(url)||seen.has(url))continue;
+      seen.add(url);out.push({url,title});
+    }catch{}
+    if(out.length>=16)break;
+  }
+  return out;
+}
+function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
+  const text=htmlText(html).slice(0,12000);
+  const h1=stripHtml(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',220);
+  const title=h1||titleHint;
+  const cls=roleClassification(title,text);
+  if(!cls||cls.confidence<90)return null;
+  const st=orgJobState(org);
+  const zip=stateZipIn(text,st);
+  const orgCity=clean(org.city,120);
+  const city=orgCity&&new RegExp('\\b'+escapeRegex(orgCity)+'\\b','i').test(text)?orgCity:'';
+  const state=mentionsState(text,st)||zipInState(zip,st)?st.code:'';
+  if(state!==st.code&&normalizeState(org.state)!==st.code)return null;
+  const locationPenalty=state===st.code?0:-18;
+  return {sourceProvider:'generic_html',sourceJobId:'',sourceUrl:pageUrl,sourceListingUrl:pageUrl,title,role:cls.role,city,state:state||st.code,zip,
+    employmentType:/\bfull[- ]?time\b/i.test(text)?'Full-time':/\bpart[- ]?time\b/i.test(text)?'Part-time':'',
+    payMin:null,payMax:null,descriptionText:text.slice(0,8000),classifierReason:cls.reason+(state===st.code?' + '+st.name+' location':' + '+st.name+' agency fallback'),
+    confidence:Math.max(0,cls.confidence+locationPenalty),datePosted:'',validThrough:''} as DiscoveredJob;
+}
+/** Training classes, programs and info pages that mention CNA/HHA but are not openings (e.g. a nurse-aide-training page). */
+const ROLE_NOUN=/\b(aides?|assistants?|caregivers?|carers?|companions?(?!\s+(care|services?))|cnas?|gnas?|hhas?|chhas?|pcas?|dsps?|cmts?|med(ication)? techs?|technicians?|sitters?|attendants?|professionals?|workers?|nurses?|lpns?|rns?|associates?|specialists?|homemakers?)\b/i;
+const MARKETING_TITLE=/\b(services?|awards?|resources|near you|for (adults|seniors|families|you|your)|finding|find an?|become|becoming|careers?|opportunit(y|ies)|jobs|search|join|make a difference|enjoys|recognize|more than|owned|meet|spotlight|stor(y|ies)|celebrat\w*|application|apply|appy|start (your|an?)|why|how|what|tips|guide|blog|testimonials?|faq|events?|about|our|perfect|training|course|school|certification|classes|ceu|education|description|form|portal|registration|documents|validation|support groups?|caregiver support|program|assistance|coaching|burnout|appreciation|benefits|requirements|responsibilities|eligibility|information|notes|preferences|discounts|deals|week|referrals|click|contact|category|hire|family member|paid caregiver|competency|exchange)\b/i;
+/** A page from an agency's own website reads as a service or marketing page rather than an opening
+ * ("Companion Care Services", "Caregiver of the Year Award", "Caregiver Careers at ..."). */
+export function looksLikeMarketingPage(title:string){
+  const t=normalizeTitle(title);
+  if(!t||t.length>90||/[?<"“]|^\d{2}\s|:\s*$|\.\s+[A-Z]/.test(t))return true;
+  return !ROLE_NOUN.test(t)||MARKETING_TITLE.test(t);
+}
+export function notAJobPosting(title:string,sourceUrl:string,sourceProvider=''){
+  if(sourceProvider==='generic_html'&&looksLikeMarketingPage(title))return true;
+  if(/\b(training (program|class(es)?|course)s?|class schedule|course schedule|council|scholarships?|tuition)\b/i.test(title))return true;
+  let last='';
+  try{last=new URL(sourceUrl).pathname.split('/').filter(Boolean).pop()||''}catch{}
+  return !/\d/.test(last)&&/(^|[-_])(training|classes|courses?)$/i.test(last.replace(/\.[a-z]+$/i,''));
+}
+export function publicationDecision(job:DiscoveredJob){
+  const explicit=!!usState(normalizeState(job.state))||!!stateForZipPrefix(job.zip);
+  const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
+  if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
+  if(!notExpired)return {publish:false,reason:'expired'};
+  if(notAJobPosting(job.title,job.sourceUrl,job.sourceProvider))return {publish:false,reason:'not_a_job_posting'};
+  if(job.confidence<88)return {publish:false,reason:'low_confidence'};
+  if(!TARGET_ROLES.has(job.role))return {publish:false,reason:'non_target_role'};
+  if(!explicit)return {publish:false,reason:'missing_state_evidence'};
+  return {publish:true,reason:'explicit_state_location'};
+}
+async function dedupeKeyForJob(orgId:string,job:DiscoveredJob){
+  const sourceIdentity=job.sourceJobId||(job.sourceUrl+'|'+normalizeTitle(job.title));
+  const identity=[orgId,job.sourceProvider,sourceIdentity,job.city,job.state].join('|').toLowerCase();
+  return sha256Hex(identity);
+}
+async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
+  if(!env.DB)return false;
+  const title=normalizeTitle(input.title);
+  const cls=roleClassification(title,input.descriptionText);
+  if(!cls)return false;
+  let city=normalizeCity(input.city);
+  let state=normalizeState(input.state);
+  let zip=clean(input.zip,20).match(/\b\d{5}\b/)?.[0]||'';
+  let locationSource=state||zip?'source':'';
+  const st=orgJobState(org);
+  if(!state&&stateForZipPrefix(zip)){state=stateForZipPrefix(zip);locationSource='zip'}
+  if(!state&&normalizeState(org.state)===st.code&&sameOrgDomain(input.sourceListingUrl,org)){
+    if(!mentionsOtherStates(input.descriptionText,st)){
+      state=st.code;
+      city=city||normalizeCity(org.city);
+      zip=zip||clean(org.zip,20);
+      locationSource='agency_careers_page';
+    }
+  }
+  const employmentType=normalizeEmploymentType(input.employmentType,title,input.descriptionText);
+  const textPay=payFromText(input.descriptionText);
+  const sourcePay=input.payMin!=null||input.payMax!=null?normalizePay(input.payMin,input.payMax,input.payPeriod):null;
+  const pay=sourcePay?.period?sourcePay:normalizePay(textPay.min,textPay.max,textPay.period);
+  const payMin=pay.min,payMax=pay.max,payUnit=pay.period;
+  const roles=cls.roles||[cls.role];
+  const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  const fingerprint=await sha256Hex([clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip].join('|'));
+  const normalizedJob:DiscoveredJob={...input,title,role:cls.role,city,state,zip,employmentType,payMin,payMax,payPeriod:payUnit,classifierReason:cls.reason,roles,normalizedTitle};
+  const key=await dedupeKeyForJob(clean(org.id,100),normalizedJob);
+  const decision=publicationDecision(normalizedJob);
+  const publish=decision.publish?1:0;
+  const id='job_'+key.slice(0,28);
+  const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,publication_reason,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN 0 ELSE excluded.is_published END,publication_reason=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN \'hidden_by_employer\' ELSE excluded.publication_reason END,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
+  await env.DB.prepare(sql).bind(
+    id,org.id,key,normalizedJob.sourceProvider,normalizedJob.sourceJobId||null,normalizedJob.sourceUrl,normalizedJob.sourceListingUrl,
+    title,normalizedTitle,cls.role,JSON.stringify(roles),clean(org.canonical_name,220),city,state,zip,locationSource,employmentType,
+    payMin,payMax,payUnit,input.descriptionText,cls.reason,input.confidence,input.datePosted||null,input.validThrough||null,fingerprint,publish,decision.reason
+  ).run();
+  return publish===1;
+}
+function sourceQuality(value:unknown){
+  const p=clean(value,50);
+  if(['workday','greenhouse','lever','ashby'].includes(p))return 5;
+  if(['icims','paylocity','bamboohr','paycom','ukg','jazzhr','workable','careerplug'].includes(p))return 4;
+  if(p==='jsonld')return 3;
+  return 2;
+}
+async function reconcileOrgDuplicates(env:FeatureEnv,orgId:string){
+  if(!env.DB)return;
+  const rows=await env.DB.prepare('SELECT id,canonical_fingerprint,source_provider,confidence,last_seen_at FROM caregiver_jobs WHERE agency_organization_id=? AND status="current" AND canonical_fingerprint IS NOT NULL').bind(orgId).all<Row>();
+  const groups=new Map<string,Row[]>();
+  for(const row of rows.results||[]){
+    const key=clean(row.canonical_fingerprint,100);
+    if(!key)continue;
+    const group=groups.get(key)||[];
+    group.push(row);
+    groups.set(key,group);
+  }
+  for(const group of groups.values()){
+    if(group.length<2)continue;
+    group.sort((a,b)=>sourceQuality(b.source_provider)-sourceQuality(a.source_provider)||asNum(b.confidence)-asNum(a.confidence)||clean(b.last_seen_at,40).localeCompare(clean(a.last_seen_at,40)));
+    for(const loser of group.slice(1)){
+      await env.DB.prepare('UPDATE caregiver_jobs SET status="duplicate",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(loser.id).run();
+    }
+  }
+}
+async function discoverJobsForOrg(env:FeatureEnv,org:Row){
+  if(!env.DB)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'none',status:'no_db'};
+  let listing=clean(org.primary_careers_url,1000);
+  if(!listing||badCareerUrl(listing))listing=clean(org.primary_website,1000);
+  if(!listing){
+    const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'');
+    if(domain&&!/@/.test(domain))listing='https://'+domain+'/';
+  }
+  if(!listing)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'none',status:'no_valid_source'};
+
+  const direct=atsInfo(listing);
+  let jobs:DiscoveredJob[]=[];
+  let jobLinksSeen=0;
+  const providers=new Set<string>();
+  if(direct?.provider)providers.add(direct.provider);
+
+  if(direct?.provider==='greenhouse'&&direct.account)jobs=await greenhouseJobs(direct.account,listing);
+  else if(direct?.provider==='lever'&&direct.account)jobs=await leverJobs(direct.account,listing);
+  else if(direct?.provider==='ashby'&&direct.account)jobs=await ashbyJobs(direct.account,listing);
+  else if(direct?.provider==='workday')jobs=await workdayJobs(listing);
+  else if(direct){
+    const crawled=await crawlHtmlBoard(listing,direct.provider,org,listing);
+    jobs.push(...crawled.jobs);
+    jobLinksSeen+=crawled.linksSeen;
+    if(crawled.fetchFailed)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:direct.provider,status:'fetch_failed'};
+  }else{
+    let page=await fetchAgencyRoot(org,listing);
+    if(!page){
+      const fallbacks:string[]=[];
+      const add=(url:string)=>{if(url&&!fallbacks.includes(url))fallbacks.push(url)};
+      add(listing);
+      const domain=clean(org.primary_domain,240).replace(/^https?:\/\//,'').replace(/\/$/,'').replace(/^www\./,'');
+      if(domain&&!/@/.test(domain)){
+        add('https://'+domain+'/');
+        add('https://www.'+domain+'/');
+        add('http://'+domain+'/');
+        add('http://www.'+domain+'/');
+      }
+      for(const base of fallbacks){
+        const probed=await probeCommonCareerPage(base);
+        if(!probed)continue;
+        page=probed;
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(probed.url,org.id).run();
+          org.primary_careers_url=probed.url;
+        }
+        break;
+      }
+    }
+    if(!page)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'generic',status:'fetch_failed'};
+    if(!clean(org.primary_website,1000)&&sameOrgDomain(page.url,{...org,primary_website:page.url})){
+      await env.DB.prepare('UPDATE agency_organizations SET primary_website=COALESCE(NULLIF(primary_website,""),?),website_source=CASE WHEN website_source IS NULL OR website_source="" THEN "job_discovery" ELSE website_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(page.url,org.id).run();
+      org.primary_website=page.url;
+    }
+    jobs.push(...parseJsonLdJobs(page.text,page.url));
+    if(jobs.length)providers.add('jsonld');
+    jobs.push(...headingJobsFromCareersPage(page.url,page.text,org));
+
+    const links=providerJobLinks(page.url,page.text,'generic');
+    jobLinksSeen+=links.length;
+    for(const link of links.slice(0,10)){
+      const detail=await fetchText(link.url,6500);
+      if(!detail)continue;
+      const structured=parseJsonLdJobs(detail.text,detail.url);
+      if(structured.length)jobs.push(...structured);
+      else{
+        const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+        if(generic)jobs.push(generic);
+      }
+    }
+
+    for(const dest of downstreamAtsLinks(page.url,page.text).slice(0,6)){
+      providers.add(dest.provider);
+      const result=await jobsFromAtsDestination(dest,org,page.url);
+      jobs.push(...result.jobs);
+      jobLinksSeen+=result.linksSeen;
+    }
+
+    if(jobs.length===0){
+      for(const careersUrl of careerPageLinks(page.url,page.text).slice(0,3)){
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(careersUrl,org.id).run();
+          org.primary_careers_url=careersUrl;
+        }
+        const nestedAts=atsInfo(careersUrl);
+        if(nestedAts){
+          providers.add(nestedAts.provider);
+          const result=await jobsFromAtsDestination({url:careersUrl,provider:nestedAts.provider},org,careersUrl);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+          continue;
+        }
+        const careersPage=await fetchText(careersUrl,7500);
+        if(!careersPage)continue;
+        jobs.push(...parseJsonLdJobs(careersPage.text,careersPage.url));
+        jobs.push(...headingJobsFromCareersPage(careersPage.url,careersPage.text,org));
+        const careerLinks=providerJobLinks(careersPage.url,careersPage.text,'generic');
+        jobLinksSeen+=careerLinks.length;
+        for(const link of careerLinks.slice(0,10)){
+          const detail=await fetchText(link.url,6500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:careersPage.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:careersPage.url});
+          }
+        }
+        for(const dest of downstreamAtsLinks(careersPage.url,careersPage.text).slice(0,6)){
+          providers.add(dest.provider);
+          const result=await jobsFromAtsDestination(dest,org,careersPage.url);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+        }
+      }
+    }
+
+    if(jobs.length===0){
+      const probed=await probeCommonCareerPage(page.url);
+      if(probed){
+        if(!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="job_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(probed.url,org.id).run();
+          org.primary_careers_url=probed.url;
+        }
+        jobs.push(...parseJsonLdJobs(probed.text,probed.url));
+        jobs.push(...headingJobsFromCareersPage(probed.url,probed.text,org));
+        const probedLinks=providerJobLinks(probed.url,probed.text,'generic');
+        jobLinksSeen+=probedLinks.length;
+        for(const link of probedLinks.slice(0,10)){
+          const detail=await fetchText(link.url,6500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:probed.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:probed.url});
+          }
+        }
+        for(const dest of downstreamAtsLinks(probed.url,probed.text).slice(0,6)){
+          providers.add(dest.provider);
+          const result=await jobsFromAtsDestination(dest,org,probed.url);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+        }
+      }
+    if(jobs.length===0){
+      const sitemapCandidates=await sitemapCareerCandidates(org,page.url);
+      for(const candidate of sitemapCandidates.slice(0,8)){
+        const candidateAts=atsInfo(candidate);
+        if(candidateAts){
+          providers.add(candidateAts.provider);
+          const result=await jobsFromAtsDestination({url:candidate,provider:candidateAts.provider},org,candidate);
+          jobs.push(...result.jobs);jobLinksSeen+=result.linksSeen;
+          continue;
+        }
+        const candidatePage=await fetchText(candidate,6500);
+        if(!candidatePage)continue;
+        jobs.push(...parseJsonLdJobs(candidatePage.text,candidatePage.url));
+        jobs.push(...headingJobsFromCareersPage(candidatePage.url,candidatePage.text,org));
+        const links=providerJobLinks(candidatePage.url,candidatePage.text,'generic');
+        jobLinksSeen+=links.length;
+        for(const link of links.slice(0,8)){
+          const detail=await fetchText(link.url,5500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:candidatePage.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:candidatePage.url});
+          }
+        }
+        if(jobs.length&&!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="sitemap_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(candidatePage.url,org.id).run();
+          org.primary_careers_url=candidatePage.url;
+        }
+        if(jobs.length)break;
+      }
+    }
+
+    if(jobs.length===0){
+      for(const candidate of broadCareerLinks(page.url,page.text,org).slice(0,6)){
+        const ats=atsInfo(candidate);
+        if(ats){
+          providers.add(ats.provider);
+          const result=await jobsFromAtsDestination({url:candidate,provider:ats.provider},org,candidate);
+          jobs.push(...result.jobs);jobLinksSeen+=result.linksSeen;
+        }else{
+          const crawled=await crawlHtmlBoard(candidate,'generic',org,candidate);
+          jobs.push(...crawled.jobs);jobLinksSeen+=crawled.linksSeen;
+        }
+        if(jobs.length&&!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="broad_link_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(candidate,org.id).run();
+          org.primary_careers_url=candidate;
+        }
+        if(jobs.length)break;
+      }
+    }
+
+    if(jobs.length===0){
+      const searched=await searchCareerCandidates(org);
+      for(const candidate of searched.slice(0,6)){
+        const candidateAts=atsInfo(candidate);
+        if(candidateAts){
+          providers.add(candidateAts.provider);
+          const result=await jobsFromAtsDestination({url:candidate,provider:candidateAts.provider},org,candidate);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+          if(result.jobs.length&&!clean(org.primary_careers_url,1000)){
+            await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="search_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(candidate,org.id).run();
+            org.primary_careers_url=candidate;
+          }
+          continue;
+        }
+        const searchedPage=await fetchText(candidate,7500);
+        if(!searchedPage)continue;
+        const before=jobs.length;
+        jobs.push(...parseJsonLdJobs(searchedPage.text,searchedPage.url));
+        jobs.push(...headingJobsFromCareersPage(searchedPage.url,searchedPage.text,org));
+        const searchedLinks=providerJobLinks(searchedPage.url,searchedPage.text,'generic');
+        jobLinksSeen+=searchedLinks.length;
+        for(const link of searchedLinks.slice(0,10)){
+          const detail=await fetchText(link.url,6500);
+          if(!detail)continue;
+          const structured=parseJsonLdJobs(detail.text,detail.url);
+          if(structured.length)jobs.push(...structured.map(j=>({...j,sourceListingUrl:searchedPage.url})));
+          else{
+            const generic=textJobFromPage(detail.url,link.title,detail.text,org);
+            if(generic)jobs.push({...generic,sourceListingUrl:searchedPage.url});
+          }
+        }
+        for(const dest of downstreamAtsLinks(searchedPage.url,searchedPage.text).slice(0,10)){
+          providers.add(dest.provider);
+          const result=await jobsFromAtsDestination(dest,org,searchedPage.url);
+          jobs.push(...result.jobs);
+          jobLinksSeen+=result.linksSeen;
+        }
+        if(jobs.length>before&&!clean(org.primary_careers_url,1000)){
+          await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="search_discovery",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(searchedPage.url,org.id).run();
+          org.primary_careers_url=searchedPage.url;
+        }
+        if(jobs.length)break;
+      }
+    }
+
+    }
+  }
+
+  const unique=new Map<string,DiscoveredJob>();
+  for(const job of jobs){
+    const key=(job.sourceJobId||job.sourceUrl||normalizeTitle(job.title)+'|'+job.city).toLowerCase();
+    const prior=unique.get(key);
+    if(!prior||job.confidence>prior.confidence)unique.set(key,job);
+  }
+  let published=0;
+  for(const job of unique.values())if(await saveDiscoveredJob(env,org,job))published++;
+  await reconcileOrgDuplicates(env,clean(org.id,100));
+  await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND datetime(last_seen_at)<datetime("now","-7 days")').bind(org.id).run();
+
+  const rejected=Math.max(0,unique.size-published);
+  const provider=Array.from(providers).sort().join('+')||'generic';
+  const status=published>0?'published':unique.size>0?'candidates_rejected':jobLinksSeen>0?'job_links_no_relevant_roles':'no_job_board_found';
+  return {seen:unique.size,published,rejected,jobLinksSeen,provider,status};
+}
+function exactToken(text:string,value:string){
+  if(!value)return false;
+  return new RegExp('\\b'+escapeRegex(value)+'\\b','i').test(text);
+}
+export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
+  if(!env.DB)return {reviewed:0,recovered:0};
+  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72 AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence','low_confidence')) ORDER BY CASE WHEN j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence') THEN 0 WHEN j.publication_reason='low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?";
+  const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
+  let recovered=0;
+  for(const row of rows.results||[]){
+    let title=normalizeTitle(row.title);
+    let description=decodeHtml(clean(row.description_text,8000));
+    let sourceEvidence='';
+    const sourceUrl=clean(row.source_url,1000);
+    if(sourceUrl){
+      const sourcePage=await fetchText(sourceUrl,6000);
+      if(sourcePage){
+        const pageText=htmlText(sourcePage.text).slice(0,12000);
+        const pageTitle=normalizeTitle(stripHtml(sourcePage.text.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',220));
+        if(pageTitle&&roleClassification(pageTitle,pageText))title=pageTitle;
+        sourceEvidence=pageText;
+        if(pageText.length>description.length)description=pageText;
+      }
+    }
+    const cls=roleClassification(title,description);
+    if(!cls||!TARGET_ROLES.has(cls.role))continue;
+    const storedConfidence=asNum(row.confidence);
+    const sourceTitleRole=!!roleClassification(title,'');
+    const hasExplicitHiringSignal=/(apply|application|now hiring|we are hiring|job description|employment|open position|current openings?)/i.test(sourceEvidence||description);
+    if(storedConfidence<88&&!(sourceTitleRole&&hasExplicitHiringSignal))continue;
+    const validThrough=clean(row.valid_through,80);
+    if(validThrough&&Number.isFinite(Date.parse(validThrough))&&Date.parse(validThrough)<Date.now()-86400000)continue;
+    const currentState=normalizeState(row.state);
+    const currentZip=clean(row.zip,20).match(/\b\d{5}\b/)?.[0]||'';
+    const currentCity=normalizeCity(row.city);
+    const orgCity=normalizeCity(row.org_city);
+    const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
+    const orgState=normalizeState(row.org_state);
+    const orgKnown=usState(orgState)||usState(stateForZipPrefix(orgZip));
+    if(!orgKnown)continue;
+    const st={code:orgKnown.code,name:orgKnown.name};
+    const evidence=[title,description,sourceEvidence,clean(row.source_url,1000),clean(row.source_listing_url,1000),clean(row.org_name,220)].join(' ');
+    let reason='';
+    let state=currentState;
+    let city=currentCity;
+    let zip=currentZip;
+    const currentKnown=usState(currentState)?currentState:stateForZipPrefix(currentZip);
+    if(currentKnown){
+      reason='recovered_existing_location';
+      state=currentKnown;
+    }else if(orgZip&&exactToken(evidence,orgZip)){
+      reason='recovered_exact_agency_zip';
+      state=st.code;zip=zip||orgZip;city=city||orgCity;
+    }else if(orgCity&&exactToken(evidence,orgCity)){
+      reason='recovered_exact_agency_city';
+      state=st.code;city=city||orgCity;zip=zip||orgZip;
+    }else{
+      const explicitState=st.code==='MD'?/\bMaryland\b|\bMD\b/i.test(evidence):mentionsState(evidence,st);
+      if(explicitState&&!mentionsOtherStates(evidence,st)){
+        reason='recovered_explicit_state_text';
+        state=st.code;
+      }else if(sameOrgDomain(sourceUrl,row)&&orgState===st.code&&!mentionsOtherStates(sourceEvidence||description,st)){
+        const strongLocalSignal=sourceTitleRole&&hasExplicitHiringSignal;
+        if(strongLocalSignal){
+          reason='recovered_employer_source';
+          state=st.code;city=city||orgCity;zip=zip||orgZip;
+        }
+      }
+    }
+    if(!reason)continue;
+    const recoveredConfidence=Math.max(storedConfidence,sourceTitleRole?94:88);
+    const update="UPDATE caregiver_jobs SET title=?,normalized_title=?,description_text=?,state=?,city=?,zip=?,role=?,roles_json=?,confidence=?,classifier_reason=?,is_published=1,publication_reason=?,location_source=CASE WHEN location_source IS NULL OR location_source='' THEN ? ELSE location_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?";
+    await env.DB.prepare(update).bind(title,title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),description,state,city,zip,cls.role,JSON.stringify(cls.roles||[cls.role]),recoveredConfidence,cls.reason,reason,reason,row.id).run();
+    recovered++;
+  }
+  return {reviewed:(rows.results||[]).length,recovered};
+}
+export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
+  if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal
+    FROM agency_job_scan_state scan
+    JOIN agency_organizations ao ON ao.id=scan.organization_id
+    WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
+      AND scan.last_status IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles')
+      AND datetime(scan.last_scanned_at)<datetime("now","-3 days")
+    ORDER BY CASE scan.last_status WHEN 'job_links_no_relevant_roles' THEN 0 WHEN 'no_job_board_found' THEN 1 ELSE 2 END,
+      COALESCE(scan.jobs_seen,0) DESC,scan.last_scanned_at ASC
+    LIMIT ?`).bind(limit).all<Row>();
+  let seen=0,published=0,rejected=0;
+  for(const org of rows.results||[]){
+    let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
+    try{result=await discoverJobsForOrg(env,org)}
+    catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
+    seen+=result.seen;published+=result.published;rejected+=result.rejected;
+    await env.DB.prepare(`UPDATE agency_job_scan_state SET source_provider=?,source_listing_url=?,last_status=?,last_error=?,jobs_seen=?,jobs_published=?,job_links_seen=?,jobs_rejected=?,last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE organization_id=?`)
+      .bind(result.provider,clean(org.primary_careers_url,1000),result.status,result.status==='fetch_failed'||result.provider==='error'?result.status:null,result.seen,result.published,result.jobLinksSeen,result.rejected,org.id).run();
+  }
+  return {processed:(rows.results||[]).length,seen,published,rejected};
+}
+
+export async function normalizeExistingJobsBatch(env:FeatureEnv,limit=100){
+  if(!env.DB)return {processed:0};
+  const rows=await env.DB.prepare('SELECT id,agency_organization_id,title,role,roles_json,city,state,zip,employment_type,pay_min,pay_max,pay_period,description_text FROM caregiver_jobs WHERE (normalized_title IS NULL OR roles_json IS NULL) AND status IN ("current","duplicate") ORDER BY updated_at DESC LIMIT ?').bind(limit).all<Row>();
+  const orgs=new Set<string>();
+  for(const row of rows.results||[]){
+    const title=normalizeTitle(row.title);
+    const description=clean(row.description_text,8000);
+    const cls=roleClassification(title,description);
+    if(!cls)continue;
+    const employmentType=normalizeEmploymentType(clean(row.employment_type,200),title,description);
+    const textPay=payFromText(description);
+    const sourcePay=row.pay_min!=null||row.pay_max!=null?normalizePay(row.pay_min,row.pay_max,row.pay_period):null;
+    const pay=sourcePay?.period?sourcePay:normalizePay(textPay.min,textPay.max,textPay.period);
+    const payMin=pay.min,payMax=pay.max,payUnit=pay.period;
+    const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const fingerprint=await sha256Hex([
+      clean(row.agency_organization_id,100),normalizedTitle,normalizeCity(row.city).toLowerCase(),normalizeState(row.state),clean(row.zip,20)
+    ].join('|'));
+    await env.DB.prepare('UPDATE caregiver_jobs SET title=?,normalized_title=?,role=?,roles_json=?,employment_type=?,pay_min=?,pay_max=?,pay_period=?,canonical_fingerprint=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      .bind(title,normalizedTitle,cls.role,JSON.stringify(cls.roles||[cls.role]),employmentType,payMin,payMax,payUnit,fingerprint,row.id).run();
+    orgs.add(clean(row.agency_organization_id,100));
+  }
+  for(const orgId of orgs)if(orgId)await reconcileOrgDuplicates(env,orgId);
+  return {processed:(rows.results||[]).length};
+}
+
+const PAY_BAND_SQL:[string,number,number][]=[['hour',7.25,100],['day',60,1200],['week',250,5000],['month',1000,20000],['year',15000,250000]];
+const outOfBand=(col:string)=>'('+col+' IS NOT NULL AND (CASE pay_period '+PAY_BAND_SQL.map(([p,lo,hi])=>"WHEN '"+p+"' THEN "+col+'<'+lo+' OR '+col+'>'+hi).join(' ')+' ELSE 1 END))';
+/** Rows whose stored pay normalizePay would change: implausible amounts, wrong or missing periods, reversed ranges. */
+export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pay_max>pay_min*4 OR '+outOfBand('pay_min')+' OR '+outOfBand('pay_max')+')';
+
+/** Re-applies the pay rules to jobs stored before them, a few hundred rows per run until none are left. */
+/** Unpublishes stored rows that the not-a-job rule now rejects. */
+export async function unpublishNonJobsBatch(env:FeatureEnv,limit=500){
+  if(!env.DB)return {checked:0,unpublished:0};
+  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND COALESCE(publication_reason,'')!='employer_restored' AND (
+      source_provider='generic_html' OR lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
+      OR lower(title) LIKE '%scholarship%' OR lower(title) LIKE '%tuition%' OR lower(source_url) LIKE '%training%' OR lower(source_url) LIKE '%class%' OR lower(source_url) LIKE '%course%'
+    ) LIMIT ?`).bind(limit).all<Row>();
+  let unpublished=0;
+  for(const row of rows.results||[]){
+    if(!notAJobPosting(clean(row.title,300),clean(row.source_url,1000),clean(row.source_provider,40)))continue;
+    await env.DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='not_a_job_posting',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
+    unpublished++;
+  }
+  return {checked:(rows.results||[]).length,unpublished};
+}
+export async function repairJobPayBatch(env:FeatureEnv,limit=500){
+  const counts={checked:0,relabeled:0,trimmed:0,cleared:0};
+  if(!env.DB)return counts;
+  const rows=await env.DB.prepare('SELECT id,pay_min,pay_max,pay_period FROM caregiver_jobs WHERE '+SUSPECT_PAY_SQL+' LIMIT ?').bind(limit).all<Row>();
+  for(const row of rows.results||[]){
+    counts.checked++;
+    const pay=normalizePay(row.pay_min,row.pay_max,row.pay_period);
+    if(!pay.period)counts.cleared++;
+    else if(pay.period!==clean(row.pay_period,20))counts.relabeled++;
+    else counts.trimmed++;
+    await env.DB.prepare('UPDATE caregiver_jobs SET pay_min=?,pay_max=?,pay_period=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
+      .bind(pay.min,pay.max,pay.period||null,row.id).run();
+  }
+  return counts;
+}
+
+const SCAN_CONCURRENCY=4;
+export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
+  if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
+  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,scan.last_scanned_at
+    FROM agency_organizations ao
+    LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
+    WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
+      AND ((ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="")
+        OR (ao.primary_website IS NOT NULL AND ao.primary_website!="")
+        OR (ao.primary_domain IS NOT NULL AND ao.primary_domain!=""))
+      AND (
+        scan.last_scanned_at IS NULL
+        OR (COALESCE(scan.last_status,'') IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
+          AND datetime(scan.last_scanned_at)<datetime("now","-7 days"))
+        OR (COALESCE(scan.last_status,'') NOT IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source')
+          AND datetime(scan.last_scanned_at)<datetime("now","-24 hours"))
+      )
+    ORDER BY
+      -- Sites never checked come first; a site that had nothing waits a week before another look.
+      CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,
+      CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%greenhouse%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%lever.co%"
+        OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%ashby%" THEN 0 ELSE 1 END,
+      CASE WHEN ao.primary_careers_url IS NOT NULL AND ao.primary_careers_url!="" THEN 0 ELSE 1 END,
+      CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,
+      COALESCE(scan.last_scanned_at,"") ASC,
+      ao.caregiver_relevance_score DESC
+    LIMIT ?`).bind(limit).all<Row>();
+  let seen=0,published=0,rejected=0;
+  async function scanOne(org:Row){
+    let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
+    try{result=await discoverJobsForOrg(env!,org)}
+    catch(error){result={seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'error',status:error instanceof Error?error.message.slice(0,200):'scan_failed'}}
+    seen+=result.seen;
+    published+=result.published;
+    rejected+=result.rejected;
+    const sql='INSERT INTO agency_job_scan_state (organization_id,source_provider,source_listing_url,last_status,last_error,jobs_seen,jobs_published,job_links_seen,jobs_rejected,last_scanned_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(organization_id) DO UPDATE SET source_provider=excluded.source_provider,source_listing_url=excluded.source_listing_url,last_status=excluded.last_status,last_error=excluded.last_error,jobs_seen=excluded.jobs_seen,jobs_published=excluded.jobs_published,job_links_seen=excluded.job_links_seen,jobs_rejected=excluded.jobs_rejected,last_scanned_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
+    await env!.DB!.prepare(sql).bind(
+      org.id,result.provider,clean(org.primary_careers_url,1000),result.status,
+      result.status==='fetch_failed'||result.provider==='error'?result.status:null,
+      result.seen,result.published,result.jobLinksSeen,result.rejected
+    ).run();
+  }
+  // Sites are slow to answer, so a few are scanned at once rather than one after another.
+  const orgs=rows.results||[];
+  for(let i=0;i<orgs.length;i+=SCAN_CONCURRENCY)await Promise.all(orgs.slice(i,i+SCAN_CONCURRENCY).map(scanOne));
+  const statusRows=await env.DB.prepare('SELECT last_status,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published,SUM(jobs_rejected) AS jobs_rejected,SUM(job_links_seen) AS job_links_seen FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY last_status ORDER BY sources DESC').all<Row>();
+  const providerRows=await env.DB.prepare('SELECT source_provider,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY source_provider ORDER BY sources DESC').all<Row>();
+  return {processed:(rows.results||[]).length,seen,published,rejected,statusBreakdown:statusRows.results||[],providerBreakdown:providerRows.results||[]};
+}
+
+export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const role=clean(url.searchParams.get('role'),80);
+  const city=clean(url.searchParams.get('city'),120);
+  const limit=Math.max(1,Math.min(100,asNum(url.searchParams.get('limit'))||50));
+  // State defaults to MD so existing Maryland pages keep working; any state (or `all`) can be requested.
+  const stateParam=clean(url.searchParams.get('state'),20).toUpperCase()||'MD';
+  const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,asNum(url.searchParams.get('radius'))||25));
+  const center=await lookupZip(env.DB,url.searchParams.get('zip'));
+  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status="current"`;
+  const args:unknown[]=[];
+  if(center){
+    const box=boundingBox(center,radius);
+    sql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
+  }else if(stateParam!=='ALL'){sql+=' AND j.state=?';args.push(stateParam)}
+  if(role){
+    sql+=' AND (lower(j.role)=lower(?) OR lower(COALESCE(j.roles_json,"")) LIKE lower(?))';
+    args.push(role,'%"'+role+'"%');
+  }
+  if(city){sql+=' AND lower(j.city)=lower(?)';args.push(city)}
+  sql+=' ORDER BY CASE WHEN j.date_posted IS NULL OR j.date_posted="" THEN 1 ELSE 0 END,j.date_posted DESC,j.last_seen_at DESC LIMIT ?';
+  args.push(center?Math.min(500,limit*5):limit);
+  const rows=await env.DB.prepare(sql).bind(...args).all<Row>();
+  let results=(rows.results||[]).map(r=>{const geo=rowGeo(r);return {r,distanceMiles:center&&geo?haversineMiles(center,geo):null}});
+  if(center)results=results.filter(x=>x.distanceMiles!==null&&x.distanceMiles<=radius).slice(0,limit);
+  return json({ok:true,jobs:results.map(({r,distanceMiles})=>{
+    let roles:string[]=[];
+    try{roles=JSON.parse(clean(r.roles_json,1000)||'[]')}catch{roles=[clean(r.role,80)].filter(Boolean)}
+    return {
+      id:r.id,title:normalizeTitle(r.title),role:r.role,roles,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
+      employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
+      datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at,
+      distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
+    };
+  })});
+}
+export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
+    FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
+    WHERE j.id=? AND j.is_published=1 AND j.status="current" LIMIT 1`).bind(id).first<Row>();
+  if(!row)return json({ok:false,error:'Job not found'},{status:404});
+  let roles:string[]=[];
+  try{roles=JSON.parse(clean(row.roles_json,1000)||'[]')}catch{roles=[clean(row.role,80)].filter(Boolean)}
+  return json({ok:true,job:{
+    id:row.id,title:normalizeTitle(row.title),role:row.role,roles,employerName:row.employer_name,
+    city:row.city,state:row.state,zip:row.zip,employmentType:row.employment_type,
+    payMin:row.pay_min,payMax:row.pay_max,payPeriod:row.pay_period,description:clean(row.summary_text,4000),
+    sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
+    firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
+    applyForMe:!!detectApplyProvider(clean(row.source_url,1000)),
+    employerOnCareJoys:!!clean(row.claimed_employer_id,120)
+  }});
+}

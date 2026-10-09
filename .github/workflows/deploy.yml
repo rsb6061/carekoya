@@ -1,0 +1,187 @@
+name: Deploy CareJoys
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "migrations/**"
+      - "scripts/**"
+      - "index.html"
+      - "package.json"
+      - "tsconfig.json"
+      - "vite.config.ts"
+      - "wrangler.jsonc"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: carekoya-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:node
+      - run: npm run build
+
+      - name: Deploy Worker and D1 migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: fa11326492b5746f2276e22286c4d33d
+        run: |
+          npm run db:migrations:apply
+          npx wrangler deploy
+
+      - name: Smoke test production domain and database
+        run: |
+          echo "Waiting for the new Worker version to serve carejoys.com:"
+          for i in $(seq 1 24); do
+            if curl --connect-timeout 3 --max-time 15 -s https://carejoys.com/api/health | jq -e 'has("tables") | not' >/dev/null; then echo "live"; break; fi
+            sleep 5
+          done
+          echo "Production health:"
+          HEALTH=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 2 https://carejoys.com/api/health)
+          echo "$HEALTH"
+          echo "Duplicate caregiver identity invariant:"
+          test "$(echo "$HEALTH" | jq -r '.counts.duplicateCaregiverEmails')" = "0"
+          echo
+          echo "WWW health:"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code} %{redirect_url}' https://www.carejoys.com/about)" = "301 https://carejoys.com/about"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code}' https://carejoys.com/not-a-real-page-smoke)" = "404"
+          echo
+          echo "Auth boundary smoke tests:"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/candidates.json -w '%{http_code}' https://carejoys.com/api/candidates)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/workspace.json -w '%{http_code}' https://carejoys.com/api/workspace)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/pipeline.json -w '%{http_code}' https://carejoys.com/api/pipeline)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/admin.json -w '%{http_code}' https://carejoys.com/api/admin/overview)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/activation.json -w '%{http_code}' https://carejoys.com/api/activation-stats)" = "401"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/me.json -w '%{http_code}' https://carejoys.com/api/me)" = "401"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health | jq -e 'has("tables") | not' >/dev/null
+          echo "Private caregiver photo boundary:"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/photo.json -w '%{http_code}' https://carejoys.com/api/caregivers/not-a-real-caregiver/photo)" = "401"
+          echo "CareJoys favicon:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/favicon.png >/dev/null
+          HOME_HEAD=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          echo "$HOME_HEAD" | grep -q 'rel="icon" type="image/png" sizes="96x96" href="/favicon.png'
+          echo "Shared sign-in:"
+          # The new version can take a minute to reach every edge, so a new route may still 404 at first.
+          for i in $(seq 1 24); do
+            if curl --connect-timeout 3 --max-time 15 -s -o /dev/null -w '%{http_code}' https://carejoys.com/login | grep -q '^200$'; then break; fi
+            sleep 5
+          done
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/login >/dev/null
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/account | jq -e '.ok == true and .signedIn == false' >/dev/null
+          echo "Legal routes:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/privacy-policy >/dev/null
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/terms-of-service >/dev/null
+          echo "Maryland supply routes:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland >/dev/null
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/schools/maryland >/dev/null
+          echo "Caregiver training directory:"
+          TRAINING_LIVE=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
+          if echo "$TRAINING_LIVE" | grep -q 'Approved training, organized by provider'; then exit 1; fi
+          echo "Caregiver CTA consistency:"
+          HOME_LIVE=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          if echo "$HOME_LIVE" | grep -q 'Join the network'; then exit 1; fi
+          echo "Caregiver job inventory:"
+          JOBS_JSON=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 'https://carejoys.com/api/public/caregiver-jobs?limit=1')
+          echo "$JOBS_JSON" | jq -e '.ok == true and (.jobs | type == "array")' >/dev/null
+          CAREGIVER_JOBS_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
+          echo "$CAREGIVER_JOBS_HTML" | grep -q 'Current caregiver jobs in Maryland'
+          HEALTH_JOBS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health)
+          echo "$HEALTH_JOBS" | jq -e '.counts.publishedCaregiverJobs >= 0 and .counts.scannedJobSources >= 0' >/dev/null
+          echo "Caregiver internal job pages:"
+          FIRST_JOB_ID=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 'https://carejoys.com/api/public/caregiver-jobs?limit=1' | jq -r '.jobs[0].id // empty')
+          if [ -n "$FIRST_JOB_ID" ]; then
+            JOB_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 "https://carejoys.com/jobs/$FIRST_JOB_ID")
+            echo "$JOB_HTML" | grep -q "<link rel=\"canonical\" href=\"https://carejoys.com/jobs/$FIRST_JOB_ID\""
+            echo "$JOB_HTML" | grep -q '>Apply<'
+            echo "$SITEMAP" >/dev/null 2>&1 || true
+          fi
+          echo "SEO discovery routes:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<sitemapindex'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/llms.txt | grep -q 'CareJoys is a caregiver recruiting and placement network'
+          HOME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
+          echo "$HOME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/"'
+          TRAINING_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
+          echo "$TRAINING_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/training-programs/maryland"'
+          echo "$TRAINING_HTML" | grep -q '<title>Maryland CNA &amp; GNA Caregiver Training Programs | CareJoys</title>'
+          echo "$TRAINING_HTML" | grep -q 'name="description"'
+          OLD_EMPLOYER=$(curl --connect-timeout 3 --max-time 15 -s -o /dev/null -w '%{http_code} %{redirect_url}' https://carejoys.com/caregiver-recruiting/maryland)
+          test "$OLD_EMPLOYER" = "301 https://carejoys.com/hire-caregivers/maryland"
+          EMPLOYER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/hire-caregivers/maryland)
+          echo "$EMPLOYER_HTML" | grep -q '<title>Hire Caregivers in Maryland | CareJoys</title>'
+          echo "$EMPLOYER_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/hire-caregivers/maryland"'
+          echo "$EMPLOYER_HTML" | grep -q '"@type":"Service"'
+          echo "$EMPLOYER_HTML" | grep -q 'Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.'
+          ABOUT_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/about)
+          echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Caregiver Recruiting Network</title>'
+          echo "$ABOUT_HTML" | grep -q '"@type":"AboutPage"'
+          CAREGIVER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
+          echo "$CAREGIVER_HTML" | grep -q '<title>Caregiver Jobs in Maryland: CNA, GNA, HHA &amp; PCA | CareJoys</title>'
+          echo "$CAREGIVER_HTML" | grep -q '<h1>Caregiver jobs in Maryland</h1>'
+          echo "Caregiver resume funnel:"
+          RESUME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-resume)
+          echo "$RESUME_HTML" | grep -q '<title>Caregiver Resume: Builder, Example &amp; Job Matching | CareJoys</title>'
+          echo "$RESUME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-resume"'
+          echo "$RESUME_HTML" | grep -q '<h1>Add your resume, get matched to the best caregiver jobs near you.</h1>'
+          echo "$RESUME_HTML" | grep -q 'Upload your resume once. CareJoys builds your caregiver profile, asks only for anything missing, and matches you with caregiver employers and agencies.'
+          echo "$RESUME_HTML" | grep -q '"@type":"WebApplication"'
+          RESOURCE_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland)
+          echo "$RESOURCE_HTML" | grep -q '<title>How to Become a Caregiver in Maryland | CareJoys</title>'
+          echo "$RESOURCE_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland"'
+          SITEMAP=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemaps/pages.xml)
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemaps/locations.xml | grep -q '<loc>https://carejoys.com/caregiver-jobs</loc>'
+          echo "National caregiver jobs hub:"
+          NATIONAL_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs)
+          echo "$NATIONAL_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/caregiver-jobs"'
+          echo "$NATIONAL_HTML" | grep -q '<h1>Caregiver jobs near you</h1>'
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code} %{redirect_url}' 'https://carejoys.com/caregiver-jobs?q=Maryland')" = "302 https://carejoys.com/caregiver-jobs/maryland"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/jobs-national | jq -e '.ok == true and (.states | type == "array")' >/dev/null
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/about'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/hire-caregivers/maryland'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-resume'
+          echo "$SITEMAP" | grep -q 'https://carejoys.com/resources/how-to-become-a-caregiver-in-maryland'
+          if echo "$SITEMAP" | grep -q 'https://carejoys.com/caregiver-recruiting/maryland'; then exit 1; fi
+          ROBOTS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt)
+          echo "$ROBOTS" | grep -q 'User-agent: OAI-SearchBot'
+          echo "$ROBOTS" | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
+          APP_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/app)
+          echo "$APP_HTML" | grep -q 'name="robots" content="noindex,nofollow"'
+          echo "Pilot caregiver training organization routes:"
+          for SLUG in             it-works-learning-center             top-knowledge-healthcare-institute             caroline-center             cambridge-nursing-assistant-academy             vision-allied-health-institute             baltimore-city-community-college             care-xpert-academy             heritage-care             dominion-academy             beacon-institute
+          do
+            curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 1 "https://carejoys.com/training-programs/$SLUG" >/dev/null
+            ORG=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 1 "https://carejoys.com/api/public/training-organization/$SLUG")
+            test "$(echo "$ORG" | jq -r '.ok')" = "true"
+            test "$(echo "$ORG" | jq -r '.programs | length > 0')" = "true"
+          done
+          PROGRAMS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/training-programs)
+          test "$(echo "$PROGRAMS" | jq -r '.total > 0')" = "true"
+          echo "Public config:"
+          CONFIG=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/config)
+          echo "$CONFIG" | jq -e 'has("googleSignIn")' >/dev/null
+          echo "$CONFIG"
+          echo
+          echo "Agency demand summary:"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/public/agency-demand-summary
+          echo
+          echo "workers.dev fallback (non-blocking):"
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 2 --retry-delay 2 https://carekoya.platesurf-dev-2026.workers.dev/api/health || true
+          echo
