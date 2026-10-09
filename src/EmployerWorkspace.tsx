@@ -238,7 +238,8 @@ export function EmployerWorkspace(){
       setSlotsFor(null);
       setSlotInputs([{startsAt:'',durationMinutes:30}]);
       await refreshWorkspace();
-      setTab(pendingApproval?'openings':'pipeline');
+      setIntakeOpeningId('');
+      setTab('openings');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not save interview times','error');
     }
