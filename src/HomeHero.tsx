@@ -61,6 +61,11 @@ function DashboardPreview({stats}:{stats:Stats|null}){
       <span className="dash-brand">CareJoys</span>
       <span className="dash-bar-links"><span>Jobs</span><span className="dash-account"><span className="dash-avatar">M</span>Maria ▾</span></span>
     </div>
+    <div className="dash-layout-mock">
+    <div className="dash-side" aria-hidden="true">
+      <div className="dash-side-label">Dashboard</div>
+      <span className="active">My matches</span><span>Applications</span><span>Weekly email</span><span>Resume</span><span>Profile</span>
+    </div>
     <div className="dash-body">
       <div className="dash-head">
         <div><div className="dash-hi">Hi Maria.</div><div className="dash-sub">CNA · Baltimore · MD</div></div>
@@ -75,6 +80,7 @@ function DashboardPreview({stats}:{stats:Stats|null}){
           <span className="dash-apply">{j.applyForMe?'Apply for me':'Apply'}</span>
         </a>):[0,1,2,3].map(i=><div key={i} className={'dash-card skeleton dash-'+TONES[i]} aria-hidden="true"/>)}
       </div>
+    </div>
     </div>
   </div>;
 }
