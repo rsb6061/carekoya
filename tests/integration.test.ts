@@ -322,6 +322,17 @@ describe('outreach', ()=>{
     await Promise.all(waits);
     expect(sent).toHaveLength(0);
   });
+  it('records a summary run, and notes a schedule it does not recognise', async()=>{
+    const at=Date.parse('2026-10-09T21:07:00Z');
+    await worker.scheduled({cron:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    await worker.scheduled({cron:'7-59/5 * * * *',scheduledTime:at},env(),{waitUntil:()=>{}});
+    const runs=await DB.prepare("SELECT kind,trigger FROM outreach_runs WHERE kind IN ('job_summaries','unmatched_cron') ORDER BY kind,trigger").all();
+    expect(runs.results).toEqual([
+      {kind:'job_summaries',trigger:'2,7,12,17,22,27,32,37,42,47,52,57 * * * *'},
+      {kind:'job_summaries',trigger:'7-59/5 * * * *'},
+      {kind:'unmatched_cron',trigger:'7-59/5 * * * *'}
+    ]);
+  });
 });
 
 describe('billing gate', ()=>{
