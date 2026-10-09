@@ -60,6 +60,10 @@ export function EmployerWorkspace(){
   const [openings,setOpenings]=useState<Opening[]>([]);
   const [pipeline,setPipeline]=useState<PipelineRow[]>([]);
   const [candidates,setCandidates]=useState<Candidate[]>([]);
+  const [talentState,setTalentState]=useState<'idle'|'loading'|'ready'|'error'>('idle');
+  const [talentTotal,setTalentTotal]=useState(0);
+  const [talentSearchedZip,setTalentSearchedZip]=useState('');
+  const firstTalentLoad=useRef('');
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
   const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'inbox'|'jobs'>(()=>{const t=new URLSearchParams(window.location.search).get('tab');return t==='inbox'?'inbox':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
@@ -70,7 +74,7 @@ export function EmployerWorkspace(){
   const [pendingApproval,setPendingApproval]=useState(false);
   const [approvalKnown,setApprovalKnown]=useState(false);
   const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
-  const [filters,setFilters]=useState({role:'',zip:'',radius:'25',state:'',freshness:'all'});
+  const [filters,setFilters]=useState({role:'',zip:'',radius:'all',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
   const [slotInputs,setSlotInputs]=useState([{startsAt:'',durationMinutes:30}]);
@@ -133,19 +137,38 @@ export function EmployerWorkspace(){
     void runMatch(openingId);
   },[session?.id,openings.length,approvalKnown,pendingApproval]);
 
-  async function searchTalent(e?:FormEvent){
+  async function searchTalent(e?:FormEvent,chosen=filters){
     e?.preventDefault();
     if(pendingApproval)return;
-    setMessage('Searching caregiver network…','info');
+    setTalentState('loading');
     const params=new URLSearchParams();
-    Object.entries(filters).forEach(([k,v])=>{if(v&&v!=='all')params.set(k,v)});
+    Object.entries(chosen).forEach(([k,v])=>{if(v&&(k==='radius'||v!=='all'))params.set(k,v)});
+    const primaryRole=openings.find(o=>o.status==='open')?.role;
+    if(primaryRole&&!chosen.role)params.set('preferredRole',primaryRole);
     try{
-      const data=await api<any>('/api/candidates?'+params);
+      const data=await api<{total:number;candidates:Candidate[]}>('/api/candidates?'+params.toString());
       setCandidates(data.candidates||[]);
+      setTalentTotal(data.total||0);
+      setTalentSearchedZip(chosen.zip);
+      setTalentState('ready');
       setTab('talent');
       setMessage('');
-    }catch(error){setMessage(error instanceof Error?error.message:'Could not search caregivers','error');}
+    }catch(error){
+      setTalentState('error');
+      setMessage(error instanceof Error?error.message:'Could not search caregivers','error');
+    }
   }
+
+  // The talent tab opens as a real directory, not a blank search form. The employer ZIP
+  // supplies ranking distance; the default does not silently hide the remaining network.
+  useEffect(()=>{
+    if(tab!=='talent'||!session||!approvalKnown||pendingApproval||firstTalentLoad.current===session.id)return;
+    firstTalentLoad.current=session.id;
+    const homeZip=String(workspace?.zip||session.zip||openings.find(o=>o.status==='open')?.zip||'').trim().slice(0,5);
+    const initial={...filters,zip:filters.zip||homeZip,radius:'all'};
+    setFilters(initial);
+    void searchTalent(undefined,initial);
+  },[tab,session?.id,approvalKnown,pendingApproval,workspace?.zip,openings.length]);
 
   async function createOpening(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
@@ -382,17 +405,20 @@ export function EmployerWorkspace(){
       </section>}
 
       {tab==='talent'&&<section className="section-block">
-        <div className="section-heading"><h2>Talent network</h2><p>Confirmed availability ranks above older, unconfirmed profiles.</p></div>
+        <div className="section-heading"><h2>Talent network</h2><p>Browse all available caregivers. Prioritizes local commutes, hiring needs and confirmed availability.</p></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role: CNA, HHA, caregiver" />
           <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" />
-          <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
+          <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="all">All distances</option><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
           <input value={filters.state} onChange={e=>setFilters({...filters,state:e.target.value})} placeholder="State" />
           <select value={filters.freshness} onChange={e=>setFilters({...filters,freshness:e.target.value})}><option value="all">Any availability</option><option value="confirmed">Confirmed in last 30 days</option></select>
           <button className="button">Search</button>
         </form>
-        {candidates.length===0?<div className="empty"><strong>Search the network.</strong><div>Confirmed candidates rank higher in matching.</div></div>:
-        <div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div>}
+        {talentState==='loading'?<div className="empty"><strong>Loading available caregivers…</strong></div>:
+         talentState==='error'?<div className="empty"><strong>Couldn't load the network.</strong><div>Retry the search to view available profiles.</div></div>:
+         talentState==='ready'&&candidates.length===0?<div className="empty"><strong>No employer-visible caregivers match these filters yet.</strong><div>Caregivers must confirm their availability and verify their profiles before employers can see them. Try All distances and clear the role or state filters.</div></div>:
+         talentState==='ready'?<><p className="talent-results-meta" role="status">{talentTotal} available caregiver{talentTotal===1?'':'s'} · {talentSearchedZip?'Near '+talentSearchedZip+' prioritized · ':''}Employer-visible and actively looking</p><div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div></>:
+         <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}

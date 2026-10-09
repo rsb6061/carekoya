@@ -1280,20 +1280,22 @@ const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' A
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
+  const preferredRole=clean(url.searchParams.get("preferredRole"),80).toLowerCase();
   const zip=normalizeZip(url.searchParams.get("zip"));
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
   const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
+  const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
   let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
-  if(center){
+  if(center&&!allDistances){
     const box=boundingBox(center,radius);
     sql+=" AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?"; args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
-  }else if(zip){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
+  }else if(zip&&!center){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
   if(state){ sql+=" AND lower(COALESCE(c.state,''))=?"; args.push(state); }
   if(shift){ sql+=" AND lower(COALESCE(c.shift_preferences,'')) LIKE ?"; args.push("%"+shift+"%"); }
   if(freshness==="confirmed"){ sql+=" AND c.work_status='actively_looking' AND datetime(c.last_confirmed_at)>=datetime('now','-30 days')"; }
@@ -1304,10 +1306,21 @@ async function searchCandidates(url: URL, env: Env) {
     return {c,distanceMiles:center&&geo?haversineMiles(center,geo):null};
   });
   if(center){
-    rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
-    rows.sort((a,b)=>(ageDays(a.c.last_confirmed_at)??9999)-(ageDays(b.c.last_confirmed_at)??9999)||(a.distanceMiles!-b.distanceMiles!));
+    if(!allDistances)rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
+    // Prioritize caregivers likely to accept the commute, then fresh availability, then
+    // distance. A default unbounded browse still includes everyone eligible afterwards.
+    rows.sort((a,b)=>{
+      const aCommute=a.distanceMiles!==null&&a.distanceMiles<=commuteRadiusMiles(a.c)?0:1;
+      const bCommute=b.distanceMiles!==null&&b.distanceMiles<=commuteRadiusMiles(b.c)?0:1;
+      const aAge=ageDays(a.c.last_confirmed_at)??9999,bAge=ageDays(b.c.last_confirmed_at)??9999;
+      const roleText=(c:Record<string,unknown>)=>[c.role,c.certifications,c.specialties].map(v=>clean(v,500).toLowerCase()).join(' ');
+      const aRole=preferredRole&&!roleText(a.c).includes(preferredRole)?1:0;
+      const bRole=preferredRole&&!roleText(b.c).includes(preferredRole)?1:0;
+      return aCommute-bCommute||aRole-bRole||(aAge<=30?0:1)-(bAge<=30?0:1)||
+        (a.distanceMiles??9999)-(b.distanceMiles??9999)||aAge-bAge;
+    });
   }
-  return json({ok:true,total:rows.length,radiusMiles:center?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
+  return json({ok:true,total:rows.length,radiusMiles:center&&!allDistances?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
 }
 /** One caregiver as employers see them in Talent network search. The caregiver's own preview uses the same shape. */
 function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
