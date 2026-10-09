@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { parseResumeFile, type ParsedResume } from './resumeParser';
 import { workerVisitorId } from './workerFunnelClient';
+import { hourlyPayFloor } from './payPreferences';
 import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -67,7 +68,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [emailAlerts,setEmailAlerts]=useState(false);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
   const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
-  const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);return draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')?('$'+p.get('payMin')+'+/hr'):'',shifts:p.get('shifts')||''};});
+  const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);const initial=draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')||'',shifts:p.get('shifts')||''};return {...initial,desiredWage:String(hourlyPayFloor(initial.desiredWage)??'')};});
   const [parsed,setParsed]=useState<ParsedResume|null>(draft?.parsed||null);
   const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(draft?.fileMeta||null);
   const [needsState,setNeedsState]=useState(false);
@@ -117,7 +118,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         zip:prev.zip||text(c.zip),state:prev.state||text(c.state),role:prev.role||text(c.role),
         certifications:prev.certifications||text(c.certifications),specialties:prev.specialties||text(c.specialties),
         languages:prev.languages||text(c.languages),yearsExperience:prev.yearsExperience||text(c.yearsExperience),
-        shifts:prev.shifts||text(c.shifts),desiredWage:prev.desiredWage||text(c.desiredWage),
+        shifts:prev.shifts||text(c.shifts),desiredWage:prev.desiredWage||String(hourlyPayFloor(text(c.desiredWage))??''),
         transportation:prev.transportation||text(c.transportation),travelMiles:c.travelMiles?String(c.travelMiles):prev.travelMiles
       }));
       setStage(s=>s==='upload'?(targetJobId?'profile':'known'):s);
@@ -196,6 +197,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         email:auth.email||form.email,
         yearsExperience:Number(form.yearsExperience||0)||null,
         travelMiles:Number(form.travelMiles||0)||null,
+        payMin:form.desiredWage?Number(form.desiredWage):null,
         jobAlertsEmailOptIn:emailAlerts,
         funnelVisitorId:workerVisitorId(),
         turnstileToken,
@@ -361,7 +363,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <strong>What kind of job fits?</strong>
           <div className="form-grid">
             <label>Preferred shifts<input value={form.shifts} onChange={e=>patch('shifts',e.target.value)} placeholder="Days, nights, weekends" /></label>
-            <label>Desired hourly pay<input value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="$20–24/hr" /></label>
+            <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
           </div>
           <div className="form-grid">
             <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
@@ -379,7 +381,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         <TurnstileField onToken={setTurnstileToken}/>
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
-        <div className="resume-privacy">By continuing, your caregiver work profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>
+        <div className="resume-privacy">Your profile stays hidden from employers until you verify your email and confirm availability in your dashboard. Once you make it visible, your profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>
       </form>
     </div>;
   }
