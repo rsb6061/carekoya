@@ -229,7 +229,7 @@ export const DAYS=['mon','tue','wed','thu','fri','sat','sun'] as const;
 export const BLOCKS=['morning','afternoon','evening','overnight'] as const;
 type Availability={days:Record<string,string[]>;liveIn:boolean};
 const listOf=(v:unknown)=>clean(v,2000).split(',').map(x=>x.trim()).filter(Boolean);
-function parseAvailability(v:unknown):Availability{
+export function parseAvailability(v:unknown):Availability{
   let raw:any=null;
   try{raw=JSON.parse(clean(v,4000)||'null')}catch{raw=null}
   const days:Record<string,string[]>={};
@@ -244,6 +244,20 @@ export function availabilitySummary(a:Availability){
   if(weekends&&!weekdays)parts.push('Weekends only');else if(weekends)parts.push('Weekends');
   if(a.liveIn)parts.push('Live-in');
   return parts.join(', ');
+}
+
+/** Day-by-day schedule for employers, grouping neighboring days that share the same shifts: "Mon–Fri: mornings · Sat: overnights". */
+export function availabilityByDay(a:Availability){
+  const day:Record<string,string>={mon:'Mon',tue:'Tue',wed:'Wed',thu:'Thu',fri:'Fri',sat:'Sat',sun:'Sun'};
+  const block:Record<string,string>={morning:'mornings',afternoon:'afternoons',evening:'evenings',overnight:'overnights'};
+  const groups:{from:string;to:string;blocks:string}[]=[];
+  for(const d of DAYS){
+    const blocks=a.days[d].map(b=>block[b]).join(', ');
+    const last=groups[groups.length-1];
+    if(blocks&&last&&last.blocks===blocks&&DAYS.indexOf(last.to as typeof DAYS[number])===DAYS.indexOf(d)-1)last.to=d;
+    else if(blocks)groups.push({from:d,to:d,blocks});
+  }
+  return groups.map(g=>(g.from===g.to?day[g.from]:day[g.from]+'–'+day[g.to])+': '+g.blocks).join(' · ');
 }
 
 /** The full caregiver profile editor at /dashboard/profile. Saving also counts as confirming they're available. */

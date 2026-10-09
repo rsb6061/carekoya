@@ -23,7 +23,7 @@ import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
-import { EMAIL_SUB_PREFIX, applyWithProfile, auth0SubOf, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
   results?: T[];
@@ -1250,7 +1250,7 @@ async function searchCandidates(url: URL, env: Env) {
   const freshness=clean(url.searchParams.get("freshness"),30);
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
@@ -1282,7 +1282,7 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
     careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:c.bio,employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
     licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
-    shifts:c.shift_preferences,travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
+    shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
     distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
   };
