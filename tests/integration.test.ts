@@ -1011,4 +1011,17 @@ describe('agency hiring-needs invites', ()=>{
     expect(sent.filter(m=>m.to==='jobs@brightway.test')).toHaveLength(0);
     expect(friendlyAgencyName('Sunrise Home Care Inc.')).toBe('Sunrise Home Care');
   });
+
+  it('stops at a sending limit and keeps the agency queued', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active) VALUES ('org-quota','org-quota','Quota Care','jobs@quota.test','Towson','MD',1)").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-quota','org-quota','job-quota','test','https://quota.test/jobs/1','Caregiver','Caregiver','Quota Care','Towson','MD','current',1)").run();
+    const limited={...env(),EMAIL:{send:async()=>{throw new Error('account daily sending quota exceeded');}}};
+    const result=await sendAgencyHiringInvites(limited as any,50);
+    expect(result.failed).toBe(0);
+    const failed=await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE organization_id='org-quota'").first() as {n:number}|null;
+    expect(failed?.n).toBe(0);
+    sent.length=0;
+    await sendAgencyHiringInvites(env(),50);
+    expect(sent.filter(m=>m.to==='jobs@quota.test')).toHaveLength(1);
+  });
 });

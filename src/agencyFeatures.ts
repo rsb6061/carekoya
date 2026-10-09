@@ -497,6 +497,10 @@ export async function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo
       }
       sent++;
     }catch(error){
+      // A sending limit is the account's, not this agency's: stop the batch and leave everyone queued for a later run.
+      const code=String((error as {code?:unknown})?.code||'');
+      const message=error instanceof Error?error.message:'';
+      if(/LIMIT_EXCEEDED/.test(code)||/quota|limit exceeded/i.test(message))break;
       await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'hiring_needs_invite_failed',?,?)")
         .bind(crypto.randomUUID(),org.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
       failed++;
