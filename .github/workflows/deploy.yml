@@ -116,7 +116,7 @@ jobs:
           echo "SEO discovery routes:"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/sitemap.xml | grep -q '<sitemapindex'
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
-          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/llms.txt | grep -q 'CareJoys is a caregiver recruiting and placement network'
+          curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/llms.txt | grep -q 'CareJoys is a free job-matching service for caregivers'
           HOME_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/)
           echo "$HOME_HTML" | grep -q '<link rel="canonical" href="https://carejoys.com/"'
           TRAINING_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/training-programs/maryland)
@@ -131,7 +131,7 @@ jobs:
           echo "$EMPLOYER_HTML" | grep -q '"@type":"Service"'
           echo "$EMPLOYER_HTML" | grep -q 'Find local CNAs, GNAs, HHAs, PCAs and caregivers who are actually interested in your opening.'
           ABOUT_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/about)
-          echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Caregiver Recruiting Network</title>'
+          echo "$ABOUT_HTML" | grep -q '<title>About CareJoys | Free Caregiver Job Matching</title>'
           echo "$ABOUT_HTML" | grep -q '"@type":"AboutPage"'
           CAREGIVER_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/caregiver-jobs/maryland)
           echo "$CAREGIVER_HTML" | grep -q '<title>Caregiver Jobs in Maryland: CNA, GNA, HHA &amp; PCA | CareJoys</title>'
