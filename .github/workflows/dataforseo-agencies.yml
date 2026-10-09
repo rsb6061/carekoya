@@ -93,7 +93,7 @@ jobs:
         if: env.STATUS == 'done' || env.STATUS == 'stopped'
         run: |
           node scripts/build-agency-organizations.mjs /tmp/agency-organizations.sql
-          npx wrangler d1 execute DB --remote --file=/tmp/agency-organizations.sql
+          for f in /tmp/agency-organizations.part-*.sql; do npx wrangler d1 execute DB --remote --file="$f"; done
 
       - name: Report coverage
         if: env.STATUS == 'done' || env.STATUS == 'stopped'

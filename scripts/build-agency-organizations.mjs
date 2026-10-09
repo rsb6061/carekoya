@@ -1,18 +1,44 @@
 // Groups every active `agencies` row (state licence lists, NPI registry, CMS nursing homes, Google listings) into
-// `agency_organizations`, and writes the SQL to /tmp/agency-organizations.sql (or argv[2]).
+// `agency_organizations`, and writes the SQL as parts next to /tmp/agency-organizations.sql (or argv[2]):
+// agency-organizations.part-001.sql, part-002.sql, … — run them in order. One file outgrew Node's string limit.
 // Grouping rules live in scripts/lib/agency-sources.mjs; Maryland-only data produces the same keys as before.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { UNREACHABLE_SOURCES, groupAgencies, inferredRoles, organizationFields, sql as esc } from './lib/agency-sources.mjs';
 
 const OUT=process.argv[2]||'/tmp/agency-organizations.sql';
 const run=(sql)=>JSON.parse(execFileSync('npx',['wrangler','d1','execute','DB','--remote','--json','--command',sql],{encoding:'utf8',maxBuffer:200*1024*1024}));
-const rows=((run(`SELECT id,source,name,legal_name,email,phone,website,contact_name,address1,city,state,zip,provider_type,
-  caregiver_match_eligible,caregiver_relevance_score,npi,google_place_id,rating,review_count,provider_kind,bed_count
-  FROM agencies WHERE is_active=1 ORDER BY name;`)[0]||{}).results)||[];
+// Read in pages by id, then order by name as the single query did, so grouping is unchanged.
+const PAGE=50000;
+const rows=[];
+for(let after='';;){
+  const page=((run(`SELECT id,source,name,legal_name,email,phone,website,contact_name,address1,city,state,zip,provider_type,
+    caregiver_match_eligible,caregiver_relevance_score,npi,google_place_id,rating,review_count,provider_kind,bed_count
+    FROM agencies WHERE is_active=1 AND id>${esc(after)} ORDER BY id LIMIT ${PAGE};`)[0]||{}).results)||[];
+  rows.push(...page);
+  if(page.length<PAGE)break;
+  after=page[page.length-1].id;
+}
+rows.sort((a,b)=>String(a.name??'')<String(b.name??'')?-1:String(a.name??'')>String(b.name??'')?1:0);
 
 const groups=groupAgencies(rows);
-const out=[];
+// Parts left by an earlier run would otherwise be executed too.
+const PREFIX=path.basename(OUT).replace(/\.sql$/,'')+'.part-';
+for(const f of fs.readdirSync(path.dirname(OUT)))if(f.startsWith(PREFIX))fs.rmSync(path.join(path.dirname(OUT),f));
+const PART_BYTES=40*1024*1024;
+const parts=[];
+let part=[],partBytes=0,statements=0;
+const flush=()=>{
+  if(!part.length)return;
+  const file=path.join(path.dirname(OUT),PREFIX+String(parts.length+1).padStart(3,'0')+'.sql');
+  fs.writeFileSync(file,part.join('\n'));
+  parts.push(file);part=[];partBytes=0;
+};
+const out={push(statement){
+  part.push(statement);partBytes+=statement.length+1;statements++;
+  if(partBytes>=PART_BYTES)flush();
+}};
 // Chain job boards are seeded by hand (migrations), not grouped from `agencies`, so they stay as they are.
 out.push("UPDATE agency_organizations SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE COALESCE(is_chain,0)=0;");
 for(const g of groups){
@@ -36,7 +62,7 @@ for(const g of groups){
       city=excluded.city,state=excluded.state,zip=excluded.zip,provider_types=excluded.provider_types,license_count=excluded.license_count,
       caregiver_relevance_score=excluded.caregiver_relevance_score,npi=excluded.npi,google_place_id=excluded.google_place_id,
       rating=excluded.rating,review_count=excluded.review_count,sources=excluded.sources,provider_kind=excluded.provider_kind,bed_count=excluded.bed_count,is_active=${active},updated_at=CURRENT_TIMESTAMP;`);
-  for(const r of g.rows)out.push(`UPDATE agencies SET organization_id=${esc(g.id)},organization_key=${esc(g.key)},updated_at=CURRENT_TIMESTAMP WHERE id=${esc(r.id)};`);
+  for(let i=0;i<g.rows.length;i+=500)out.push(`UPDATE agencies SET organization_id=${esc(g.id)},organization_key=${esc(g.key)},updated_at=CURRENT_TIMESTAMP WHERE id IN (${g.rows.slice(i,i+500).map(r=>esc(r.id)).join(',')});`);
   const geographySource=g.rows[0].source==='nppes'?'npi_registry':g.rows[0].source==='cms_nursing_home'?'cms_care_compare':g.rows[0].source==='google_business'?'google_business':'license_directory';
   out.push(`INSERT INTO agency_org_hiring_profiles(organization_id,hiring_status,roles,service_areas,roles_source,geography_source,hiring_status_source,updated_at)
     VALUES (${esc(g.id)},'unknown',${esc(inferredRoles(f.providerTypes).join(', '))},${esc([f.city,f.state].filter(Boolean).join(', '))},'inferred_from_provider_type',${esc(geographySource)},'inferred',CURRENT_TIMESTAMP)
@@ -47,7 +73,7 @@ for(const g of groups){
       geography_source=CASE WHEN agency_org_hiring_profiles.employer_confirmed_at IS NULL THEN excluded.geography_source ELSE agency_org_hiring_profiles.geography_source END,
       updated_at=CURRENT_TIMESTAMP;`);
 }
-fs.writeFileSync(OUT,out.join('\n'));
+flush();
 const bySource={};
 for(const r of rows)bySource[r.source]=(bySource[r.source]||0)+1;
-console.log(JSON.stringify({agencyRecords:rows.length,bySource,organizations:groups.length,sqlStatements:out.length,output:OUT}));
+console.log(JSON.stringify({agencyRecords:rows.length,bySource,organizations:groups.length,sqlStatements:statements,parts}));

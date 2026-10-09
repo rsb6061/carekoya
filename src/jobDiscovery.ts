@@ -175,13 +175,14 @@ const ROLE_RULES:[string,RegExp][]=[
   ['HHA',/\b(hha|home health aide)\b/i],
   ['PCA',/\b(pca|personal care aide|personal care assistant)\b/i],
   ['DSP',/\b(dsp|direct support professional|direct care professional|direct care worker)\b/i],
-  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver| care)?|companion care|personal\s*(?:&|and)\s*companion care|home care aide|homecare aide|private duty caregiver)\b/i],
+  // Senior living titles for the same hands-on job: "Care Assistant", "Resident Care Associate", "Care Partner".
+  ['Caregiver',/\b(caregiver|care giver|companion(?: caregiver| care)?|companion care|personal\s*(?:&|and)\s*companion care|home care aide|homecare aide|private duty caregiver|resident care (?:associate|assistant|aide)|resident assistant|care (?:assistant|partner|associate))\b/i],
   ['CMT',/\b(cmt|certified medication technician)\b/i],
   ['LPN',/\b(lpn|licensed practical nurse)\b/i],
   ['RN',/\b(rn|registered nurse)\b/i]
 ];
 const TARGET_ROLES=new Set(['GNA','CNA','HHA','PCA','DSP','Caregiver']);
-function roleClassification(title:string,description=''){
+export function roleClassification(title:string,description=''){
   const normalized=normalizeTitle(title);
   const matches:{role:string;index:number}[]=[];
   for(const [role,re] of ROLE_RULES){
@@ -737,6 +738,23 @@ export function icimsJobLinks(base:string,html:string){
   }
   return out;
 }
+/** Job postings in an iCIMS sitemap, titled from their URL slug ("memory-care-caregiver" → "memory care caregiver"). */
+export function icimsSitemapJobs(xml:string){
+  const out:{url:string;title:string;id:number}[]=[];
+  const seen=new Set<number>();
+  for(const m of xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)){
+    try{
+      const u=new URL(decodeHtml(m[1]));
+      const hit=u.pathname.match(/^\/jobs\/(\d+)\/([^/]+)\/job\/?$/);
+      const id=Number(hit?.[1]);
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      u.search='';u.hash='';
+      out.push({url:u.toString(),title:decodeURIComponent(hit![2]).replace(/[-_]+/g,' ').trim(),id});
+    }catch{}
+  }
+  return out;
+}
 /** Today's slice of a chain's caregiving postings, so successive daily scans walk the whole list. */
 export function rotatingWindow<T>(items:T[],size:number,day=Math.floor(Date.now()/86400000)){
   if(items.length<=size)return items;
@@ -746,7 +764,13 @@ export function rotatingWindow<T>(items:T[],size:number,day=Math.floor(Date.now(
 async function icimsChainJobs(listingUrl:string,org:Row){
   const links=new Map<number,{url:string;title:string;id:number}>();
   let fetched=0;
-  for(const term of CHAIN_SEARCH_TERMS){
+  // The sitemap lists every posting with no cookie wall; the search pages are the fallback.
+  const sitemap=await fetchText(new URL(listingUrl).origin+'/sitemap.xml',8500,true);
+  if(sitemap){
+    fetched++;
+    for(const link of icimsSitemapJobs(sitemap.text))if(roleClassification(link.title,''))links.set(link.id,link);
+  }
+  for(const term of links.size?[]:CHAIN_SEARCH_TERMS){
     const page=await fetchText(icimsSearchUrl(listingUrl,term),8500);
     if(!page)continue;
     fetched++;
