@@ -37,6 +37,15 @@ describe('geo', ()=>{
   });
 });
 
+describe('employer required role matching',()=>{
+  it('does not match an unrelated worker just because of location and recency',()=>{
+    const opening={role:'CNA',zip:'21201',state:'MD',geo_lat:39.29,geo_lng:-76.61};
+    const unrelated={role:'DSP',zip:'21201',state:'MD',geo_lat:39.29,geo_lng:-76.61,work_status:'actively_looking',last_confirmed_at:'2026-10-01T12:00:00Z'};
+    expect(scoreCandidate(opening,unrelated,Date.parse('2026-10-02T12:00:00Z')).score).toBe(0);
+    expect(scoreCandidate(opening,{...unrelated,role:'CNA'},Date.parse('2026-10-02T12:00:00Z')).score).toBeGreaterThan(0);
+  });
+});
+
 describe('scoreCandidate', ()=>{
   const opening={role:'CNA',zip:'21201',state:'MD',geo_lat:BALTIMORE.lat,geo_lng:BALTIMORE.lng,shift_preferences:'nights'};
   const fresh={role:'CNA',work_status:'actively_looking',last_confirmed_at:'2026-09-30T12:00:00Z',shift_preferences:'Nights, weekends'};

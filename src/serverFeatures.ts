@@ -404,9 +404,10 @@ export async function bookInterviewForCaregiver(env:FeatureEnv,caregiverId:strin
 async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,slotId:string){
   if(!env.DB||!env.EMAIL)return json({ok:false,error:'Email service is not configured'},{status:503});
   if(!row||row.response_value!=='interested')return json({ok:false,error:'Confirm interest before booking an interview.'},{status:400});
+  if(row.interview_booked_at)return json({ok:false,error:'You already booked an interview for this opening.'},{status:409});
   const slot=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE id=? AND opening_id=? LIMIT 1").bind(slotId,row.opening_id).first<Record<string,unknown>>();
-  if(!slot||slot.status!=='available')return json({ok:false,error:'That interview time is no longer available.'},{status:409});
-  const claimed=await env.DB.prepare("UPDATE interview_slots SET status='booked',booked_pipeline_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='available'").bind(row.pipeline_id,slotId).run();
+  if(!slot||slot.status!=='available'||Date.parse(clean(slot.starts_at,80))<=Date.now())return json({ok:false,error:'That interview time is no longer available.'},{status:409});
+  const claimed=await env.DB.prepare("UPDATE interview_slots SET status='booked',booked_pipeline_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='available' AND datetime(starts_at)>datetime('now')").bind(row.pipeline_id,slotId).run();
   if(asNumber(claimed.meta?.changes)!==1)return json({ok:false,error:'That interview time was just booked. Choose another time.'},{status:409});
   await env.DB.prepare("UPDATE candidate_pipeline SET stage='interview',interview_slot_id=?,interview_at=?,interview_booked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(slotId,slot.starts_at,row.pipeline_id).run();

@@ -1303,7 +1303,10 @@ async function getWorkspace(id:string, env:Env) {
     (SELECT COUNT(*) FROM interview_slots s WHERE s.opening_id=o.id AND s.status='available' AND datetime(s.starts_at)>datetime('now')) AS available_interview_slots
     FROM openings o WHERE o.employer_id=? ORDER BY o.created_at DESC`).bind(id).all();
   const pipelineCount=await env.DB!.prepare("SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=?").bind(id).first<{count:number}>();
-  return json({ok:true,workspace,approval:await approvalFor(env,id),openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
+  const approval=await approvalFor(env,id);
+  // Send a one-time admin review notification even when pending accounts no longer call match/search APIs.
+  if(!approval.approved)await pendingApprovalResponse(env,id);
+  return json({ok:true,workspace,approval,openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
 }
 async function createOpening(id:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,id);
