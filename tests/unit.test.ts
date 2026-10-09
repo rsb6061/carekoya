@@ -149,7 +149,7 @@ describe('billing', ()=>{
   });
 });
 
-import { employmentTypeSchema, jobPageTitle, jobPostingJsonLd, payText, trimAtWord } from '../src/seo';
+import { employmentTypeSchema, fitTitle, jobPageTitle, jobPostingJsonLd, payText, trimAtWord } from '../src/seo';
 import { parseJobsHubPath, slugify, usState } from '../src/usStates';
 import { emailMatchesAgencyDomain, maskEmail, normalizeDomain } from '../src/agencySelfServe';
 
@@ -157,6 +157,9 @@ describe('seo helpers', ()=>{
   it('trims at a word boundary', ()=>{
     expect(trimAtWord('Certified Nursing Assistant overnight shift',30)).toBe('Certified Nursing Assistant');
     expect(trimAtWord('short',30)).toBe('short');
+    expect(fitTitle('Caregiver Jobs in Ohio')).toBe('Caregiver Jobs in Ohio | CareJoys');
+    expect(fitTitle('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA')).toBe('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA');
+    expect(fitTitle('Caregiver Jobs in Palm Beach Gardens, FL: CNA, HHA & PCA plus more words here').length).toBeLessThanOrEqual(60);
   });
   it('drops the employer before cutting the job title', ()=>{
     expect(jobPageTitle('CNA','Acme Care')).toBe('CNA | Acme Care | CareJoys');
