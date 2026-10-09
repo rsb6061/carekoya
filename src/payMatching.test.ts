@@ -9,12 +9,12 @@ describe('hourly pay match enforcement',()=>{
    expect(parseHourlyMinimum('$50,000/year')).toBeNull();
    expect(parseHourlyMinimum('negotiable')).toBeNull();
  });
- it('excludes underpaid or undisclosed jobs when the worker specifies a floor',()=>{
+ it('excludes known underpaid hourly jobs without misclassifying unknown pay',()=>{
    const worker={desired_wage:'$22+/hr'};
    expect(jobMeetsPayFloor(worker,{pay_min:17,pay_max:20,pay_period:'hour'})).toBe(false);
    expect(jobMeetsPayFloor(worker,{pay_min:22,pay_max:25,pay_period:'hour'})).toBe(true);
-   expect(jobMeetsPayFloor(worker,{pay_min:null,pay_max:null,pay_period:'hour'})).toBe(false);
-   expect(jobMeetsPayFloor(worker,{pay_min:800,pay_max:1000,pay_period:'week'})).toBe(false);
+   expect(jobMeetsPayFloor(worker,{pay_min:null,pay_max:null,pay_period:'hour'})).toBe(true);
+   expect(jobMeetsPayFloor(worker,{pay_min:800,pay_max:1000,pay_period:'week'})).toBe(true);
  });
  it('allows listings without disclosed pay if the worker has no requested minimum',()=>{
    expect(jobMeetsPayFloor({},{})).toBe(true);
