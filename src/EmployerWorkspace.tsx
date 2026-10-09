@@ -360,7 +360,7 @@ export function EmployerWorkspace(){
             <p>{Number(intakeOpening.available_interview_slots||0)>0?'Caregivers can respond directly or book your available times.':'Invite your best matches now. You can coordinate interviews directly, or add bookable times whenever you like.'}</p>
           </div>
           <div className="hero-actions">
-            <button className="button" disabled={pendingApproval} onClick={()=>contact(intakeOpening.id)}>Contact up to 5</button>
+            <button className="button" disabled={pendingApproval||!visiblePipeline.some(p=>p.stage==='matched')} onClick={()=>contact(intakeOpening.id)}>{visiblePipeline.some(p=>p.stage==='matched')?'Contact up to 5':'No matches to contact'}</button>
             <button className="button secondary" onClick={()=>void openInterviewSlots(intakeOpening)}>{Number(intakeOpening.available_interview_slots||0)>0?'Manage interview times':'Add interview times (optional)'}</button>
           </div>
         </div>}
