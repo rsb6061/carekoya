@@ -3,6 +3,7 @@ import { TurnstileField } from './TurnstileField';
 import { Shell } from './LoginPage';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
+import { AdminVideoReview } from './AdminVideoReview';
 import './workspace.css';
 
 type Count={count:number};
@@ -264,6 +265,7 @@ export function AdminConsole(){
 </section>
 }
       {section==='caregivers'&&<>
+        <AdminVideoReview/>
         <section className="section-block admin-worker-funnel">
           <div className="section-heading"><h2>Preview → signup → verified → returned</h2><p>All stages come from the SAME visitors who successfully previewed jobs during this reporting period.</p></div>
           <div className="admin-stat-grid">

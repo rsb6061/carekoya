@@ -43,6 +43,10 @@
   "ai": {
     "binding": "AI"
   },
+  // Cloudflare Stream: caregivers' optional intro videos (src/introVideo.ts). Stream must be enabled on the account.
+  "stream": {
+    "binding": "STREAM"
+  },
   "send_email": [
     {
       "name": "EMAIL",

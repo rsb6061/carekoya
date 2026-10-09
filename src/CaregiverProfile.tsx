@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { ProfilePhotoSection } from './ProfilePhotoSection';
+import { IntroVideoSection } from './IntroVideoSection';
 import { cleanList } from './listField';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
@@ -89,6 +90,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
 
   return <form className="profile-editor intake-form" onSubmit={submit}>
     <ProfilePhotoSection hasPhoto={!!c.profilePhotoUrl}/>
+    <IntroVideoSection/>
 
     <Section title="When you can work" hint="Tap the shifts you can usually work. Employers match you to openings on these.">
       <div className="availability-grid" role="group" aria-label="Weekly availability">

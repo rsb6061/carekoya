@@ -24,6 +24,7 @@ import { runDataForSeoJobs } from './dataforseo';
 import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
+import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
@@ -69,6 +70,7 @@ interface Env {
   BROWSER?: unknown;
   AI?: AiBinding;
   JOB_SUMMARY_MODEL?: string;
+  STREAM?: StreamBinding;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -1297,7 +1299,7 @@ async function searchCandidates(url: URL, env: Env) {
   const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,zg.lat AS geo_lat,zg.lng AS geo_lng
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
@@ -1342,6 +1344,7 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
+    introVideoUrl:Number(c.has_intro_video)===1?"/api/caregivers/"+encodeURIComponent(String(c.id))+"/video":undefined,
     distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
   };
 }
@@ -1350,11 +1353,12 @@ async function myEmployerView(env:Env,identity:Parameters<typeof caregiverForIde
   if(!identity)return json({ok:false,error:"Sign in required"},{status:401});
   const caregiverId=await caregiverForIdentity(env,identity);
   if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
-  const c=await env.DB!.prepare(`SELECT c.*,(${SEARCHABLE_CAREGIVER}) AS searchable,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume FROM caregivers c WHERE c.id=?`).bind(caregiverId).first<Record<string,unknown>>();
+  const c=await env.DB!.prepare(`SELECT c.*,(${SEARCHABLE_CAREGIVER}) AS searchable,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL} FROM caregivers c WHERE c.id=?`).bind(caregiverId).first<Record<string,unknown>>();
   if(!c)return json({ok:false,error:"No caregiver profile yet"},{status:404});
   const candidate=talentCandidate(c,null);
-  // The employer photo URL needs an employer session; the caregiver previews their own copy.
-  return json({ok:true,visible:Number(c.searchable)===1,candidate:{...candidate,profilePhotoUrl:c.profile_photo_url?"/api/me/photo?v="+encodeURIComponent(String(c.updated_at||"")):candidate.profilePhotoUrl}});
+  // The employer photo and video URLs need an employer session; the caregiver previews their own copies.
+  return json({ok:true,visible:Number(c.searchable)===1,candidate:{...candidate,profilePhotoUrl:c.profile_photo_url?"/api/me/photo?v="+encodeURIComponent(String(c.updated_at||"")):candidate.profilePhotoUrl,
+    introVideoUrl:candidate.introVideoUrl?"/api/me/video":undefined}});
 }
 async function getWorkspace(id:string, env:Env) {
   const workspace=await requireWorkspace(env,id);
@@ -1531,6 +1535,14 @@ export default {
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
       if(url.pathname==="/api/me/resume") return handleMyResume(request,env,identity);
       if(url.pathname==="/api/me/photo") return handleMyPhoto(request,env,identity);
+      const meVideo=url.pathname.match(/^\/api\/me\/video(?:\/(upload|complete|delete))?$/);
+      if(meVideo){
+        if(!identity)return json({ok:false,error:"Sign in required"},{status:401});
+        if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+        const caregiverId=await caregiverForIdentity(env,identity);
+        if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
+        return handleMyVideo(request,env,caregiverId,meVideo[1]||"");
+      }
       if(request.method==="POST"&&url.pathname==="/api/me/apply-agent/continue") return continueApplyAgent(request,env,identity);
       const meAgent=url.pathname.match(/^\/api\/me\/apply-agent\/([^/]+)$/);
       if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));
@@ -1573,6 +1585,9 @@ export default {
       if(request.method==="GET"&&url.pathname==="/api/admin/job-sites") return adminJobSites(env);
       if(request.method==="POST"&&url.pathname==="/api/admin/apply-test") return adminApplyTest(request,env);
       if(request.method==="GET"&&url.pathname==="/api/admin/agencies") return adminAgencySearch(env,url.searchParams.get("q")||"");
+      if(request.method==="GET"&&url.pathname==="/api/admin/videos") return adminIntroVideos(env);
+      const videoReview=url.pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(approve|reject)$/);
+      if(request.method==="POST"&&videoReview) return reviewIntroVideo(env,decodeURIComponent(videoReview[1]),videoReview[2] as "approve"|"reject",admin.email||"admin_token");
       return json({ok:false,error:"Not found"},{status:404});
     }
     if(request.method==="GET"&&url.pathname==="/api/public/agency-demand-summary") return handleAgencyDemandSummary(env);
@@ -1610,6 +1625,13 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/interest-confirm"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return confirmInterestRequest(request,env); }
     const caregiverResumeFile=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/resume-file$/);
     if(request.method==="POST"&&caregiverResumeFile){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleCaregiverResumeFile(request,env,decodeURIComponent(caregiverResumeFile[1])); }
+    const caregiverVideo=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/video$/);
+    if(request.method==="GET"&&caregiverVideo){
+      if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return employerIntroVideo(env,decodeURIComponent(caregiverVideo[1]));
+    }
     let caregiverPhoto=url.pathname.match(/^\/api\/caregivers\/([^/]+)\/photo$/);
     if((request.method==="GET"||request.method==="POST")&&caregiverPhoto){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}

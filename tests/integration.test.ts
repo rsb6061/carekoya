@@ -33,7 +33,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -1162,5 +1162,95 @@ describe('thin page content from real data', ()=>{
     expect(html).toContain('<a href="/jobs/job-near">CNA Days</a>');
     expect(html).toContain('Freestanding Program · Approved');
     await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-near'").run();
+  });
+});
+
+describe('optional intro video', ()=>{
+  // A stand-in for the Cloudflare Stream binding: records what the Worker asks of it.
+  const videos=new Map<string,{state:string;ready:boolean}>();
+  const deleted:string[]=[];
+  let next=0;
+  const STREAM={
+    createDirectUpload:async(params:any)=>{
+      expect(params).toMatchObject({maxDurationSeconds:60,requireSignedURLs:true});
+      const id='vid'+(++next);videos.set(id,{state:'pendingupload',ready:false});
+      return {id,uploadURL:'https://upload.videodelivery.net/'+id};
+    },
+    video:(id:string)=>({
+      details:async()=>{const v=videos.get(id);if(!v)throw new Error('not found');
+        return {readyToStream:v.ready,status:{state:v.state},duration:42.4,thumbnail:'https://customer-abc.cloudflarestream.com/'+id+'/thumbnails/thumbnail.jpg'}},
+      delete:async()=>{deleted.push(id);videos.delete(id)},
+      generateToken:async()=>'signed-'+id,
+    }),
+  };
+  const withStream={STREAM};
+  const secret='intro-video-session';
+  const me={cookie:'__Host-cj_account='+secret,'content-type':'application/json',origin:'https://carejoys.com'};
+  const employer={cookie:'cj_session='+SESSION};
+  const towsonCard=async()=>((await (await call('/api/candidates?zip=21201&radius=25',{headers:employer},withStream)).json()) as any).candidates.find((c:any)=>c.id==='towson');
+  const upload=async()=>{
+    const res=await call('/api/me/video/upload',{method:'POST',headers:me,body:JSON.stringify({consent:true})},withStream);
+    expect(res.status).toBe(200);
+    const {uploadURL}=await res.json() as any;
+    videos.set(uploadURL.split('/').pop(),{state:'ready',ready:true}); // the browser's upload to Stream
+    expect((await call('/api/me/video/complete',{method:'POST',headers:me,body:'{}'},withStream)).status).toBe(200);
+    return uploadURL.split('/').pop() as string;
+  };
+
+  beforeAll(async()=>{
+    await DB.prepare('INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES (?,?,?,?)')
+      .bind(crypto.randomUUID(),'towson@example.com',await sha256Hex(secret),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('needs a signed-in caregiver, their consent, and Stream turned on', async()=>{
+    expect((await call('/api/me/video')).status).toBe(401);
+    expect(((await (await call('/api/me/video',{headers:me})).json()) as any)).toEqual({ok:true,enabled:false,video:null});
+    expect((await call('/api/me/video/upload',{method:'POST',headers:me,body:JSON.stringify({consent:true})})).status).toBe(503);
+    expect((await call('/api/me/video/upload',{method:'POST',headers:me,body:'{}'},withStream)).status).toBe(400);
+    expect((await call('/api/me/video/upload',{method:'POST',headers:{...me,origin:'https://evil.example'},body:JSON.stringify({consent:true})},withStream)).status).toBe(403);
+  });
+
+  it('an unfinished upload is not submitted', async()=>{
+    await call('/api/me/video/upload',{method:'POST',headers:me,body:JSON.stringify({consent:true})},withStream);
+    expect((await call('/api/me/video/complete',{method:'POST',headers:me,body:'{}'},withStream)).status).toBe(400);
+  });
+
+  it('employers see a video only after an admin approves it', async()=>{
+    const id=await upload();
+    const status=await (await call('/api/me/video',{headers:me},withStream)).json() as any;
+    expect(status.video).toMatchObject({status:'review',playbackUrl:'https://customer-abc.cloudflarestream.com/signed-'+id+'/iframe',durationSeconds:42});
+    expect((await towsonCard()).introVideoUrl).toBeUndefined();
+    expect((await call('/api/caregivers/towson/video',{headers:employer},withStream)).status).toBe(404);
+
+    const admin={authorization:'Bearer t0ken','content-type':'application/json'};
+    expect((await call('/api/admin/videos',{},{...withStream,ADMIN_TOKEN:'t0ken'})).status).toBe(401);
+    const queue=await (await call('/api/admin/videos',{headers:admin},{...withStream,ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(queue.videos.map((v:any)=>v.caregiverId)).toEqual(['towson']);
+    expect((await call('/api/admin/videos/towson/approve',{method:'POST',headers:admin,body:'{}'},{...withStream,ADMIN_TOKEN:'t0ken'})).status).toBe(200);
+
+    expect((await towsonCard()).introVideoUrl).toBe('/api/caregivers/towson/video');
+    expect((await call('/api/caregivers/towson/video')).status).toBe(401);
+    expect(((await (await call('/api/caregivers/towson/video',{headers:employer},withStream)).json()) as any).playbackUrl).toBe('https://customer-abc.cloudflarestream.com/signed-'+id+'/iframe');
+    const preview=await (await call('/api/me/employer-view',{headers:me},withStream)).json() as any;
+    expect(preview.candidate.introVideoUrl).toBe('/api/me/video');
+  });
+
+  it('replacing a video sends it back to review and removes the old one', async()=>{
+    const old=((await (await call('/api/caregivers/towson/video',{headers:employer},withStream)).json()) as any).playbackUrl.match(/signed-(\w+)/)[1];
+    await upload();
+    expect(deleted).toContain(old);
+    expect((await towsonCard()).introVideoUrl).toBeUndefined();
+  });
+
+  it('a rejected video is deleted from Stream, and the caregiver can delete theirs any time', async()=>{
+    const admin={authorization:'Bearer t0ken','content-type':'application/json'};
+    const current=[...videos.keys()].pop()!;
+    expect((await call('/api/admin/videos/towson/reject',{method:'POST',headers:admin,body:'{}'},{...withStream,ADMIN_TOKEN:'t0ken'})).status).toBe(200);
+    expect(deleted).toContain(current);
+    expect(((await (await call('/api/me/video',{headers:me},withStream)).json()) as any).video).toEqual({status:'rejected'});
+    const again=await upload();
+    expect((await call('/api/me/video/delete',{method:'POST',headers:me,body:'{}'},withStream)).status).toBe(200);
+    expect(deleted).toContain(again);
+    expect(((await (await call('/api/me/video',{headers:me},withStream)).json()) as any).video).toBeNull();
   });
 });
