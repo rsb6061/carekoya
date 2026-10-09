@@ -158,21 +158,6 @@ function Home() {
         </div>
       </section>
 
-      <section className="section">
-        <div className="wrap">
-          <h2>Better matches with your preferences.</h2>
-          <div className="jobs">
-            <div className="job">
-              <div><h3>You decide who sees your profile</h3><div className="meta">Employers only see you after you verify your email and say you're looking. Pause anytime from your dashboard.</div></div>
-              <span className="pill">Your choice</span>
-            </div>
-            <div className="job">
-              <div><h3>Hiring caregivers?</h3><div className="meta">Home-care agencies, assisted living and senior-care communities can meet local caregivers who want the work. <a href="/pricing">See how it works</a>.</div></div>
-              <span className="pill">For employers</span>
-            </div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <SiteFooter/>
