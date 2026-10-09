@@ -47,6 +47,7 @@ const ROLE_ALIASES:Record<string,string[]>={
 export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
   let score=0;
   const reasons:string[]=[];
+  if(clean(c.source)!=='legacy_carekoya'&&Number(c.auth0_email_verified)!==1)return {score:0,reasons:['email verification required'],distanceMiles:null};
   const distanceMiles=rowDistanceMiles(opening,c);
 
   if(distanceMiles!==null){
@@ -77,7 +78,7 @@ export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
   }
 
   const days=ageDays(c.last_confirmed_at,now);
-  if(clean(c.work_status)==='actively_looking'&&days!==null){
+  if(clean(c.work_status)==='actively_looking'&&(clean(c.source)==='legacy_carekoya'||Number(c.auth0_email_verified)===1)&&days!==null){
     if(days<=7){score+=25;reasons.push('recently confirmed')}
     else if(days<=30){score+=18;reasons.push('confirmed this month')}
     else if(days<=90){score+=8;reasons.push('older availability')}
