@@ -1598,6 +1598,19 @@ async function completeActivation(request:Request,env:Env){
 }
 
 
+/** Each summary run leaves a row in outreach_runs (kind job_summaries), so a run that stalls or fails is visible. */
+async function recordedSummaryRun(env:Env,cron:string|undefined){
+  if(!env.DB)return;
+  const id=crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'job_summaries',?,'started')").bind(id,String(cron||'')).run().catch(()=>null);
+  try{
+    const r=await summarizeJobsBatch(env,100);
+    await env.DB.prepare("UPDATE outreach_runs SET attempted=?,sent=?,failed=?,note='finished' WHERE id=?").bind(r.attempted,r.summarized,r.failed,id).run();
+  }catch(error){
+    await env.DB.prepare("UPDATE outreach_runs SET note=? WHERE id=?").bind(('error: '+(error instanceof Error?error.message:String(error))).slice(0,300),id).run().catch(()=>null);
+  }
+}
+
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     const url=new URL(request.url);
@@ -1846,7 +1859,7 @@ export default {
       if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
         // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
-        await summarizeJobsBatch(env,100).catch(()=>null);
+        await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
         return;
@@ -1876,6 +1889,10 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         return;
       }
+      // A schedule none of the branches above recognised: note the exact string so a mismatch shows up in D1.
+      await env.DB?.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'unmatched_cron',?,NULL)")
+        .bind(crypto.randomUUID(),String(event.cron||'')).run().catch(()=>null);
+      if(new Date(event.scheduledTime??Date.now()).getUTCMinutes()%5===2)await recordedSummaryRun(env,event.cron);
     })();
     ctx.waitUntil(work);
     await work.catch(()=>null);
