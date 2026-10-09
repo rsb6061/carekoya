@@ -977,7 +977,7 @@ async function handleCaregiver(request: Request, env: Env) {
   const first=clean(data!.firstName,120);
   const last=clean(data!.lastName,120);
   const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
-  if((data!.payMin!==undefined||clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  if((data!.payMin!==undefined&&data!.payMin!==null&&data!.payMin!==''||!!clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
   const desiredWage=floor?'$'+floor+'+/hr':'';
   const initiallyExisting=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1").bind(email).first<{id:string}>();
   // This form has no sign-in, so it may create a profile but never change one that already exists.
@@ -1080,7 +1080,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const years=Math.max(0,Math.min(60,Number(data!.yearsExperience||0)||0));
   const shifts=clean(data!.shifts,500);
   const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
-  if((data!.payMin!==undefined||clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
+  if((data!.payMin!==undefined&&data!.payMin!==null&&data!.payMin!==''||!!clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
   const desiredWage=floor?'$'+floor+'+/hr':'';
   const transportation=clean(data!.transportation,80);
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
