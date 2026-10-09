@@ -316,7 +316,6 @@ export function EmployerWorkspace(){
         <span>{pendingApproval?'—':counts.matched} matched</span><span>{pendingApproval?'—':counts.contacted} contacted</span><span>{pendingApproval?'—':counts.interested} interested</span>
         <span>{pendingApproval?'—':counts.interview} interviews</span><span>{pendingApproval?'—':counts.hired} hired</span>
       </div>
-      <div className="pipeline-legend"><span>Matched</span><b>→</b><span>Contacted</span><b>→</b><span>Interested</span><b>→</b><span>Interview (optional)</span><b>→</b><span>Hired</span></div>
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
