@@ -29,16 +29,30 @@ export function freeContacts(env:BillingEnv){
 }
 
 /**
- * How many caregivers this employer may contact now. Matching and browsing stay free;
- * contacting beyond the free allowance needs an active subscription.
+ * The employer's introductions: an introduction is a caregiver who said they're interested in one of the employer's
+ * openings, which is what /pricing sells. Inviting, matching and browsing stay free. Once the free introductions are
+ * used, new invitations wait for a subscription.
  */
 export async function contactAllowance(env:BillingEnv,employerId:string){
   if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,used:0,free:0,remaining:Infinity};
   const billing=await env.DB.prepare('SELECT status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employerId).first<Row>();
   const subscribed=ACTIVE_STATUSES.has(clean(billing?.status,40));
-  const used=asNum((await env.DB.prepare('SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=? AND cp.contacted_at IS NOT NULL').bind(employerId).first<Row>())?.count);
+  const used=asNum((await env.DB.prepare("SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=? AND cp.response_value='interested'").bind(employerId).first<Row>())?.count);
   const free=freeContacts(env);
   return {enabled:true,subscribed,used,free,remaining:subscribed?Infinity:Math.max(0,free-used)};
+}
+
+/**
+ * Interested caregivers past the free introductions, while the employer has no subscription. Their contact details
+ * stay hidden until the employer upgrades. The earliest yeses are the free ones.
+ */
+export async function lockedIntroductions(env:BillingEnv,employerId:string):Promise<Set<string>>{
+  const allowance=await contactAllowance(env,employerId);
+  if(!allowance.enabled||allowance.subscribed||allowance.used<=allowance.free||!env.DB)return new Set();
+  const rows=await env.DB.prepare(`SELECT cp.id FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id
+    WHERE o.employer_id=? AND cp.response_value='interested' ORDER BY COALESCE(cp.response_at,cp.responded_at,cp.updated_at) ASC,cp.id ASC LIMIT -1 OFFSET ?`)
+    .bind(employerId,allowance.free).all<Row>();
+  return new Set((rows.results||[]).map(r=>clean(r.id,100)));
 }
 
 export async function billingStatus(request:Request,env:BillingEnv){

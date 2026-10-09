@@ -5,7 +5,7 @@ export type MatchRow={
   id:string;opening_id:string;stage:string;match_score?:number;match_reasons?:string[];
   contacted_at?:string|null;responded_at?:string|null;interview_at?:string|null;hired_at?:string|null;
   response_value?:string|null;rejected_reason?:string|null;title:string;caregiver_id:string;
-  name:string;city?:string;state?:string;role?:string;profilePhotoUrl?:string;contact_email?:string|null;profile?:TalentCandidate;
+  name:string;city?:string;state?:string;role?:string;profilePhotoUrl?:string;contact_email?:string|null;contact_locked?:boolean;profile?:TalentCandidate;
 };
 
 const day=(v?:string|null)=>v?new Date(v.includes('T')?v:v.replace(' ','T')+'Z').toLocaleDateString(undefined,{month:'short',day:'numeric'}):'';
@@ -16,7 +16,7 @@ function statusOf(r:MatchRow):{label:string;tone:string}{
   switch(r.stage){
     case 'matched':return {label:'Not invited yet',tone:''};
     case 'contacted':return {label:'Invited '+day(r.contacted_at)+' · waiting for a reply',tone:''};
-    case 'interested':return {label:'Interested',tone:'applied'};
+    case 'interested':return {label:r.contact_locked?'Interested · upgrade to see contact':'Interested',tone:'applied'};
     case 'interview':return {label:'Interview '+when(r.interview_at),tone:'applied'};
     case 'hired':return {label:'Hired',tone:'applied'};
     case 'rejected':return {label:r.response_value==='not_interested'?'Not interested':'Not a fit',tone:'muted'};

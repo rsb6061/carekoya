@@ -348,7 +348,7 @@ export function EmployerWorkspace(){
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
           ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
-          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free candidate contacts left. Matching and browsing are always free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
+          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested; inviting is free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
       </div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 

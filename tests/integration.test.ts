@@ -40,7 +40,7 @@ beforeAll(async()=>{
   await addCaregiver('towson','21204');
   await addCaregiver('dc','20001');
   await addCaregiver('la','90001');
-  await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp1','Acme Care','Pat','pat@acme.test','21201','CNA','active')").run();
+  await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp1','Acme Care','Pat','pat@acme.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
   await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s1','emp1',?,?)").bind(await sha256Hex(SESSION),new Date(Date.now()+86400000).toISOString()).run();
 },120000);
 afterAll(async()=>{await proxy?.dispose()});
@@ -102,7 +102,24 @@ describe('admin privileges do not approve an employer account',()=>{
 });
 
 describe('employer approval', ()=>{
-  it('free-mail employers wait for an admin before seeing caregivers; company emails do not', async()=>{
+  it('approves a company email only at the domain of an agency or care community on record', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_domain,city,state,is_active,provider_kind) VALUES ('org-oak','org-oak','Oak Grove Senior Living','oakgrove-living.test','Towson','MD',1,'facility')").run();
+    const cases:[string,string,unknown][]=[
+      ['emp-unknown','owner@acrepermit.test',{approved:false,reason:'pending'}],
+      ['emp-oak','hr@oakgrove-living.test',{approved:true,reason:'agency_domain'}],
+      ['emp-oak-sub','hr@towson.oakgrove-living.test',{approved:true,reason:'agency_domain'}],
+      ['emp-lookalike','hr@notoakgrove-living.test',{approved:false,reason:'pending'}]
+    ];
+    for(const [id,email,expected] of cases){
+      await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES (?,?,'Kim',?,'21204','CNA','active')").bind(id,id,email).run();
+      await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)").bind(id+'-s',id,await sha256Hex(id+'-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+      const ws=await (await call('/api/workspace',{headers:{cookie:'cj_session='+id+'-cookie'}})).json() as any;
+      expect([email,ws.approval]).toEqual([email,expected]);
+    }
+    expect((await call('/api/candidates?zip=21204',{headers:{cookie:'cj_session=emp-unknown-cookie'}})).status).toBe(403);
+    expect((await call('/api/candidates?zip=21204',{headers:{cookie:'cj_session=emp-oak-cookie'}})).status).toBe(200);
+  });
+  it('free-mail employers wait for an admin before seeing caregivers', async()=>{
     await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('empfree','Solo Care','Sam','sam@gmail.com','21201','CNA','active')").run();
     await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s2','empfree',?,?)").bind(await sha256Hex('free-session'),new Date(Date.now()+86400000).toISOString()).run();
     sent.length=0;
@@ -368,6 +385,44 @@ describe('billing gate', ()=>{
     const allowed=await (await call(`/api/openings/${id}/contact`,{method:'POST',headers:{cookie:'cj_session='+SESSION},body:'{}'},stripe)).json() as any;
     expect(allowed.sent).toBeGreaterThan(0);
     expect((await (await call('/api/billing',{headers:{cookie:'cj_session='+SESSION}})).json() as any).enabled).toBe(false);
+  });
+});
+
+describe('free introductions', ()=>{
+  it('counts an introduction when a caregiver says yes and hides contact past the free ones', async()=>{
+    const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'1'};
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-intro','Intro Care','Lee','lee@introcare.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('intro-s','emp-intro',?,?)").bind(await sha256Hex('intro-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    const headers={cookie:'cj_session=intro-cookie','content-type':'application/json'};
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA intro',role:'CNA',zip:'21201'})},stripe)).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers},stripe);
+    sent.length=0;
+    // Inviting two uses no introductions yet.
+    expect((await (await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({limit:2})},stripe)).json() as any).sent).toBe(2);
+    expect((await (await call('/api/billing',{headers},stripe)).json() as any).freeContactsRemaining).toBe(1);
+    const tokens=sent.filter(m=>m.html?.includes('/respond?token=')).map(m=>decodeURIComponent(m.html!.match(/respond\?token=([^"&\s]+)/)![1]));
+    expect(tokens).toHaveLength(2);
+    sent.length=0;
+    for(const token of tokens){
+      const res=await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})},stripe);
+      expect(res.status).toBe(200);
+    }
+    const notices=sent.filter(m=>m.subject.startsWith('Interested candidate:'));
+    expect(notices).toHaveLength(2);
+    expect(notices[0].html).toMatch(/@example\.com/);
+    expect(notices[1].html).not.toMatch(/@example\.com/);
+    expect(notices[1].html).toContain('free introductions');
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers},stripe)).json() as any).pipeline.filter((r:any)=>r.stage==='interested');
+    expect(rows.filter((r:any)=>r.contact_email).length).toBe(1);
+    expect(rows.filter((r:any)=>r.contact_locked&&!r.contact_email).length).toBe(1);
+    // The locked caregiver can't book interview times the employer can't see.
+    const lockedToken=tokens[1];
+    expect((await (await call('/api/respond?token='+encodeURIComponent(lockedToken),{},stripe)).json() as any).opportunity.slots).toEqual([]);
+    expect((await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:'{}'},stripe)).status).toBe(402);
+    // A subscription unlocks everyone.
+    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp-intro','active')").run();
+    const unlocked=(await (await call('/api/pipeline?openingId='+id,{headers},stripe)).json() as any).pipeline.filter((r:any)=>r.stage==='interested');
+    expect(unlocked.every((r:any)=>r.contact_email&&!r.contact_locked)).toBe(true);
   });
 });
 

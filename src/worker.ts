@@ -23,7 +23,7 @@ import { summarizeJobsBatch, type AiBinding } from './jobSummary';
 import { descriptionBlocks } from './jobFormat';
 import { runDataForSeoJobs } from './dataforseo';
 import { clarityInsights, pullClarityInsights } from './clarity';
-import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook } from './billing';
+import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook, lockedIntroductions } from './billing';
 import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
@@ -1497,6 +1497,7 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
   const rows=await env.DB!.prepare(sql).bind(...args).all<Record<string,unknown>>();
+  const locked=await lockedIntroductions(env,workspaceId);
   // Each row carries the caregiver's full employer-facing profile, the same card the Talent network shows.
   return json({ok:true,pipeline:(rows.results||[]).map(r=>{
     const profile=talentCandidate({...r,id:r.caregiver_id},null);
@@ -1505,7 +1506,7 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
     return {id:r.id,opening_id:r.opening_id,stage:r.stage,match_score:r.match_score,match_reasons:reasons,contacted_at:r.contacted_at,responded_at:r.responded_at,
       interview_at:r.interview_at,hired_at:r.hired_at,response_value:r.response_value,rejected_reason:r.rejected_reason,title:r.title,opening_role:r.opening_role,
       caregiver_id:r.caregiver_id,name:profile.name,city:r.city,state:r.state,role:r.role,certifications:r.certifications,freshness:profile.freshness,
-      profilePhotoUrl:r.profile_photo_url,contact_email:r.contact_email,profile};
+      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_locked:locked.has(clean(r.id,100)),profile};
   })});
 }
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
