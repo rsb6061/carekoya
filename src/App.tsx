@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
-import { HomeJobPreview } from './HomeJobPreview';
+import { HomeHero } from './HomeHero';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
@@ -104,15 +104,7 @@ function Home() {
     <SiteHeader audience="caregiver"/>
 
     <main>
-      <section className="hero">
-        <div className="wrap">
-          <h1>
-            <span className="hero-title-line">Find better-paying caregiver and CNA jobs near you.</span>
-          </h1>
-          <p>One profile. Personalized matches. Always free. Preview local jobs without a resume or contact details.</p>
-          <HomeJobPreview/>
-        </div>
-      </section>
+      <HomeHero/>
 
       <section className="section" id="how">
         <div className="wrap">

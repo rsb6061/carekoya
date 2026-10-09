@@ -1386,3 +1386,18 @@ describe('optional intro video', ()=>{
     expect(((await (await call('/api/me/video',{headers:me},withStream)).json()) as any).video).toBeNull();
   });
 });
+
+describe('homepage hero stats',()=>{
+  it('returns live counts and newest paid openings, one per employer',async()=>{
+    const res=await call('/api/public/home-stats');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toContain('max-age');
+    const body=await res.json() as any;
+    expect(body.ok).toBe(true);
+    for(const k of ['jobs','states','employersWatched','newThisWeek'])expect(typeof body[k]).toBe('number');
+    expect(body.latest.length).toBeLessThanOrEqual(4);
+    const employers=body.latest.map((j:any)=>j.employerName.toLowerCase());
+    expect(new Set(employers).size).toBe(employers.length);
+    for(const j of body.latest)expect(j.payMax).not.toBeNull();
+  });
+});
