@@ -118,6 +118,41 @@ describe('distance matching', ()=>{
   });
 });
 
+describe('employer booking and approval gates', ()=>{
+  it('notifies administrators when a pending employer opens their workspace, without exposing matches',async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('review2','Pending Care','Pat','other@outlook.com','21201','CNA','active')").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('review2session','review2',?,?)")
+      .bind(await sha256Hex('review2-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    sent.length=0;
+    const signed={headers:{cookie:'cj_session=review2-cookie'}};
+    const ws=await call('/api/workspace',signed,{ADMIN_EMAILS:'boss@carejoys.com'});
+    expect(ws.status).toBe(200);
+    expect((await ws.json() as any).approval.approved).toBe(false);
+    expect(sent.map(x=>x.to)).toEqual([['boss@carejoys.com']]);
+    await call('/api/workspace',signed,{ADMIN_EMAILS:'boss@carejoys.com'});
+    expect(sent).toHaveLength(1);
+    const opening=await (await call('/api/openings',{method:'POST',headers:{cookie:'cj_session=review2-cookie','content-type':'application/json'},body:JSON.stringify({title:'CNA',role:'CNA',zip:'21201'})})).json() as any;
+    const deny=await call('/api/openings/'+opening.id+'/match',{method:'POST',headers:{cookie:'cj_session=review2-cookie'}},{ADMIN_EMAILS:'boss@carejoys.com'});
+    expect(deny.status).toBe(403);
+  });
+  it('creates, displays and safely removes unbooked interview slots',async()=>{
+    const opening=await (await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA mornings',role:'CNA',zip:'21201'})})).json() as any;
+    const path='/api/openings/'+opening.id+'/interview-slots';
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
+    const start=new Date(Date.now()+2*86400000).toISOString();
+    const add=await call(path,{method:'POST',headers,body:JSON.stringify({slots:[{startsAt:start,timezone:'America/New_York',durationMinutes:30}]})});
+    expect(add.status).toBe(200);
+    expect((await add.json() as any).added).toBe(1);
+    const slots=(await (await call(path,{headers})).json() as any).slots;
+    expect(slots).toHaveLength(1);
+    const drop=await call(path,{method:'POST',headers,body:JSON.stringify({action:'cancel',slotId:slots[0].id})});
+    expect(drop.status).toBe(200);
+    expect((await (await call(path,{headers})).json() as any).slots[0].status).toBe('cancelled');
+    expect((await call(path,{method:'POST',headers,body:JSON.stringify({action:'cancel',slotId:slots[0].id})})).status).toBe(409);
+    expect((await call('/api/openings/'+opening.id+'/contact',{method:'POST',headers,body:'{}'})).status).toBe(400);
+  });
+});
+
 describe('outreach', ()=>{
   it('unsubscribe needs a POST and then suppresses the address', async()=>{
     const {link,headers}=await unsubscribeLink(DB,'Optout@Example.com','test');

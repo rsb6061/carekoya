@@ -69,10 +69,11 @@ export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
 
   const targetRole=clean(opening.role).toLowerCase();
   const roleText=[clean(c.role),clean(c.certifications),clean(c.specialties)].join(' ').toLowerCase();
-  if(targetRole&&roleText.includes(targetRole)){score+=40;reasons.push('role match')}
-  else if(targetRole){
+  if(targetRole){
     const terms=ROLE_ALIASES[targetRole]||[targetRole];
-    if(terms.some(term=>roleText.includes(term))){score+=35;reasons.push('related credential')}
+    if(roleText.includes(targetRole)){score+=40;reasons.push('role match')}
+    else if(terms.some(term=>roleText.includes(term))){score+=35;reasons.push('related credential')}
+    else return {score:0,reasons:['required role or credential missing'],distanceMiles};
   }
 
   const days=ageDays(c.last_confirmed_at,now);
