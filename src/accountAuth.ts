@@ -1,6 +1,6 @@
 import { type FeatureEnv, publicFormGuard, startEmployerSession, employerSessionCookie, sessionResponse } from './serverFeatures';
 import { DASHBOARD_KINDS, homePath, LAST_DASHBOARD_COOKIE, type DashboardKind } from './dashboardHome';
-import { adminEmails } from './admin';
+import { isAdminEmail } from './admin';
 import { loginLinkEmail } from './email';
 
 // One sign-in for everyone: an emailed link proves the email, and the account session is keyed by it.
@@ -50,7 +50,7 @@ export async function accountRoles(env:AccountEnv,email:string):Promise<Roles>{
   const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(email).first();
   const employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' LIMIT 1").bind(email).first();
   const school=await env.DB.prepare(SCHOOL_FOR_EMAIL).bind(email).first();
-  return {caregiver:!!caregiver,employer:!!employer,admin:adminEmails(env).includes(email),school:!!school};
+  return {caregiver:!!caregiver,employer:!!employer,admin:await isAdminEmail(env,email),school:!!school};
 }
 
 /** Where a fresh sign-in lands: the page they asked for when they can use it, else their own dashboard. */

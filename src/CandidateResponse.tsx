@@ -107,6 +107,7 @@ export function CandidateResponse(){
 
       {message&&<div className="notice">{message}</div>}
 
+      {!interested&&!declined&&<p className="login-sub">If you confirm interest, this employer can see your contact email and follow up directly. You are not committing to an interview.</p>}
       {!interested&&!declined&&<div className="response-actions">
         <button className="btn" disabled={status==='saving'} onClick={()=>respond('interested')}>I’m interested</button>
         <button className="btn secondary" disabled={status==='saving'} onClick={()=>respond('not_interested')}>Not interested</button>
@@ -115,8 +116,8 @@ export function CandidateResponse(){
       {declined&&<div className="activation-section-head"><h2>Response saved</h2><p>We will not move you forward for this opening.</p></div>}
 
       {interested&&status!=='booked'&&<>
-        <div className="activation-section-head"><h2>Choose an interview time</h2><p>Your interest also refreshes your CareJoys availability.</p></div>
-        {opportunity.slots.length===0?<div className="notice">No interview times are available yet. The employer has your interest and can add times or follow up.</div>:
+        <div className="activation-section-head"><h2>Interest sent to employer</h2><p>The employer can contact you at your email address. Booking an interview here is optional.</p></div>
+        {opportunity.slots.length===0?<div className="notice">You're all set. The employer has your interest and can follow up directly. You can return to CareJoys anytime.</div>:
         <form className="activation-form" onSubmit={book}>
           <div className="status-choices">
             {opportunity.slots.map(slot=><button type="button" key={slot.id} className={'status-choice '+(selectedSlot===slot.id?'selected':'')} onClick={()=>setSelectedSlot(slot.id)}>

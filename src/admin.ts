@@ -16,6 +16,15 @@ const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body
 export function adminEmails(env:AdminEnv){
   return clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
 }
+/** Server-side admin grant from migrations; no public API can add or alter this table. */
+export async function isAdminEmail(env:AdminEnv,emailValue:string){
+  const email=clean(emailValue,320).toLowerCase();
+  if(!email)return false;
+  if(adminEmails(env).includes(email))return true;
+  if(!env.DB)return false;
+  const row=await env.DB.prepare('SELECT 1 FROM admin_authorizations WHERE email=? LIMIT 1').bind(email).first();
+  return !!row;
+}
 
 async function digest(value:string){
   return new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));
@@ -33,13 +42,11 @@ export async function secretsMatch(a:string,b:string){
 export async function adminFromRequest(request:Request,env:AdminEnv){
   const auth=request.headers.get('authorization')||'';
   if(env.ADMIN_TOKEN&&auth.startsWith('Bearer ')&&await secretsMatch(auth.slice(7).trim(),env.ADMIN_TOKEN))return {via:'token' as const,email:''};
-  const allowed=adminEmails(env);
-  if(!allowed.length)return null;
   const session=await employerSession(request,env);
   const email=clean(session?.email,320).toLowerCase();
-  if(session&&allowed.includes(email))return {via:'session' as const,email};
+  if(session&&await isAdminEmail(env,email))return {via:'session' as const,email};
   const account=await accountSession(request,env);
-  return account&&allowed.includes(account.email)?{via:'session' as const,email:account.email}:null;
+  return account&&await isAdminEmail(env,account.email)?{via:'session' as const,email:account.email}:null;
 }
 
 export async function requestAdminMagicLink(request:Request,env:AdminEnv){
@@ -48,7 +55,7 @@ export async function requestAdminMagicLink(request:Request,env:AdminEnv){
   const guard=await publicFormGuard(request,env,'admin_magic_link',data,5,15);
   if(guard)return guard;
   const email=clean(data?.email,320).toLowerCase();
-  if(adminEmails(env).includes(email)){
+  if(await isAdminEmail(env,email)){
     let row=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
     if(!row){
       row={id:crypto.randomUUID()};
