@@ -1418,3 +1418,19 @@ describe('optional intro video', ()=>{
     expect(((await (await call('/api/me/video',{headers:me},withStream)).json()) as any).video).toBeNull();
   });
 });
+
+describe('agency always-on opening', ()=>{
+  it('matches hiring preferences with the same distance and role rules as any opening', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-claimed','org-claimed','Acme Care','acme.test','jobs@acme.test','Baltimore','MD','21201',1,'emp1')").run();
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+    const res=await call('/api/agency/hiring-profile',{method:'POST',headers,body:JSON.stringify({hiringStatus:'hiring',roles:'CNA'})});
+    expect(res.status).toBe(200);
+    const {openingId}=await res.json() as any;
+    const rows=(await (await call('/api/pipeline?openingId='+openingId,{headers})).json() as any).pipeline;
+    const ids=rows.map((r:any)=>r.caregiver_id);
+    expect(ids).toContain('baltimore');
+    expect(ids).not.toContain('la');
+    expect(ids).not.toContain('dc');
+    expect(rows.find((r:any)=>r.caregiver_id==='baltimore').match_reasons).toContain('role match');
+  });
+});
