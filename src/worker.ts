@@ -10,7 +10,7 @@ import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAge
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
-import { getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
+import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
@@ -27,6 +27,9 @@ import { billingStatus, createCheckout, createPortal, freeContacts, handleStripe
 import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
+import { resumeDownload } from './resumeFile';
+import { parseChecklist } from './checklist';
+import { handleEmailTemplates } from './emailTemplates';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 interface D1Result<T = unknown> {
@@ -1372,7 +1375,7 @@ async function searchCandidates(url: URL, env: Env) {
   const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
+  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
@@ -1413,7 +1416,7 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
     name:publicName(c.first_name,c.last_name,c.display_name),
     city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),
     careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:c.bio,employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
-    licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,
+    licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,checklist:parseChecklist(c.checklist),
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
     workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,freshness:freshnessLabel(c.work_status,c.last_confirmed_at),source:c.source,profilePhotoUrl:c.profile_photo_url,
@@ -1488,7 +1491,7 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const openingId=clean(url.searchParams.get("openingId"),80);
-  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,cp.response_value,cp.rejected_reason,cp.employer_notes,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},
+  let sql=`SELECT cp.id,cp.opening_id,cp.stage,cp.match_score,cp.match_reason,cp.contacted_at,cp.responded_at,cp.qualified_at,cp.interview_at,cp.hired_at,cp.response_value,cp.rejected_reason,cp.employer_notes,cp.favorited_at,o.title,o.role AS opening_role,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},
     CASE WHEN cp.response_value='interested' THEN c.email ELSE NULL END AS contact_email,
     CASE WHEN cp.response_value='interested' THEN c.phone ELSE NULL END AS contact_phone
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
@@ -1507,25 +1510,40 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
     return {id:r.id,opening_id:r.opening_id,stage:r.stage,match_score:r.match_score,match_reasons:reasons,contacted_at:r.contacted_at,responded_at:r.responded_at,
       interview_at:r.interview_at,hired_at:r.hired_at,response_value:r.response_value,rejected_reason:r.rejected_reason,title:r.title,opening_role:r.opening_role,
       caregiver_id:r.caregiver_id,name:profile.name,city:r.city,state:r.state,role:r.role,certifications:r.certifications,freshness:profile.freshness,
-      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_phone:locked.has(clean(r.id,100))?null:r.contact_phone||null,contact_locked:locked.has(clean(r.id,100)),employer_notes:r.employer_notes||'',profile};
+      profilePhotoUrl:r.profile_photo_url,contact_email:locked.has(clean(r.id,100))?null:r.contact_email,contact_phone:locked.has(clean(r.id,100))?null:r.contact_phone||null,contact_locked:locked.has(clean(r.id,100)),employer_notes:r.employer_notes||'',favorite:!!r.favorited_at,
+      resume_url:Number(r.has_resume)===1&&r.contact_email&&!locked.has(clean(r.id,100))?'/api/pipeline/'+encodeURIComponent(clean(r.id,100))+'/resume':null,profile};
   })});
+}
+/** A caregiver's resume file, for an employer they said yes to (and whose introduction isn't locked behind billing). */
+async function pipelineResume(workspaceId:string,pipelineId:string,env:Env){
+  const row=await env.DB!.prepare("SELECT cp.id,cp.caregiver_id,cp.response_value FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first<Record<string,unknown>>();
+  if(!row) return json({ok:false,error:"Pipeline record not found"},{status:404});
+  if(row.response_value!=="interested") return json({ok:false,error:"The resume is shared once the caregiver says they’re interested."},{status:403});
+  if((await lockedIntroductions(env,workspaceId)).has(clean(row.id,100))) return json({ok:false,error:"Upgrade to see this caregiver’s contact details and resume."},{status:402});
+  return resumeDownload(env,clean(row.caregiver_id,120));
 }
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const data=await readJson(request);
-  if(data?.notes!==undefined&&data?.stage===undefined){
-    const owns=await env.DB!.prepare("SELECT cp.id FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first();
-    if(!owns) return json({ok:false,error:"Pipeline record not found"},{status:404});
-    await env.DB!.prepare("UPDATE candidate_pipeline SET employer_notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(clean(data.notes,4000),pipelineId).run();
+  const owned=await env.DB!.prepare("SELECT cp.id,cp.stage,cp.rejected_reason,cp.contacted_at,cp.response_value,cp.interview_at FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first<Record<string,unknown>>();
+  if(!owned) return json({ok:false,error:"Pipeline record not found"},{status:404});
+  if(data?.stage===undefined&&(data?.notes!==undefined||data?.favorite!==undefined)){
+    if(data.notes!==undefined)await env.DB!.prepare("UPDATE candidate_pipeline SET employer_notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(clean(data.notes,4000),pipelineId).run();
+    if(data.favorite!==undefined)await env.DB!.prepare("UPDATE candidate_pipeline SET favorited_at=CASE WHEN ? THEN COALESCE(favorited_at,CURRENT_TIMESTAMP) ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(data.favorite===true?1:0,pipelineId).run();
     return json({ok:true});
   }
   const stage=clean(data?.stage,40);
+  if(stage==="restore"){
+    // Only the employer's own "Not a fit" can be undone; a caregiver's "not interested" stays.
+    if(owned.stage!=="rejected"||owned.rejected_reason!=="employer_not_a_fit") return json({ok:false,error:"Only caregivers you marked not a fit can be restored"},{status:409});
+    const back=owned.interview_at?"interview":owned.response_value==="interested"?"interested":owned.contacted_at?"contacted":"matched";
+    await env.DB!.prepare("UPDATE candidate_pipeline SET stage=?,rejected_reason=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(back,pipelineId).run();
+    return json({ok:true,stage:back});
+  }
   // Invited, interested and interview booked come only from real invitations and the caregiver's own answers.
   const allowed=["hired","rejected"];
   if(!allowed.includes(stage)) return json({ok:false,error:"Invalid stage"},{status:400});
-  const owned=await env.DB!.prepare("SELECT cp.id FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE cp.id=? AND o.employer_id=?").bind(pipelineId,workspaceId).first();
-  if(!owned) return json({ok:false,error:"Pipeline record not found"},{status:404});
   if(stage==="hired") await env.DB!.prepare("UPDATE candidate_pipeline SET stage='hired',hired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
   else await env.DB!.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='employer_not_a_fit',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
   return json({ok:true});
@@ -1765,11 +1783,19 @@ export default {
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
     if(request.method==="GET"&&url.pathname==="/api/agency/inbox") return getAgencyInbox(request,env);
+    const inboxResume=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)\/resume$/);
+    if(request.method==="GET"&&inboxResume) return agencyInterestResume(request,env,decodeURIComponent(inboxResume[1]));
     let inboxItem=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)$/);
     if(request.method==="POST"&&inboxItem){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyInterest(request,env,decodeURIComponent(inboxItem[1])); }
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env,(employerId,openingId)=>matchOpening(employerId,openingId,env)); }
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
+    if(url.pathname==="/api/email-templates"&&(request.method==="GET"||request.method==="POST")){
+      if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      return handleEmailTemplates(request,env);
+    }
+    const emailTemplate=url.pathname.match(/^\/api\/email-templates\/([^/]+)$/);
+    if(request.method==="DELETE"&&emailTemplate){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleEmailTemplates(request,env,decodeURIComponent(emailTemplate[1])); }
     if(request.method==="GET"&&url.pathname==="/api/workspace"){
       const employer=await employerSession(request,env);
       if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
@@ -1806,6 +1832,12 @@ export default {
       const employer=await approvedEmployer(request,env);
       if(employer instanceof Response)return employer;
       return getPipeline(String(employer.id),url,env);
+    }
+    m=url.pathname.match(/^\/api\/pipeline\/([^/]+)\/resume$/);
+    if(request.method==="GET"&&m){
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return pipelineResume(String(employer.id),decodeURIComponent(m[1]),env);
     }
     m=url.pathname.match(/^\/api\/pipeline\/([^/]+)$/);
     if(request.method==="PATCH"&&m){

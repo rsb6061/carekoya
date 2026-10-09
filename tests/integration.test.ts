@@ -1053,7 +1053,7 @@ describe('shared sign-in', ()=>{
     const res=await post('/api/me/profile',{firstName:'Bea',lastName:'More',phone:'4105550123',zip:'21201',role:'CNA',
       certifications:['CNA','CPR / First Aid'],licenseNumber:'A123',licenseState:'md',yearsExperience:4,specialties:['Hoyer lift'],careSettings:['Home care'],languages:['English'],
       availability:{days:{mon:['morning','overnight'],sat:['morning'],tue:['bogus']},liveIn:true},employmentTypes:['full_time','nope'],startAvailability:'2_weeks',
-      workConditions:['pets'],payMin:19,transportation:'own_car',travelMiles:15},{cookie});
+      workConditions:['pets'],checklist:['over18','background_check','bogus'],payMin:19,transportation:'own_car',travelMiles:15},{cookie});
     expect(res.status).toBe(200);
     const row=await DB.prepare("SELECT shift_preferences,employment_types,license_state,desired_wage,work_status FROM caregivers WHERE id='baltimore'").first() as any;
     expect(row).toEqual({shift_preferences:'Mornings, Overnights, Weekends, Live-in',employment_types:'full_time',license_state:'MD',desired_wage:'$19+/hr',work_status:'actively_looking'});
@@ -1062,6 +1062,7 @@ describe('shared sign-in', ()=>{
     expect(me.caregiver.availability.days.tue).toEqual([]);
     expect(me.caregiver.availability.liveIn).toBe(true);
     expect(me.caregiver.workConditions).toEqual(['pets']);
+    expect(me.caregiver.checklist).toEqual(['over18','background_check']);
   });
 
   it('a caregiver previews their card exactly as employers see it, without contact details', async()=>{
@@ -1072,6 +1073,7 @@ describe('shared sign-in', ()=>{
     expect(view.candidate.name).toBe('Bea M.');
     expect(view.candidate.shifts).toBe('Mornings, Overnights, Weekends, Live-in');
     expect(view.candidate.schedule).toBe('Mon: mornings, overnights · Sat: mornings');
+    expect(view.candidate.checklist).toEqual(['over18','background_check']);
     expect(JSON.stringify(view)).not.toMatch(/4105550123|baltimore@example\.com/);
   });
 
@@ -1444,5 +1446,94 @@ describe('agency always-on opening', ()=>{
       .toEqual({title:'Certified Nursing Assistant (CNA) - Weekends',role:'CNA',zip:'21201',pay_min:18,pay_max:21,source:'agency_job'});
     const match=await (await call('/api/openings/'+first.openingId+'/match',{method:'POST',headers})).json() as any;
     expect(match.top.map((c:any)=>c.id)).toContain('baltimore');
+  });
+});
+
+describe('reviewing candidates', ()=>{
+  const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'1'};
+  const headers={cookie:'cj_session=tools-cookie','content-type':'application/json',origin:'https://carejoys.com'};
+  let openingId='',rowId='';
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-tools','Tools Care','Sam','sam@toolscare.test','21401','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('tools-s','emp-tools',?,?)").bind(await sha256Hex('tools-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    await addCaregiver('annapolis','21401',{checklist:'over18,can_lift'});
+    await DB.prepare("INSERT INTO caregiver_resume_files(caregiver_id,file_blob,file_name,content_type,byte_size) VALUES ('annapolis',?,'annapolis.pdf','application/pdf',8)").bind(new TextEncoder().encode('%PDF-1.4')).run();
+    openingId=((await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA Annapolis',role:'CNA',zip:'21401'})},stripe)).json()) as any).id;
+    await call('/api/openings/'+openingId+'/match',{method:'POST',headers},stripe);
+    const rows=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline;
+    rowId=rows.find((r:any)=>r.caregiver_id==='annapolis').id;
+  });
+
+  it('shows the caregiver’s checklist, and shares the resume only after they say yes', async()=>{
+    const row=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(row.profile.checklist).toEqual(['over18','can_lift']);
+    expect(row.resume_url).toBeNull();
+    expect((await call('/api/pipeline/'+rowId+'/resume',{headers},stripe)).status).toBe(403);
+    // Another employer can't reach it at all.
+    expect((await call('/api/pipeline/'+rowId+'/resume',{headers:{cookie:'cj_session='+SESSION}},stripe)).status).toBe(404);
+    sent.length=0;
+    await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:[rowId]})},stripe);
+    const token=decodeURIComponent(sent.find(m=>m.html?.includes('/respond?token='))!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
+    await call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,choice:'interested'})},stripe);
+    const after=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(after.resume_url).toBe('/api/pipeline/'+rowId+'/resume');
+    const file=await call(after.resume_url,{headers},stripe);
+    expect(file.status).toBe(200);
+    expect(file.headers.get('content-disposition')).toContain('annapolis.pdf');
+    expect(await file.text()).toBe('%PDF-1.4');
+  });
+
+  it('stars a caregiver, and restores only the ones the employer marked not a fit', async()=>{
+    const patch=(body:unknown)=>call('/api/pipeline/'+rowId,{method:'PATCH',headers,body:JSON.stringify(body)},stripe);
+    const get=async()=>(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect((await patch({favorite:true})).status).toBe(200);
+    expect((await get()).favorite).toBe(true);
+    expect((await patch({stage:'restore'})).status).toBe(409);
+    await patch({stage:'rejected'});
+    expect((await get()).stage).toBe('rejected');
+    expect(await (await patch({stage:'restore'})).json()).toEqual({ok:true,stage:'interested'});
+    expect((await get()).stage).toBe('interested');
+    await patch({favorite:false});
+    expect((await get()).favorite).toBe(false);
+    // A caregiver's own "not interested" can't be undone by the employer.
+    await DB.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='candidate_not_interested' WHERE id=?").bind(rowId).run();
+    expect((await patch({stage:'restore'})).status).toBe(409);
+    await DB.prepare("UPDATE candidate_pipeline SET stage='interested',rejected_reason=NULL WHERE id=?").bind(rowId).run();
+  });
+
+  it('job-page interest uses an introduction, and past the free ones its contact and resume wait for billing', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,zip,is_active,claimed_employer_id) VALUES ('org-tools','org-tools','Tools Care','Annapolis','MD','21401',1,'emp-tools')").run();
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,created_at) VALUES ('ai-tools','org-tools','annapolis','','job_apply',datetime('now','+1 minute'))").run();
+    expect((await (await call('/api/billing',{headers},stripe)).json() as any).contactsUsed).toBe(2);
+    const inbox=await (await call('/api/agency/inbox',{headers},stripe)).json() as any;
+    const item=inbox.items.find((i:any)=>i.id==='ai-tools');
+    expect(item.contactLocked).toBe(true);
+    expect(item.caregiver.email).toBe('');
+    expect(item.resumeUrl).toBeNull();
+    expect((await call('/api/agency/inbox/ai-tools/resume',{headers},stripe)).status).toBe(402);
+    // The earlier yes is still the free one.
+    const row=(await (await call('/api/pipeline?openingId='+openingId,{headers},stripe)).json() as any).pipeline.find((r:any)=>r.id===rowId);
+    expect(row.contact_locked).toBe(false);
+    // Without billing turned on nothing is locked.
+    const open=(await (await call('/api/agency/inbox',{headers})).json() as any).items.find((i:any)=>i.id==='ai-tools');
+    expect(open.caregiver.email).toBe('annapolis@example.com');
+    expect(open.resumeUrl).toBe('/api/agency/inbox/ai-tools/resume');
+    expect((await call(open.resumeUrl,{headers})).status).toBe(200);
+  });
+
+  it('saves email templates for the employer who made them only', async()=>{
+    expect((await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({name:'Phone screen',subject:'Hi',body:''})})).status).toBe(400);
+    const made=await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({name:'Phone screen',subject:'{opening} at {company}',body:'Hi {first_name}'})});
+    expect(made.status).toBe(201);
+    const {id}=await made.json() as any;
+    await call('/api/email-templates',{method:'POST',headers,body:JSON.stringify({id,name:'Phone screen',subject:'Call about {opening}',body:'Hi {first_name}'})});
+    const list=(await (await call('/api/email-templates',{headers})).json() as any).templates;
+    expect(list.map((t:any)=>[t.name,t.subject])).toEqual([['Phone screen','Call about {opening}']]);
+    const other={cookie:'cj_session='+SESSION,origin:'https://carejoys.com'};
+    expect((await (await call('/api/email-templates',{headers:other})).json() as any).templates).toEqual([]);
+    await call('/api/email-templates/'+id,{method:'DELETE',headers:other});
+    expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toHaveLength(1);
+    await call('/api/email-templates/'+id,{method:'DELETE',headers});
+    expect((await (await call('/api/email-templates',{headers})).json() as any).templates).toEqual([]);
   });
 });

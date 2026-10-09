@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
 import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from '../src/schedule';
+import { fitSummary } from '../src/fitSummary';
+import { fillTemplate, mergeTemplates, templateMailto, BUILT_IN_TEMPLATES } from '../src/emailTemplateFill';
+import { parseChecklist } from '../src/checklist';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
@@ -527,5 +530,28 @@ describe('senior living chain boards', ()=>{
     expect(rotatingWindow(items,2,1)).toEqual([3,4]);
     expect(rotatingWindow(items,2,2)).toEqual([5,1]);
     expect(rotatingWindow(items,10,7)).toEqual(items);
+  });
+});
+
+describe('candidate review helpers', ()=>{
+  it('writes why a caregiver fits from the match reasons and their profile only', ()=>{
+    expect(fitSummary({name:'Maria G.',reasons:['3 mi away','role match','recently confirmed','available 4 of 5 shifts'],profile:{role:'CNA',yearsExperience:4,specialties:'Dementia care, Hoyer lift',languages:'English, Spanish',startAvailability:'now'}}))
+      .toBe('Maria is a CNA and lives 3 mi from this opening. Maria is available for 4 of 5 shifts and can start right away. Profile: 4 years of experience; Dementia care and Hoyer lift; speaks Spanish. Maria confirmed this week that they’re looking for work.');
+    expect(fitSummary({name:'Tasha R.',reasons:['schedule does not overlap','older availability']})).toBe('Tasha has weekly availability that doesn’t line up with this schedule. Tasha hasn’t confirmed availability recently, so check they’re still looking.');
+    expect(fitSummary({name:'',reasons:[]})).toBe('');
+  });
+  it('fills email templates and lets a saved one replace the starter with its name', ()=>{
+    const v={firstName:'Ana',opening:'CNA – days',company:'Oak Grove',contactName:'Sam'};
+    expect(fillTemplate('Hi {first_name}, about {opening} at {company}. {my_name}',v)).toBe('Hi Ana, about CNA – days at Oak Grove. Sam');
+    expect(templateMailto('a.b+c@example.com',{subject:'{opening}',body:'Hi {first_name}'},v)).toBe('mailto:a.b%2Bc@example.com?subject=CNA%20%E2%80%93%20days&body=Hi%20Ana');
+    const merged=mergeTemplates([{id:'t1',name:'phone screen',subject:'s',body:'b'}]);
+    expect(merged[0].id).toBe('t1');
+    expect(merged.filter(t=>t.name.toLowerCase()==='phone screen')).toHaveLength(1);
+    expect(merged).toHaveLength(BUILT_IN_TEMPLATES.length);
+  });
+  it('keeps only known checklist answers', ()=>{
+    expect(parseChecklist('over18, bogus,can_lift,over18')).toEqual(['over18','can_lift']);
+    expect(parseChecklist(['diploma',3])).toEqual(['diploma']);
+    expect(parseChecklist(null)).toEqual([]);
   });
 });

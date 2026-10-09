@@ -10,6 +10,9 @@ import { AgencyInbox } from './AgencyInboxTab';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
 import { MatchList, type MatchRow } from './MatchList';
+import { CandidatePage, CandidatePanel, type CandidateActions } from './CandidatePanel';
+import { EmailTemplatesModal } from './EmailTemplatesModal';
+import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import './workspace.css';
 
 type Opening={
@@ -63,7 +66,7 @@ export function EmployerWorkspace(){
   const [talentSearchedZip,setTalentSearchedZip]=useState('');
   const firstTalentLoad=useRef('');
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'>(()=>{const t=new URLSearchParams(window.location.search).get('tab');return t==='inbox'||t==='candidates'?'pipeline':'openings'});
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessageText]=useState('');
@@ -80,6 +83,11 @@ export function EmployerWorkspace(){
   const [slotNotice,setSlotNotice]=useState('');
   const [intakeOpeningId,setIntakeOpeningId]=useState(()=>new URLSearchParams(window.location.search).get('opening')||'');
   const intakeHandled=useRef(false);
+  const [panelRowId,setPanelRowId]=useState('');
+  const [pageRowId,setPageRowId]=useState(()=>new URLSearchParams(window.location.search).get('candidate')||'');
+  const [candidateView,setCandidateView]=useState<'active'|'favorites'|'archived'>('active');
+  const [savedTemplates,setSavedTemplates]=useState<EmailTemplate[]>([]);
+  const [showTemplates,setShowTemplates]=useState(false);
 
   async function loadSession(){
     try{
@@ -108,6 +116,7 @@ export function EmployerWorkspace(){
       setAgencyNetwork(network);
       if(network.agency)void api<{items:{stage:string}[]}>('/api/agency/inbox').then(d=>setInboxWaiting((d.items||[]).filter(i=>i.stage==='new').length)).catch(()=>{});
       setBilling(await api<any>('/api/billing').catch(()=>null));
+      setSavedTemplates((await api<{templates:EmailTemplate[]}>('/api/email-templates').catch(()=>({templates:[]}))).templates||[]);
     }catch(e){
       if(e instanceof Error&&e.message==='Sign in required')setSession(null);
       else setMessage(e instanceof Error?e.message:'Could not load workspace','error');
@@ -227,10 +236,46 @@ export function EmployerWorkspace(){
     }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing','error')}
   }
 
+  const patchRow=(id:string,change:Partial<PipelineRow>)=>setPipeline(rows=>rows.map(r=>r.id===id?{...r,...change}:r));
   async function saveNotes(row:PipelineRow,notes:string){
-    try{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({notes})})}
+    try{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({notes})});patchRow(row.id,{employer_notes:notes})}
     catch(error){setMessage(error instanceof Error?error.message:'Could not save notes','error')}
   }
+  async function favorite(row:PipelineRow,on:boolean){
+    patchRow(row.id,{favorite:on});
+    try{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({favorite:on})})}
+    catch(error){patchRow(row.id,{favorite:!on});setMessage(error instanceof Error?error.message:'Could not update favorites','error')}
+  }
+  async function restore(row:PipelineRow){
+    try{
+      await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({stage:'restore'})});
+      setMessage(row.name+' is back in your candidates.');
+      await refreshWorkspace();
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not restore this caregiver','error')}
+  }
+  async function saveTemplate(t:{id?:string;name:string;subject:string;body:string}){
+    await api('/api/email-templates',{method:'POST',body:JSON.stringify(t)});
+    setSavedTemplates((await api<{templates:EmailTemplate[]}>('/api/email-templates')).templates||[]);
+  }
+  async function deleteTemplate(t:EmailTemplate){
+    try{
+      await api('/api/email-templates/'+encodeURIComponent(t.id),{method:'DELETE'});
+      setSavedTemplates(list=>list.filter(x=>x.id!==t.id));
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not delete the template','error')}
+  }
+  function openCandidatePage(id:string){
+    window.history.pushState(null,'','/app?candidate='+encodeURIComponent(id));
+    setPanelRowId('');setPageRowId(id);window.scrollTo(0,0);
+  }
+  function closeCandidatePage(){
+    window.history.pushState(null,'','/app?tab=candidates');
+    setPageRowId('');setTab('pipeline');
+  }
+  useEffect(()=>{
+    const onPop=()=>setPageRowId(new URLSearchParams(window.location.search).get('candidate')||'');
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop);
+  },[]);
 
   async function decide(row:PipelineRow,stage:'hired'|'rejected'){
     if(!session)return;
@@ -312,10 +357,22 @@ export function EmployerWorkspace(){
     const by=(s:string)=>pipeline.filter(p=>p.stage===s).length;
     return{matched:by('matched'),contacted:by('contacted'),interested:by('interested'),interview:by('interview'),hired:by('hired')};
   },[pipeline]);
-  const visiblePipeline=useMemo(
+  const openingPipeline=useMemo(
     ()=>intakeOpeningId?pipeline.filter(p=>p.opening_id===intakeOpeningId):pipeline,
     [pipeline,intakeOpeningId]
   );
+  const viewCounts={active:openingPipeline.filter(p=>p.stage!=='rejected').length,favorites:openingPipeline.filter(p=>p.favorite).length,archived:openingPipeline.filter(p=>p.stage==='rejected').length};
+  const visiblePipeline=useMemo(
+    ()=>openingPipeline.filter(p=>candidateView==='favorites'?p.favorite:candidateView==='archived'?p.stage==='rejected':p.stage!=='rejected'),
+    [openingPipeline,candidateView]
+  );
+  const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
+  const candidateActions:CandidateActions={onInvite:invite,onDecide:decide,onNotes:saveNotes,onFavorite:favorite,onRestore:restore};
+  const sender={company:workspace?.company_name||session?.companyName||'',contactName:session?.contactName||''};
+  const shownTab=pageRowId?'':tab;
+  function leavePage(){if(pageRowId){window.history.pushState(null,'','/app');setPageRowId('')}}
+  const panelRow=pipeline.find(p=>p.id===panelRowId)||null;
+  const pageRow=pipeline.find(p=>p.id===pageRowId)||null;
   const intakeOpening=useMemo(
     ()=>openings.find(o=>o.id===intakeOpeningId)||null,
     [openings,intakeOpeningId]
@@ -329,11 +386,11 @@ export function EmployerWorkspace(){
     <header className="app-header"><div className="app-wrap header-inner">
       <a className="brand" href="/">CareJoys</a>
       <nav className="app-nav">
-        <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Openings</button>
-        <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>Candidates{inboxWaiting?` (${inboxWaiting} new)`:''}</button>
-        <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>setTab('talent')} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
-        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='jobs'?'active':'')} onClick={()=>setTab('jobs')}>Jobs</button>}
-        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>setTab('hiring')}>Hiring preferences</button>}
+        <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Openings</button>
+        <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('pipeline')}}>Candidates{inboxWaiting?` (${inboxWaiting} new)`:''}</button>
+        <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
+        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
+        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>{leavePage();setTab('hiring')}}>Hiring preferences</button>}
         <WorkspaceAccount logout={logout}/>
       </nav>
     </div></header>
@@ -353,12 +410,16 @@ export function EmployerWorkspace(){
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
           ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
-          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested; inviting is free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
+          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
       </div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
 
-      {tab==='openings'&&<section className="section-block">
+      {pageRowId&&(pageRow
+        ?<CandidatePage row={pageRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onBack={closeCandidatePage}/>
+        :<section className="section-block"><div className="empty"><strong>{loading?'Loading this caregiver…':'This caregiver isn’t in your candidates.'}</strong><div className="empty-actions"><button className="button secondary" onClick={closeCandidatePage}>Back to candidates</button></div></div></section>)}
+
+      {shownTab==='openings'&&<section className="section-block">
         <div className="section-heading"><h2>Openings</h2><p>Describe the role once, see matches and invite caregivers. Adding interview times is optional.</p></div>
         {openings.length===0?<div className="empty"><strong>No openings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>setShowOpening(true)}>Create opening</button></div></div>:
         <div className="job-list">{openings.map((o,i)=><article key={o.id} className={'job-card '+cardTone(i)}>
@@ -381,7 +442,7 @@ export function EmployerWorkspace(){
         </article>)}</div>}
       </section>}
 
-      {tab==='pipeline'&&<section className="section-block">
+      {shownTab==='pipeline'&&<section className="section-block">
         {intakeOpening?<div className="match-opening-head">
           <button className="text-button" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All openings</button>
           <h2>Matches for {intakeOpening.title}</h2>
@@ -396,12 +457,19 @@ export function EmployerWorkspace(){
           <p>Everyone matched to your openings. Interest and interview bookings update automatically.</p>
         </div>}
         {agencyNetwork.agency&&<div hidden={!!intakeOpening}><AgencyInbox onCount={setInboxWaiting}/></div>}
-        {visiblePipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Search talent network</button></div></div>:
+        {openingPipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Search talent network</button></div></div>:
         <>{!intakeOpening&&agencyNetwork.agency&&<div className="candidate-group-head"><h3>Matched to your openings</h3></div>}
-        <MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide} onNotes={saveNotes}/></>}
+        <div className="candidate-views">
+          <div className="inbox-filters" role="group" aria-label="Show">
+            {([['active','Active'],['favorites','Favorites'],['archived','Not a fit']] as const).map(([k,label])=><button type="button" key={k} className={'chip'+(candidateView===k?' on':'')} aria-pressed={candidateView===k} onClick={()=>setCandidateView(k)}>{label} <strong>{viewCounts[k]}</strong></button>)}
+          </div>
+          <button type="button" className="text-button" onClick={()=>setShowTemplates(true)}>Email templates</button>
+        </div>
+        {visiblePipeline.length===0?<div className="empty"><strong>{candidateView==='favorites'?'No favorites yet.':candidateView==='archived'?'Nobody is marked not a fit.':'Everyone here is marked not a fit.'}</strong><div>{candidateView==='favorites'?'Tap ☆ on a caregiver to keep them here for follow-up.':candidateView==='archived'?'Caregivers you mark not a fit, or who decline, show here. You can restore the ones you marked.':'Open Not a fit to restore someone.'}</div></div>
+        :<MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide} onNotes={saveNotes} onOpen={r=>setPanelRowId(r.id)} onFavorite={favorite} onRestore={restore}/>}</>}
       </section>}
 
-      {tab==='talent'&&<section className="section-block">
+      {shownTab==='talent'&&<section className="section-block">
         <div className="section-heading"><h2>Talent network</h2><p>Browse all available caregivers. Prioritizes local commutes, hiring needs and confirmed availability.</p></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role: CNA, HHA, caregiver" />
@@ -418,9 +486,9 @@ export function EmployerWorkspace(){
          <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
-      {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+      {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
-      {tab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
+      {shownTab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
         <div className="section-heading"><h2>Always-on hiring preferences</h2><p>Optional: save your usual hiring needs so CareJoys can keep scoring new caregivers even when you do not have an urgent opening.</p></div>
         <div className="agency-profile-grid">
           <div className="settings-card agency-profile-card">
@@ -455,11 +523,13 @@ export function EmployerWorkspace(){
         </article>)}</div>}
       </section>}
 
-      {tab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
+      {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
         <AgencyJobsPanel onRecruit={openingId=>void (async()=>{await refreshWorkspace();await runMatch(openingId)})()}/>
       </section>}
 
+      {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')} onOpenPage={()=>openCandidatePage(panelRow.id)}/>}
+      {showTemplates&&<EmailTemplatesModal templates={templates} onSave={saveTemplate} onDelete={deleteTemplate} onClose={()=>setShowTemplates(false)}/>}
       {showOpening&&<div className="modal-backdrop" onMouseDown={()=>setShowOpening(false)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setShowOpening(false)}>×</button>
         <div className="modal-kicker">New opening</div><h2>Who do you need?</h2><p className="modal-intro">Add the role once. CareJoys uses it to rank the caregiver network immediately.</p>

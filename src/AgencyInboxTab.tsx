@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 type Stage='new'|'contacted'|'interview'|'hired'|'not_fit';
 type InboxItem={
-  id:string;stage:Stage;createdAt:string;viewed:boolean;source:string;note:string|null;notes:string;
+  id:string;stage:Stage;createdAt:string;viewed:boolean;source:string;note:string|null;notes:string;contactLocked?:boolean;resumeUrl?:string|null;
   job:{id:string;title:string;url:string}|null;
   caregiver:{
     name:string;email:string;phone:string;city:string;state:string;zip:string;role:string;certifications:string;
@@ -89,7 +89,9 @@ export function AgencyInbox({onCount}:{onCount?:(waiting:number)=>void}){
         <div className="match-actions">
           {c.email&&<a className="button" href={mail} onClick={reached}>Email</a>}
           {c.phone&&<a className="button secondary" href={'tel:'+c.phone.replace(/[^\d+]/g,'')} onClick={reached}>Call</a>}
+          {item.resumeUrl&&<a className="text-button" href={item.resumeUrl}>Resume</a>}
           {(c.email||c.phone)&&<span className="match-contact">{[c.email,c.phone].filter(Boolean).join(' · ')}</span>}
+          {item.contactLocked&&<span className="match-contact">You’ve used your free introductions. Upgrade to see contact details and resume.</span>}
           {['new','contacted'].includes(item.stage)&&<button className="button secondary" onClick={()=>void save(item.id,{stage:'interview'})}>Interviewing</button>}
           {item.stage==='interview'&&<button className="button secondary" onClick={()=>void save(item.id,{stage:'hired'})}>Mark hired</button>}
           {!['hired','not_fit'].includes(item.stage)&&<button className="text-button" onClick={()=>void save(item.id,{stage:'not_fit'})}>Not a fit</button>}
