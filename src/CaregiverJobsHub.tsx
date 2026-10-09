@@ -10,7 +10,7 @@ type PublicCaregiverJob={
   id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null;
 };
-type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];jobs:PublicCaregiverJob[]};
+type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];metro?:{name:string;area:string}|null;jobs:PublicCaregiverJob[]};
 type National={total:number;page:number;pages:number;jobs:PublicCaregiverJob[];
   states:{code:string;name:string;slug:string;count:number}[];
   cities:{city:string;slug:string;state:string;stateSlug:string;count:number}[]};
@@ -238,7 +238,7 @@ function StateJobsPage(){
         <div>
           {!program&&<div className="hub-breadcrumb"><a href="/">CareJoys</a> › <a href="/caregiver-jobs">Caregiver jobs</a> › {citySlug?<><a href={jobsHubPath(state)}>{state.name}</a> › {hub?.city||'…'}</>:state.name}</div>}
           <div className="modal-kicker">{program?program.name:state.name+' caregivers'}</div>
-          <h1>{program?'Get matched after training.':'Caregiver jobs in '+place}</h1>
+          <h1>{program?'Get matched after training.':hub?.metro?'CNA and caregiver jobs in the '+hub.metro.name+' area':(state.code==='MD'?'CNA, GNA and caregiver jobs in ':'CNA and caregiver jobs in ')+place}</h1>
           <p>{program
             ?'Create one free profile, resume optional. CareJoys matches you with care employers near you.'
             :'Create one free profile, resume optional. CareJoys matches you with caregiver jobs and employers near you.'}</p>

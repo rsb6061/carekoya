@@ -21,7 +21,7 @@ export function MarylandSchoolsPage(){
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    document.title='Maryland Caregiver Training Programs | CareJoys';
+    document.title='CNA Classes & GNA Training in Maryland | CareJoys';
     fetch('/api/public/training-programs')
       .then(r=>r.json())
       .then((data:any)=>setPrograms(data.programs||[]))

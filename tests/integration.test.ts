@@ -552,6 +552,33 @@ describe('audit fixes: SEO responses', ()=>{
     const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
     expect(hub.total).toBeGreaterThan(0);
   });
+  it('the Baltimore metro page rolls up suburb jobs and suburb pages link up to it', async()=>{
+    const add=(id:string,city:string,zip:string)=>DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,'GNA Evenings','GNA','Sunrise Home Care',?,'MD',?,'current',1)")
+      .bind(id,id,'https://sunrisecare.test/jobs/'+id,city,zip).run();
+    await add('job-towson-1','Towson','21204');await add('job-towson-2','Towson','21204');await add('job-towson-3','Towson','21286');
+    await add('job-parkville','Parkville','21234');
+    // A job mislabeled "Phoenix, MD" with an Arizona ZIP stays out of the metro.
+    await add('job-phoenix-az','Phoenix','85004');
+    try{
+    const page=await call('/caregiver-jobs/maryland/baltimore',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('<h1>CNA and caregiver jobs in the Baltimore area</h1>');
+    // The Baltimore job seeded above plus four suburb jobs.
+    expect(html).toContain('6 current caregiver and CNA jobs in the Baltimore area');
+    expect(html).toContain('<a href="/caregiver-jobs/maryland/towson">Towson</a>: 3 jobs');
+    expect(html).not.toContain('noindex');
+    const towson=await (await call('/caregiver-jobs/maryland/towson',{},htmlAssets)).text();
+    expect(towson).toContain('<a href="/caregiver-jobs/maryland/baltimore">See all 6 caregiver jobs in the Baltimore area</a>');
+    const api=await (await call('/api/public/jobs-hub?state=MD&city=baltimore')).json() as any;
+    expect(api.total).toBe(6);
+    expect(api.metro).toEqual({name:'Baltimore',area:'Baltimore City and Baltimore County'});
+    const sitemap=await (await call('/sitemaps/locations.xml')).text();
+    expect(sitemap.match(/caregiver-jobs\/maryland\/baltimore</g)?.length).toBe(1);
+    }finally{
+      await DB.prepare("DELETE FROM caregiver_jobs WHERE id IN ('job-towson-1','job-towson-2','job-towson-3','job-parkville','job-phoenix-az')").run();
+    }
+  });
   it('/caregiver-jobs lists every state with jobs and the search box resolves places', async()=>{
     await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-tx','org-test','job-tx','test','https://sunrisecare.test/jobs/2','HHA Weekends','HHA','Sunrise Home Care','San Antonio','TX','78201','current',1)").run();
     const page=await call('/caregiver-jobs',{},htmlAssets);
