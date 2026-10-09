@@ -200,6 +200,28 @@ describe('optional interview scheduling and verified owner admin', ()=>{
     expect(employerNotice?.html).toContain('baltimore@example.com');
     const slots=await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any;
     expect(slots.slots).toHaveLength(0);
+    // The optional scheduling flow must work after a caregiver accepts an invitation.
+    const startsAt=new Date(Date.now()+2*86400000).toISOString();
+    const created=await call('/api/openings/'+id+'/interview-slots',{method:'POST',headers,body:JSON.stringify({
+      slots:[{startsAt,timezone:'America/New_York',durationMinutes:30}]
+    })});
+    expect(created.status).toBe(200);
+    expect((await created.json() as any).added).toBe(1);
+    const available=(await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any).slots;
+    expect(available).toHaveLength(1);
+    const response=(await (await call('/api/respond?token='+encodeURIComponent(token))).json() as any).opportunity;
+    expect(response.slots.some((s:any)=>s.id===available[0].id)).toBe(true);
+    const booking=await call('/api/respond/interview',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({
+      token,slotId:available[0].id
+    })});
+    expect(booking.status).toBe(200);
+    const booked=(await (await call('/api/openings/'+id+'/interview-slots',{headers})).json() as any).slots;
+    expect(booked[0].status).toBe('booked');
+    const piped=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(piped.find((p:any)=>p.caregiver_id==='baltimore')?.stage).toBe('interview');
+    expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='baltimore@example.com')).toBe(true);
+    expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='pat@acme.test')).toBe(true);
+    expect((await call('/api/respond/interview',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,slotId:available[0].id})})).status).toBe(409);
   });
   it('authorizes the designated owner only after a real email-based account session',async()=>{
     const owner='myersrebeccal@gmail.com';
