@@ -163,7 +163,7 @@ export async function scoreCaregiverAgainstAgencies(env:FeatureEnv,caregiverId:s
       FROM caregivers c
       CROSS JOIN agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
-      WHERE c.id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND ao.is_active=1 AND upper(coalesce(ao.state,''))=upper(c.state)
+      WHERE c.id=? AND c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND ao.is_active=1 AND COALESCE(ao.is_chain,0)=0 AND upper(coalesce(ao.state,''))=upper(c.state)
     ), ranked AS (
       SELECT *,geography_score+role_score+freshness_score+provider_score AS fit_score,
         ROW_NUMBER() OVER(ORDER BY geography_score+role_score+freshness_score+provider_score DESC,organization_id) AS rn
@@ -206,7 +206,7 @@ export async function scoreAgencyMatches(env:FeatureEnv){
       FROM agency_organizations ao
       LEFT JOIN agency_org_hiring_profiles hp ON hp.organization_id=ao.id
       CROSS JOIN caregivers c
-      WHERE ao.is_active=1 AND c.is_active=1
+      WHERE ao.is_active=1 AND COALESCE(ao.is_chain,0)=0 AND c.is_active=1
         AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
         -- Agencies only match caregivers in their own state; a caregiver with no state but a Maryland ZIP counts as Maryland.
         AND upper(coalesce(ao.state,''))=upper(CASE WHEN coalesce(c.state,'')!='' THEN c.state
@@ -376,7 +376,7 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv){
   return json({ok:true,openingId:opening.id});
 }
 
-/** Agencies due a teaser: unclaimed, emailable, not suppressed, not teased in 30 days, with real matches. */
+/** Home care agencies due a teaser: unclaimed, emailable, not suppressed, not teased in 30 days, with real matches. */
 const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,
       COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o
@@ -384,6 +384,8 @@ const TEASER_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primar
     JOIN caregivers c ON c.id=m.caregiver_id AND c.is_active=1 AND c.work_status='actively_looking'
       AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
+      -- Senior living and nursing facilities feed job search only; agency outreach is for home care agencies.
+      AND COALESCE(o.provider_kind,'home_care')='home_care' AND COALESCE(o.is_chain,0)=0
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       AND (o.teaser_last_sent_at IS NULL OR datetime(o.teaser_last_sent_at)<datetime('now','-30 days'))
@@ -453,6 +455,8 @@ const HIRING_INVITE_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o
     FROM agency_organizations o
     JOIN caregiver_jobs j ON j.agency_organization_id=o.id AND j.is_published=1 AND j.status='current'
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
+      -- Senior living and nursing facilities feed job search only; agency outreach is for home care agencies.
+      AND COALESCE(o.provider_kind,'home_care')='home_care' AND COALESCE(o.is_chain,0)=0
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE (e.organization_id=o.id OR lower(trim(e.recipient_email))=lower(trim(o.primary_email))) AND e.event_type IN ('hiring_needs_invite','hiring_needs_invite_failed','candidate_teaser'))

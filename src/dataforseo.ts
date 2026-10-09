@@ -1,4 +1,4 @@
-// Google business listings for home care agencies, pulled from the DataForSEO Business Listings API inside the
+// Google business listings for home care agencies and care facilities, pulled from the DataForSEO Business Listings API inside the
 // Worker (DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD live in the Worker's Cloudflare settings).
 //
 // A pull is a row in `dataforseo_import_jobs`, queued by the "DataForSEO Agency Import" GitHub workflow. The
@@ -22,19 +22,27 @@ const PAGES_PER_RUN=3;
 const MAX_ATTEMPTS=3;
 
 /** Google categories pulled, with how directly each kind of business employs caregivers. */
-export const GOOGLE_CATEGORIES:Record<string,{label:string;score:number}>={
-  home_help_service_agency:{label:'Home help service agency',score:85},
-  home_health_care_service:{label:'Home health care service',score:80},
-  senior_citizens_care_service:{label:'Senior citizens care service',score:75},
-  nursing_agency:{label:'Nursing agency',score:65}
+export const GOOGLE_CATEGORIES:Record<string,{label:string;score:number;kind:'home_care'|'facility'}>={
+  home_help_service_agency:{label:'Home help service agency',score:85,kind:'home_care'},
+  home_health_care_service:{label:'Home health care service',score:80,kind:'home_care'},
+  senior_citizens_care_service:{label:'Senior citizens care service',score:75,kind:'home_care'},
+  nursing_agency:{label:'Nursing agency',score:65,kind:'home_care'},
+  assisted_living_facility:{label:'Assisted living facility',score:90,kind:'facility'},
+  nursing_home:{label:'Nursing home',score:85,kind:'facility'},
+  retirement_home:{label:'Retirement home',score:60,kind:'facility'}
 };
+/** What a job with no categories pulls: home care only, so facilities are always an explicit choice. */
+export const DEFAULT_CATEGORIES=Object.keys(GOOGLE_CATEGORIES).filter(c=>GOOGLE_CATEGORIES[c].kind==='home_care');
+// Google's own category for a listing wins over the one it was searched under: a community that turns up under
+// "Home health care service" is still a facility.
+const FACILITY_CATEGORY=/\b(assisted living|aged care|retirement (community|home)|nursing home|memory care|senior living|skilled nursing)\b/i;
 const NOT_AN_EMPLOYER=/\b(hospital|pharmacy|medical supply|medical equipment|dme|oxygen|clinic|urgent care|insurance|school|academy|training center|institute)\b/i;
 
 type PlanEntry={state:string;category:string;filterValue:string;total:number;fetched:number;offsetToken:string;done:boolean};
 export type GoogleAgency={
   id:string;sourceKey:string;placeId:string;cid:string;category:string;name:string;address1:string;city:string;state:string;zip:string;
   phone:string;website:string;rating:number|null;reviewCount:number|null;latitude:number|null;longitude:number|null;
-  score:number;eligible:number;sourceUrl:string;asOf:string|null
+  score:number;eligible:number;sourceUrl:string;asOf:string|null;kind:'home_care'|'facility';pullCategory:string
 };
 
 const num=(v:unknown)=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
@@ -71,28 +79,30 @@ export async function googleAgency(item:any,state:string,categoryId:string):Prom
     latitude:num(item?.latitude),longitude:num(item?.longitude),
     score:noise?20:(cat?.score??60),eligible:noise?0:1,
     sourceUrl:clean(item?.check_url,1000)||(cid?'https://maps.google.com/?cid='+cid:''),
-    asOf:clean(item?.last_updated_time,40).slice(0,10)||null
+    asOf:clean(item?.last_updated_time,40).slice(0,10)||null,
+    kind:FACILITY_CATEGORY.test(category)?'facility':(cat?.kind||'home_care'),
+    pullCategory:categoryId
   };
 }
 
 const UPSERT=`INSERT INTO agencies (
     id,source,source_key,name,license_type,address1,city,state,zip,phone,website,source_url,is_active,last_source_sync_at,updated_at,
     provider_type,organization_key,caregiver_relevance_score,caregiver_match_eligible,source_as_of_date,
-    google_place_id,google_cid,google_category,rating,review_count,latitude,longitude
-  ) VALUES (?,'google_business',?,?,NULL,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,?,?,?,?)
+    google_place_id,google_cid,google_category,rating,review_count,latitude,longitude,provider_kind,google_pull_category
+  ) VALUES (?,'google_business',?,?,NULL,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(source,source_key) DO UPDATE SET
     name=excluded.name,address1=excluded.address1,city=excluded.city,state=excluded.state,zip=excluded.zip,phone=excluded.phone,
     website=excluded.website,source_url=excluded.source_url,is_active=1,last_source_sync_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP,
     provider_type=excluded.provider_type,organization_key=excluded.organization_key,caregiver_relevance_score=excluded.caregiver_relevance_score,
     caregiver_match_eligible=excluded.caregiver_match_eligible,source_as_of_date=excluded.source_as_of_date,google_place_id=excluded.google_place_id,
     google_cid=excluded.google_cid,google_category=excluded.google_category,rating=excluded.rating,review_count=excluded.review_count,
-    latitude=excluded.latitude,longitude=excluded.longitude`;
+    latitude=excluded.latitude,longitude=excluded.longitude,provider_kind=excluded.provider_kind,google_pull_category=excluded.google_pull_category`;
 
 async function saveAgencies(db:DB,rows:GoogleAgency[]){
   const statements=rows.map(r=>db.prepare(UPSERT).bind(
     r.id,r.sourceKey,r.name,r.address1,r.city,r.state,r.zip,r.phone,r.website||null,r.sourceUrl,
     'Google listing: '+r.category,r.name.toLowerCase().replace(/[^a-z0-9]+/g,''),r.score,r.eligible,r.asOf,
-    r.placeId||null,r.cid||null,r.category,r.rating,r.reviewCount,r.latitude,r.longitude));
+    r.placeId||null,r.cid||null,r.category,r.rating,r.reviewCount,r.latitude,r.longitude,r.kind,r.pullCategory));
   if(db.batch){for(let i=0;i<statements.length;i+=100)await db.batch(statements.slice(i,i+100))}
   else for(const s of statements)await s.run();
 }
@@ -157,7 +167,7 @@ export async function runDataForSeoJobs(env:DataForSeoEnv){
     return {ran:true,status:'failed'};
   }
   const states=clean(job.states,400).split(',').map(s=>usState(s)?.code||'').filter(Boolean);
-  const categories=(clean(job.categories,800)||Object.keys(GOOGLE_CATEGORIES).join(',')).split(',').map(c=>c.trim()).filter(Boolean);
+  const categories=(clean(job.categories,800)||DEFAULT_CATEGORIES.join(',')).split(',').map(c=>c.trim()).filter(Boolean);
   const maxCost=Number(job.max_cost)||10;
   let spent=Number(job.spent)||0;
   try{
@@ -193,9 +203,12 @@ export async function runDataForSeoJobs(env:DataForSeoEnv){
       await updateJob(env.DB,id,{plan_json:JSON.stringify(plan),spent,agencies:saved,last_page_cost:lastPageCost,attempts:0,error:null});
     }
     if(plan.every(p=>p.done)){
-      // Google rows in these states that this pull never saw have closed or changed category.
+      // Google rows in these states and categories that this pull never saw have closed or changed category.
+      // Rows saved before categories were recorded count as home care, so a facility-only pull leaves them alone.
+      const retire=[...categories,...(categories.some(c=>DEFAULT_CATEGORIES.includes(c))?['legacy_home_care']:[])];
       await env.DB.prepare(`UPDATE agencies SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE source='google_business' AND state IN (${states.map(()=>'?').join(',')})
-        AND (last_source_sync_at IS NULL OR datetime(last_source_sync_at)<datetime(?))`).bind(...states,clean(job.created_at,40)).run();
+        AND COALESCE(google_pull_category,'legacy_home_care') IN (${retire.map(()=>'?').join(',')})
+        AND (last_source_sync_at IS NULL OR datetime(last_source_sync_at)<datetime(?))`).bind(...states,...retire,clean(job.created_at,40)).run();
       await updateJob(env.DB,id,{status:'done',finished_at:new Date().toISOString()});
       return {ran:true,status:'done'};
     }
