@@ -1,4 +1,4 @@
-import { jobFit } from '../src/caregiverApi';
+import { jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -8,7 +8,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision } from '../src/jobDiscovery';
+import { locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -260,6 +260,28 @@ describe('job location by agency state', ()=>{
     expect(publicationDecision({...job,state:'',zip:'23219'}).publish).toBe(true);
     expect(publicationDecision({...job,state:'',zip:''})).toEqual({publish:false,reason:'missing_state_evidence'});
   });
+  it('quarantines contradictory state/ZIP evidence before publishing',()=>{
+    const job={sourceProvider:'generic_html',sourceJobId:'',sourceUrl:'https://agency.example/jobs/cna',sourceListingUrl:'https://agency.example/jobs',
+      title:'CNA - Day shift',role:'CNA',city:'Baltimore',state:'MD',zip:'21201',employmentType:'',payMin:null,payMax:null,descriptionText:'',
+      classifierReason:'',confidence:96,datePosted:'',validThrough:''};
+    expect(publicationDecision({...job,state:'VA'}).reason).toBe('state_zip_mismatch');
+    expect(publicationDecision(job).publish).toBe(true);
+    expect(publicationDecision(job,{primary_website:'https://agency.example'}).publish).toBe(true);
+    expect(publicationDecision({...job,sourceListingUrl:'https://different-franchise.example/jobs'},{primary_website:'https://agency.example'}).reason).toBe('source_employer_mismatch');
+  });
+  it('canonicalizes exact duplicates within an employer but separates distinct shifts or locations',()=>{
+    const a=canonicalJobIdentity('Agency-1','CNA - Day Shift','BALTIMORE','MD','21201');
+    expect(a).toBe(canonicalJobIdentity('agency-1','CNA - Day Shift','Baltimore','md','21201'));
+    expect(a).not.toBe(canonicalJobIdentity('agency-2','CNA - Day Shift','Baltimore','MD','21201'));
+    expect(a).not.toBe(canonicalJobIdentity('agency-1','CNA - Night Shift','Baltimore','MD','21201'));
+  });
+  it('never publishes expired requisitions and obvious non-job pages',()=>{
+    const job={sourceProvider:'generic_html',sourceJobId:'',sourceUrl:'https://agency.example/jobs/cna',sourceListingUrl:'https://agency.example/jobs',
+      title:'CNA - Day shift',role:'CNA',city:'Baltimore',state:'MD',zip:'21201',employmentType:'',payMin:null,payMax:null,descriptionText:'',
+      classifierReason:'',confidence:96,datePosted:'',validThrough:'2020-01-01'};
+    expect(publicationDecision(job).reason).toBe('expired');
+    expect(publicationDecision({...job,validThrough:'',title:'Caregiver of the Year Award'}).reason).toBe('not_a_job_posting');
+  });
   it('keeps training pages and councils off the jobs list but not jobs that mention training', ()=>{
     expect(notAJobPosting('Our CNA Leadership Council','https://www.genesiscareers.jobs/nurse-aide-training')).toBe(true);
     expect(notAJobPosting('Certified Nursing Assistant','https://www.genesiscareers.jobs/nurse-aide-training')).toBe(true);
@@ -349,6 +371,32 @@ describe('jobFit', ()=>{
   it('prefers jobs that meet the minimum pay and are closer', ()=>{
     expect(jobFit(cna,{role:'CNA',title:'CNA',pay_max:20},10,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA',pay_max:15},10,25));
     expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
+  });
+});
+
+describe('strict job suitability', ()=>{
+  const caregiver={role:'CNA',certifications:'CNA, CPR',hourly_rate_min:21,shift_preferences:'Days',employment_types:'full_time'};
+  it('excludes a licensed role the worker does not hold, not an ordinary caregiver role',()=>{
+    expect(jobConflict(caregiver,{title:'RN Nurse',role:'RN'})).toBe('required credential missing');
+    expect(jobConflict(caregiver,{title:'Companion caregiver',role:'Caregiver'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA / RN caregiver',role:'CNA'})).toBeNull();
+  });
+  it('honors the minimum hourly pay when a salary is explicitly advertised',()=>{
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:20,pay_period:'hour'})).toBe('below minimum hourly pay');
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:23,pay_period:'hour'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:null})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:55000,pay_period:'year'})).toBeNull();
+  });
+  it('rejects explicitly incompatible shifts or employment types but keeps unknowns',()=>{
+    expect(jobConflict(caregiver,{title:'CNA - Night Shift',role:'CNA'})).toBe('shift conflict');
+    expect(jobConflict(caregiver,{title:'CNA - Day Shift',role:'CNA'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',employment_type:'part_time'})).toBe('employment type conflict');
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',employment_type:''})).toBeNull();
+    expect(jobConflict({...caregiver,shift_preferences:'Weekends only'},{title:'CNA - Weekdays only',role:'CNA'})).toBe('schedule conflict');
+  });
+  it('never ranks an explicitly ineligible job above a suitable one',()=>{
+    expect(jobFit(caregiver,{title:'CNA - Night Shift',role:'CNA'},1,25)).toBeLessThan(0);
+    expect(jobFit(caregiver,{title:'CNA - Days',role:'CNA',pay_max:25},5,25)).toBeGreaterThan(0);
   });
 });
 

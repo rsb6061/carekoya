@@ -752,10 +752,22 @@ export function notAJobPosting(title:string,sourceUrl:string,sourceProvider=''){
   try{last=new URL(sourceUrl).pathname.split('/').filter(Boolean).pop()||''}catch{}
   return !/\d/.test(last)&&/(^|[-_])(training|classes|courses?)$/i.test(last.replace(/\.[a-z]+$/i,''));
 }
-export function publicationDecision(job:DiscoveredJob){
+export function canonicalJobIdentity(orgId:string,title:string,city:string,state:string,zip:string){
+  return [orgId.trim().toLowerCase(),normalizeTitle(title).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),
+    normalizeCity(city).toLowerCase(),state.trim().toUpperCase(),zip.trim()].join('|');
+}
+/** Reject only affirmative inconsistencies: leave unknown source locations unverified. */
+export function publicationDecision(job:DiscoveredJob,org?:Row){
   const explicit=!!usState(normalizeState(job.state))||!!stateForZipPrefix(job.zip);
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
   if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
+  const zipState=job.zip?stateForZipPrefix(job.zip):'';
+  const stated=usState(normalizeState(job.state));
+  if(stated&&zipState&&zipState!==stated.code)return {publish:false,reason:'state_zip_mismatch'};
+  // Generic scraped pages must belong to the sourced employer's website, not another franchise.
+  if(org&&job.sourceProvider==='generic_html'&&clean(org.primary_website)&&
+    !sameOrgDomain(job.sourceListingUrl||job.sourceUrl,org)&&!atsInfo(job.sourceListingUrl||job.sourceUrl))
+    return {publish:false,reason:'source_employer_mismatch'};
   if(!notExpired)return {publish:false,reason:'expired'};
   if(notAJobPosting(job.title,job.sourceUrl,job.sourceProvider))return {publish:false,reason:'not_a_job_posting'};
   if(job.confidence<88)return {publish:false,reason:'low_confidence'};
@@ -794,10 +806,10 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   const payMin=pay.min,payMax=pay.max,payUnit=pay.period;
   const roles=cls.roles||[cls.role];
   const normalizedTitle=title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const fingerprint=await sha256Hex([clean(org.id,100),normalizedTitle,city.toLowerCase(),state,zip].join('|'));
+  const fingerprint=await sha256Hex(canonicalJobIdentity(clean(org.id,100),title,city,state,zip));
   const normalizedJob:DiscoveredJob={...input,title,role:cls.role,city,state,zip,employmentType,payMin,payMax,payPeriod:payUnit,classifierReason:cls.reason,roles,normalizedTitle};
   const key=await dedupeKeyForJob(clean(org.id,100),normalizedJob);
-  const decision=publicationDecision(normalizedJob);
+  const decision=publicationDecision(normalizedJob,org);
   const publish=decision.publish?1:0;
   const id='job_'+key.slice(0,28);
   const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,publication_reason,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN 0 ELSE excluded.is_published END,publication_reason=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN \'hidden_by_employer\' ELSE excluded.publication_reason END,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';

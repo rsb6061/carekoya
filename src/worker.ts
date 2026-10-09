@@ -1,5 +1,6 @@
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
 import { type EmailBinding } from './email';
+import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { CITY_PAGE_MIN_JOBS, JOBS_PER_PAGE, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
@@ -48,6 +49,7 @@ interface Env {
   OUTREACH_ENABLED?: string;
   REACTIVATION_DAILY_CAP?: string;
   REACTIVATION_REMINDER_ENABLED?: string;
+  WEEKLY_DIGEST_ENABLED?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
   AGENCY_HIRING_INVITES_ENABLED?: string;
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
@@ -326,10 +328,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const home=await signedInHome(request,env);
     if(home)return new Response(null,{status:302,headers:{location:home,"cache-control":"no-store"}});
     return seoAsset(request,env,{
-      title:"CareJoys | Caregiver Recruiting & Caregiver Jobs Near You",
-      description:"CareJoys helps home-care agencies and employers match with local caregivers ready to work, and helps caregivers find CNA, HHA and PCA jobs by city and state.",
+      title:"Free Caregiver & CNA Jobs Near You | CareJoys",
+      description:"Find better-paying caregiver and CNA jobs near you. One free profile, personalized matches and optional weekly job alerts.",
       canonical:"/",
-      snapshot:'<main><h1>Caregiver recruiting near you. Interviews ready for you.</h1><p>CareJoys helps home-care agencies and employers match with local caregivers ready to work.</p><p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Find better-paying caregiver and CNA jobs near you.</h1><p>One profile, personalized matches, always free. Preview nearby jobs before sharing contact details or uploading a resume.</p><p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
@@ -1018,6 +1020,8 @@ async function handleCaregiver(request: Request, env: Env) {
     }
   }
 
+  await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
   const openingMatches=caregiver?await matchCaregiverToOpenings(env,id,"caregiver_signup"):0;
@@ -1455,6 +1459,7 @@ export default {
     const seoResponse=await publicSeoPage(request,url,env);
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
+    if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
 
@@ -1462,6 +1467,7 @@ export default {
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
       const identity=await caregiverAuthIdentity(request,env);
       if(request.method==="GET"&&url.pathname==="/api/me") return getCaregiverDashboard(env,identity);
+      if(url.pathname==="/api/me/job-alerts"&&(request.method==="GET"||request.method==="POST")) return caregiverAlertSettings(request,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/availability") return updateCaregiverAvailability(request,env,identity);
       if(url.pathname==="/api/me/resume") return handleMyResume(request,env,identity);
       if(url.pathname==="/api/me/photo") return handleMyPhoto(request,env,identity);
@@ -1683,6 +1689,7 @@ export default {
         await runScheduledOutreach(env);
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);
+        await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         return;
       }
     })());

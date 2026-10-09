@@ -64,9 +64,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const auth=useCaregiverAuth();
   const [draft]=useState(readDraft);
   const [stage,setStage]=useState<'upload'|'known'|'auth'|'profile'|'success'>(draft?'profile':'upload');
+  const [emailAlerts,setEmailAlerts]=useState(false);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
   const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
-  const [form,setForm]=useState<ResumeForm>(draft?.form||empty);
+  const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);return draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')?('$'+p.get('payMin')+'+/hr'):'',shifts:p.get('shifts')||''};});
   const [parsed,setParsed]=useState<ParsedResume|null>(draft?.parsed||null);
   const [fileMeta,setFileMeta]=useState<{name:string;type:string;size:number}|null>(draft?.fileMeta||null);
   const [needsState,setNeedsState]=useState(false);
@@ -199,6 +200,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         yearsExperience:Number(form.yearsExperience||0)||null,
         travelMiles:Number(form.travelMiles||0)||null,
         smsConsent:smsConsentRef.current,
+        jobAlertsEmailOptIn:emailAlerts,
         turnstileToken,
         sourceFilename:fileMeta?.name||'',
         sourceMimeType:fileMeta?.type||'',
@@ -378,6 +380,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} /></label>
         </>}
         {(parsed||saved)&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide details':parsed?'Review or edit resume details':'Review or edit all details'}</button>}
+        <label className="check-row"><input type="checkbox" checked={emailAlerts} onChange={e=>setEmailAlerts(e.target.checked)}/><span>Email me a free weekly digest of relevant caregiver jobs. Optional; unsubscribe any time.</span></label>
         <TurnstileField onToken={setTurnstileToken}/>
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
@@ -391,9 +394,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       <div className="resume-upload-icon">↑</div>
       <h2>{heading}</h2>
       <p>{subheading}</p>
-      <label className="btn resume-file-button">{parsing?'Reading resume…':'Upload resume'}<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={onFile} disabled={parsing}/></label>
+      <button className="btn" onClick={()=>afterResume(null)}>Continue without a resume</button>
+      <label className="btn secondary resume-file-button">{parsing?'Reading resume…':'Or upload resume'}<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={onFile} disabled={parsing}/></label>
       <div className="onboarding-file-note">PDF, DOCX or TXT · Free</div>
-      <button className="text-button" onClick={()=>afterResume(null)}>No resume? Start from scratch</button>
+      <div className="onboarding-file-note">Uploading is optional. You can add a resume later.</div>
       {status==='error'&&<div className="notice">{message}</div>}
     </div>
   </div>;

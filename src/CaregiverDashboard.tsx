@@ -50,6 +50,9 @@ export function CaregiverDashboard(){
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
   const [notice,setNotice]=useState('');
+  const [alerts,setAlerts]=useState<boolean|null>(null);
+  useEffect(()=>{if(!auth.isAuthenticated)return;fetch('/api/me/job-alerts').then(r=>r.json()).then((r:{emailEnabled?:boolean})=>setAlerts(!!r.emailEnabled)).catch(()=>setAlerts(null))},[auth.isAuthenticated]);
+  async function updateAlerts(enabled:boolean){setBusy('alerts');try{await api('/api/me/job-alerts',{method:'POST',body:JSON.stringify({emailEnabled:enabled})});setAlerts(enabled);setNotice(enabled?'Weekly job emails enabled.':'Weekly job emails turned off.')}catch(e){setNotice(e instanceof Error?e.message:'Could not update alerts.')}finally{setBusy('')}}
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const res=await fetch(path,{...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
@@ -170,6 +173,11 @@ export function CaregiverDashboard(){
       </section>}
 
 
+      <section className="section-block">
+        <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
+        <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
+        <p className="job-meta">Text alerts are not available yet. You can turn emails off here or unsubscribe from any digest.</p>
+      </section>
       <section className="section-block">
         <div className="section-heading"><h2>Best matches near you</h2><p>Ranked by your credentials, pay and distance, within {c.travelMiles||25} miles of {c.zip||'your ZIP'}.</p></div>
         {(data.nearbyJobs||[]).length===0?<div className="empty"><strong>No nearby postings right now.</strong><div>Try a wider travel distance in <a className="text-link" href="/dashboard/profile">your profile</a>.</div></div>:
