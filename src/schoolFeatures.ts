@@ -1,6 +1,7 @@
 import { schoolMagicLinkEmail, schoolPlacementInviteEmail, type EmailBinding } from './email';
 import { publicFormGuard, type FeatureEnv } from './serverFeatures';
 import { SCHOOL_FOR_EMAIL, accountSession, startAccountSession } from './accountAuth';
+import { jobsNearTrainingProgram } from './seo';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -94,7 +95,9 @@ export async function publicTrainingOrganization(slug:string,env:FeatureEnv){
     LEFT JOIN school_referral_codes src ON src.training_program_id=tp.id AND src.status='active'
     WHERE tp.organization_id=? AND tp.is_active=1
     ORDER BY tp.city,tp.program_name`).bind(org.id).all<Row>();
-  return json({ok:true,organization:{
+  // Graduates' next step: caregiver jobs open near the program (same list as the page's search snapshot).
+  const nearby=await jobsNearTrainingProgram(env,(rows.results||[]).map(r=>String(r.zip||'')));
+  return json({ok:true,nearby,organization:{
     name:org.canonical_name,slug:org.slug,website:org.website||null,providerTypes:org.provider_types||null,
     credentialCategories:org.credential_categories||'CNA/GNA',locationCount:Number(org.location_count||0),
     activeProgramCount:Number(org.active_program_count||0),
