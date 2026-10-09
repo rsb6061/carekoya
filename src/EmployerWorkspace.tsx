@@ -173,6 +173,7 @@ export function EmployerWorkspace(){
       if(result.matched)setMessage(result.matched+' caregiver'+(result.matched===1?'':'s')+' matched. Review matches and send invitations when ready. Interview times are optional.');
       else setMessage('No caregivers match this opening yet. CareJoys keeps looking and adds matches as caregivers near you join.','info');
       await refreshWorkspace();
+      setIntakeOpeningId(openingId);
       setTab('pipeline');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not match caregivers','error');
@@ -184,8 +185,9 @@ export function EmployerWorkspace(){
     setMessage('Contacting top matches…','info');
     try{
       const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({limit:5})});
-      setMessage(result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.',result.sent?'ok':'info');
+      setMessage(result.sent?result.sent+' caregiver'+(result.sent===1?'':'s')+' contacted'+(result.failed?' · '+result.failed+' failed':'')+'.':(result.failed?'No invitations were delivered. '+result.failed+' failed.':'No eligible uncontacted matches for this opening. Review matches or return to openings.'),result.sent?'ok':'info');
       await refreshWorkspace();
+      setIntakeOpeningId(openingId);
       setTab('pipeline');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not contact matches','error');
@@ -236,7 +238,8 @@ export function EmployerWorkspace(){
       setSlotsFor(null);
       setSlotInputs([{startsAt:'',durationMinutes:30}]);
       await refreshWorkspace();
-      setTab(pendingApproval?'openings':'pipeline');
+      setIntakeOpeningId('');
+      setTab('openings');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not save interview times','error');
     }
@@ -340,8 +343,7 @@ export function EmployerWorkspace(){
           </div>
           <div className="job-card-side opening-actions">
             <button className="button secondary" disabled={pendingApproval} title={pendingApproval?'Matching unlocks after account approval':undefined} onClick={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}}>{pendingApproval?'Matches available after approval':'View matches'}</button>
-            <button className="button" disabled={pendingApproval} onClick={()=>void contact(o.id)}>Contact up to 5</button>
-            <button className="button secondary" onClick={()=>void openInterviewSlots(o)}>{Number(o.available_interview_slots||0)>0?'Manage interview times':'Add interview times (optional)'}</button>
+            <button className="button secondary" onClick={()=>void openInterviewSlots(o)}>{Number(o.available_interview_slots||0)>0?'Manage interview times':'Set interview times'}</button>
             {pendingApproval&&<span className="opening-next-step">Invitations unlock after account approval.</span>}
           </div>
         </article>)}</div>}
@@ -352,17 +354,18 @@ export function EmployerWorkspace(){
           <h2>{intakeOpening?'Your caregiver matches':'Candidate pipeline'}</h2>
           <p>{intakeOpening?'CareJoys ranked the strongest local matches for this opening.':'Interested responses and interview bookings update automatically.'}</p>
         </div>
+        <div className="empty-actions" style={{marginBottom:16}}><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All openings</button>{intakeOpening&&<button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('pipeline')}}>View full pipeline</button>}{agencyNetwork.agency&&<button className="button secondary" onClick={()=>setTab('jobs')}>Agency job listings</button>}</div>
         {intakeOpening&&<div className="agency-next-action">
           <div>
-            <strong>Contact interested caregivers</strong>
+            <strong>Review matches and invite caregivers</strong>
             <p>{Number(intakeOpening.available_interview_slots||0)>0?'Caregivers can respond directly or book your available times.':'Invite your best matches now. You can coordinate interviews directly, or add bookable times whenever you like.'}</p>
           </div>
           <div className="hero-actions">
-            <button className="button" disabled={pendingApproval} onClick={()=>contact(intakeOpening.id)}>Contact up to 5</button>
+            <button className="button" disabled={pendingApproval||!visiblePipeline.some(p=>p.stage==='matched')} onClick={()=>contact(intakeOpening.id)}>{visiblePipeline.some(p=>p.stage==='matched')?'Contact up to 5':'No matches to contact'}</button>
             <button className="button secondary" onClick={()=>void openInterviewSlots(intakeOpening)}>{Number(intakeOpening.available_interview_slots||0)>0?'Manage interview times':'Add interview times (optional)'}</button>
           </div>
         </div>}
-        {visiblePipeline.length===0?<div className="empty"><strong>No matched caregivers yet.</strong><div>CareJoys will keep scoring the network as caregiver availability changes.</div></div>:
+        {visiblePipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates in the pipeline yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and commute preferences, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Search talent network</button></div></div>:
         <div className="job-list">{visiblePipeline.map((row,i)=><article className={'job-card '+cardTone(i)} key={row.id}>
           <div className="job-card-main">
             <div className="job-card-title-row"><div className="candidate-name-row">{row.profilePhotoUrl?<img className="candidate-avatar" src={row.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{row.name?.slice(0,1)||'?'}</span>}<h3>{row.name}</h3></div></div>
@@ -393,7 +396,7 @@ export function EmployerWorkspace(){
         <div className="job-list">{candidates.map((candidate,i)=><TalentCard candidate={candidate} tone={cardTone(i)} key={candidate.id}/>)}</div>}
       </section>}
 
-      {!loading&&workspace&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+      {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&tab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
       {tab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
         <div className="section-heading"><h2>Always-on hiring preferences</h2><p>Optional: save your usual hiring needs so CareJoys can keep scoring new caregivers even when you do not have an urgent opening.</p></div>

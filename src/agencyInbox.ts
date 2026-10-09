@@ -243,7 +243,7 @@ export async function upsertCaregiverFromProfile(env:FeatureEnv,p:InterestProfil
   if(!id){
     id=crypto.randomUUID();
     await db.prepare(`INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,years_experience,shift_preferences,desired_wage,source,source_detail,work_status,last_confirmed_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ai_assistant','mcp','actively_looking',CURRENT_TIMESTAMP)`)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ai_assistant','mcp','actively_looking',NULL)`)
       .bind(id,p.firstName,p.lastName,(p.firstName+' '+p.lastName).trim(),p.email,p.phone,p.zip,p.state,p.role,p.certifications,p.yearsExperience,p.shifts,p.desiredWage).run();
     const canonical=await db.prepare('SELECT id FROM caregivers WHERE lower(trim(email))=? LIMIT 1').bind(p.email).first<{id:string}>();
     id=canonical?.id||id;
@@ -253,7 +253,7 @@ export async function upsertCaregiverFromProfile(env:FeatureEnv,p:InterestProfil
       zip=COALESCE(NULLIF(zip,''),?),state=COALESCE(NULLIF(state,''),?),role=COALESCE(NULLIF(role,''),?),
       certifications=COALESCE(NULLIF(certifications,''),?),years_experience=COALESCE(years_experience,?),
       shift_preferences=COALESCE(NULLIF(shift_preferences,''),?),desired_wage=COALESCE(NULLIF(desired_wage,''),?),
-      work_status='actively_looking',last_confirmed_at=CURRENT_TIMESTAMP,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      work_status='actively_looking',last_confirmed_at=CASE WHEN auth0_email_verified=1 THEN CURRENT_TIMESTAMP ELSE NULL END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
       .bind(p.firstName,p.lastName,p.phone,p.zip,p.state,p.role,p.certifications,p.yearsExperience,p.shifts,p.desiredWage,id).run();
   }
   await scoreCaregiverAgainstAgencies(env,id);

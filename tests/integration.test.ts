@@ -537,7 +537,8 @@ describe('audit fixes: SEO responses', ()=>{
     expect((await go('Nowhereville')).status).toBe(200);
     const sitemap=await (await call('/sitemaps/locations.xml')).text();
     expect(sitemap).toContain('<loc>https://carejoys.com/caregiver-jobs</loc>');
-    expect(sitemap).toContain('/caregiver-jobs/texas<');
+    // Texas has one job here, under STATE_PAGE_MIN_JOBS, so its page stays out of the sitemap.
+    expect(sitemap).not.toContain('/caregiver-jobs/texas<');
     await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-tx'").run();
   });
 });
@@ -1066,5 +1067,35 @@ describe('agency hiring-needs invites', ()=>{
     sent.length=0;
     await sendAgencyHiringInvites(env(),50);
     expect(sent.filter(m=>m.to==='jobs@quota.test')).toHaveLength(1);
+  });
+});
+
+describe('thin page content from real data', ()=>{
+  const job=(id:string,city:string,zip:string,extra='')=>DB.prepare(`INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published,pay_min,pay_max,pay_period) VALUES (?,?,?,?,?,?,?,?,?,?,?,'current',1,?,?,?)`)
+    .bind(id,'org-test',id,'test','https://sunrisecare.test/'+id,'Home Health Aide','HHA','Sunrise Home Care',city,'TX',zip,18,20,'hour').run();
+  it('hire-caregivers state pages show jobs, pay, roles, cities and employers, and need 5 jobs to be indexed', async()=>{
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE state='TX'").run();
+    for(const [i,city] of ['San Antonio','San Antonio','San Antonio','Austin'].entries())await job('tx-'+i,city,'78201');
+    let html=await (await call('/hire-caregivers/texas',{},htmlAssets)).text();
+    expect(html).toContain('<meta name="robots" content="noindex,follow" />');
+    await job('tx-4','Austin','78701');
+    html=await (await call('/hire-caregivers/texas',{},htmlAssets)).text();
+    expect(html).not.toContain('noindex');
+    expect(html).toContain('5 current caregiver jobs posted by Texas employers');
+    expect(html).toContain('the middle posted rate is $19.00 an hour');
+    expect(html).toContain('Home health aide (HHA): 5 open jobs');
+    expect(html).toContain('<a href="/caregiver-jobs/texas/san-antonio">San Antonio</a>: 3 jobs');
+    expect(html).toContain('Sunrise Home Care (5)');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE state='TX'").run();
+  });
+  it('training program pages list caregiver jobs near the program', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO training_organizations(id,organization_key,canonical_name,slug) VALUES ('to-near','to-near','Near CNA Academy','near-cna-academy')").run();
+    await DB.prepare("INSERT OR REPLACE INTO training_programs(id,source,source_key,program_name,organization_id,city,state,zip,program_type,provider_type,current_status,is_active) VALUES ('tp-near','test','tp-near','Near CNA Academy','to-near','Baltimore','MD','21201','Certified Nursing Assistant Training Program','Freestanding Program','Approved',1)").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-near','org-test','job-near','test','https://sunrisecare.test/near','CNA Days','CNA','Sunrise Home Care','Baltimore','MD','21202','current',1)").run();
+    const html=await (await call('/training-programs/near-cna-academy',{},htmlAssets)).text();
+    expect(html).toMatch(/current caregiver jobs? (is|are) open within 15 miles of Near CNA Academy/);
+    expect(html).toContain('<a href="/jobs/job-near">CNA Days</a>');
+    expect(html).toContain('Freestanding Program · Approved');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-near'").run();
   });
 });

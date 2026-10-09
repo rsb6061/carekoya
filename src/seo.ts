@@ -12,6 +12,8 @@ export const SEO_ORIGIN='https://carejoys.com';
 export const JOBS_PER_PAGE=50;
 /** Cities need this many current jobs before they get their own indexable page. */
 export const CITY_PAGE_MIN_JOBS=3;
+/** States need this many current jobs before their jobs and hire-caregivers pages are indexable. */
+export const STATE_PAGE_MIN_JOBS=5;
 
 /** Cuts at the last word boundary so titles never end mid-word. */
 export function trimAtWord(text:string,max:number){
@@ -204,7 +206,7 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
 export async function hubLocations(env:FeatureEnv){
   if(!env.DB)return {states:[] as {state:UsState;count:number;lastmod:string}[],cities:[] as {state:UsState;slug:string;count:number;lastmod:string}[]};
   const stateRows=(await env.DB.prepare("SELECT state,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs WHERE is_published=1 AND status='current' GROUP BY state").all<Row>()).results||[];
-  const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count),lastmod:clean(r.lastmod,40)})).filter((s):s is {state:UsState;count:number;lastmod:string}=>!!s.state&&s.count>0);
+  const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count),lastmod:clean(r.lastmod,40)})).filter((s):s is {state:UsState;count:number;lastmod:string}=>!!s.state&&s.count>=STATE_PAGE_MIN_JOBS);
   const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count,MAX(last_seen_at) AS lastmod FROM caregiver_jobs
     WHERE is_published=1 AND status='current' AND COALESCE(city,'')!='' GROUP BY state,lower(city) HAVING COUNT(*)>=?`).bind(CITY_PAGE_MIN_JOBS).all<Row>()).results||[];
   const cities=cityRows.map(r=>({state:usState(clean(r.state,20)),slug:slugify(clean(r.city,120)),count:asNum(r.count),lastmod:clean(r.lastmod,40)}))
@@ -270,4 +272,75 @@ export async function resolveJobsSearch(env:FeatureEnv,query:string):Promise<{zi
   const found=row?usState(clean(row.state,20)):null;
   if(found)return {path:jobsHubPath(found,slugify(clean(row!.city,120)))};
   return state?{path:jobsHubPath(state)}:null;
+}
+
+const ROLE_NAMES:Record<string,string>={CNA:'Certified nursing assistant (CNA)',HHA:'Home health aide (HHA)',PCA:'Personal care aide (PCA)',
+  DSP:'Direct support professional (DSP)',GNA:'Geriatric nursing assistant (GNA)',Caregiver:'Caregiver and companion'};
+const htmlText=(v:unknown)=>String(v??'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]!));
+const dollars=(n:number)=>'$'+n.toFixed(2);
+
+export type StateHiringStats={jobs:number;agencies:number;caregivers:number;roles:{role:string;count:number}[];
+  cities:{city:string;slug:string;count:number}[];employers:{name:string;count:number}[];
+  hourly:{low:number;median:number;high:number;sample:number}|null};
+
+/** What CareJoys knows about caregiver hiring in one state, from current jobs, agencies and caregiver profiles. */
+export async function stateHiringStats(env:FeatureEnv,state:UsState):Promise<StateHiringStats>{
+  const empty={jobs:0,agencies:0,caregivers:0,roles:[],cities:[],employers:[],hourly:null};
+  if(!env.DB)return empty;
+  const db=env.DB;
+  const [jobs,agencies,caregivers,roles,cities,employers,payRows]=await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=?`).bind(state.code).first<Row>(),
+    db.prepare('SELECT COUNT(*) AS count FROM agency_organizations WHERE is_active=1 AND COALESCE(is_test,0)=0 AND state=?').bind(state.code).first<Row>(),
+    db.prepare('SELECT COUNT(*) AS count FROM caregivers WHERE is_active=1 AND upper(state)=?').bind(state.code).first<Row>(),
+    db.prepare(`SELECT role,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(role,'')!='' GROUP BY role ORDER BY count DESC`).bind(state.code).all<Row>(),
+    db.prepare(`SELECT city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(city,'')!='' GROUP BY lower(city) ORDER BY count DESC LIMIT 10`).bind(state.code).all<Row>(),
+    db.prepare(`SELECT employer_name,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND COALESCE(employer_name,'')!='' GROUP BY employer_name ORDER BY count DESC,employer_name LIMIT 8`).bind(state.code).all<Row>(),
+    db.prepare(`SELECT pay_min,pay_max,pay_period FROM caregiver_jobs WHERE ${PUBLISHED} AND state=? AND pay_period='hour' LIMIT 2000`).bind(state.code).all<Row>()
+  ]);
+  const mids=(payRows.results||[]).map(r=>{const p=normalizePay(r.pay_min,r.pay_max,r.pay_period);
+    return p.period==='hour'?(p.min!==null&&p.max!==null?(p.min+p.max)/2:p.min??p.max):null}).filter((n):n is number=>n!==null).sort((a,b)=>a-b);
+  const at=(q:number)=>mids[Math.min(mids.length-1,Math.floor(q*(mids.length-1)+0.5))];
+  return {
+    jobs:asNum(jobs?.count),agencies:asNum(agencies?.count),caregivers:asNum(caregivers?.count),
+    roles:(roles.results||[]).map(r=>({role:clean(r.role,40),count:asNum(r.count)})),
+    cities:(cities.results||[]).map(r=>({city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)})).filter(c=>c.slug),
+    employers:(employers.results||[]).map(r=>({name:decodeHtml(clean(r.employer_name,160)),count:asNum(r.count)})),
+    hourly:mids.length>=5?{low:at(0.25),median:at(0.5),high:at(0.75),sample:mids.length}:null
+  };
+}
+
+/** The data section of /hire-caregivers/{state}: every number comes from current CareJoys data for that state. */
+export function stateHiringHtml(state:UsState,s:StateHiringStats){
+  const name=htmlText(state.name);
+  const parts:string[]=['<h2>Caregiver hiring in '+name+' right now</h2><ul>',
+    '<li>'+s.jobs.toLocaleString('en-US')+' current caregiver job'+(s.jobs===1?'':'s')+' posted by '+name+' employers</li>',
+    s.agencies?'<li>'+s.agencies.toLocaleString('en-US')+' home-care and senior-care agencies tracked in '+name+'</li>':'',
+    s.caregivers?'<li>'+s.caregivers.toLocaleString('en-US')+' caregiver'+(s.caregivers===1?'':'s')+' with CareJoys profiles in '+name+'</li>':'',
+    '</ul>'];
+  if(s.hourly)parts.push('<h2>Caregiver pay in '+name+'</h2><p>Across '+s.hourly.sample+' current '+name+' caregiver jobs that list an hourly rate, the middle posted rate is '+dollars(s.hourly.median)+
+    ' an hour. Half of them pay between '+dollars(s.hourly.low)+' and '+dollars(s.hourly.high)+'.</p>');
+  if(s.roles.length)parts.push('<h2>Roles '+name+' employers are hiring</h2><ul>'+s.roles.map(r=>'<li>'+htmlText(ROLE_NAMES[r.role]||r.role)+': '+r.count+' open job'+(r.count===1?'':'s')+'</li>').join('')+'</ul>');
+  if(s.cities.length)parts.push('<h2>Where the openings are</h2><ul>'+s.cities.map(c=>'<li>'+(c.count>=CITY_PAGE_MIN_JOBS?'<a href="'+jobsHubPath(state,c.slug)+'">'+htmlText(c.city)+'</a>':htmlText(c.city))+': '+c.count+' job'+(c.count===1?'':'s')+'</li>').join('')+'</ul>');
+  if(s.employers.length)parts.push('<h2>Employers with the most open caregiver jobs in '+name+'</h2><p>'+s.employers.map(e=>htmlText(e.name)+' ('+e.count+')').join(', ')+'.</p>');
+  return parts.join('');
+}
+
+/** Current caregiver jobs within `miles` of a training program's locations, nearest first, for its graduates. */
+export async function jobsNearTrainingProgram(env:FeatureEnv,zips:string[],miles=15){
+  const out={total:0,town:'',jobs:[] as {id:string;title:string;employerName:string;city:string;pay:string;miles:number}[]};
+  const zip=zips.map(z=>clean(z,10).slice(0,5)).find(z=>/^\d{5}$/.test(z));
+  if(!env.DB||!zip)return out;
+  const geo=await env.DB.prepare('SELECT lat,lng,city FROM zip_geo WHERE zip=?').bind(zip).first<Row>();
+  if(!geo)return out;
+  const center={lat:asNum(geo.lat),lng:asNum(geo.lng)};
+  const box=boundingBox(center,miles);
+  const rows=(await env.DB.prepare(`SELECT j.id,j.title,j.employer_name,j.city,j.pay_min,j.pay_max,j.pay_period,zg.lat AS geo_lat,zg.lng AS geo_lng
+    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'
+    AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ? LIMIT 500`).bind(box.minLat,box.maxLat,box.minLng,box.maxLng).all<Row>()).results||[];
+  const near=rows.map(r=>{const g=rowGeo(r);return {r,d:g?haversineMiles(center,g):999}}).filter(x=>x.d<=miles).sort((a,b)=>a.d-b.d);
+  out.total=near.length;
+  out.town=clean(geo.city,120);
+  out.jobs=near.slice(0,8).map(({r,d})=>({id:clean(r.id,200),title:normalizeTitle(r.title),employerName:decodeHtml(clean(r.employer_name,200)),
+    city:clean(r.city,120),pay:payLabel({payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period})||'',miles:Math.round(d)}));
+  return out;
 }

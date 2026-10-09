@@ -118,6 +118,9 @@ const STATE_NAME_SUFFIX=new RegExp('(?:\\s*,\\s*(?:'+US_STATES.map(([,name])=>na
 const STATE_CODE_SUFFIX=new RegExp('(?:\\s*,\\s*|\\s+)(?:'+US_STATES.map(([code])=>code).join('|')+')\\s*$');
 export function normalizeCity(value:unknown){
   let s=decodeHtml(clean(value,140)).replace(/\s+/g,' ').replace(STATE_NAME_SUFFIX,'').replace(STATE_CODE_SUFFIX,'').trim();
+  // Street addresses sometimes arrive as the city ("9701 Veirs Dr", "414 West Jefferson, Mahnomen"): keep only a part
+  // that names a place, or nothing, and let the ZIP supply the city.
+  if(/\d/.test(s))s=s.split(',').map(p=>p.trim()).reverse().find(p=>p&&!/\d/.test(p))||'';
   if(!s)return '';
   if(s===s.toUpperCase()||s===s.toLowerCase()){
     s=s.toLowerCase().replace(/\b[a-z]/g,ch=>ch.toUpperCase());
@@ -791,6 +794,7 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   let locationSource=state||zip?'source':'';
   const st=orgJobState(org);
   if(!state&&stateForZipPrefix(zip)){state=stateForZipPrefix(zip);locationSource='zip'}
+  if(!city&&zip)city=normalizeCity((await lookupZip(env.DB,zip))?.city);
   if(!state&&normalizeState(org.state)===st.code&&sameOrgDomain(input.sourceListingUrl,org)){
     if(!mentionsOtherStates(input.descriptionText,st)){
       state=st.code;
@@ -1268,6 +1272,31 @@ export async function repairJobPayBatch(env:FeatureEnv,limit=500){
     else counts.trimmed++;
     await env.DB.prepare('UPDATE caregiver_jobs SET pay_min=?,pay_max=?,pay_period=?,updated_at=CURRENT_TIMESTAMP WHERE id=?')
       .bind(pay.min,pay.max,pay.period||null,row.id).run();
+  }
+  return counts;
+}
+
+/** Rows saved before normalizeCity dropped street addresses: fix the city (from the ZIP when needed) and the keys built from it. */
+export async function repairJobCityBatch(env:FeatureEnv,limit=100){
+  const counts={checked:0,fixed:0,duplicates:0};
+  if(!env.DB)return counts;
+  const rows=await env.DB.prepare("SELECT id,agency_organization_id,source_provider,source_job_id,source_url,title,city,state,zip FROM caregiver_jobs WHERE city GLOB '*[0-9]*' LIMIT ?").bind(limit).all<Row>();
+  for(const row of rows.results||[]){
+    counts.checked++;
+    const zip=clean(row.zip,20);
+    let city=normalizeCity(row.city);
+    if(!city&&zip)city=normalizeCity((await lookupZip(env.DB,zip))?.city);
+    const orgId=clean(row.agency_organization_id,100),state=clean(row.state,20),title=clean(row.title,300);
+    const key=await dedupeKeyForJob(orgId,{sourceProvider:clean(row.source_provider,50),sourceJobId:clean(row.source_job_id,200),sourceUrl:clean(row.source_url,1000),title,city,state} as DiscoveredJob);
+    const fingerprint=await sha256Hex(canonicalJobIdentity(orgId,title,city,state,zip));
+    try{
+      await env.DB.prepare('UPDATE caregiver_jobs SET city=?,dedupe_key=?,canonical_fingerprint=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(city,key,fingerprint,row.id).run();
+      counts.fixed++;
+    }catch{
+      // A crawl already saved this job under its clean city; retire the old copy.
+      await env.DB.prepare('UPDATE caregiver_jobs SET city=?,status="duplicate",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(city,row.id).run();
+      counts.duplicates++;
+    }
   }
   return counts;
 }

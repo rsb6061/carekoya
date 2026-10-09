@@ -18,7 +18,7 @@ type Overview={
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
-      schools:{mode:string;contactable:number;intros:number;claimed:number;referrals:number;
+      schools:{mode:string;cap:number;today:number;contactable:number;intros:number;claimed:number;referrals:number;
         prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
     };
     reactivation:{legacyTotal:number;sent:number;opened:number;completed:number;activelyLooking:number};
@@ -316,9 +316,9 @@ export function AdminConsole(){
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
     <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>
     <Stat label="Weekly job emails to caregivers" value={oc.weeklyDigest.enabled?'On':'Off'} sub={oc.weeklyDigest.verified+' of '+oc.weeklyDigest.subscribed+' opted-in caregivers verified · '+oc.weeklyDigest.sentLast7Days+' sent in the last 7 days'}/>
-    <Stat label="Training-school invitations" value="Manual" sub={oc.schools.intros+' recorded introductions · nothing sends automatically'}/>
+    <Stat label="Training-school invitations" value={oc.schools.mode==='automatic'?'On':'Manual'} sub={oc.schools.today+' of '+oc.schools.cap+' sent today · '+oc.schools.intros+' recorded introductions'}/>
   </div>
-  <div className="admin-info-note">Each channel has its own switch. Turning off general bulk outreach does not stop agency hiring invites or reminders. Agency inbox alerts always go to agencies that claimed their page; unclaimed agencies get them only while general bulk outreach is on. Weekly job emails go only to caregivers who opted in and verified their email.</div>
+  <div className="admin-info-note">Each channel has its own switch. Turning off general bulk outreach does not stop agency hiring invites or reminders. Agency inbox alerts always go to agencies that claimed their page; unclaimed agencies get them only while general bulk outreach is on. School invitations have their own switch and daily cap. Weekly job emails go only to caregivers who opted in and verified their email.</div>
 </section>
 <section className="section-block admin-school-outreach">
   <div className="section-heading"><h2>Maryland training-school prospects</h2><p>Start with freestanding CNA academies and colleges. These are contact leads, not confirmed partners. Drafting an email here does not count as a sent introduction.</p></div>
