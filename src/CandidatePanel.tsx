@@ -40,7 +40,7 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
         <div className="job-meta">{[r.role,[r.city,r.state].filter(Boolean).join(', '),'For '+r.title].filter(Boolean).join(' · ')}</div>
         <span className={'match-status '+status.tone}>{status.label}</span>
       </div>
-      <button type="button" className={'star-button'+(r.favorite?' on':'')} aria-pressed={!!r.favorite} disabled={off} onClick={()=>void run(()=>actions.onFavorite(r,!r.favorite))}>{r.favorite?'★ Favorite':'☆ Favorite'}</button>
+      <button type="button" className={'save-button'+(r.favorite?' on':'')} aria-pressed={!!r.favorite} disabled={off} onClick={()=>void run(()=>actions.onFavorite(r,!r.favorite))}>{r.favorite?'Saved':'Save'}</button>
     </div>
 
     {(summary||r.match_reasons?.length)?<section className="candidate-fit">

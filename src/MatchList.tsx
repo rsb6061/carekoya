@@ -65,7 +65,7 @@ export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,o
               <div className="job-meta">{[r.role,[r.city,r.state].filter(Boolean).join(', '),showOpening?'For '+r.title:''].filter(Boolean).join(' · ')}</div>
             </div>
             <span className={'match-status '+status.tone}>{status.label}</span>
-            {onFavorite&&<button type="button" className={'star-button compact'+(r.favorite?' on':'')} aria-pressed={!!r.favorite} aria-label={(r.favorite?'Remove ':'Add ')+r.name+(r.favorite?' from':' to')+' favorites'} title="Favorite" disabled={disabled} onClick={()=>void onFavorite(r,!r.favorite)}>{r.favorite?'★':'☆'}</button>}
+            {onFavorite&&<button type="button" className={'save-button compact'+(r.favorite?' on':'')} aria-pressed={!!r.favorite} aria-label={(r.favorite?'Saved: ':'Save ')+r.name} disabled={disabled} onClick={()=>void onFavorite(r,!r.favorite)}>{r.favorite?'Saved':'Save'}</button>}
           </div>
           <div className="match-reasons">
             {r.match_score?<span className="badge strong">{r.match_score}% match</span>:null}

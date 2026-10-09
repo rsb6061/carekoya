@@ -244,7 +244,7 @@ export function EmployerWorkspace(){
   async function favorite(row:PipelineRow,on:boolean){
     patchRow(row.id,{favorite:on});
     try{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({favorite:on})})}
-    catch(error){patchRow(row.id,{favorite:!on});setMessage(error instanceof Error?error.message:'Could not update favorites','error')}
+    catch(error){patchRow(row.id,{favorite:!on});setMessage(error instanceof Error?error.message:'Could not save this caregiver','error')}
   }
   async function restore(row:PipelineRow){
     try{
@@ -461,11 +461,11 @@ export function EmployerWorkspace(){
         <>{!intakeOpening&&agencyNetwork.agency&&<div className="candidate-group-head"><h3>Matched to your openings</h3></div>}
         <div className="candidate-views">
           <div className="inbox-filters" role="group" aria-label="Show">
-            {([['active','Active'],['favorites','Favorites'],['archived','Not a fit']] as const).map(([k,label])=><button type="button" key={k} className={'chip'+(candidateView===k?' on':'')} aria-pressed={candidateView===k} onClick={()=>setCandidateView(k)}>{label} <strong>{viewCounts[k]}</strong></button>)}
+            {([['active','Active'],['favorites','Saved'],['archived','Not a fit']] as const).map(([k,label])=><button type="button" key={k} className={'chip'+(candidateView===k?' on':'')} aria-pressed={candidateView===k} onClick={()=>setCandidateView(k)}>{label} <strong>{viewCounts[k]}</strong></button>)}
           </div>
           <button type="button" className="text-button" onClick={()=>setShowTemplates(true)}>Email templates</button>
         </div>
-        {visiblePipeline.length===0?<div className="empty"><strong>{candidateView==='favorites'?'No favorites yet.':candidateView==='archived'?'Nobody is marked not a fit.':'Everyone here is marked not a fit.'}</strong><div>{candidateView==='favorites'?'Tap ☆ on a caregiver to keep them here for follow-up.':candidateView==='archived'?'Caregivers you mark not a fit, or who decline, show here. You can restore the ones you marked.':'Open Not a fit to restore someone.'}</div></div>
+        {visiblePipeline.length===0?<div className="empty"><strong>{candidateView==='favorites'?'Nobody saved yet.':candidateView==='archived'?'Nobody is marked not a fit.':'Everyone here is marked not a fit.'}</strong><div>{candidateView==='favorites'?'Tap Save on a caregiver to keep them here for follow-up.':candidateView==='archived'?'Caregivers you mark not a fit, or who decline, show here. You can restore the ones you marked.':'Open Not a fit to restore someone.'}</div></div>
         :<MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide} onNotes={saveNotes} onOpen={r=>setPanelRowId(r.id)} onFavorite={favorite} onRestore={restore}/>}</>}
       </section>}
 

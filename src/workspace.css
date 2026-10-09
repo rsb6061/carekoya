@@ -388,9 +388,9 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .candidate-detail-name{flex:1;min-width:0;display:grid;gap:6px;justify-items:start}
 .candidate-detail-name h2{margin:0;font-family:var(--display);font-size:32px;font-weight:500;line-height:1.1}
 .candidate-avatar.large{width:64px;height:64px;font-size:26px}
-.star-button{border:1px solid var(--lavender);background:#fff;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px;cursor:pointer;color:var(--ink);white-space:nowrap}
-.star-button.on{background:#fff4d6;border-color:#f1c75b;color:#7a5600}
-.star-button.compact{padding:4px 9px;font-size:16px;line-height:1}
+.save-button{border:1px solid var(--lavender);background:#fff;border-radius:999px;padding:7px 12px;font:inherit;font-size:14px;cursor:pointer;color:var(--ink);white-space:nowrap}
+.save-button.on{background:var(--soft);border-color:var(--blue);color:var(--blue);font-weight:600}
+.save-button.compact{padding:4px 10px;font-size:13px}
 .candidate-fit{border:1px solid var(--lavender);border-radius:20px;padding:16px 18px;background:var(--soft)}
 .candidate-fit p{margin:0 0 10px;line-height:1.55}
 .candidate-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
