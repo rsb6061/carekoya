@@ -15,11 +15,13 @@ const rows=[];
 for(let after='';;){
   const page=((run(`SELECT id,source,name,legal_name,email,phone,website,contact_name,address1,city,state,zip,provider_type,
     caregiver_match_eligible,caregiver_relevance_score,npi,google_place_id,rating,review_count,provider_kind,bed_count
-    FROM agencies WHERE is_active=1 AND id>${esc(after)} ORDER BY id LIMIT ${PAGE};`)[0]||{}).results)||[];
+    FROM agencies WHERE is_active=1 AND id>'${after.replaceAll("'","''")}' ORDER BY id LIMIT ${PAGE};`)[0]||{}).results)||[];
   rows.push(...page);
   if(page.length<PAGE)break;
   after=page[page.length-1].id;
 }
+// An empty read must never reach the deactivate-everything statement below.
+if(!rows.length)throw new Error('Read no active agencies; refusing to write a rebuild that would deactivate every organization');
 rows.sort((a,b)=>String(a.name??'')<String(b.name??'')?-1:String(a.name??'')>String(b.name??'')?1:0);
 
 const groups=groupAgencies(rows);
