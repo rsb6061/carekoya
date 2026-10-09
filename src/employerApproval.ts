@@ -22,6 +22,8 @@ export async function employerApproval(env:ApprovalEnv,employer:Row):Promise<Emp
   if(clean(employer.approved_at,40))return {approved:true,reason:'manual'};
   const email=clean(employer.email,320).toLowerCase();
   if(adminList(env).includes(email))return {approved:true,reason:'admin'};
+  // Also recognize verified CareJoys admins granted in the private admin table.
+  if(email&&await env.DB!.prepare('SELECT 1 FROM admin_authorizations WHERE email=? LIMIT 1').bind(email).first())return {approved:true,reason:'admin'};
   const claimed=await env.DB!.prepare('SELECT 1 FROM agency_organizations WHERE claimed_employer_id=? LIMIT 1').bind(employer.id).first();
   if(claimed)return {approved:true,reason:'agency'};
   if(email.includes('@')&&!isFreeMail(email))return {approved:true,reason:'business_email'};

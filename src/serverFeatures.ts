@@ -227,9 +227,6 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const opening=await env.DB.prepare('SELECT * FROM openings WHERE id=? AND employer_id=? LIMIT 1').bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening)return json({ok:false,error:'Opening not found'},{status:404});
-  const slotCount=await env.DB.prepare("SELECT COUNT(*) AS count FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now')")
-    .bind(openingId).first<{count:number}>();
-  if(asNumber(slotCount?.count)<1)return json({ok:false,error:'Add at least one interview time before contacting caregivers.'},{status:400});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const allowance=await contactAllowance(env,workspaceId);
   if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free candidate contacts. Upgrade to keep contacting caregivers.`},{status:402});
@@ -369,6 +366,7 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
       const notice=employerCandidateInterestedEmail({
         recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',
         caregiverName,
+        caregiverEmail:clean(row.email,320),
         title:clean(row.title,200),
         location,
         appLink:'https://carejoys.com/app',

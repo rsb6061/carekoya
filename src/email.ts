@@ -121,16 +121,17 @@ export function caregiverJobInviteEmail(input:{
 }
 
 export function employerCandidateInterestedEmail(input:{
-  recipientName:string; caregiverName:string; title:string; location:string; appLink:string; hasInterviewSlots:boolean;
+  recipientName:string; caregiverName:string; caregiverEmail:string; title:string; location:string; appLink:string; hasInterviewSlots:boolean;
 }) {
   return {
     subject:`Interested candidate: ${input.caregiverName} — ${input.title}`,
     html:shell('A caregiver is interested',`
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
       <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.caregiverName)}</strong> said they are interested in <strong>${esc(input.title)}</strong>${input.location?' in '+esc(input.location):''}.</p>
-      <p style="font-size:16px;line-height:1.6;color:#5f5972">${input.hasInterviewSlots?'They can now choose one of the interview times you added.':'Add interview times in CareJoys so they can book directly.'}</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">The caregiver confirmed interest in this job, so you can reach them at <a href="mailto:${esc(input.caregiverEmail)}">${esc(input.caregiverEmail)}</a>.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">${input.hasInterviewSlots?'They can also choose one of your available interview times.':'You can follow up directly. Interview scheduling in CareJoys is optional.'}</p>
       <p style="margin:26px 0"><a href="${esc(input.appLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Open recruiting workspace</a></p>`),
-    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\n${input.hasInterviewSlots?'They can now choose one of your interview times.':'Add interview times in CareJoys so they can book directly.'}\n\n${input.appLink}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nThe caregiver confirmed interest and can be reached at ${input.caregiverEmail}.\n\n${input.hasInterviewSlots?'They can also book one of your interview times.':'You can follow up directly; interview scheduling is optional.'}\n\n${input.appLink}\n\nCareJoys · carejoys.com`
   };
 }
 
