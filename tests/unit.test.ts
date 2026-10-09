@@ -1,4 +1,4 @@
-import { jobFit } from '../src/caregiverApi';
+import { jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -349,6 +349,32 @@ describe('jobFit', ()=>{
   it('prefers jobs that meet the minimum pay and are closer', ()=>{
     expect(jobFit(cna,{role:'CNA',title:'CNA',pay_max:20},10,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA',pay_max:15},10,25));
     expect(jobFit(cna,{role:'CNA',title:'CNA'},2,25)).toBeGreaterThan(jobFit(cna,{role:'CNA',title:'CNA'},20,25));
+  });
+});
+
+describe('strict job suitability', ()=>{
+  const caregiver={role:'CNA',certifications:'CNA, CPR',hourly_rate_min:21,shift_preferences:'Days',employment_types:'full_time'};
+  it('excludes a licensed role the worker does not hold, not an ordinary caregiver role',()=>{
+    expect(jobConflict(caregiver,{title:'RN Nurse',role:'RN'})).toBe('required credential missing');
+    expect(jobConflict(caregiver,{title:'Companion caregiver',role:'Caregiver'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA / RN caregiver',role:'CNA'})).toBeNull();
+  });
+  it('honors the minimum hourly pay when a salary is explicitly advertised',()=>{
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:20,pay_period:'hour'})).toBe('below minimum hourly pay');
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:23,pay_period:'hour'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:null})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',pay_max:55000,pay_period:'year'})).toBeNull();
+  });
+  it('rejects explicitly incompatible shifts or employment types but keeps unknowns',()=>{
+    expect(jobConflict(caregiver,{title:'CNA - Night Shift',role:'CNA'})).toBe('shift conflict');
+    expect(jobConflict(caregiver,{title:'CNA - Day Shift',role:'CNA'})).toBeNull();
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',employment_type:'part_time'})).toBe('employment type conflict');
+    expect(jobConflict(caregiver,{title:'CNA',role:'CNA',employment_type:''})).toBeNull();
+    expect(jobConflict({...caregiver,shift_preferences:'Weekends only'},{title:'CNA - Weekdays only',role:'CNA'})).toBe('schedule conflict');
+  });
+  it('never ranks an explicitly ineligible job above a suitable one',()=>{
+    expect(jobFit(caregiver,{title:'CNA - Night Shift',role:'CNA'},1,25)).toBeLessThan(0);
+    expect(jobFit(caregiver,{title:'CNA - Days',role:'CNA',pay_max:25},5,25)).toBeGreaterThan(0);
   });
 });
 
