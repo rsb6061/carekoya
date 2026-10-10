@@ -28,6 +28,7 @@ import { descriptionBlocks } from './jobFormat';
 import { runDataForSeoJobs } from './dataforseo';
 import { clarityInsights, pullClarityInsights } from './clarity';
 import { billingStatus, createCheckout, createPortal, freeContacts, handleStripeWebhook, lockedIntroductions } from './billing';
+import { sendHiringFollowups, sendRoleClosedNotices } from './employerFollowups';
 import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
@@ -782,7 +783,7 @@ async function approvedEmployer(request:Request,env:Env):Promise<Record<string,u
 }
 async function requireWorkspace(env: Env, id: string) {
   if (!env.DB || !id) return null;
-  return env.DB.prepare("SELECT id, company_name, contact_name, email, phone, zip, roles_needed, status, created_at FROM employer_leads WHERE id = ?").bind(id).first();
+  return env.DB.prepare("SELECT id, company_name, contact_name, email, phone, zip, roles_needed, employer_type, status, created_at FROM employer_leads WHERE id = ?").bind(id).first();
 }
 async function handleAgencyDemandSummary(env: Env) {
   if (!env.DB) return json({ ok:false, error:"Database not configured" }, { status:503 });
@@ -919,7 +920,8 @@ async function handleEmployer(request: Request, env: Env) {
     companyName:clean(data!.companyName,200),contactName:clean(data!.contactName,200),phone:clean(data!.phone,40),
     zip:clean(data!.zip,20),rolesNeeded:clean(data!.rolesNeeded,500),hiringNotes:clean(data!.hiringNotes,1500),shifts:clean(data!.shifts,300),schedule:clean(data!.schedule,4000),
     payMin:Math.max(0,Number(data!.payMin||0)||0)||null,payMax:Math.max(0,Number(data!.payMax||0)||0)||null,
-    transportationRequired:clean(data!.transportationRequired,20)==="yes"
+    transportationRequired:clean(data!.transportationRequired,20)==="yes",
+    employerType:employerTypeValue(data!.employerType)
   };
   const existing=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   const state=await stateForZip(env.DB,intake.zip);
@@ -934,8 +936,8 @@ async function handleEmployer(request: Request, env: Env) {
       redirect=await applyPendingEmployerIntake(env,employerId,{kind:"employer_intake",...intake});
     }else{
       employerId=crypto.randomUUID();
-      await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
-        .bind(employerId,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes).run();
+      await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
+        .bind(employerId,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
       redirect="/app?opening="+encodeURIComponent(await createIntakeOpening(env,employerId,intake))+"&match=1";
     }
     const session=await startEmployerSession(env,employerId);
@@ -947,20 +949,27 @@ async function handleEmployer(request: Request, env: Env) {
     return json({ok:true,checkEmail:true,email,outOfArea},{status:201});
   }
   const id=crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,status) VALUES (?,?,?,?,?,?,?,?,'active')")
-    .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes).run();
+  await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
+    .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
   const openingId=await createIntakeOpening(env,id,intake);
   await sendEmployerMagicLink(env,id,"/app?opening="+encodeURIComponent(openingId)+"&match=1");
   return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
 }
 
-type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;schedule:string;payMin:number|null;payMax:number|null;transportationRequired:boolean};
+type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;schedule:string;payMin:number|null;payMax:number|null;transportationRequired:boolean;employerType?:string};
+const EMPLOYER_TYPES=["home_care","assisted_living","other"];
+const employerTypeValue=(v:unknown)=>{const t=clean(v,40);return EMPLOYER_TYPES.includes(t)?t:""};
 
 /** The schedule JSON to store and the shift words to show. A day-by-day schedule replaces typed shift words. */
 function openingShift(scheduleValue:unknown,typedShifts:string){
   const schedule=parseOpeningSchedule(scheduleValue);
   if(!hasSchedule(schedule))return {scheduleJson:null,shifts:typedShifts};
   return {scheduleJson:JSON.stringify(schedule),shifts:scheduleSummary(schedule).slice(0,300)};
+}
+
+/** "CNA · Cockeysville": what the employer needs and where, instead of a generic "CNA opening". */
+function openingName(role:string,city:string){
+  return [role||"Caregiver",city].filter(Boolean).join(" · ").slice(0,200);
 }
 
 /** Creates (or refreshes, within 30 minutes) the opening an employer described in the intake form. */
@@ -977,12 +986,12 @@ async function createIntakeOpening(env:Env,employerId:string,intake:EmployerInta
   const shift=openingShift(intake.schedule,intake.shifts);
   if(opening){
     await env.DB!.prepare("UPDATE openings SET title=?,city=COALESCE(NULLIF(?,''),city),state=?,shift_preferences=?,schedule_json=?,pay_min=?,pay_max=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
-      .bind(primaryRole+" opening",inferredCity,inferredState,shift.shifts,shift.scheduleJson,intake.payMin,intake.payMax,intake.transportationRequired?1:0,intake.hiringNotes,openingId).run();
+      .bind(openingName(primaryRole,inferredCity),inferredCity,inferredState,shift.shifts,shift.scheduleJson,intake.payMin,intake.payMax,intake.transportationRequired?1:0,intake.hiringNotes,openingId).run();
   }else{
     await env.DB!.prepare(`INSERT INTO openings
       (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,schedule_json,transportation_required,requirements,status,source)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
-      .bind(openingId,employerId,primaryRole+" opening",primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,shift.shifts,shift.scheduleJson,intake.transportationRequired?1:0,intake.hiringNotes).run();
+      .bind(openingId,employerId,openingName(primaryRole,inferredCity),primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,shift.shifts,shift.scheduleJson,intake.transportationRequired?1:0,intake.hiringNotes).run();
   }
   return openingId;
 }
@@ -993,8 +1002,10 @@ async function applyPendingEmployerIntake(env:Env,employerId:string,raw:Record<s
   const intake:EmployerIntake={
     companyName:clean(raw.companyName,200),contactName:clean(raw.contactName,200),phone:clean(raw.phone,40),zip:clean(raw.zip,20),
     rolesNeeded:clean(raw.rolesNeeded,500),hiringNotes:clean(raw.hiringNotes,1500),shifts:clean(raw.shifts,300),schedule:clean(raw.schedule,4000),
-    payMin:Number(raw.payMin)||null,payMax:Number(raw.payMax)||null,transportationRequired:raw.transportationRequired===true
+    payMin:Number(raw.payMin)||null,payMax:Number(raw.payMax)||null,transportationRequired:raw.transportationRequired===true,
+    employerType:employerTypeValue(raw.employerType)
   };
+  if(intake.employerType)await env.DB.prepare("UPDATE employer_leads SET employer_type=? WHERE id=?").bind(intake.employerType,employerId).run();
   await env.DB.prepare("UPDATE employer_leads SET company_name=COALESCE(NULLIF(?,''),company_name),contact_name=COALESCE(NULLIF(?,''),contact_name),phone=COALESCE(NULLIF(?,''),phone),zip=COALESCE(NULLIF(?,''),zip),roles_needed=COALESCE(NULLIF(?,''),roles_needed),hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(intake.companyName,intake.contactName,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,employerId).run();
   const openingId=await createIntakeOpening(env,employerId,intake);
@@ -1541,20 +1552,22 @@ async function createOpening(id:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,id);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const data=await readJson(request);
-  const error=requireFields(data,["title","role"]);
+  const error=requireFields(data,["role","zip"]);
   if(error) return json({ok:false,error},{status:400});
   const openingId=crypto.randomUUID();
   const zipInfo=await lookupZip(env.DB,data!.zip);
+  if(!clean(data!.title,200))data!.title=openingName(clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"");
   const shift=openingShift(data!.schedule,clean(data!.shifts,300));
   await env.DB!.prepare("INSERT INTO openings (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,schedule_json,transportation_required,requirements,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'open')")
     .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"",clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,shift.shifts,shift.scheduleJson,data!.transportationRequired===true?1:0,clean(data!.requirements,1200)).run();
   return json({ok:true,id:openingId},{status:201});
 }
-async function matchOpening(workspaceId:string,openingId:string,env:Env) {
+async function matchOpening(workspaceId:string,openingId:string,env:Env,pruneStale=false) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const opening=await env.DB!.prepare(`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.id=? AND o.employer_id=?`).bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening) return json({ok:false,error:"Opening not found"},{status:404});
+  if(clean(opening.status)==="closed") return json({ok:false,error:"This opening is closed. Reopen it to match caregivers."},{status:409});
   // Prefilter in SQL: within the widest allowed commute of the opening, or the same state when the opening has no known ZIP.
   const openingGeo=rowGeo(opening);
   let candidateSql=`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
@@ -1571,8 +1584,16 @@ async function matchOpening(workspaceId:string,openingId:string,env:Env) {
   const scored=(result.results||[]).filter(inUs).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
   for(const item of scored){
     const pipelineId=crypto.randomUUID();
-    await env.DB!.prepare("INSERT OR IGNORE INTO candidate_pipeline (id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?, 'carejoys_match')")
+    // Re-matching refreshes the score and reasons, so an edited opening re-ranks everyone.
+    await env.DB!.prepare(`INSERT INTO candidate_pipeline (id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?, 'carejoys_match')
+      ON CONFLICT(opening_id,caregiver_id) DO UPDATE SET match_reason=excluded.match_reason,match_score=excluded.match_score`)
       .bind(pipelineId,openingId,item.c.id,JSON.stringify(item.reasons),item.score).run();
+  }
+  // After an edit, drop matches that no longer fit and that the employer hasn't invited, saved or written notes on.
+  if(pruneStale){
+    const keep=scored.map(x=>String(x.c.id));
+    await env.DB!.prepare(`DELETE FROM candidate_pipeline WHERE opening_id=? AND stage='matched' AND contacted_at IS NULL AND favorited_at IS NULL AND COALESCE(employer_notes,'')=''
+      ${keep.length?`AND caregiver_id NOT IN (${keep.map(()=>"?").join(",")})`:""}`).bind(openingId,...keep).run();
   }
   return json({ok:true,matched:scored.length,top:scored.slice(0,10).map(x=>({id:x.c.id,name:publicName(x.c.first_name,x.c.last_name,x.c.display_name),score:x.score,reasons:x.reasons,distanceMiles:x.distanceMiles===null?null:Math.round(x.distanceMiles*10)/10,freshness:freshnessLabel(x.c.work_status,x.c.last_confirmed_at),city:x.c.city,state:x.c.state,role:x.c.role}))});
 }
@@ -1611,6 +1632,34 @@ async function pipelineResume(workspaceId:string,pipelineId:string,env:Env){
   if((await lockedIntroductions(env,workspaceId)).has(clean(row.id,100))) return json({ok:false,error:"Upgrade to see this caregiver’s contact details and resume."},{status:402});
   return resumeDownload(env,clean(row.caregiver_id,120));
 }
+/** Edits an opening and re-ranks its matches, or closes or reopens it. Closing tells caregivers still waiting that the role is filled. */
+async function updateOpening(workspaceId:string,openingId:string,request:Request,env:Env) {
+  const opening=await env.DB!.prepare("SELECT * FROM openings WHERE id=? AND employer_id=?").bind(openingId,workspaceId).first<Record<string,unknown>>();
+  if(!opening) return json({ok:false,error:"Opening not found"},{status:404});
+  const data=await readJson(request);
+  const status=clean(data?.status,20);
+  if(status==="closed"){
+    await env.DB!.prepare("UPDATE openings SET status='closed',closed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(openingId).run();
+    const notified=await sendRoleClosedNotices(env,{openingId},true).catch(()=>0);
+    return json({ok:true,status:"closed",notified});
+  }
+  if(status==="open"){
+    await env.DB!.prepare("UPDATE openings SET status='open',closed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(openingId).run();
+    return json({ok:true,status:"open"});
+  }
+  const error=requireFields(data,["role","zip"]);
+  if(error) return json({ok:false,error},{status:400});
+  const zipInfo=await lookupZip(env.DB,data!.zip);
+  const shift=openingShift(data!.schedule,clean(data!.shifts,300));
+  const role=clean(data!.role,80),city=clean(data!.city,120)||zipInfo?.city||"";
+  await env.DB!.prepare("UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,schedule_json=?,transportation_required=?,requirements=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+    .bind(clean(data!.title,200)||openingName(role,city),role,city,clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,
+      shift.shifts,shift.scheduleJson,data!.transportationRequired===true?1:0,clean(data!.requirements,2000),openingId).run();
+  // Re-rank right away, except for a closed opening or an account still waiting on approval (matching unlocks then).
+  if(clean(opening.status)==="closed"||!(await approvalFor(env,workspaceId)).approved)return json({ok:true});
+  return matchOpening(workspaceId,openingId,env,true);
+}
+
 async function updatePipeline(workspaceId:string,pipelineId:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,workspaceId);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
@@ -1634,7 +1683,14 @@ async function updatePipeline(workspaceId:string,pipelineId:string,request:Reque
   const allowed=["hired","rejected"];
   if(!allowed.includes(stage)) return json({ok:false,error:"Invalid stage"},{status:400});
   if(stage==="hired") await env.DB!.prepare("UPDATE candidate_pipeline SET stage='hired',hired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
-  else await env.DB!.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='employer_not_a_fit',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
+  else{
+    await env.DB!.prepare("UPDATE candidate_pipeline SET stage='rejected',rejected_reason='employer_not_a_fit',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(pipelineId).run();
+    // A caregiver who said yes hears back instead of waiting. Only the ones who said yes; a plain match never knew.
+    if(owned.response_value==="interested"){
+      const row=await env.DB!.prepare("SELECT opening_id FROM candidate_pipeline WHERE id=?").bind(pipelineId).first<Record<string,unknown>>();
+      await sendRoleClosedNotices(env,{openingId:clean(row?.opening_id,100),pipelineId},false).catch(()=>0);
+    }
+  }
   return json({ok:true});
 }
 
@@ -1925,6 +1981,13 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(employer instanceof Response)return employer;
       return matchOpening(String(employer.id),m[1],env);
     }
+    m=url.pathname.match(/^\/api\/openings\/([^/]+)$/);
+    if(request.method==="PATCH"&&m){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await employerSession(request,env);
+      if(!employer)return json({ok:false,error:"Sign in required"},{status:401});
+      return updateOpening(String(employer.id),decodeURIComponent(m[1]),request,env);
+    }
     m=url.pathname.match(/^\/api\/openings\/([^/]+)\/candidates$/);
     if(request.method==="POST"&&m){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
@@ -2012,6 +2075,8 @@ export default {
         await enrichAgencyBatch(env,30);
         await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
+        // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
+        await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.

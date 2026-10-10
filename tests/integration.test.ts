@@ -7,6 +7,7 @@ import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
 import { alertNewClientErrors, runDailyMonitor } from '../src/monitoring';
+import { sendHiringFollowups } from '../src/employerFollowups';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -1781,5 +1782,94 @@ describe('site monitoring', ()=>{
     expect(sent[0].subject).toBe('CareJoys alert: visitors struggling with clicks');
     await DB.prepare("DELETE FROM clarity_insights WHERE pulled_on=?").bind(today).run();
     expect((await call('/api/admin/monitoring')).status).toBe(401);
+  });
+});
+
+describe('opening follow-through', ()=>{
+  const headers={cookie:'cj_session=follow-cookie','content-type':'application/json'};
+  const ago=(days:number)=>new Date(Date.now()-days*86400000).toISOString().replace('T',' ').slice(0,19);
+  async function inviteBoth(title:string){
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title,role:'CNA',zip:'21201'})})).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers});
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    const ids=rows.filter((r:any)=>['fu-near','fu-towson'].includes(r.caregiver_id)).map((r:any)=>r.id);
+    sent.length=0;
+    await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:ids})});
+    const token=(to:string)=>decodeURIComponent(sent.find(m=>m.to===to)!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
+    return {id,yes:async(to:string)=>call('/api/respond',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token:token(to),choice:'interested'})})};
+  }
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-follow','Follow Care','Sam Lee','sam@followcare.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await addCaregiver('fu-near','21201');
+    await addCaregiver('fu-towson','21204');
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('follow-s','emp-follow',?,?)").bind(await sha256Hex('follow-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('names an opening from the role and city when the title is left blank', async()=>{
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({role:'CMT / Med Tech',zip:'21201'})})).json() as any;
+    expect(await DB.prepare('SELECT title,city FROM openings WHERE id=?').bind(id).first()).toEqual({title:'CMT / Med Tech · Baltimore',city:'Baltimore'});
+    expect((await call('/api/openings',{method:'POST',headers,body:JSON.stringify({role:'CNA'})})).status).toBe(400);
+  });
+
+  it('reminds an unanswered caregiver and nudges the employer once each, after two days', async()=>{
+    const {id,yes}=await inviteBoth('CNA follow-ups');
+    expect((await yes('fu-near@example.com')).status).toBe(200);
+    expect(await sendHiringFollowups(env())).toEqual({reminders:0,nudges:0});
+    await DB.prepare("UPDATE candidate_pipeline SET contacted_at=? WHERE opening_id=? AND stage='contacted'").bind(ago(3),id).run();
+    await DB.prepare("UPDATE candidate_pipeline SET responded_at=?,response_at=?,updated_at=? WHERE opening_id=? AND stage='interested'").bind(ago(3),ago(3),ago(3),id).run();
+    sent.length=0;
+    expect(await sendHiringFollowups(env())).toEqual({reminders:1,nudges:1});
+    expect(sent.find(m=>m.to==='fu-towson@example.com')?.subject).toBe('Still interested? Follow Care is waiting to hear from you');
+    const nudge=sent.find(m=>m.to==='sam@followcare.test');
+    expect(nudge?.html).toContain('/app?candidate=');
+    expect(await sendHiringFollowups(env())).toEqual({reminders:0,nudges:0});
+  });
+
+  it('edits and closes an opening, telling waiting caregivers the role is filled', async()=>{
+    const {id,yes}=await inviteBoth('CNA to close');
+    await yes('fu-near@example.com');
+    const edited=await call('/api/openings/'+id,{method:'PATCH',headers,body:JSON.stringify({title:'CNA evenings',role:'CNA',zip:'21204',payMin:20})});
+    expect(edited.status).toBe(200);
+    expect(await DB.prepare('SELECT title,city,pay_min FROM openings WHERE id=?').bind(id).first()).toEqual({title:'CNA evenings',city:'Towson',pay_min:20});
+    // Invited caregivers stay on the list after the re-match.
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
+    expect(rows.filter((r:any)=>['contacted','interested'].includes(r.stage))).toHaveLength(2);
+    sent.length=0;
+    const closed=await call('/api/openings/'+id,{method:'PATCH',headers,body:JSON.stringify({status:'closed'})});
+    expect((await closed.json() as any).notified).toBe(1);
+    expect(sent.map(m=>m.to)).toEqual(['fu-near@example.com']);
+    expect((await call('/api/openings/'+id+'/match',{method:'POST',headers})).status).toBe(409);
+    expect((await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:'{}'})).status).toBe(409);
+    expect(await sendHiringFollowups(env())).toEqual({reminders:0,nudges:0});
+    // Reopening and closing again doesn't email the same caregiver twice.
+    await call('/api/openings/'+id,{method:'PATCH',headers,body:JSON.stringify({status:'open'})});
+    expect(await DB.prepare('SELECT status FROM openings WHERE id=?').bind(id).first()).toEqual({status:'open'});
+    sent.length=0;
+    await call('/api/openings/'+id,{method:'PATCH',headers,body:JSON.stringify({status:'closed'})});
+    expect(sent).toHaveLength(0);
+  });
+
+  it('sends a short note when an interested caregiver is marked not a fit', async()=>{
+    const {id,yes}=await inviteBoth('CNA not a fit');
+    await yes('fu-towson@example.com');
+    const row=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline.find((r:any)=>r.caregiver_id==='fu-towson');
+    sent.length=0;
+    expect((await call('/api/pipeline/'+row.id,{method:'PATCH',headers,body:JSON.stringify({stage:'rejected'})})).status).toBe(200);
+    expect(sent.map(m=>m.to)).toEqual(['fu-towson@example.com']);
+  });
+
+  it('saves where an interview happens', async()=>{
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({role:'CNA',zip:'21201'})})).json() as any;
+    const path='/api/openings/'+id+'/interview-slots';
+    await call(path,{method:'POST',headers,body:JSON.stringify({location:'Phone call, we will ring you',slots:[{startsAt:new Date(Date.now()+2*86400000).toISOString(),timezone:'America/New_York',durationMinutes:30}]})});
+    expect((await (await call(path,{headers})).json() as any).slots[0].location).toBe('Phone call, we will ring you');
+  });
+
+  it('stores the employer type from intake and ignores unknown values', async()=>{
+    const intake=(email:string,employerType:string)=>post('/api/employers',{companyName:'Oak Grove',contactName:'Ana',email,zip:'21030',rolesNeeded:'Resident Assistant',employerType});
+    expect((await intake('ana@oakgrove.test','assisted_living')).status).toBe(201);
+    expect((await intake('bo@oakgrove.test','spaceship')).status).toBe(201);
+    const types=Object.fromEntries(((await DB.prepare("SELECT email,employer_type FROM employer_leads WHERE email LIKE '%@oakgrove.test'").all()).results as any[]).map(r=>[r.email,r.employer_type]));
+    expect(types).toEqual({'ana@oakgrove.test':'assisted_living','bo@oakgrove.test':null});
   });
 });
