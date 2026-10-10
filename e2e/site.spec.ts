@@ -148,7 +148,7 @@ test('employer invites a caregiver, who says yes from the email and books an int
   await slotModal.locator('input[type=datetime-local]').first().fill(local);
   await slotModal.getByRole('button',{name:'Save interview times'}).click();
   await expect(employer.locator('.modal-panel')).toHaveCount(0);
-  await employer.locator('.job-card',{hasText:title}).getByRole('button',{name:'View matches'}).click();
+  // Saving keeps the employer on the match list they were on.
   await expect(employer.getByRole('heading',{name:'Casey T.'})).toBeVisible();
   const since=Date.now();
   await employer.getByRole('button',{name:'Invite',exact:true}).first().click();
