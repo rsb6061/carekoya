@@ -609,6 +609,13 @@ describe('talent search', ()=>{
     expect(matchesTalentFilters(c,{hours:'full_time'})).toBe(false);
     expect(matchesTalentFilters(c,{cert:'HHA'})).toBe(false);
     expect(matchesTalentFilters({...c,transportation:'public_transit'},{car:true})).toBe(false);
+    expect(matchesTalentFilters({...c,desired_wage:'$24+/hr'},{payMax:22})).toBe(false);
+    expect(matchesTalentFilters({...c,hourly_rate_min:20},{payMax:22})).toBe(true);
+    expect(matchesTalentFilters(c,{payMax:15})).toBe(true);
+    expect(matchesTalentFilters({...c,languages:'English, Spanish'},{language:'spanish'})).toBe(true);
+    expect(matchesTalentFilters(c,{language:'Spanish'})).toBe(false);
+    expect(matchesTalentFilters({...c,checklist:'over18,background_check'},{checked:'background_check'})).toBe(true);
+    expect(matchesTalentFilters(c,{checked:'background_check'})).toBe(false);
   });
   it('puts closer caregivers first even when a distant one confirmed more recently', ()=>{
     const old=new Date(Date.now()-20*86400000).toISOString(),fresh=new Date().toISOString();

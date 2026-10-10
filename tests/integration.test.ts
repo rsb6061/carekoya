@@ -35,7 +35,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['talent_alerts','caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -190,6 +190,40 @@ describe('distance matching', ()=>{
     expect(await DB.prepare('SELECT source FROM candidate_pipeline WHERE id=?').bind(first.pipelineId).first()).toEqual({source:'talent_network'});
     await DB.prepare('DELETE FROM candidate_pipeline WHERE opening_id=?').bind(id).run();
     await DB.prepare('DELETE FROM openings WHERE id=?').bind(id).run();
+  });
+  it('saved searches email new nearby caregivers once, and the email link turns the alert off', async()=>{
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json'};
+    const saved=await (await call('/api/talent-alerts',{method:'POST',headers,body:JSON.stringify({query:'zip=21201&radius=25&evil=1'})})).json() as any;
+    expect(saved.alerts).toHaveLength(1);
+    expect(saved.alerts[0].query).toBe('zip=21201&radius=25');
+    expect(saved.alerts[0].label).toBe('within 25 mi of 21201');
+    try{
+      await DB.prepare("UPDATE talent_alerts SET last_checked_at='2000-01-01 00:00:00'").run();
+      sent.length=0;
+      await worker.scheduled({cron:'41 15 * * *'},env(),{waitUntil:()=>{}});
+      const mail=sent.filter(m=>JSON.stringify(m.to).includes('pat@acme.test'));
+      expect(mail).toHaveLength(1);
+      expect(mail[0].subject).toBe('2 new caregivers for your search: within 25 mi of 21201');
+      sent.length=0;
+      await worker.scheduled({cron:'41 15 * * *'},env(),{waitUntil:()=>{}});
+      expect(sent).toHaveLength(0);
+      const {off_token}=await DB.prepare('SELECT off_token FROM talent_alerts').first() as any;
+      expect((await call('/talent-alert/off?token='+encodeURIComponent(off_token))).status).toBe(200);
+      expect((await (await call('/api/talent-alerts',{headers})).json() as any).alerts).toHaveLength(0);
+    }finally{
+      await DB.prepare('DELETE FROM talent_alerts').run();
+    }
+  });
+  it('filters the network by pay, language and a confirmed checklist item', async()=>{
+    await DB.prepare("UPDATE caregivers SET hourly_rate_min=30,languages='English, Spanish',checklist='background_check' WHERE id='towson'").run();
+    try{
+      const ids=async(q:string)=>((await (await call('/api/candidates?zip=21201&radius=25&'+q,{headers:{cookie:'cj_session='+SESSION}})).json()) as any).candidates.map((c:any)=>c.id).sort();
+      expect(await ids('payMax=25')).toEqual(['baltimore']);
+      expect(await ids('language=Spanish')).toEqual(['towson']);
+      expect(await ids('checked=background_check')).toEqual(['towson']);
+    }finally{
+      await DB.prepare("UPDATE caregivers SET hourly_rate_min=NULL,languages=NULL,checklist=NULL WHERE id='towson'").run();
+    }
   });
   it('opening match uses commute radius and infers location from ZIP', async()=>{
     const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA days',role:'CNA',zip:'21201'})});

@@ -9,7 +9,7 @@ export type PipelineSpot={rowId:string;title:string};
 export type TalentActions={
   openings:TalentOpening[];
   pipelineFor:(caregiverId:string)=>PipelineSpot[];
-  onInvite:(candidate:TalentCandidate,openingId:string)=>Promise<void>;
+  onInvite:(candidate:TalentCandidate|TalentCandidate[],openingId:string)=>Promise<void>;
   disabled?:boolean;
 };
 
