@@ -2150,7 +2150,8 @@ export default {
         await repairJobCityBatch(env,100).catch(()=>null);
         await unpublishNonJobsBatch(env,2000).catch(()=>null);
         // New sites before retries, and one step failing never skips the rest.
-        await discoverAgencyJobsBatch(env,24).catch(()=>null);
+        // 48 sites, 8 at a time, keeps each run inside its five minutes (about 13k sites a day).
+        await discoverAgencyJobsBatch(env,48).catch(()=>null);
         await recoverRejectedJobsBatch(env,180).catch(()=>null);
         await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
         return;

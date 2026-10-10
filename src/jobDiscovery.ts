@@ -1395,7 +1395,7 @@ export async function repairJobCityBatch(env:FeatureEnv,limit=100){
   return counts;
 }
 
-const SCAN_CONCURRENCY=4;
+const SCAN_CONCURRENCY=8;
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain,scan.last_scanned_at
