@@ -6,6 +6,8 @@ export type BillingEnv=FeatureEnv&{
   STRIPE_PRICE_ID?:string;
   /** Optional yearly price for the same plan; checkout offers it when set. */
   STRIPE_PRICE_ID_YEARLY?:string;
+  /** "1" once Stripe Tax is active with a business address; checkout then adds tax and collects address and tax ID. */
+  STRIPE_AUTOMATIC_TAX?:string;
   STRIPE_WEBHOOK_SECRET?:string;
   FREE_CONTACTS?:string;
 };
@@ -107,6 +109,13 @@ export async function createCheckout(request:Request,env:BillingEnv){
   };
   const customer=clean(existing?.stripe_customer_id,100);
   if(customer)params.customer=customer;else params.customer_email=clean(employer.email,320);
+  if(['1','true'].includes(clean(env.STRIPE_AUTOMATIC_TAX).toLowerCase())){
+    params['automatic_tax[enabled]']='true';
+    params.billing_address_collection='required';
+    params['tax_id_collection[enabled]']='true';
+    // A returning customer's address and business name are saved back to them for tax.
+    if(customer){params['customer_update[address]']='auto';params['customer_update[name]']='auto';}
+  }
   try{
     const session=await stripe(env,'checkout/sessions',params);
     return json({ok:true,url:session.url});

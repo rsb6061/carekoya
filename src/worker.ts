@@ -66,6 +66,7 @@ interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
   STRIPE_PRICE_ID_YEARLY?: string;
+  STRIPE_AUTOMATIC_TAX?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;
