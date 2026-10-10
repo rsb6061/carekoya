@@ -7,6 +7,8 @@ import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from 
 import { fitSummary } from '../src/fitSummary';
 import { fillTemplate, mergeTemplates, templateMailto, BUILT_IN_TEMPLATES } from '../src/emailTemplateFill';
 import { parseChecklist } from '../src/checklist';
+import { certificationsLabel, distanceLabel, profileTags, shiftsLabel, wageLabel } from '../src/profileTags';
+import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent } from '../src/talentSearch';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
@@ -565,5 +567,52 @@ describe('candidate review helpers', ()=>{
     expect(parseChecklist('over18, bogus,can_lift,over18')).toEqual(['over18','can_lift']);
     expect(parseChecklist(['diploma',3])).toEqual(['diploma']);
     expect(parseChecklist(null)).toEqual([]);
+  });
+});
+
+describe('profile tags', ()=>{
+  it('turns stored codes and bare numbers into plain labels', ()=>{
+    expect(shiftsLabel('part_time, full_time')).toBe('Part time, Full time');
+    expect(shiftsLabel('overnight, part_time')).toBe('Overnights, Part time');
+    expect(shiftsLabel('Mornings, Afternoons, Evenings, Overnights, Live-in')).toBe('Mornings, Afternoons +3');
+    expect(wageLabel('50')).toBe('$50/hr');
+    expect(wageLabel('20-24')).toBe('$20–24/hr');
+    expect(wageLabel('$25+/hr')).toBe('$25+/hr');
+    expect(wageLabel('$24–30/hr')).toBe('$24–30/hr');
+    expect(distanceLabel(0)).toBe('Under 1 mi');
+    expect(distanceLabel(43.3)).toBe('43 mi away');
+    expect(certificationsLabel('CPR/First Aid, Driver\'s License, CNA, HHA')).toBe('CPR/First Aid · Driver\'s License · CNA · +1');
+  });
+  it('orders tags the same way everywhere and drops the redundant ones', ()=>{
+    expect(profileTags({matchScore:90,reasons:['within 1 mi','role match','recently confirmed'],freshness:'Confirmed 1d ago',employmentTypes:'full_time',desiredWage:'50'}).map(t=>t.label))
+      .toEqual(['90% match','Under 1 mi','Confirmed 1d ago','Full time']);
+    expect(profileTags({freshness:'Confirmed this month',shifts:'part_time, full_time',desiredWage:'50'}).map(t=>t.label))
+      .toEqual(['Confirmed this month','Part time, Full time','$50/hr']);
+  });
+});
+
+describe('talent search', ()=>{
+  it('keeps US caregivers and flags a ZIP that contradicts the typed state', ()=>{
+    expect(inUs({state:'South Africa'})).toBe(false);
+    expect(inUs({state:'Maryland'})).toBe(true);
+    expect(inUs({state:''})).toBe(true);
+    expect(locationMatchesZip({state:'MD',geo_state:'MD'})).toBe(true);
+    expect(locationMatchesZip({state:'maryland',geo_state:'MD'})).toBe(true);
+    expect(locationMatchesZip({state:'CA',geo_state:'MD'})).toBe(false);
+    expect(locationMatchesZip({state:'',geo_state:'MD'})).toBe(true);
+  });
+  it('filters by shift, hours, certification and car', ()=>{
+    const c={availability_json:JSON.stringify({days:{sat:['overnight']},liveIn:false}),employment_types:'part_time',certifications:'CNA, CPR/First Aid',transportation:'own_car'};
+    expect(matchesTalentFilters(c,{shift:'overnight',hours:'part_time',cert:'CNA',car:true})).toBe(true);
+    expect(matchesTalentFilters(c,{shift:'weekends'})).toBe(true);
+    expect(matchesTalentFilters(c,{shift:'live_in'})).toBe(false);
+    expect(matchesTalentFilters(c,{hours:'full_time'})).toBe(false);
+    expect(matchesTalentFilters(c,{cert:'HHA'})).toBe(false);
+    expect(matchesTalentFilters({...c,transportation:'public_transit'},{car:true})).toBe(false);
+  });
+  it('puts closer caregivers first even when a distant one confirmed more recently', ()=>{
+    const old=new Date(Date.now()-20*86400000).toISOString(),fresh=new Date().toISOString();
+    const rows=[{c:{id:'far',last_confirmed_at:fresh},distanceMiles:2257},{c:{id:'near',last_confirmed_at:old},distanceMiles:3},{c:{id:'unknown',last_confirmed_at:fresh},distanceMiles:null}];
+    expect(sortTalent(rows).map(r=>r.c.id)).toEqual(['near','far','unknown']);
   });
 });

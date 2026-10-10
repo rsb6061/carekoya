@@ -16,6 +16,7 @@ import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob,
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
+import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
 import { hasSchedule, parseOpeningSchedule, scheduleSummary } from './schedule';
@@ -1422,19 +1423,25 @@ async function handleSchool(request: Request, env: Env) {
   return json({ok:true,id},{status:201});
 }
 const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))";
+const TALENT_COLUMNS=`c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng,zg.state AS geo_state`;
+/** Miles from the search center, or null when the caregiver's ZIP is unknown or contradicts the location they typed. */
+const talentDistance=(center:{lat:number;lng:number}|null,c:Record<string,unknown>)=>{
+  const geo=rowGeo(c);
+  return center&&geo&&locationMatchesZip(c)?haversineMiles(center,geo):null;
+};
 async function searchCandidates(url: URL, env: Env) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const role=clean(url.searchParams.get("role"),80).toLowerCase();
   const preferredRole=clean(url.searchParams.get("preferredRole"),80).toLowerCase();
   const zip=normalizeZip(url.searchParams.get("zip"));
   const state=clean(url.searchParams.get("state"),40).toLowerCase();
-  const shift=clean(url.searchParams.get("shift"),120).toLowerCase();
   const freshness=clean(url.searchParams.get("freshness"),30);
+  const sort=url.searchParams.get("sort")==="recent"?"recent":"closest";
+  const filters={shift:clean(url.searchParams.get("shift"),20),hours:clean(url.searchParams.get("hours"),20),cert:clean(url.searchParams.get("cert"),20),car:url.searchParams.get("car")==="1"};
   const allDistances=url.searchParams.get("radius")==='all';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
   const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng
-    FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
+  let sql=`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
   if(center&&!allDistances){
@@ -1442,30 +1449,54 @@ async function searchCandidates(url: URL, env: Env) {
     sql+=" AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?"; args.push(box.minLat,box.maxLat,box.minLng,box.maxLng);
   }else if(zip&&!center){ sql+=" AND substr(trim(COALESCE(c.zip,'')),1,5)=?"; args.push(zip); }
   if(state){ sql+=" AND lower(COALESCE(c.state,''))=?"; args.push(state); }
-  if(shift){ sql+=" AND lower(COALESCE(c.shift_preferences,'')) LIKE ?"; args.push("%"+shift+"%"); }
   if(freshness==="confirmed"){ sql+=" AND c.work_status='actively_looking' AND datetime(c.last_confirmed_at)>=datetime('now','-30 days')"; }
   sql+=" ORDER BY CASE WHEN c.last_confirmed_at IS NULL THEN 1 ELSE 0 END, c.last_confirmed_at DESC LIMIT 1000";
   const result=await env.DB.prepare(sql).bind(...args).all<Record<string,unknown>>();
-  let rows=(result.results||[]).map(c=>{
-    const geo=rowGeo(c);
-    return {c,distanceMiles:center&&geo?haversineMiles(center,geo):null};
-  });
+  let rows=(result.results||[]).filter(c=>inUs(c)&&matchesTalentFilters(c,filters)).map(c=>({c,distanceMiles:talentDistance(center,c)}));
+  if(center&&!allDistances)rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
   if(center){
-    if(!allDistances)rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
-    // Prioritize caregivers likely to accept the commute, then fresh availability, then
-    // distance. A default unbounded browse still includes everyone eligible afterwards.
-    rows.sort((a,b)=>{
-      const aCommute=a.distanceMiles!==null&&a.distanceMiles<=commuteRadiusMiles(a.c)?0:1;
-      const bCommute=b.distanceMiles!==null&&b.distanceMiles<=commuteRadiusMiles(b.c)?0:1;
-      const aAge=ageDays(a.c.last_confirmed_at)??9999,bAge=ageDays(b.c.last_confirmed_at)??9999;
+    rows=sortTalent(rows,sort);
+    // An open opening's role breaks ties inside the nearby group, so the people an agency is hiring for lead.
+    if(preferredRole){
       const roleText=(c:Record<string,unknown>)=>[c.role,c.certifications,c.specialties].map(v=>clean(v,500).toLowerCase()).join(' ');
-      const aRole=preferredRole&&!roleText(a.c).includes(preferredRole)?1:0;
-      const bRole=preferredRole&&!roleText(b.c).includes(preferredRole)?1:0;
-      return aCommute-bCommute||aRole-bRole||(aAge<=30?0:1)-(bAge<=30?0:1)||
-        (a.distanceMiles??9999)-(b.distanceMiles??9999)||aAge-bAge;
-    });
+      const near=rows.filter(withinCommute),far=rows.filter(r=>!withinCommute(r));
+      const fits=(r:typeof rows[number])=>roleText(r.c).includes(preferredRole)?0:1;
+      rows=[...near.map((r,i)=>({r,i})).sort((a,b)=>fits(a.r)-fits(b.r)||a.i-b.i).map(x=>x.r),...far];
+    }
   }
-  return json({ok:true,total:rows.length,radiusMiles:center&&!allDistances?radius:null,candidates:rows.slice(0,100).map(({c,distanceMiles})=>talentCandidate(c,distanceMiles))});
+  const nearby=rows.filter(withinCommute).length;
+  return json({ok:true,total:rows.length,nearby,radiusMiles:center&&!allDistances?radius:null,
+    candidates:rows.slice(0,100).map(r=>({...talentCandidate(r.c,r.distanceMiles),withinCommute:withinCommute(r)}))});
+}
+/** One caregiver from the network, for the profile panel and its own page. */
+async function talentProfile(id:string,url:URL,env:Env){
+  if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
+  const c=await env.DB.prepare(`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} LIMIT 1`).bind(id).first<Record<string,unknown>>();
+  if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
+  const zip=normalizeZip(url.searchParams.get("zip"));
+  const center=zip?await lookupZip(env.DB,zip):null;
+  const distanceMiles=talentDistance(center,c);
+  return json({ok:true,candidate:{...talentCandidate(c,distanceMiles),withinCommute:withinCommute({c,distanceMiles})}});
+}
+/**
+ * Adds a caregiver found in the network to one of the employer's openings as a match, so the usual invite,
+ * response and introduction rules apply. Returns the pipeline row, new or existing.
+ */
+async function addTalentToOpening(request:Request,env:Env,workspaceId:string,openingId:string){
+  const data=await readJson(request);
+  const caregiverId=clean(data?.caregiverId,100);
+  if(!caregiverId)return json({ok:false,error:"Choose a caregiver"},{status:400});
+  const opening=await env.DB!.prepare(`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.id=? AND o.employer_id=?`).bind(openingId,workspaceId).first<Record<string,unknown>>();
+  if(!opening)return json({ok:false,error:"Opening not found"},{status:404});
+  const c=await env.DB!.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} LIMIT 1`).bind(caregiverId).first<Record<string,unknown>>();
+  if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
+  const scored=scoreCandidate(opening,c);
+  // Picked by a person, so it is kept even when automatic matching would have scored it out.
+  const reasons=scored.score>0?scored.reasons:[];
+  await env.DB!.prepare("INSERT OR IGNORE INTO candidate_pipeline (id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?,'talent_network')")
+    .bind(crypto.randomUUID(),openingId,caregiverId,JSON.stringify(reasons),Math.max(0,scored.score)).run();
+  const row=await env.DB!.prepare("SELECT id,stage FROM candidate_pipeline WHERE opening_id=? AND caregiver_id=?").bind(openingId,caregiverId).first<Record<string,unknown>>();
+  return json({ok:true,pipelineId:row?.id,stage:row?.stage});
 }
 /** One caregiver as employers see them in Talent network search. The caregiver's own preview uses the same shape. */
 function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
@@ -1537,7 +1568,7 @@ async function matchOpening(workspaceId:string,openingId:string,env:Env) {
     candidateArgs.push(clean(opening.state));
   }
   const result=await env.DB!.prepare(candidateSql).bind(...candidateArgs).all<Record<string,unknown>>();
-  const scored=(result.results||[]).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
+  const scored=(result.results||[]).filter(inUs).map(c=>({c,...scoreCandidate(opening,c)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,50);
   for(const item of scored){
     const pipelineId=crypto.randomUUID();
     await env.DB!.prepare("INSERT OR IGNORE INTO candidate_pipeline (id,opening_id,caregiver_id,stage,match_reason,match_score,source) VALUES (?,?,?,'matched',?,?, 'carejoys_match')")
@@ -1841,6 +1872,12 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(employer instanceof Response)return employer;
       return searchCandidates(url,env);
     }
+    let talentId=url.pathname.match(/^\/api\/candidates\/([^/]+)$/);
+    if(request.method==="GET"&&talentId){
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return talentProfile(decodeURIComponent(talentId[1]),url,env);
+    }
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
@@ -1887,6 +1924,13 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       const employer=await approvedEmployer(request,env);
       if(employer instanceof Response)return employer;
       return matchOpening(String(employer.id),m[1],env);
+    }
+    m=url.pathname.match(/^\/api\/openings\/([^/]+)\/candidates$/);
+    if(request.method==="POST"&&m){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return addTalentToOpening(request,env,String(employer.id),m[1]);
     }
     m=url.pathname.match(/^\/api\/openings\/([^/]+)\/contact$/);
     if(request.method==="POST"&&m){

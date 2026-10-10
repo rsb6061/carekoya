@@ -30,6 +30,8 @@ const payNumber=(wage?:string)=>{const m=(wage||'').match(/\d+(\.\d+)?/);return 
 /** What's still missing, in the order agencies care about it. */
 export function profileGaps(c:CaregiverProfileData,hasResume:boolean){
   const gaps:{key:string;label:string}[]=[];
+  // Agencies screen on these first, and only answered items are shown to them, so this leads the list.
+  if(CHECKLIST.some(([k])=>!(c.checklist||[]).includes(k)))gaps.push({key:'checklist',label:'Answer what employers check first, like work authorization and a background check'});
   if(!hasAvailability(c.availability))gaps.push({key:'availability',label:'Which days and shifts you can work'});
   if(!c.startAvailability)gaps.push({key:'start',label:'When you can start'});
   if(!list(c.employmentTypes).length)gaps.push({key:'hours',label:'Full-time, part-time or per diem'});
@@ -42,7 +44,7 @@ export function profileGaps(c:CaregiverProfileData,hasResume:boolean){
   if(!hasResume)gaps.push({key:'resume',label:'Your resume file'});
   return gaps;
 }
-export const PROFILE_ITEMS=10;
+export const PROFILE_ITEMS=11;
 
 function Chips({options,value,onChange}:{options:readonly string[];value:string[];onChange:(next:string[])=>void}){
   return <div className="chip-row">{options.map(o=>{
