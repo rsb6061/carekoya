@@ -85,7 +85,7 @@ export function AboutCareJoysPage(){
         <div className="jobs">
           <div className="job"><div><h3>For caregivers</h3><div className="meta">Always free. Preview nearby jobs without a resume, create one profile, and choose which employers see it.</div></div><a className="text-link" href="/caregiver-jobs">Find jobs →</a></div>
           <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Free. Give graduates a CareJoys link and see how many create profiles, get matched and get hired.</div></div><a className="text-link" href="/training-programs/maryland">Maryland training programs →</a></div>
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $35 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $79 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
         </div>
       </div></section>
 
@@ -103,7 +103,7 @@ export function AboutCareJoysPage(){
   </div>;
 }
 
-const PRICE='$35';
+const PRICE='$79',YEARLY='$790';
 
 type Supply={found:boolean;city?:string;state?:string;miles?:number;jobs?:number;caregivers?:number|null;caregiversBelow?:number|null};
 
@@ -150,7 +150,6 @@ export function PricingPage(){
           <div className="modal-kicker">For home-care agencies and senior living</div>
           <h1>Caregivers find their best matches with AI. Make sure they find yours.</h1>
           <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Your first '+free+' introductions are free.':''}</p>
-          <LocalSupplyCheck/>
         </div>
         <div className="pricing-offer">
           <article className="plan-card">
@@ -160,6 +159,7 @@ export function PricingPage(){
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">{free>0?'Start free':'Start hiring'} →</a>
             <div className="plan-terms">{free>0?'First '+free+' introductions free. ':''}Month-to-month. Cancel anytime.</div>
+            <div className="plan-terms">Or {YEARLY}/year, two months free.</div>
             <ul className="plan-list">
               <li>Matches for every opening by distance, shift and pay.</li>
               <li>We reach out and introduce only caregivers who say yes.</li>
@@ -191,6 +191,12 @@ export function PricingPage(){
             <p className="meta">Call or email them directly. Interview booking is there if you want it.</p>
           </div>
         </div>
+      </div></section>
+
+      <section className="section"><div className="wrap pricing-supply-section">
+        <h2>See who's looking near you</h2>
+        <p className="meta">Enter your ZIP to see how many verified caregivers are looking nearby, and how many caregiver jobs are open around you.</p>
+        <LocalSupplyCheck/>
       </div></section>
     </main>
     <SiteFooter/>

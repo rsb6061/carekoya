@@ -492,3 +492,4 @@ a{color:inherit;text-decoration:none}
   .home-job-preview .search select,.home-job-preview .search input{min-width:0;background-color:#fff;border:1px solid var(--line);border-radius:16px}
   .home-job-preview .search .btn{grid-column:1/-1}
 }
+.pricing-supply-section h2{margin-bottom:8px}.pricing-supply-section .pricing-supply{margin-top:20px}
