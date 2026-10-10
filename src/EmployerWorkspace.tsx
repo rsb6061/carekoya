@@ -74,7 +74,7 @@ export function EmployerWorkspace(){
   function setMessage(text:string,tone:'ok'|'info'|'error'='ok'){setMessageText(text);setMessageTone(tone)}
   const [pendingApproval,setPendingApproval]=useState(false);
   const [approvalKnown,setApprovalKnown]=useState(false);
-  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null}|null>(null);
+  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;yearly?:boolean}|null>(null);
   const [filters,setFilters]=useState({role:'',zip:'',radius:'all',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
@@ -229,9 +229,9 @@ export function EmployerWorkspace(){
     await refreshWorkspace();
   }
 
-  async function openBilling(kind:'checkout'|'portal'){
+  async function openBilling(kind:'checkout'|'portal',plan:'monthly'|'yearly'='monthly'){
     try{
-      const result=await api<{url:string}>('/api/billing/'+kind,{method:'POST'});
+      const result=await api<{url:string}>('/api/billing/'+kind,{method:'POST',body:JSON.stringify({plan})});
       window.location.href=result.url;
     }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing','error')}
   }
@@ -409,8 +409,8 @@ export function EmployerWorkspace(){
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
-          ?<><span><strong>CareJoys Pro</strong> · unlimited candidate contacts</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
-          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade</button></>}
+          ?<><span><strong>CareJoys Hiring</strong> · unlimited caregiver introductions</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
+          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><span style={{display:'flex',gap:12,alignItems:'center'}}><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</span></>}
       </div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 

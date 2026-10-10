@@ -65,6 +65,7 @@ interface Env {
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
+  STRIPE_PRICE_ID_YEARLY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;

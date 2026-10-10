@@ -4,6 +4,8 @@ type Row=Record<string,unknown>;
 export type BillingEnv=FeatureEnv&{
   STRIPE_SECRET_KEY?:string;
   STRIPE_PRICE_ID?:string;
+  /** Optional yearly price for the same plan; checkout offers it when set. */
+  STRIPE_PRICE_ID_YEARLY?:string;
   STRIPE_WEBHOOK_SECRET?:string;
   FREE_CONTACTS?:string;
 };
@@ -67,7 +69,7 @@ export async function billingStatus(request:Request,env:BillingEnv){
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const allowance=await contactAllowance(env,clean(employer.id,100));
   return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
-    freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null});
+    freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY)});
 }
 
 async function stripe(env:BillingEnv,path:string,params:Record<string,string>){
@@ -86,9 +88,11 @@ export async function createCheckout(request:Request,env:BillingEnv){
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const existing=await env.DB!.prepare('SELECT stripe_customer_id FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
+  const body=await request.json().catch(()=>({})) as {plan?:unknown};
+  const yearly=body?.plan==='yearly'&&clean(env.STRIPE_PRICE_ID_YEARLY);
   const params:Record<string,string>={
     mode:'subscription',
-    'line_items[0][price]':env.STRIPE_PRICE_ID!,
+    'line_items[0][price]':yearly||env.STRIPE_PRICE_ID!,
     'line_items[0][quantity]':'1',
     client_reference_id:clean(employer.id,100),
     'subscription_data[metadata][employer_id]':clean(employer.id,100),

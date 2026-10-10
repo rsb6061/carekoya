@@ -399,6 +399,25 @@ describe('billing gate', ()=>{
   });
 });
 
+describe('billing checkout', ()=>{
+  it('uses the yearly price when asked and it is configured, else the monthly one', async()=>{
+    const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_month',STRIPE_PRICE_ID_YEARLY:'price_year'};
+    const original=globalThis.fetch;const bodies:string[]=[];
+    globalThis.fetch=(async(url:string,init:any)=>{
+      if(String(url).startsWith('https://api.stripe.com/'))return (bodies.push(String(init.body)),new Response(JSON.stringify({url:'https://checkout.stripe.test/s'}),{status:200}));
+      return original(url as any,init);
+    }) as any;
+    try{
+      const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+      expect((await (await call('/api/billing',{headers},stripe)).json() as any).yearly).toBe(true);
+      expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({plan:'yearly'})},stripe)).status).toBe(200);
+      expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({plan:'monthly'})},stripe)).status).toBe(200);
+      expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({plan:'yearly'})},{...stripe,STRIPE_PRICE_ID_YEARLY:''})).status).toBe(200);
+      expect(bodies.map(b=>new URLSearchParams(b).get('line_items[0][price]'))).toEqual(['price_year','price_month','price_month']);
+    }finally{globalThis.fetch=original}
+  });
+});
+
 describe('free introductions', ()=>{
   it('counts an introduction when a caregiver says yes and hides contact past the free ones', async()=>{
     const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test',FREE_CONTACTS:'1'};
