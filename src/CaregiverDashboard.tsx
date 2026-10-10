@@ -16,7 +16,7 @@ type Invite={
   company?:string;title?:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;shifts?:string;requirements?:string;
   slots:Slot[];
 };
-type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;employerOnCareJoys?:boolean;distanceMiles?:number|null};
+type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;employerOnCareJoys?:boolean;applyForMe?:boolean;distanceMiles?:number|null};
 type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean;submittedOnEmployerSite?:boolean};
 
 function applicationStatus(a:Application){
@@ -198,7 +198,7 @@ export function CaregiverDashboard(){
             <div className="job-card-actions">
               {!applied?(job.employerOnCareJoys
                 ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
-                :<a className="button" href={href+'#apply'}>Apply</a>)
+                :<a className="button" href={href+'#apply'}>{job.applyForMe?'Apply for me':'Apply'}</a>)
               :applied.employerOnCareJoys||applied.submittedOnEmployerSite?<span className="status applied">Applied</span>
               :<><span className="status applied">Saved</span><a className="button secondary" href={href+'#apply'}>Finish applying</a></>}
             </div>

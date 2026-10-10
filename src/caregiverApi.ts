@@ -6,6 +6,7 @@ import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZ
 import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
 import { caregiverApplicationEmail } from './email';
 import { normalizeTitle } from './jobDiscovery';
+import { detectApplyProvider } from './applyAgentRules';
 import { jobMeetsPayFloor } from './payMatching';
 import { parseChecklist } from './checklist';
 
@@ -99,7 +100,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   if(!env.DB)return [];
   const geo=rowGeo(c);
   const radius=commuteRadiusMiles(c);
-  let jobsSql=`SELECT j.id,j.title,j.role,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.employment_type,j.date_posted,j.last_seen_at,o.claimed_employer_id,zg.lat AS geo_lat,zg.lng AS geo_lng
+  let jobsSql=`SELECT j.id,j.title,j.role,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.employment_type,j.date_posted,j.last_seen_at,j.source_url,o.claimed_employer_id,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0 ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
   const jobArgs:unknown[]=[];
   if(geo){
@@ -111,7 +112,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   return (jobRows.results||[]).filter(j=>!jobConflict(c,j)).map((j,i)=>{const g=rowGeo(j);const d=geo&&g?haversineMiles(geo,g):null;return {j,d,i,fit:jobFit(c,j,d,radius)}})
     .filter(x=>!geo||(x.d!==null&&x.d<=radius))
     .sort((a,b)=>b.fit-a.fit||a.i-b.i).slice(0,limit)
-    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:!!clean(j.claimed_employer_id),distanceMiles:d===null?null:Math.round(d*10)/10}));
+    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:!!clean(j.claimed_employer_id),applyForMe:!!detectApplyProvider(clean(j.source_url,1000)),distanceMiles:d===null?null:Math.round(d*10)/10}));
 }
 
 export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIdentity|null){
