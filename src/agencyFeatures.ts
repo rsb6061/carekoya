@@ -89,7 +89,11 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
     FROM agency_organizations
     WHERE is_active=1 AND COALESCE(is_test,0)=0 AND primary_domain IS NOT NULL AND primary_domain!=''
       AND (last_enriched_at IS NULL OR datetime(last_enriched_at)<datetime('now','-30 days'))
-    ORDER BY CASE WHEN last_enriched_at IS NULL THEN 0 ELSE 1 END, updated_at ASC
+    ORDER BY CASE WHEN last_enriched_at IS NULL THEN 0 ELSE 1 END,
+      -- Independent assisted living in California and Maryland first: the facility outreach pilot needs their contacts (Rebecca, 2026-10-10).
+      CASE WHEN provider_kind='facility' AND COALESCE(is_chain,0)=0 AND state IN ('CA','MD')
+        AND (lower(coalesce(provider_types,'')) LIKE '%assisted%' OR lower(coalesce(provider_types,'')) LIKE '%adult care%') THEN 0 ELSE 1 END,
+      updated_at ASC
     LIMIT ?`).bind(limit).all<Row>();
   let enriched=0;
   for(const row of rows.results||[]){
