@@ -19,7 +19,7 @@ async function submitJson(path: string, data: Record<string, unknown>) {
   return body;
 }
 
-const ROLES = ['CNA', 'GNA', 'HHA', 'PCA', 'Caregiver', 'DSP'];
+const ROLES = ['CNA', 'GNA', 'HHA', 'PCA', 'Caregiver', 'DSP', 'CMT / Med Tech', 'Resident Assistant', 'Memory Care Aide'];
 
 /** /hire-caregivers: an employer describes the opening on its own page, laid out like sign-in. */
 export function FindCaregiversPage() {
@@ -95,6 +95,7 @@ function IntakePage({ kind }: { kind: Kind }) {
           <label>Hiring ZIP<input name="zip" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} required defaultValue={presetZip || known?.zip || ''} key={'zip'+(known?.zip||'')} /></label>
         </div>
         <label>Company name<input name="companyName" required defaultValue={known?.companyName || ''} key={'co'+(known?.companyName||'')} /></label>
+        <label>What kind of employer are you?<select name="employerType" required defaultValue=""><option value="" disabled>Select</option><option value="home_care">Home-care agency</option><option value="assisted_living">Assisted living or senior community</option><option value="other">Other</option></select></label>
         <label>Your name<input name="contactName" required defaultValue={known?.contactName || ''} key={'cn'+(known?.contactName||'')} /></label>
         <div className="form-grid">
           <label>Email<input type="email" name="email" required defaultValue={lockedEmail} readOnly={!!lockedEmail} /></label>
