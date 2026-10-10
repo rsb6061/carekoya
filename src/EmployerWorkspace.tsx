@@ -74,7 +74,10 @@ export function EmployerWorkspace(){
   function setMessage(text:string,tone:'ok'|'info'|'error'='ok'){setMessageText(text);setMessageTone(tone)}
   const [pendingApproval,setPendingApproval]=useState(false);
   const [approvalKnown,setApprovalKnown]=useState(false);
-  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;yearly?:boolean}|null>(null);
+  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;yearly?:boolean;paymentIssue?:boolean}|null>(null);
+  const [billingBusy,setBillingBusy]=useState(false);
+  // Coming back from Stripe with the browser's back button restores this page from cache, so re-enable the buttons.
+  useEffect(()=>{const reset=()=>setBillingBusy(false);window.addEventListener('pageshow',reset);return ()=>window.removeEventListener('pageshow',reset)},[]);
   const [filters,setFilters]=useState({role:'',zip:'',radius:'all',state:'',freshness:'all'});
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
@@ -230,10 +233,12 @@ export function EmployerWorkspace(){
   }
 
   async function openBilling(kind:'checkout'|'portal',plan:'monthly'|'yearly'='monthly'){
+    if(billingBusy)return;
+    setBillingBusy(true);
     try{
       const result=await api<{url:string}>('/api/billing/'+kind,{method:'POST',body:JSON.stringify({plan})});
       window.location.href=result.url;
-    }catch(error){setMessage(error instanceof Error?error.message:'Could not open billing','error')}
+    }catch(error){setBillingBusy(false);setMessage(error instanceof Error?error.message:'Could not open billing','error')}
   }
 
   const patchRow=(id:string,change:Partial<PipelineRow>)=>setPipeline(rows=>rows.map(r=>r.id===id?{...r,...change}:r));
@@ -412,7 +417,8 @@ export function EmployerWorkspace(){
         <span>{pendingApproval?'—':counts.interview} interviews</span><span>{pendingApproval?'—':counts.hired} hired</span>
       </div>
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
-      {billing?.enabled&&!billing.subscribed&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>You’ve used your {billing.freeContacts} free introductions.</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
+      {billing?.paymentIssue&&<div className="alert-status alert-error workspace-alert" role="status"><strong>Your last payment didn’t go through.</strong> Update your card to keep unlimited introductions. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Update card</button></div>}
+      {billing?.enabled&&!billing.subscribed&&!billing.paymentIssue&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>You’ve used your {billing.freeContacts} free introductions.</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
 
@@ -446,9 +452,9 @@ export function EmployerWorkspace(){
       {billing?.enabled&&(shownTab==='openings'||shownTab==='plan')&&<section className="section-block plan-section">
         <div className="section-heading"><h2>Your plan</h2><p>{billing.subscribed?'Change locations, switch between monthly and yearly, update your card or see invoices.':'An introduction counts when a caregiver says they’re interested or sends you their profile. Inviting is always free.'}</p></div>
         {billing.subscribed
-          ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
+          ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
           :<><p className="plan-line"><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. Unlimited introductions are $79/month per location.</p>
-            <div className="plan-actions"><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</div></>}
+            <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</div></>}
       </section>}
 
       {shownTab==='pipeline'&&<section className="section-block">

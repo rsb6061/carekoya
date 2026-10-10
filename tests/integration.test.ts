@@ -430,6 +430,37 @@ describe('billing checkout', ()=>{
       expect(taxed.get('tax_id_collection[enabled]')).toBe('true');
     }finally{globalThis.fetch=original}
   });
+
+  it('keeps access while a card is retried, sends existing subscribers to the portal, and dedupes double clicks', async()=>{
+    const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_month'};
+    const original=globalThis.fetch;const calls:{url:string;key:string|null}[]=[];
+    globalThis.fetch=(async(url:string,init:any)=>{
+      if(String(url).startsWith('https://api.stripe.com/'))return (calls.push({url:String(url),key:new Headers(init.headers).get('idempotency-key')}),new Response(JSON.stringify({url:String(url).includes('billing_portal')?'https://portal.stripe.test/p':'https://checkout.stripe.test/s'}),{status:200}));
+      return original(url as any,init);
+    }) as any;
+    const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+    try{
+      // Double click: both checkout requests carry the same idempotency key, so Stripe returns one session.
+      await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},stripe);
+      await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},stripe);
+      expect(calls[0].key).toBeTruthy();
+      expect(calls[1].key).toBe(calls[0].key);
+      // A failing card: still subscribed while Stripe retries, with a payment notice.
+      await DB.prepare("INSERT INTO employer_billing(employer_id,stripe_customer_id,stripe_subscription_id,status) VALUES ('emp1','cus_1','sub_1','past_due') ON CONFLICT(employer_id) DO UPDATE SET stripe_customer_id='cus_1',status='past_due'").run();
+      let status=await (await call('/api/billing',{headers},stripe)).json() as any;
+      expect(status.subscribed).toBe(true);
+      expect(status.paymentIssue).toBe(true);
+      // Upgrade with a subscription still open goes to the billing portal, not a second checkout.
+      calls.length=0;
+      expect((await (await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},stripe)).json() as any).url).toBe('https://portal.stripe.test/p');
+      expect(calls.map(c=>c.url.split('/v1/')[1])).toEqual(['billing_portal/sessions']);
+      // Once Stripe gives up, unlimited introductions end.
+      await DB.prepare("UPDATE employer_billing SET status='unpaid' WHERE employer_id='emp1'").run();
+      status=await (await call('/api/billing',{headers},stripe)).json() as any;
+      expect(status.subscribed).toBe(false);
+      expect(status.paymentIssue).toBe(true);
+    }finally{globalThis.fetch=original;await DB.prepare("DELETE FROM employer_billing WHERE employer_id='emp1'").run()}
+  });
 });
 
 describe('free introductions', ()=>{
