@@ -66,7 +66,7 @@ export function EmployerWorkspace(){
   const [talentSearchedZip,setTalentSearchedZip]=useState('');
   const firstTalentLoad=useRef('');
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':'openings'});
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'|'plan'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessageText]=useState('');
@@ -398,6 +398,7 @@ export function EmployerWorkspace(){
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='hiring'?'active':'')} onClick={()=>{leavePage();setTab('hiring')}}>Hiring preferences</button>}
+      {billing?.enabled&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>{leavePage();setTab('plan')}}>Plan</button>}
      </nav>
      <div className="dash-main-col">
       <section className="page-head page-head-row">
@@ -411,11 +412,7 @@ export function EmployerWorkspace(){
         <span>{pendingApproval?'—':counts.interview} interviews</span><span>{pendingApproval?'—':counts.hired} hired</span>
       </div>
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
-      {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-        {billing.subscribed
-          ?<><span><strong>CareJoys Hiring</strong> · unlimited caregiver introductions</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
-          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><span style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</span></>}
-      </div>}
+      {billing?.enabled&&!billing.subscribed&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>You’ve used your {billing.freeContacts} free introductions.</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
 
@@ -444,6 +441,14 @@ export function EmployerWorkspace(){
             {pendingApproval&&<span className="opening-next-step">Invitations unlock after account approval.</span>}
           </div>
         </article>)}</div>}
+      </section>}
+
+      {billing?.enabled&&(shownTab==='openings'||shownTab==='plan')&&<section className="section-block plan-section">
+        <div className="section-heading"><h2>Your plan</h2><p>{billing.subscribed?'Change locations, switch between monthly and yearly, update your card or see invoices.':'An introduction counts when a caregiver says they’re interested or sends you their profile. Inviting is always free.'}</p></div>
+        {billing.subscribed
+          ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
+          :<><p className="plan-line"><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. Unlimited introductions are $79/month per location.</p>
+            <div className="plan-actions"><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</div></>}
       </section>}
 
       {shownTab==='pipeline'&&<section className="section-block">

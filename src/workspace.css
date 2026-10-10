@@ -444,3 +444,8 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
   .dash-sidenav a.active,.dash-sidenav button.active{background:var(--ink);border-color:var(--ink);color:#fff}
   .dash-main-col .section-block{scroll-margin-top:150px}
 }
+.plan-section .plan-line{margin:0 0 16px;font-size:17px;color:var(--ink)}
+.plan-section .plan-actions{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.plan-section .plan-actions .text-button{white-space:nowrap;margin:0;font-size:16px}
+.workspace-alert .upgrade-link{display:inline;margin:0 0 0 4px;font-weight:600}
+.alert-info .upgrade-link{color:var(--blue,#4353ff)}
