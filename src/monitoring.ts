@@ -14,8 +14,9 @@ export type MonitorEnv={DB?:DB;EMAIL?:EmailBinding;ADMIN_EMAILS?:string;ALERT_EM
 const clean=(v:unknown,max:number)=>typeof v==='string'?v.trim().slice(0,max):'';
 const BOT_UA=/bot|crawler|spider|crawling|headless|preview|monitor|curl|wget|python|node-fetch/i;
 const KINDS=new Set(['error','rejection','react','api','api_slow','server']);
-// Noise that is not CareJoys' code: browser extensions, in-app browsers, and errors the browser hides from us.
-const NOISE=/^Script error\.?$|ResizeObserver loop|chrome-extension:|moz-extension:|safari(-web)?-extension:|__gCrWeb|webkit\.messageHandlers|Non-Error promise rejection captured|instantSearchSDKJSBridgeClearHighlight|Can't find variable: (gmo|_AutofillCallbackHandler)/i;
+// Noise that is not CareJoys' code: browser extensions, in-app browsers, email link scanners (Microsoft Safe Links'
+// "Object Not Found Matching Id"), and errors the browser hides from us.
+const NOISE=/^Script error\.?$|Object Not Found Matching Id:\d+, MethodName:\w+, ParamCount:\d+|ResizeObserver loop|chrome-extension:|moz-extension:|safari(-web)?-extension:|__gCrWeb|webkit\.messageHandlers|Non-Error promise rejection captured|instantSearchSDKJSBridgeClearHighlight|Can't find variable: (gmo|_AutofillCallbackHandler)/i;
 const NEW_FINGERPRINTS_PER_DAY=200;
 const ERROR_EMAIL_EVERY_MINUTES=30;
 
