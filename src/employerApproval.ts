@@ -1,4 +1,5 @@
 import type { FeatureEnv } from './serverFeatures';
+import { adminRecipients } from './monitoring';
 
 type Row=Record<string,unknown>;
 type ApprovalEnv=FeatureEnv&{ADMIN_EMAILS?:string};
@@ -14,8 +15,6 @@ export const FREE_MAIL=new Set(['gmail.com','googlemail.com','yahoo.com','ymail.
   'icloud.com','me.com','mac.com','comcast.net','verizon.net','att.net','sbcglobal.net','protonmail.com','proton.me','gmx.com','mail.com','zoho.com']);
 
 export const isFreeMail=(email:string)=>FREE_MAIL.has(clean(email,320).toLowerCase().split('@').pop()||'');
-
-const adminList=(env:ApprovalEnv)=>clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
 
 /**
  * Employer access requires employer verification, independent of site administrator identity.
@@ -47,7 +46,7 @@ export async function pendingApprovalResponse(env:ApprovalEnv,employerId:string)
   const res=await env.DB!.prepare('UPDATE employer_leads SET approval_requested_at=CURRENT_TIMESTAMP WHERE id=? AND approval_requested_at IS NULL').bind(employerId).run();
   if(res.meta?.changes&&env.EMAIL){
     const e=await env.DB!.prepare('SELECT company_name,contact_name,email FROM employer_leads WHERE id=?').bind(employerId).first<Row>();
-    const admins=adminList(env);
+    const admins=await adminRecipients(env);
     if(e&&admins.length){
       const who=`${clean(e.company_name,200)} (${clean(e.contact_name,120)}, ${clean(e.email,320)})`;
       await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:admins,subject:'Employer waiting for approval: '+clean(e.company_name,200),

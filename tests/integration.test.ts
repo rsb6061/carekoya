@@ -6,7 +6,7 @@ import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
-import { alertNewClientErrors, runDailyMonitor } from '../src/monitoring';
+import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -128,7 +128,7 @@ describe('employer approval', ()=>{
     const blocked=await asFree();
     expect(blocked.status).toBe(403);
     expect(((await blocked.json()) as any).pendingApproval).toBe(true);
-    expect(sent.map(m=>m.to)).toEqual([['boss@carejoys.com']]);
+    expect(sent.map(m=>m.to)).toEqual([['boss@carejoys.com','myersrebeccal@gmail.com']]);
     await asFree();
     expect(sent).toHaveLength(1);
     expect((await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).status).toBe(200);
@@ -224,7 +224,7 @@ describe('employer booking and approval gates', ()=>{
     const ws=await call('/api/workspace',signed,{ADMIN_EMAILS:'boss@carejoys.com'});
     expect(ws.status).toBe(200);
     expect((await ws.json() as any).approval.approved).toBe(false);
-    expect(sent.map(x=>x.to)).toEqual([['boss@carejoys.com']]);
+    expect(sent.map(x=>x.to)).toEqual([['boss@carejoys.com','myersrebeccal@gmail.com']]);
     await call('/api/workspace',signed,{ADMIN_EMAILS:'boss@carejoys.com'});
     expect(sent).toHaveLength(1);
     const opening=await (await call('/api/openings',{method:'POST',headers:{cookie:'cj_session=review2-cookie','content-type':'application/json'},body:JSON.stringify({title:'CNA',role:'CNA',zip:'21201'})})).json() as any;
@@ -320,6 +320,13 @@ describe('optional interview scheduling and verified owner admin', ()=>{
     expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='baltimore@example.com')).toBe(true);
     expect(sent.some(m=>m.subject.includes('Interview')&&m.to==='pat@acme.test')).toBe(true);
     expect((await call('/api/respond/interview',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,slotId:available[0].id})})).status).toBe(409);
+  });
+  it('sends admin notifications to ADMIN_EMAILS and the owner accounts, without duplicates',async()=>{
+    const owner='myersrebeccal@gmail.com';
+    expect(await adminRecipients(env({ADMIN_EMAILS:'ops@carejoys.com, MyersRebeccaL@gmail.com'}))).toEqual(['ops@carejoys.com',owner]);
+    expect(await adminRecipients(env())).toEqual([owner]);
+    expect(await alertRecipients(env({ADMIN_EMAILS:'ops@carejoys.com'}))).toEqual(['ops@carejoys.com',owner]);
+    expect(await alertRecipients(env({ALERT_EMAILS:'oncall@carejoys.com'}))).toEqual(['oncall@carejoys.com']);
   });
   it('authorizes the designated owner only after a real email-based account session',async()=>{
     const owner='myersrebeccal@gmail.com';
