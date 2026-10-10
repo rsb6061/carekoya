@@ -1757,6 +1757,7 @@ describe('site monitoring', ()=>{
     await report({kind:'error',message:'boom',source:'chrome-extension://abc/content.js:1:1',path:'/'});
     await report({kind:'error',message:'boom from an ad',source:'https://ads.example.net/tag.js:1:1',path:'/'});
     await report({kind:'error',message:'Script error.',path:'/'});
+    await report({kind:'rejection',message:'Object Not Found Matching Id:4, MethodName:update, ParamCount:4',path:'/agency'},'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36');
     await report({kind:'error',message:'crawler error',source:'https://carejoys.com/assets/x.js:1:1',path:'/'},'Googlebot/2.1');
     expect((await call('/api/client-errors',{method:'POST',headers:{'content-type':'application/json',origin:'https://evil.test'},body:'{}'})).status).toBe(403);
     const rows=(await DB.prepare('SELECT kind,message,count,first_path,last_path FROM client_errors ORDER BY kind').all()).results;
