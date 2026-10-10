@@ -121,6 +121,13 @@ jobs:
           SET status='inactive',updated_at=CURRENT_TIMESTAMP
           WHERE id IN (SELECT id FROM ranked WHERE rn>1);"
 
+      - name: Correct known ZIP typos in the state list
+        run: |
+          # A New Horizon is in Chestertown (21620); the state list gives 21260, a Baltimore ZIP.
+          npx wrangler d1 execute DB --remote --command="
+          UPDATE training_programs SET zip='21620',updated_at=CURRENT_TIMESTAMP
+          WHERE id='tp_b62ee0c32691656544992afe' AND zip='21260';"
+
       - name: Normalize training program cities from Maryland ZIPs
         run: |
           npx wrangler d1 execute DB --remote --command="
