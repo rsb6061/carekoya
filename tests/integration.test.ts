@@ -8,6 +8,7 @@ import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
+import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -35,7 +36,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['talent_alerts','caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['talent_alerts','caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_members','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -1919,5 +1920,182 @@ describe('opening follow-through', ()=>{
     expect((await intake('bo@oakgrove.test','spaceship')).status).toBe(201);
     const types=Object.fromEntries(((await DB.prepare("SELECT email,employer_type FROM employer_leads WHERE email LIKE '%@oakgrove.test'").all()).results as any[]).map(r=>[r.email,r.employer_type]));
     expect(types).toEqual({'ana@oakgrove.test':'assisted_living','bo@oakgrove.test':null});
+  });
+});
+
+describe('agency buyer: claim, team, settings and pricing', ()=>{
+  const headers={cookie:'cj_session=buy-cookie','content-type':'application/json',origin:'https://carejoys.com'};
+  const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test'};
+  let openingId='';
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-buy','Buy Care','Jo Park','owner@buy.test','21204','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('buy-s','emp-buy',?,?)").bind(await sha256Hex('buy-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,zip,is_active,claimed_employer_id) VALUES ('org-buy','org-buy','Buy Care','Towson','MD','21204',1,'emp-buy')").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-buy','org-buy','job-buy','test','https://buy.test/jobs/1','CNA Days','CNA','Buy Care','Towson','MD','21204','current',1)").run();
+    await addCaregiver('buy-near','21204');
+    await addCaregiver('buy-app','21204',{certifications:'CNA',state:'MD'});
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,caregiver_job_id,job_key,source,caregiver_note,created_at) VALUES ('ai-buy','org-buy','buy-app','job-buy','job-buy','job_apply','=HYPERLINK(\"x\")',datetime('now','-1 hour'))").run();
+  });
+
+  it('one click on the emailed claim link signs the agency in, with no second email', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,zip,is_active) VALUES ('org-claim1','org-claim1','Claim Care','owner@claimcare.test','Towson','MD','21204',1)").run();
+    await DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES ('tt-claim1','org-claim1',?,'owner@claimcare.test',?,CURRENT_TIMESTAMP)").bind(await sha256Hex('claim-token-1'),new Date(Date.now()+86400000).toISOString()).run();
+    sent.length=0;
+    const res=await post('/api/agency/claim/request',{token:'claim-token-1'},{origin:'https://carejoys.com'});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=jobs'});
+    const cookies=res.headers.get('set-cookie')||'';
+    expect(cookies).toContain('__Host-cj_session=');
+    expect(cookies).toContain('__Host-cj_account=');
+    expect(sent).toHaveLength(0);
+    const org=await DB.prepare("SELECT claimed_employer_id FROM agency_organizations WHERE id='org-claim1'").first() as any;
+    expect(org.claimed_employer_id).toBeTruthy();
+    const session=cookies.match(/__Host-cj_session=([^;]+)/)![1];
+    expect((await (await call('/api/session',{headers:{cookie:'__Host-cj_session='+session}})).json() as any).employer.id).toBe(org.claimed_employer_id);
+    // The link works once.
+    expect((await post('/api/agency/claim/request',{token:'claim-token-1'},{origin:'https://carejoys.com'})).status).toBe(409);
+  });
+
+  it('never matches or invites a caregiver who already applied to the agency', async()=>{
+    openingId=((await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA Towson',role:'CNA',zip:'21204'})})).json()) as any).id;
+    await call('/api/openings/'+openingId+'/match',{method:'POST',headers});
+    const ids=(await (await call('/api/pipeline?openingId='+openingId,{headers})).json() as any).pipeline.map((r:any)=>r.caregiver_id);
+    expect(ids).toContain('buy-near');
+    expect(ids).not.toContain('buy-app');
+  });
+
+  it('adds a teammate who signs in to the same workspace, and removing them signs them out', async()=>{
+    sent.length=0;
+    const added=await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'Recruiter@Buy.test'})});
+    expect(added.status).toBe(200);
+    const memberId=(await added.json() as any).member.id;
+    expect(sent.find(m=>m.to==='recruiter@buy.test')?.subject).toBe('Jo Park added you to Buy Care on CareJoys');
+    expect((await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'recruiter@buy.test'})})).status).toBe(409);
+    expect((await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'owner@buy.test'})})).status).toBe(409);
+    // Another workspace can't remove them.
+    expect((await call('/api/team/'+memberId,{method:'DELETE',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com'}})).status).toBe(404);
+
+    sent.length=0;
+    await post('/api/login/request',{email:'recruiter@buy.test'});
+    const token=decodeURIComponent(sent.find(m=>m.to==='recruiter@buy.test')!.html!.match(/token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token});
+    expect((await verified.json() as any).redirect).toBe('/app');
+    const workspace=verified.headers.get('set-cookie')!.match(/__Host-cj_session=([^;]+)/)![1];
+    const team=await (await call('/api/team',{headers:{cookie:'__Host-cj_session='+workspace}})).json() as any;
+    expect(team).toMatchObject({me:'recruiter@buy.test',owner:{email:'owner@buy.test'}});
+    expect((await call('/api/session',{headers:{cookie:'__Host-cj_session='+workspace}})).status).toBe(200);
+
+    expect((await call('/api/team/'+memberId,{method:'DELETE',headers})).status).toBe(200);
+    expect((await call('/api/session',{headers:{cookie:'__Host-cj_session='+workspace}})).status).toBe(401);
+    // Back on for the emails below.
+    await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'recruiter@buy.test'})});
+  });
+
+  it('shows the agency’s own words on invitations and job pages', async()=>{
+    const saved=await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({about:'Family owned in Towson since 2009.',benefits:'Weekly pay, mileage'})});
+    expect((await saved.json() as any).settings).toMatchObject({about:'Family owned in Towson since 2009.',benefits:'Weekly pay, mileage',digest:true,atsEmail:''});
+    const row=(await (await call('/api/pipeline?openingId='+openingId,{headers})).json() as any).pipeline.find((r:any)=>r.caregiver_id==='buy-near');
+    sent.length=0;
+    await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:[row.id]})});
+    const invite=sent.find(m=>m.to==='buy-near@example.com')!;
+    expect(invite.html).toContain('Family owned in Towson since 2009.');
+    expect(invite.html).toContain('Weekly pay, mileage');
+    const page=await (await call('/jobs/job-buy',{},htmlAssets)).text();
+    expect(page).toContain('Family owned in Towson since 2009.');
+    // The caregiver's yes goes to the owner and the teammate.
+    const respondToken=decodeURIComponent(invite.html!.match(/respond\?token=([^"&\s]+)/)![1]);
+    expect((await (await call('/api/respond?token='+encodeURIComponent(respondToken))).json() as any).opportunity.about).toBe('Family owned in Towson since 2009.');
+    sent.length=0;
+    await post('/api/respond',{token:respondToken,choice:'interested'},{origin:'https://carejoys.com'});
+    expect(sent.find(m=>m.subject.startsWith('Interested candidate:'))?.to).toEqual(['owner@buy.test','recruiter@buy.test']);
+  });
+
+  it('forwards new candidates to the ATS inbox once, and exports everyone as CSV', async()=>{
+    expect((await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({atsEmail:'not-an-email'})})).status).toBe(400);
+    await DB.prepare("UPDATE candidate_pipeline SET responded_at=datetime('now','-1 hour') WHERE caregiver_id='buy-near' AND response_value='interested'").run();
+    await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({atsEmail:'apply@ats.test'})});
+    await addCaregiver('buy-new','21204');
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,created_at) VALUES ('ai-buy-new','org-buy','buy-new','','mcp',datetime('now','+1 minute'))").run();
+    sent.length=0;
+    await forwardToAts(env());
+    const forwarded=sent.filter(m=>m.to==='apply@ats.test');
+    // Only the one who arrived after forwarding was turned on; the earlier applicant and yes stay out.
+    expect(forwarded.map(m=>m.subject)).toEqual(['Candidate: buy-new Test (CareJoys)']);
+    expect(forwarded[0].html).toContain('buy-new@example.com');
+    sent.length=0;
+    await forwardToAts(env());
+    expect(sent.filter(m=>m.to==='apply@ats.test')).toHaveLength(0);
+
+    const csv=await call('/api/workspace/candidates.csv',{headers});
+    expect(csv.headers.get('content-type')).toContain('text/csv');
+    const text=await csv.text();
+    const lines=text.trim().split('\r\n');
+    expect(lines[0]).toBe('Name,Email,Phone,City,State,ZIP,Role,Certifications,Years experience,Position,Source,Stage,Date,Their note,Your notes');
+    expect(lines.find(l=>l.startsWith('buy-app Test,buy-app@example.com'))).toContain('Applied from CareJoys job page');
+    // A caregiver's note can't run as a spreadsheet formula.
+    expect(text).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(lines.find(l=>l.startsWith('buy-near Test'))).toContain('Said yes');
+    expect((await call('/api/workspace/candidates.csv')).status).toBe(401);
+  });
+
+  it('sends one morning digest to the team, and none when it is turned off', async()=>{
+    sent.length=0;
+    await sendDailyDigests(env(),1000);
+    const digest=sent.find(m=>Array.isArray(m.to)&&m.to.includes('owner@buy.test'));
+    expect(digest?.to).toEqual(['owner@buy.test','recruiter@buy.test']);
+    expect(digest?.html).toContain('buy-app Test');
+    expect(digest?.html).toContain('/app?tab=settings');
+    sent.length=0;
+    await sendDailyDigests(env(),1000);
+    expect(sent.filter(m=>JSON.stringify(m.to).includes('owner@buy.test'))).toHaveLength(0);
+    await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({digest:false})});
+    await DB.prepare("UPDATE employer_leads SET last_digest_at=NULL WHERE id='emp-buy'").run();
+    await sendDailyDigests(env(),1000);
+    expect(sent.filter(m=>JSON.stringify(m.to).includes('owner@buy.test'))).toHaveLength(0);
+  });
+
+  it('sends last month’s results on the 1st, once', async()=>{
+    const now=new Date();
+    const first=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()+1,1,11));
+    expect(await sendMonthlyResults(env(),new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),2,11)))).toEqual({sent:0});
+    sent.length=0;
+    await sendMonthlyResults(env(),first,1000);
+    const mail=sent.find(m=>JSON.stringify(m.to).includes('owner@buy.test'));
+    expect(mail?.subject).toMatch(/^Buy Care on CareJoys in \w+: 3 caregivers interested, 0 hired$/);
+    sent.length=0;
+    await sendMonthlyResults(env(),first,1000);
+    expect(sent.filter(m=>JSON.stringify(m.to).includes('owner@buy.test'))).toHaveLength(0);
+  });
+
+  it('keeps each employer’s own license checks, for their own candidates only', async()=>{
+    const check=(id:string,result:string,h=headers)=>call('/api/license-checks/'+id,{method:'POST',headers:h,body:JSON.stringify({result})});
+    expect((await check('buy-app','maybe')).status).toBe(400);
+    expect((await check('la','active')).status).toBe(404);
+    expect((await check('buy-app','active')).status).toBe(200);
+    const mine=(await (await call('/api/license-checks',{headers})).json() as any).checks;
+    expect(mine['buy-app']).toMatchObject({result:'active',checkedBy:'owner@buy.test'});
+    const theirs=(await (await call('/api/license-checks',{headers:{cookie:'cj_session='+SESSION}})).json() as any).checks;
+    expect(theirs['buy-app']).toBeUndefined();
+    expect((await check('buy-app','')).status).toBe(200);
+    expect((await (await call('/api/license-checks',{headers})).json() as any).checks['buy-app']).toBeUndefined();
+  });
+
+  it('is free until the first hire, then new introductions and invitations wait for a subscription', async()=>{
+    let status=await (await call('/api/billing',{headers},stripe)).json() as any;
+    expect(status).toMatchObject({enabled:true,subscribed:false,firstHire:false,freeContacts:25});
+    expect(status.freeContactsRemaining).toBeGreaterThan(0);
+    expect((await call('/api/agency/inbox/ai-buy',{method:'POST',headers,body:JSON.stringify({stage:'hired'})},stripe)).status).toBe(200);
+    status=await (await call('/api/billing',{headers},stripe)).json() as any;
+    expect(status).toMatchObject({firstHire:true,freeContactsRemaining:0});
+    const blocked=await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:'{}'},stripe);
+    expect(blocked.status).toBe(402);
+    expect((await blocked.json() as any).error).toContain('first hire');
+    await addCaregiver('buy-later','21204');
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,created_at) VALUES ('ai-buy-later','org-buy','buy-later','','job_apply',datetime('now','+5 minutes'))").run();
+    const items=(await (await call('/api/agency/inbox',{headers},stripe)).json() as any).items;
+    expect(items.find((i:any)=>i.id==='ai-buy-later').contactLocked).toBe(true);
+    expect(items.find((i:any)=>i.id==='ai-buy').contactLocked).toBe(false);
+    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp-buy','active')").run();
+    expect((await (await call('/api/agency/inbox',{headers},stripe)).json() as any).items.every((i:any)=>!i.contactLocked)).toBe(true);
   });
 });

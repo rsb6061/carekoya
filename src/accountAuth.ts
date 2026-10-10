@@ -45,10 +45,19 @@ export function safeNext(raw:unknown){
 export const SCHOOL_FOR_EMAIL=`SELECT tp.id AS training_program_id,sl.id AS school_lead_id FROM training_programs tp
   JOIN school_leads sl ON sl.id=tp.claimed_school_lead_id WHERE lower(sl.email)=? ORDER BY tp.updated_at DESC LIMIT 1`;
 
+/** The hiring workspace this email signs in to: their own, or one a teammate added them to. */
+export async function workspaceForEmail(env:AccountEnv,email:string){
+  if(!env.DB||!email)return null;
+  const own=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
+  if(own)return own.id;
+  const member=await env.DB.prepare("SELECT e.id FROM employer_members m JOIN employer_leads e ON e.id=m.employer_id WHERE m.email=? AND e.status!='disabled' ORDER BY m.created_at DESC LIMIT 1").bind(email).first<{id:string}>();
+  return member?.id||null;
+}
+
 export async function accountRoles(env:AccountEnv,email:string):Promise<Roles>{
   if(!env.DB||!email)return {caregiver:false,employer:false,admin:false,school:false};
   const caregiver=await env.DB.prepare("SELECT id FROM caregivers WHERE lower(trim(email))=? AND COALESCE(work_status,'') NOT IN ('merged_duplicate','closed') LIMIT 1").bind(email).first();
-  const employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' LIMIT 1").bind(email).first();
+  const employer=await workspaceForEmail(env,email);
   const school=await env.DB.prepare(SCHOOL_FOR_EMAIL).bind(email).first();
   return {caregiver:!!caregiver,employer:!!employer,admin:await isAdminEmail(env,email),school:!!school};
 }
@@ -119,10 +128,10 @@ async function completeSignIn(env:AccountEnv,email:string,next:string,last=''){
     await env.DB!.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status) VALUES (?,'CareJoys','Admin',?,'','','CareJoys admin account','active')").bind(crypto.randomUUID(),email).run();
     roles.employer=true;
   }
-  const employer=roles.employer?await env.DB!.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>():null;
+  const employerId=roles.employer?await workspaceForEmail(env,email):null;
   // Replace any workspace or school session this browser still holds for a different email, so a shared computer never
   // opens someone else's hiring workspace under this sign-in.
-  headers.append('Set-Cookie',employer?employerSessionCookie(await startEmployerSession(env,employer.id)):CLEAR_EMPLOYER_COOKIE);
+  headers.append('Set-Cookie',employerId?employerSessionCookie(await startEmployerSession(env,employerId,email)):CLEAR_EMPLOYER_COOKIE);
   if(!roles.school)headers.append('Set-Cookie',CLEAR_SCHOOL_COOKIE);
   return {headers,redirect:landingPath(roles,next,last),roles};
 }
@@ -208,10 +217,11 @@ export async function hiringSession(request:Request,env:AccountEnv){
   const existing=await sessionResponse(request,env);
   if(existing.status!==401)return existing;
   const account=await accountSession(request,env);
-  const employer=account?await env.DB!.prepare("SELECT id,company_name,contact_name,email,phone,zip FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1")
-    .bind(account.email).first<Record<string,unknown>>():null;
+  const employerId=account?await workspaceForEmail(env,account.email):null;
+  const employer=employerId?await env.DB!.prepare("SELECT id,company_name,contact_name,email,phone,zip FROM employer_leads WHERE id=? LIMIT 1")
+    .bind(employerId).first<Record<string,unknown>>():null;
   if(!employer)return existing;
-  const session=await startEmployerSession(env,String(employer.id));
+  const session=await startEmployerSession(env,String(employer.id),account!.email);
   return json({ok:true,employer:{id:employer.id,companyName:employer.company_name,contactName:employer.contact_name,email:employer.email,phone:employer.phone,zip:employer.zip}},
     {headers:{'Set-Cookie':employerSessionCookie(session)}});
 }
@@ -252,6 +262,9 @@ export async function closeAccountSide(request:Request,env:AccountEnv){
       await env.DB!.prepare("UPDATE employer_leads SET status='disabled',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
       await env.DB!.prepare('DELETE FROM employer_sessions WHERE employer_id=?').bind(row.id).run();
     }
+    // A teammate leaves the workspaces they were added to; the agency's own workspace stays.
+    await env.DB!.prepare('DELETE FROM employer_members WHERE email=?').bind(session.email).run();
+    await env.DB!.prepare('DELETE FROM employer_sessions WHERE signed_in_email=?').bind(session.email).run();
     headers.append('Set-Cookie',CLEAR_EMPLOYER_COOKIE);
   }else if(side==='caregiver'){
     await env.DB!.prepare("UPDATE caregivers SET work_status='closed',is_active=0,updated_at=CURRENT_TIMESTAMP WHERE lower(trim(email))=? AND COALESCE(work_status,'')!='merged_duplicate'").bind(session.email).run();

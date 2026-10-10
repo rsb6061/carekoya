@@ -101,7 +101,11 @@ export function caregiverActivationReminderEmail(firstName: string, link: string
 
 export function caregiverJobInviteEmail(input:{
   firstName:string; company:string; title:string; role:string; location:string; pay:string; shift:string; link:string;
+  /** The employer's own words about working there, from their workspace settings. */
+  about?:string; benefits?:string;
 }) {
+  const aboutHtml=input.about||input.benefits?`<div style="margin:20px 0;color:#4f4962;line-height:1.7">${input.about?`<p style="margin:0 0 8px"><strong>About ${esc(input.company)}:</strong> ${esc(input.about)}</p>`:''}${input.benefits?`<p style="margin:0"><strong>Benefits:</strong> ${esc(input.benefits)}</p>`:''}</div>`:'';
+  const aboutText=[input.about?`About ${input.company}: ${input.about}`:'',input.benefits?`Benefits: ${input.benefits}`:''].filter(Boolean).join('\n');
   const location=esc(input.location||'Location provided by employer');
   const pay=esc(input.pay||'Pay discussed with employer');
   const shift=esc(input.shift||'Shift details provided by employer');
@@ -113,10 +117,10 @@ export function caregiverJobInviteEmail(input:{
       <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.company)}</strong> is hiring for <strong>${esc(input.title)}</strong>.</p>
       <div style="background:#f0edff;border:1px solid #d8d2ff;border-radius:18px;padding:16px 18px;margin:20px 0;color:#4f4962;line-height:1.7">
         <div>${location}</div><div>${pay}</div><div>${shift}</div>
-      </div>
+      </div>${aboutHtml}
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Tap below to see the details and tell CareJoys whether you’re interested. If you are, you can choose an available interview time if the employer has added one.</p>
       <p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">View job and respond</a></p>`),
-    text:`Hi ${input.firstName||'there'},\n\n${input.company} is hiring for ${input.title}.\n${input.location}\n${input.pay}\n${input.shift}\n\nView the job and respond here:\n${input.link}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.firstName||'there'},\n\n${input.company} is hiring for ${input.title}.\n${input.location}\n${input.pay}\n${input.shift}${aboutText?'\n\n'+aboutText:''}\n\nView the job and respond here:\n${input.link}\n\nCareJoys · carejoys.com`
   };
 }
 
@@ -128,9 +132,9 @@ export function employerCandidateInterestedEmail(input:{
     html:shell('A caregiver is interested',`
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
       <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.caregiverName)}</strong> said they are interested in <strong>${esc(input.title)}</strong>${input.location?' in '+esc(input.location):''}.</p>
-      <p style="font-size:16px;line-height:1.6;color:#5f5972">You've used your free introductions. Upgrade in your workspace to see how to reach them.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Your free introductions are used up. Upgrade in your workspace to see how to reach them.</p>
       <p style="margin:26px 0"><a href="${esc(input.appLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Open recruiting workspace</a></p>`),
-    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nYou've used your free introductions. Upgrade in your workspace to see how to reach them.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nYour free introductions are used up. Upgrade in your workspace to see how to reach them.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
   };
   return {
     subject:`Interested candidate: ${input.caregiverName} — ${input.title}`,
@@ -208,8 +212,8 @@ export function agencyCandidateTeaserEmail(input:{
       ${rows}
       <p style="font-size:14px;line-height:1.6;color:#6e6882">These previews are intentionally de-identified. Claim your agency to review the matching profiles, confirm what you hire for, and contact interested caregivers through CareJoys.</p>
       <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Review caregiver matches</a></p>
-      <p style="font-size:13px;line-height:1.6;color:#8a849b">Your first 5 interested caregiver candidates are free during the CareJoys pilot.</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free during the CareJoys pilot.\n\nCareJoys · carejoys.com`
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">CareJoys is free until you hire someone through it.</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nCareJoys is free until you hire someone through it.\n\nCareJoys · carejoys.com`
   };
 }
 
@@ -393,5 +397,64 @@ export function caregiverRoleClosedEmail(input:{firstName:string;company:string;
       p('Your profile stays active, and CareJoys will keep matching you with jobs near you.')+
       cta(input.jobsLink,'See jobs near you')),
     text:`Hi ${input.firstName||'there'},\n\n${input.filled?`${input.company} has filled ${input.title}.`:`${input.company} decided to go another way for ${input.title}.`} Thank you for saying you were interested.\n\nYour profile stays active, and CareJoys will keep matching you with jobs near you.\n\n${input.jobsLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
+const button=(href:string,label:string)=>`<p style="margin:26px 0"><a href="${esc(href)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">${esc(label)}</a></p>`;
+
+/** A teammate added to an agency's workspace: they sign in with their own email. */
+export function teamInviteEmail(input:{inviterName:string;company:string;link:string}){
+  return {
+    subject:`${input.inviterName||'Your team'} added you to ${input.company} on CareJoys`,
+    html:shell('You’re on the team',`
+      <p style="${P}">${esc(input.inviterName||'A teammate')} added you to <strong>${esc(input.company)}</strong>’s hiring workspace on CareJoys, where caregivers who apply to your jobs and caregivers matched to your openings land.</p>
+      <p style="${P}">Sign in with this email address. CareJoys sends you a one-time link, no password.</p>
+      ${button(input.link,'Open the workspace')}`),
+    text:`${input.inviterName||'A teammate'} added you to ${input.company}'s hiring workspace on CareJoys.\n\nSign in with this email address (CareJoys sends a one-time link):\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+export type DigestPerson={name:string;title:string;detail:string};
+/** The morning email: who applied since yesterday, who is still waiting on a reply, and today's interviews. */
+export function dailyDigestEmail(input:{company:string;fresh:DigestPerson[];waiting:DigestPerson[];interviews:DigestPerson[];link:string;settingsLink:string}){
+  const total=input.fresh.length+input.waiting.length+input.interviews.length;
+  const list=(heading:string,people:DigestPerson[])=>people.length?`<h2 style="font-size:17px;margin:22px 0 8px">${esc(heading)}</h2><ul style="${P};padding-left:20px;margin:0">${people.slice(0,10).map(p=>`<li><strong>${esc(p.name)}</strong>${p.title?' · '+esc(p.title):''}${p.detail?' · '+esc(p.detail):''}</li>`).join('')}</ul>${people.length>10?`<p style="${P}">and ${people.length-10} more</p>`:''}`:'';
+  const textList=(heading:string,people:DigestPerson[])=>people.length?`${heading}\n${people.slice(0,10).map(p=>'- '+[p.name,p.title,p.detail].filter(Boolean).join(' · ')).join('\n')}\n\n`:'';
+  const subject=[input.fresh.length?`${input.fresh.length} new`:'',input.waiting.length?`${input.waiting.length} waiting on you`:'',input.interviews.length?`${input.interviews.length} interview${input.interviews.length===1?'':'s'} today`:''].filter(Boolean).join(', ');
+  return {
+    subject:`${input.company}: ${subject||total+' caregivers'}`,
+    html:shell('Your caregivers this morning',`
+      ${list('New since yesterday',input.fresh)}
+      ${list('Waiting on your reply',input.waiting)}
+      ${list('Interviews today',input.interviews)}
+      ${button(input.link,'Open your candidates')}
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">You get this email on mornings when something needs you. <a href="${esc(input.settingsLink)}" style="color:#8a849b">Turn it off in Settings</a>.</p>`),
+    text:`Your caregivers this morning\n\n${textList('New since yesterday',input.fresh)}${textList('Waiting on your reply',input.waiting)}${textList('Interviews today',input.interviews)}${input.link}\n\nTurn this email off in Settings: ${input.settingsLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** The first-of-the-month results: what CareJoys did for the employer last month. */
+export function monthlyResultsEmail(input:{company:string;month:string;views:number;applied:number;invited:number;yes:number;hired:number;link:string}){
+  const rows:[string,number][]=[['Caregivers who viewed your jobs',input.views],['Applied to you through CareJoys',input.applied],['Invited',input.invited],['Said yes',input.yes],['Hired',input.hired]];
+  return {
+    subject:`${input.company} on CareJoys in ${input.month}: ${input.applied+input.yes} caregiver${input.applied+input.yes===1?'':'s'} interested, ${input.hired} hired`,
+    html:shell(`Your ${input.month} on CareJoys`,`
+      <table style="width:100%;border-collapse:collapse;${P}">${rows.map(([label,n])=>`<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${esc(label)}</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right"><strong>${n}</strong></td></tr>`).join('')}</table>
+      ${button(input.link,'Open your workspace')}`),
+    text:`Your ${input.month} on CareJoys\n\n${rows.map(([label,n])=>label+': '+n).join('\n')}\n\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** One candidate sent to the agency's ATS or recruiting inbox, in a shape an ATS email parser can read. */
+export function atsForwardEmail(input:{company:string;title:string;source:string;note:string;caregiver:{name:string;email:string;phone:string;city:string;state:string;zip:string;role:string;certifications:string};link:string}){
+  const c=input.caregiver;
+  const fields:[string,string][]=[['Name',c.name],['Email',c.email],['Phone',c.phone],['Location',[c.city,c.state,c.zip].filter(Boolean).join(', ')],['Role',c.role],['Certifications',c.certifications],['Position',input.title],['Source',input.source],['Note',input.note]];
+  const shown=fields.filter(([,v])=>v);
+  return {
+    subject:`Candidate: ${c.name}${input.title?' — '+input.title:''} (CareJoys)`,
+    html:shell(c.name,`
+      <table style="width:100%;border-collapse:collapse;${P}">${shown.map(([k,v])=>`<tr><td style="padding:4px 12px 4px 0;vertical-align:top"><strong>${esc(k)}</strong></td><td style="padding:4px 0">${esc(v)}</td></tr>`).join('')}</table>
+      ${button(input.link,'See them on CareJoys')}`),
+    text:`${shown.map(([k,v])=>k+': '+v).join('\n')}\n\nOn CareJoys: ${input.link}\n\nForwarded by CareJoys for ${input.company}.`
   };
 }

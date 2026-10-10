@@ -17,6 +17,7 @@ import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfile
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRadiusMiles, MAX_SERVICE_RADIUS_MILES } from './matching';
 import { alreadyApplied, appliedCaregiverIds } from './applications';
+import { addTeammate, DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getTeam, getWorkspaceSettings, removeTeammate, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
@@ -253,7 +254,7 @@ CareJoys is a free job-matching service for caregivers, CNAs, GNAs, HHAs and PCA
 ## What CareJoys does
 - For caregivers (always free): preview nearby caregiver jobs without a resume or contact details, create one profile, get matched by pay, shift and distance, and opt in to a weekly job email. Caregivers choose which employers see their profile.
 - For caregiver training programs (free): give graduates a CareJoys link to local jobs and see how many create profiles, get matched and get hired.
-- For care employers (home-care agencies, assisted living, senior-care communities): get introduced to local caregivers who verified their email and confirmed interest. The first introductions are free, then $79/month per location; no placement fees. Pricing: https://carejoys.com/pricing
+- For care employers (home-care agencies, assisted living, senior-care communities): get introduced to local caregivers who verified their email and confirmed interest. Free until the first hire through CareJoys, then $79/month per location; no placement fees. Pricing: https://carejoys.com/pricing
 
 ## What CareJoys is not
 - CareJoys is not a state regulator or credentialing body.
@@ -421,10 +422,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   if(url.pathname==="/pricing"){
     return seoAsset(request,env,{
-      title:freeContacts(env)?"Hire Caregivers: First "+freeContacts(env)+" Introductions Free | CareJoys":"Hire Caregivers for $79/Month Per Location | CareJoys",
+      title:freeContacts(env)?"Hire Caregivers: Free Until Your First Hire | CareJoys":"Hire Caregivers for $79/Month Per Location | CareJoys",
       description:"Meet local caregivers who verified their email and want the work. For home-care agencies and assisted living: $79/month per location, no placement fees.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Caregivers find their best matches with AI. Make sure they find yours.</h1><p>For home-care agencies and senior living. Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $79/month per location</h2><p>Or $790/year. Month-to-month. Cancel anytime.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver introductions are free.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Caregivers find their best matches with AI. Make sure they find yours.</h1><p>For home-care agencies and senior living. Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $79/month per location</h2><p>Or $790/year. Month-to-month. Cancel anytime.'+(freeContacts(env)?' Free until your first hire through CareJoys.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
@@ -432,7 +433,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"About CareJoys | Free Caregiver Job Matching",
       description:"CareJoys is free job matching for caregivers, CNAs and GNAs. Training programs share it with graduates; care employers pay to meet interested local caregivers.",
       canonical:"/about",
-      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a free job-matching service for caregivers, CNAs and GNAs.</strong> Caregivers find nearby jobs that fit their pay and schedule. Training programs share it free with graduates. Home-care agencies, assisted living and senior-care communities pay to be introduced to caregivers who verified their email and said they are interested.</p><h2>Who CareJoys is for</h2><ul><li>Caregivers, CNAs, GNAs, HHAs and PCAs looking for better local jobs, always free.</li><li>Caregiver training programs that want a free job resource for graduates and placement results.</li><li>Care employers hiring direct-care workers: first introductions free, then $79 a month per location, no placement fees.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p><p><a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing</a> · <a href="/training-programs/maryland">Maryland training programs</a> · <a href="/">CareJoys home</a></p></main>',
+      snapshot:'<main><h1>About CareJoys</h1><p><strong>CareJoys is a free job-matching service for caregivers, CNAs and GNAs.</strong> Caregivers find nearby jobs that fit their pay and schedule. Training programs share it free with graduates. Home-care agencies, assisted living and senior-care communities pay to be introduced to caregivers who verified their email and said they are interested.</p><h2>Who CareJoys is for</h2><ul><li>Caregivers, CNAs, GNAs, HHAs and PCAs looking for better local jobs, always free.</li><li>Caregiver training programs that want a free job resource for graduates and placement results.</li><li>Care employers hiring direct-care workers: free until their first hire through CareJoys, then $79 a month per location, no placement fees.</li></ul><h2>What CareJoys is not</h2><p>CareJoys is not a state regulator or credentialing body. Regulatory approval, training status, employer hiring signals, and caregiver-provided information are maintained as separate sources.</p><p><a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/find-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing</a> · <a href="/training-programs/maryland">Maryland training programs</a> · <a href="/">CareJoys home</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
@@ -566,7 +567,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       const state=usState(String(job.state||""));
       const hubLink=state?'<a href="'+jobsHubPath(state)+'">Caregiver jobs in '+htmlEscape(state.name)+'</a>':'<a href="/caregiver-jobs">Caregiver jobs</a>';
       const context=await jobPageContext(env,job);
-      const employerHtml=context.employer?'<h2>About '+htmlEscape(context.employer.name)+'</h2><p>'+htmlEscape([context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(", ")].filter(Boolean).join(" · "))+'</p>'+(context.employer.otherOpenJobs?'<p>'+context.employer.otherOpenJobs+' other current opening'+(context.employer.otherOpenJobs===1?'':'s')+' at this employer on CareJoys.</p>':''):'';
+      const employerHtml=context.employer?'<h2>About '+htmlEscape(context.employer.name)+'</h2><p>'+htmlEscape([context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(", ")].filter(Boolean).join(" · "))+'</p>'+(context.employer.about?'<p>'+htmlEscape(context.employer.about)+'</p>':'')+(context.employer.benefits?'<p><strong>Benefits:</strong> '+htmlEscape(context.employer.benefits)+'</p>':'')+(context.employer.otherOpenJobs?'<p>'+context.employer.otherOpenJobs+' other current opening'+(context.employer.otherOpenJobs===1?'':'s')+' at this employer on CareJoys.</p>':''):'';
       const payHtml=context.payContext?'<h2>Pay for '+htmlEscape(context.payContext.role)+' jobs in '+htmlEscape(context.payContext.state)+'</h2><p>The median advertised pay across '+context.payContext.count+' current '+htmlEscape(context.payContext.role)+' jobs in '+htmlEscape(context.payContext.state)+' is $'+context.payContext.median.toFixed(2)+'/hr'+(context.payContext.position?'; this job is '+context.payContext.position+' that median.':'.')+'</p>':'';
       const similarHtml=context.similar.length?'<h2>Similar caregiver jobs nearby</h2><ul>'+context.similar.map(j=>'<li><a href="/jobs/'+encodeURIComponent(j.id)+'">'+htmlEscape(j.title)+'</a> — '+htmlEscape([j.employerName,[j.city,j.state].filter(Boolean).join(", "),j.pay,j.distanceMiles!==null?j.distanceMiles+' mi':''].filter(Boolean).join(" · "))+'</li>').join("")+'</ul>':'';
       return seoAsset(request,env,{
@@ -2076,6 +2077,17 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     let inboxItem=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)$/);
     if(request.method==="POST"&&inboxItem){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyInterest(request,env,decodeURIComponent(inboxItem[1])); }
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env,(employerId,openingId)=>matchOpening(employerId,openingId,env)); }
+    // Workspace settings: teammates, emails, ATS forwarding, the agency's pitch, license checks and the export.
+    if(url.pathname==="/api/team"&&request.method==="GET") return getTeam(request,env);
+    if(url.pathname==="/api/team"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return addTeammate(request,env); }
+    const teammate=url.pathname.match(/^\/api\/team\/([^/]+)$/);
+    if(teammate&&request.method==="DELETE"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return removeTeammate(request,env,decodeURIComponent(teammate[1])); }
+    if(url.pathname==="/api/workspace/settings"&&request.method==="GET") return getWorkspaceSettings(request,env);
+    if(url.pathname==="/api/workspace/settings"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveWorkspaceSettings(request,env); }
+    if(url.pathname==="/api/workspace/candidates.csv"&&request.method==="GET") return exportCandidatesCsv(request,env);
+    if(url.pathname==="/api/license-checks"&&request.method==="GET") return getLicenseChecks(request,env);
+    const licenseCheck=url.pathname.match(/^\/api\/license-checks\/([^/]+)$/);
+    if(licenseCheck&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveLicenseCheck(request,env,decodeURIComponent(licenseCheck[1])); }
     if(request.method==="POST"&&url.pathname==="/api/respond/interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookCandidateInterview(request,env); }
 
     if(url.pathname==="/api/email-templates"&&(request.method==="GET"||request.method==="POST")){
@@ -2200,6 +2212,13 @@ export default {
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
+        // Candidates to agencies' ATS inboxes, then the morning digest and (on the 1st) last month's results.
+        await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
+        const hour=new Date(event.scheduledTime??Date.now());
+        if(hour.getUTCHours()===DIGEST_UTC_HOUR){
+          await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
+          await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
+        }
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){

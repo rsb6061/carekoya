@@ -176,7 +176,7 @@ describe('billing', ()=>{
     expect(billingEnabled({})).toBe(false);
     expect(billingEnabled({STRIPE_SECRET_KEY:'sk'})).toBe(false);
     expect(billingEnabled({STRIPE_SECRET_KEY:'sk',STRIPE_PRICE_ID:'price'})).toBe(true);
-    expect(freeContacts({})).toBe(5);
+    expect(freeContacts({})).toBe(25);
     expect(freeContacts({FREE_CONTACTS:'0'})).toBe(0);
   });
   it('verifies Stripe webhook signatures', async()=>{

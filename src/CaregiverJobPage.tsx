@@ -15,7 +15,7 @@ type Job={
 
 type JobContext={
   similar:{id:string;title:string;employerName:string;city:string;state:string;pay:string;distanceMiles:number|null}[];
-  employer:{name:string;city:string;state:string;providerTypes:string;website:string;otherOpenJobs:number}|null;
+  employer:{name:string;city:string;state:string;providerTypes:string;website:string;otherOpenJobs:number;about?:string;benefits?:string}|null;
   payContext:{role:string;state:string;median:number;count:number;unit:string;position:'above'|'near'|'below'|null}|null;
 };
 
@@ -128,6 +128,8 @@ export function CaregiverJobPage(){
         {context?.payContext&&<section className="section job-description-section"><h2>Pay for {context.payContext.role} jobs in {context.payContext.state}</h2><p>The median advertised pay across {context.payContext.count} current {context.payContext.role} jobs in {context.payContext.state} is ${context.payContext.median.toFixed(2)}/hr{context.payContext.position?<>; this job is <strong>{context.payContext.position}</strong> that median.</>:'.'}</p></section>}
         {context?.employer&&<section className="section job-description-section"><h2>About {context.employer.name}</h2>
           <p>{[context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</p>
+          {context.employer.about&&<p>{context.employer.about}</p>}
+          {context.employer.benefits&&<p><strong>Benefits:</strong> {context.employer.benefits}</p>}
           {context.employer.otherOpenJobs>0&&<p>{context.employer.otherOpenJobs} other current opening{context.employer.otherOpenJobs===1?'':'s'} at this employer on CareJoys.</p>}
           {context.employer.website&&<a className="text-link" href={context.employer.website} target="_blank" rel="noreferrer">Employer website ↗</a>}
         </section>}

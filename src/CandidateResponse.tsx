@@ -5,7 +5,7 @@ import { payLabel } from './jobFormat';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
 type Opportunity={
-  company:string;title:string;role:string;city?:string;state?:string;zip?:string;
+  company:string;about?:string|null;benefits?:string|null;title:string;role:string;city?:string;state?:string;zip?:string;
   payMin?:number;payMax?:number;shift?:string;requirements?:string;
   stage?:string;response?:string;interviewBookedAt?:string;slots:Slot[];
 };
@@ -104,6 +104,11 @@ export function CandidateResponse(){
         <div><strong>Shift</strong><span>{opportunity.shift||'See employer details'}</span></div>
         {opportunity.requirements&&<div><strong>Requirements</strong><span>{opportunity.requirements}</span></div>}
       </div>
+
+      {(opportunity.about||opportunity.benefits)&&<div className="opportunity-summary">
+        {opportunity.about&&<div><strong>About {opportunity.company}</strong><span>{opportunity.about}</span></div>}
+        {opportunity.benefits&&<div><strong>Benefits</strong><span>{opportunity.benefits}</span></div>}
+      </div>}
 
       {message&&<div className="notice">{message}</div>}
 

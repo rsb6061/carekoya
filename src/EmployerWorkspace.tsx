@@ -10,13 +10,14 @@ import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
 import { MatchList, STAGE_LABELS, needsReply, type DecideStage, type MatchRow } from './MatchList';
 import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, stageCounts, type InboxItem } from './candidates';
-import { CandidatePage, CandidatePanel, type CandidateActions } from './CandidatePanel';
+import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
 import { TalentPage, TalentPanel, type TalentActions } from './TalentPanel';
 import { shiftsLabel } from './profileTags';
 import { CHECKLIST } from './checklist';
 import { EmailTemplatesModal } from './EmailTemplatesModal';
 import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import { parseOpeningSchedule } from './schedule';
+import { WorkspaceSettings } from './WorkspaceSettings';
 import './workspace.css';
 
 type Opening={
@@ -92,13 +93,14 @@ export function EmployerWorkspace(){
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
   const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':'openings'});
   const [applications,setApplications]=useState<InboxItem[]>([]);
+  const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
   const [loading,setLoading]=useState(false);
   const [message,setMessageText]=useState('');
   const [messageTone,setMessageTone]=useState<'ok'|'info'|'error'>('ok');
   function setMessage(text:string,tone:'ok'|'info'|'error'='ok'){setMessageText(text);setMessageTone(tone)}
   const [pendingApproval,setPendingApproval]=useState(false);
   const [approvalKnown,setApprovalKnown]=useState(false);
-  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;yearly?:boolean;paymentIssue?:boolean}|null>(null);
+  const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;firstHire?:boolean;yearly?:boolean;paymentIssue?:boolean}|null>(null);
   const [billingBusy,setBillingBusy]=useState(false);
   // Coming back from Stripe with the browser's back button restores this page from cache, so re-enable the buttons.
   useEffect(()=>{const reset=()=>setBillingBusy(false);window.addEventListener('pageshow',reset);return ()=>window.removeEventListener('pageshow',reset)},[]);
@@ -146,6 +148,7 @@ export function EmployerWorkspace(){
       const network=await api<AgencyNetwork>('/api/agency/network');
       setAgencyNetwork(network);
       setApplications(network.agency&&data.approval?.approved!==false?(await api<{items:InboxItem[]}>('/api/agency/inbox').catch(()=>({items:[]}))).items||[]:[]);
+      setLicenseChecks((await api<{checks:Record<string,LicenseCheck>}>('/api/license-checks').catch(()=>({checks:{}}))).checks||{});
       setBilling(await api<any>('/api/billing').catch(()=>null));
       setSavedTemplates((await api<{templates:EmailTemplate[]}>('/api/email-templates').catch(()=>({templates:[]}))).templates||[]);
     }catch(e){
@@ -469,7 +472,13 @@ export function EmployerWorkspace(){
   ];
   const showSetup=!pendingApproval&&openOpenings.length>0&&openings.length<=2&&setupSteps.some(x=>!x.done)&&!everyone.some(p=>['interested','interview','hired'].includes(p.stage));
   const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
-  const candidateActions:CandidateActions={onInvite:invite,onDecide:decide,onNotes:saveNotes,onRestore:restore,onReach:reach};
+  async function checkLicense(row:MatchRow,result:LicenseCheck['result']|''){
+    try{
+      const data=await api<{check:LicenseCheck|null}>('/api/license-checks/'+encodeURIComponent(row.caregiver_id),{method:'POST',body:JSON.stringify({result})});
+      setLicenseChecks(prev=>{const next={...prev};if(data.check)next[row.caregiver_id]=data.check;else delete next[row.caregiver_id];return next});
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not save the license check','error')}
+  }
+  const candidateActions:CandidateActions={onInvite:invite,onDecide:decide,onNotes:saveNotes,onRestore:restore,onReach:reach,licenseChecks,onLicenseCheck:checkLicense};
   const talentActions:TalentActions={
     openings:openings.filter(o=>o.status==='open').map(o=>({id:o.id,title:o.title})),
     pipelineFor:id=>everyone.filter(p=>p.caregiver_id===id&&p.stage!=='rejected').map(p=>({rowId:p.id,title:p.kind==='application'?'your agency (applied'+(p.title?' to '+p.title:'')+')':p.title,applied:p.kind==='application'})),
@@ -507,6 +516,7 @@ export function EmployerWorkspace(){
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
       {billing?.enabled&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>{leavePage();setTab('plan')}}>Plan</button>}
+      <button className={'dash-sidenav-item '+(tab==='settings'?'active':'')} onClick={()=>{leavePage();setTab('settings')}}>Settings</button>
      </nav>
      <div className="dash-main-col">
       <section className="page-head page-head-row">
@@ -526,7 +536,7 @@ export function EmployerWorkspace(){
       </section>}
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
       {billing?.paymentIssue&&<div className="alert-status alert-error workspace-alert" role="status"><strong>Your last payment didn’t go through.</strong> Update your card to keep unlimited introductions. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Update card</button></div>}
-      {billing?.enabled&&!billing.subscribed&&!billing.paymentIssue&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>You’ve used your {billing.freeContacts} free introductions.</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
+      {billing?.enabled&&!billing.subscribed&&!billing.paymentIssue&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>{billing.firstHire?'You made your first hire through CareJoys.':'You’ve used your '+billing.freeContacts+' free introductions.'}</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
 
@@ -557,10 +567,10 @@ export function EmployerWorkspace(){
       </section>}
 
       {billing?.enabled&&(shownTab==='openings'||shownTab==='plan')&&<section className="section-block plan-section">
-        <div className="section-heading"><h2>Your plan</h2><p>{billing.subscribed?'Change locations, switch between monthly and yearly, update your card or see invoices.':'An introduction counts when a caregiver says they’re interested or sends you their profile. Inviting is always free.'}</p></div>
+        <div className="section-heading"><h2>Your plan</h2><p>{billing.subscribed?'Change locations, switch between monthly and yearly, update your card or see invoices.':'CareJoys is free until your first hire through it. Mark a caregiver hired when they start, and upgrade then to keep getting introductions.'}</p></div>
         {billing.subscribed
           ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
-          :<><p className="plan-line"><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. Unlimited introductions are $79/month per location.</p>
+          :<><p className="plan-line">{billing.firstHire?<><strong>Your free period ended with your first hire.</strong> Caregivers introduced before it stay visible. Unlimited introductions are $79/month per location.</>:<><strong>Free until your first hire</strong> · {billing.freeContactsRemaining??0} of {billing.freeContacts} free introductions left. Then $79/month per location.</>}</p>
             <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</div></>}
       </section>}
 
@@ -597,7 +607,7 @@ export function EmployerWorkspace(){
           <div className="talent-filters-row">
             <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role or skill: CNA, dementia" aria-label="Role or skill" />
             <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" aria-label="ZIP" />
-            <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="commute">Within their commute</option><option value="all">Any distance</option><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
+            <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="commute">Commuting distance</option><option value="all">Any distance</option><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
             <button className="button">Search</button>
           </div>
           <div className="talent-filters-row more">
@@ -622,6 +632,8 @@ export function EmployerWorkspace(){
       </section>}
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+
+      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency}/>}
 
       {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
@@ -776,7 +788,7 @@ function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCance
       </div>
       <p className="field-hint">We fill in the city and state from the ZIP code.</p>
       {serviceArea&&<label>Where the work is<select name="serviceRadiusMiles" defaultValue={String(opening?.service_radius_miles||'')}>
-        <option value="">At this ZIP code</option>
+        <option value="">At one location</option>
         {[10,15,25,50].map(n=><option key={n} value={n}>Clients’ homes within {n} miles</option>)}
       </select></label>}
       <label><span>Job title <span className="optional">(optional)</span></span><input name="title" defaultValue={opening?.title||''} placeholder="We’ll name it from the role and city" /></label>

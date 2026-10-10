@@ -38,8 +38,8 @@ export function EmployerRecruitingPage(){
         <h2>Pricing</h2>
         <div className="jobs">
           <div className="job"><div><h3>Searching and matching are free</h3><div className="meta">Post openings, see ranked local matches, and keep always-on hiring preferences at no cost.</div></div><div className="meta">Free</div></div>
-          <div className="job"><div><h3>{freeContacts===0?'Caregiver introductions':'Your first '+(freeContacts??5)+' caregiver introductions are free'}</h3><div className="meta">CareJoys invites matched caregivers for you. An introduction counts only when a caregiver says they’re interested.</div></div><div className="meta">{freeContacts===0?'Subscription':'Free'}</div></div>
-          <div className="job"><div><h3>Then a monthly subscription</h3><div className="meta">More introductions after the free ones need a CareJoys subscription, which you can start or cancel from your workspace.</div></div><div className="meta">Monthly</div></div>
+          <div className="job"><div><h3>{freeContacts===0?'Caregiver introductions':'Free until your first hire'}</h3><div className="meta">CareJoys invites matched caregivers for you and sends you everyone who applies to your jobs. You pay nothing until you hire someone through CareJoys{freeContacts?' (up to '+freeContacts+' introductions)':''}.</div></div><div className="meta">{freeContacts===0?'Subscription':'Free'}</div></div>
+          <div className="job"><div><h3>Then a monthly subscription</h3><div className="meta">After your first hire, new introductions need a CareJoys subscription, which you can start or cancel from your workspace.</div></div><div className="meta">Monthly</div></div>
         </div>
       </div></section>
 
@@ -141,7 +141,7 @@ function LocalSupplyCheck(){
 export function PricingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
-  const free=freeContacts??5;
+  const free=freeContacts??25;
   return <div>
     <SiteHeader audience="employer"/>
     <main>
@@ -149,7 +149,7 @@ export function PricingPage(){
         <div>
           <div className="modal-kicker">For home-care agencies and senior living</div>
           <h1>Caregivers find their best matches with AI. Make sure they find yours.</h1>
-          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Your first '+free+' introductions are free.':''}</p>
+          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Free until your first hire through CareJoys.':''}</p>
         </div>
         <div className="pricing-offer">
           <article className="plan-card">
@@ -158,7 +158,7 @@ export function PricingPage(){
               <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">{free>0?'Start free':'Start hiring'} →</a>
-            <div className="plan-terms">{free>0?'First '+free+' introductions free. ':''}Month-to-month. Cancel anytime.</div>
+            <div className="plan-terms">{free>0?'Free until your first hire. ':''}Month-to-month. Cancel anytime.</div>
             <div className="plan-terms">Or {YEARLY}/year, two months free.</div>
             <ul className="plan-list">
               <li>Matches for every opening by distance, shift and pay.</li>

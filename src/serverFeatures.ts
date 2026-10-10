@@ -1,6 +1,7 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
 import { contactAllowance, lockedIntroductions } from './billing';
+import { employerPitch, teamRecipients } from './team';
 import { APPLIED_TO_EMPLOYER_SQL } from './applications';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
@@ -162,12 +163,12 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
 export const employerSessionCookie=(session:string)=>`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`;
 
 /** Opens a 30-day employer session for a proven email and finishes any agency claims that were waiting on it. Returns the cookie value. */
-export async function startEmployerSession(env:FeatureEnv,employerId:string){
+export async function startEmployerSession(env:FeatureEnv,employerId:string,signedInEmail?:string){
   if(!env.DB)throw new Error('Database not configured');
   const session=crypto.randomUUID()+'-'+crypto.randomUUID();
   const sessionHash=await sha256Hex(session);
   const expires=new Date(Date.now()+30*86400000).toISOString();
-  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(),employerId,sessionHash,expires).run();
+  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at,signed_in_email) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),employerId,sessionHash,expires,signedInEmail?signedInEmail.toLowerCase():null).run();
   await env.DB.prepare('UPDATE employer_leads SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(employerId).run();
   const pendingClaims=await env.DB.prepare("SELECT id,organization_id FROM agency_teaser_tokens WHERE employer_id=? AND claim_requested_at IS NOT NULL AND claimed_at IS NULL AND datetime(expires_at)>datetime('now')").bind(employerId).all<{id:string;organization_id:string}>();
   for(const claim of pendingClaims.results||[]){
@@ -185,7 +186,7 @@ export async function employerSession(request:Request,env:FeatureEnv){
   const token=cookie(request,'__Host-cj_session')||cookie(request,'cj_session');
   if(!token)return null;
   const hash=await sha256Hex(token);
-  const row=await env.DB.prepare("SELECT e.id,e.company_name,e.contact_name,e.email,e.phone,e.zip,e.roles_needed,e.status,s.id AS session_id FROM employer_sessions s JOIN employer_leads e ON e.id=s.employer_id WHERE s.session_hash=? AND datetime(s.expires_at)>datetime('now') AND e.status!='disabled' LIMIT 1").bind(hash).first<Record<string,unknown>>();
+  const row=await env.DB.prepare("SELECT e.id,e.company_name,e.contact_name,e.email,e.phone,e.zip,e.roles_needed,e.status,s.id AS session_id,s.signed_in_email FROM employer_sessions s JOIN employer_leads e ON e.id=s.employer_id WHERE s.session_hash=? AND datetime(s.expires_at)>datetime('now') AND e.status!='disabled' LIMIT 1").bind(hash).first<Record<string,unknown>>();
   if(!row)return null;
   await env.DB.prepare('UPDATE employer_sessions SET last_seen_at=CURRENT_TIMESTAMP WHERE id=?').bind(row.session_id).run();
   return row;
@@ -232,8 +233,8 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(opening.status==='closed')return json({ok:false,error:'This opening is closed. Reopen it to invite caregivers.'},{status:409});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const allowance=await contactAllowance(env,workspaceId);
-  // Inviting is free while free introductions remain; an introduction is counted when a caregiver says yes.
-  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free introductions. Upgrade to keep inviting caregivers.`},{status:402});
+  // CareJoys is free until the employer's first hire through it (with a cap on free introductions as a backstop).
+  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:allowance.hired?'You made your first hire through CareJoys. Upgrade to keep inviting caregivers.':`You've used your ${allowance.free} free introductions. Upgrade to keep inviting caregivers.`},{status:402});
   // The employer may pick exactly who to invite; without a pick, the top matches by score are invited.
   const chosen=Array.isArray(body.pipelineIds)?[...new Set(body.pipelineIds.map(v=>clean(v,100)).filter(Boolean))].slice(0,50):[];
   const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));
@@ -241,6 +242,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
   AND c.email IS NOT NULL AND c.email!='' AND NOT ${APPLIED_TO_EMPLOYER_SQL}${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,workspaceId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
+  const pitch=await employerPitch(env,workspaceId);
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
     const hash=await sha256Hex(token);
@@ -252,7 +254,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
       company:clean(employer.company_name,200),
       title:clean(opening.title,200),
       role:clean(opening.role,80),
-      location,pay,shift:clean(opening.shift_preferences,300),link
+      location,pay,shift:clean(opening.shift_preferences,300),link,about:pitch.about,benefits:pitch.benefits
     });
     try{
       const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
@@ -311,7 +313,7 @@ const RESPONSE_RECORD_SELECT=`SELECT cp.id AS pipeline_id,cp.stage,cp.response_v
     c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email,c.work_status,
     cp.employer_notified_interest_at,
     o.title,o.role,o.city,o.state,o.zip,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,
-    e.id AS employer_id,e.company_name,e.contact_name,e.email AS employer_email
+    e.id AS employer_id,e.company_name,e.contact_name,e.email AS employer_email,e.company_about,e.company_benefits
     FROM candidate_pipeline cp
     JOIN caregivers c ON c.id=cp.caregiver_id
     JOIN openings o ON o.id=cp.opening_id
@@ -336,7 +338,7 @@ export async function getCandidateResponse(url:URL,env:FeatureEnv){
   const locked=(await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100));
   const slots=locked?{results:[]}:await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now') ORDER BY starts_at ASC LIMIT 20").bind(row.opening_id).all<Record<string,unknown>>();
   return json({ok:true,opportunity:{
-    company:row.company_name,title:row.title,role:row.role,city:row.city,state:row.state,zip:row.zip,
+    company:row.company_name,about:clean(row.company_about,1000)||null,benefits:clean(row.company_benefits,600)||null,title:row.title,role:row.role,city:row.city,state:row.state,zip:row.zip,
     payMin:row.pay_min,payMax:row.pay_max,shift:row.shift_preferences,requirements:row.requirements,
     stage:row.stage,response:row.response_value,interviewBookedAt:row.interview_booked_at,
     slots:(slots.results||[]).map(s=>({id:s.id,startsAt:s.starts_at,durationMinutes:s.duration_minutes,timezone:s.timezone}))
@@ -388,7 +390,7 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
         hasInterviewSlots:!locked&&asNumber(slotCount?.count)>0
       });
       try{
-        const sent=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
+        const sent=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:await teamRecipients(env,clean(row.employer_id,100),clean(row.employer_email,320)),subject:notice.subject,html:notice.html,text:notice.text});
         await env.DB.prepare("UPDATE candidate_pipeline SET employer_notified_interest_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
         await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','employer_interest_notice',?,?)")
           .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,sent.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
@@ -434,7 +436,8 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
   const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label,where:clean(slot.location,300)});
   const sends:Promise<unknown>[]=[];
   if(emailValid(clean(row.email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:caregiverEmail.subject,html:caregiverEmail.html,text:caregiverEmail.text,attachments:[attachment]}));
-  if(emailValid(clean(row.employer_email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
+  const team=await teamRecipients(env,clean(row.employer_id,100),clean(row.employer_email,320));
+  if(team.length)sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:team,subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
   await Promise.allSettled(sends);
   return json({ok:true,startsAt:slot.starts_at,label});
 }
