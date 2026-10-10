@@ -67,18 +67,19 @@ export function IntroVideo({url}:{url:string}){
  * One caregiver as a Talent network tile: who, where, the shared profile tags and certifications. With `onOpen` the
  * whole tile opens the profile panel; `expanded` (the caregiver's own preview) shows the full profile inline instead.
  */
-export function TalentCard({candidate:c,tone,expanded=false,status,onOpen,note,action}:{candidate:TalentCandidate;tone:string;expanded?:boolean;status?:ReactNode;onOpen?:()=>void;note?:string;action?:ReactNode}){
+export function TalentCard({candidate:c,tone,expanded=false,status,onOpen,note,action,selected,onSelect}:{candidate:TalentCandidate;tone:string;expanded?:boolean;status?:ReactNode;onOpen?:()=>void;note?:string;action?:ReactNode;selected?:boolean;onSelect?:()=>void}){
   // Three tags on a tile (distance, availability, pay); hours and the rest are one click away in the panel.
   const tags=expanded?profileTags({distanceMiles:c.distanceMiles,freshness:c.freshness,employmentTypes:c.employmentTypes,shifts:shiftsLabel(c.employmentTypes)?undefined:c.shifts,desiredWage:c.desiredWage})
     :profileTags({distanceMiles:c.distanceMiles,freshness:c.freshness,desiredWage:c.desiredWage},3);
   const certs=certificationsLabel(withoutRole(c.certifications,c.role));
   const where=[c.city,c.state].filter(Boolean).join(', ');
-  return <article className={'job-card talent-card '+tone+(onOpen?' clickable':'')} onClick={onOpen?e=>{if(!(e.target as HTMLElement).closest('a,button,details'))onOpen()}:undefined}>
+  return <article className={'job-card talent-card '+tone+(onOpen?' clickable':'')+(selected?' picked':'')} onClick={onOpen?e=>{if(!(e.target as HTMLElement).closest('a,button,details,input,label'))onOpen()}:undefined}>
     <div className="job-card-main">
       <div className="candidate-name-row">
         {c.profilePhotoUrl?<img className="candidate-avatar" src={c.profilePhotoUrl} alt="" />:<span className="candidate-avatar candidate-avatar-empty">{c.name?.slice(0,1)||'?'}</span>}
         <div className="talent-card-name"><h3>{onOpen?<button type="button" className="match-name-button" onClick={onOpen}>{c.name}</button>:c.name}</h3><div className="job-meta">{[c.role,where].filter(Boolean).join(' · ')}</div></div>
         {status&&<div className="talent-card-status">{status}</div>}
+        {onSelect&&<label className="talent-pick"><input type="checkbox" checked={!!selected} onChange={onSelect} aria-label={'Select '+c.name}/></label>}
       </div>
       {tags.length>0&&<div className="match-reasons">{tags.map(t=><span className={'badge'+(t.tone?' '+t.tone:'')} key={t.label}>{t.label}</span>)}</div>}
       {certs&&<div className="job-card-cue">{certs}</div>}

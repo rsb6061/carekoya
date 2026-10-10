@@ -2,32 +2,20 @@
 // filters that read the profile rather than a single column, and the closest-first ordering.
 import { ageDays, commuteRadiusMiles } from './matching';
 import { parseAvailability } from './caregiverApi';
-import { usState } from './usStates';
+import { hourlyPayFloor } from './payPreferences';
+import { parseChecklist } from './checklist';
 
 type Row=Record<string,unknown>;
 const text=(v:unknown)=>typeof v==='string'?v.trim():'';
 
+export { inUs, locationMatchesZip } from './caregiverLocation';
+
+export type TalentFilters={shift?:string;hours?:string;cert?:string;car?:boolean;payMax?:number;language?:string;checked?:string};
+
 /**
- * A caregiver's distance is computed from their ZIP alone. When the state they typed is not a US state ("South
- * Africa") or is a different state than the ZIP's, the ZIP is not where they are, so no distance is shown.
+ * Shift, hours, certification, car, pay, language and one confirmed checklist item, read from the availability grid and
+ * profile fields. A caregiver who left pay blank is kept under a pay limit: blank is not "too expensive".
  */
-export function locationMatchesZip(c:Row){
-  const typed=text(c.state);
-  const zipState=text(c.geo_state).toUpperCase();
-  if(!typed||!zipState)return true;
-  const state=usState(typed);
-  return !!state&&state.code===zipState;
-}
-
-/** For now the network is US-only: a caregiver whose typed state is not a US state is left out. Blank counts as US. */
-export function inUs(c:Row){
-  const typed=text(c.state);
-  return !typed||!!usState(typed);
-}
-
-export type TalentFilters={shift?:string;hours?:string;cert?:string;car?:boolean};
-
-/** Shift, hours, certification and has-a-car, read from the availability grid and profile fields. */
 export function matchesTalentFilters(c:Row,f:TalentFilters){
   const shiftWords=text(c.shift_preferences).toLowerCase();
   if(f.shift){
@@ -45,6 +33,12 @@ export function matchesTalentFilters(c:Row,f:TalentFilters){
     if(!new RegExp('\\b'+f.cert.toLowerCase().replace(/[^a-z0-9]/g,'')).test(certs.replace(/\//g,' ')))return false;
   }
   if(f.car&&!(text(c.transportation)==='own_car'||Number(c.willing_to_drive||0)===1))return false;
+  if(f.payMax){
+    const floor=Number(c.hourly_rate_min)||hourlyPayFloor(c.desired_wage);
+    if(floor&&floor>f.payMax)return false;
+  }
+  if(f.language&&!text(c.languages).toLowerCase().includes(f.language.toLowerCase()))return false;
+  if(f.checked&&!parseChecklist(c.checklist).includes(f.checked as never))return false;
   return true;
 }
 

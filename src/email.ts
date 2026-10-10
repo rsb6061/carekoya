@@ -144,6 +144,26 @@ export function employerCandidateInterestedEmail(input:{
   };
 }
 
+export function talentAlertEmail(input:{
+  recipientName:string; label:string; count:number; people:{name:string;detail:string}[]; link:string; offLink:string;
+}) {
+  const more=input.count-input.people.length;
+  const noun=input.count===1?'caregiver':'caregivers';
+  return {
+    subject:`${input.count} new ${noun} for your search: ${input.label}`,
+    html:shell(`${input.count} new ${noun} near you`,`
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">New caregivers joined CareJoys who match your saved search <strong>${esc(input.label)}</strong>.</p>
+      <div style="background:#f0edff;border:1px solid #d8d2ff;border-radius:18px;padding:12px 18px;margin:20px 0;color:#4f4962;line-height:1.6">
+        ${input.people.map(p=>`<div style="padding:6px 0"><strong>${esc(p.name)}</strong><br>${esc(p.detail)}</div>`).join('')}
+        ${more>0?`<div style="padding:6px 0">and ${more} more</div>`:''}
+      </div>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">See them in CareJoys</a></p>
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">Don't need this alert anymore? <a href="${esc(input.offLink)}" style="color:#8a849b">Turn it off</a>.</p>`),
+    text:`Hi ${input.recipientName||'there'},\n\nNew caregivers joined CareJoys who match your saved search "${input.label}":\n\n${input.people.map(p=>`${p.name} - ${p.detail}`).join('\n')}${more>0?`\nand ${more} more`:''}\n\nSee them: ${input.link}\n\nTurn off this alert: ${input.offLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
 export function interviewConfirmedEmail(input:{
   recipientName:string; company:string; caregiverName:string; title:string; startsLabel:string; where?:string;
 }) {

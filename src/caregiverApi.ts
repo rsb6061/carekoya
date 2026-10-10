@@ -9,6 +9,7 @@ import { normalizeTitle } from './jobDiscovery';
 import { detectApplyProvider } from './applyAgentRules';
 import { jobMeetsPayFloor } from './payMatching';
 import { parseChecklist } from './checklist';
+import { inUs, locationMatchesZip } from './caregiverLocation';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -120,7 +121,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const caregiverId=await caregiverForIdentity(env,identity);
   if(!caregiverId)return json({ok:true,caregiver:null});
-  const c=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Row>();
+  const c=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng,zg.state AS geo_state,zg.city AS geo_city FROM caregivers c ${zipGeoJoin('c')} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Row>();
   if(!c)return json({ok:true,caregiver:null});
   // Viewing a dashboard is not an availability confirmation.
 
@@ -157,7 +158,9 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
     freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,
     availability:parseAvailability(c.availability_json),employmentTypes:listOf(c.employment_types),startAvailability:c.start_availability,
-    careSettings:listOf(c.care_settings),preferredSettings:listOf(c.preferred_settings),workConditions:listOf(c.work_conditions),checklist:parseChecklist(c.checklist),licenseNumber:c.license_number,licenseState:c.license_state
+    careSettings:listOf(c.care_settings),preferredSettings:listOf(c.preferred_settings),workConditions:listOf(c.work_conditions),checklist:parseChecklist(c.checklist),licenseNumber:c.license_number,licenseState:c.license_state,
+    // Their ZIP and typed state disagree (or the state is outside the US): employers see no mileage, or don't see them at all.
+    locationCheck:inUs(c)&&locationMatchesZip(c)?null:{zipPlace:[clean(c.geo_city,120),clean(c.geo_state,10)].filter(Boolean).join(', ')}
   },
   invites:(invites.results||[]).map(r=>({
     id:r.id,stage:r.stage,response:r.response_value,contactedAt:r.contacted_at,interviewAt:r.interview_at,interviewBooked:!!r.interview_booked_at,
