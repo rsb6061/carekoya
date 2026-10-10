@@ -414,6 +414,12 @@ describe('billing checkout', ()=>{
       expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({plan:'monthly'})},stripe)).status).toBe(200);
       expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({plan:'yearly'})},{...stripe,STRIPE_PRICE_ID_YEARLY:''})).status).toBe(200);
       expect(bodies.map(b=>new URLSearchParams(b).get('line_items[0][price]'))).toEqual(['price_year','price_month','price_month']);
+      // Per-location pricing: the employer sets the number of locations at checkout.
+      const first=new URLSearchParams(bodies[0]);
+      expect(first.get('line_items[0][quantity]')).toBe('1');
+      expect(first.get('line_items[0][adjustable_quantity][enabled]')).toBe('true');
+      expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({locations:3})},stripe)).status).toBe(200);
+      expect(new URLSearchParams(bodies[3]).get('line_items[0][quantity]')).toBe('3');
     }finally{globalThis.fetch=original}
   });
 });

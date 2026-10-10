@@ -12,6 +12,7 @@ export type BillingEnv=FeatureEnv&{
 
 const ORIGIN='https://carejoys.com';
 export const DEFAULT_FREE_CONTACTS=5;
+const MAX_LOCATIONS=100;
 const ACTIVE_STATUSES=new Set(['active','trialing']);
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -88,12 +89,17 @@ export async function createCheckout(request:Request,env:BillingEnv){
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const existing=await env.DB!.prepare('SELECT stripe_customer_id FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
-  const body=await request.json().catch(()=>({})) as {plan?:unknown};
+  const body=await request.json().catch(()=>({})) as {plan?:unknown;locations?:unknown};
   const yearly=body?.plan==='yearly'&&clean(env.STRIPE_PRICE_ID_YEARLY);
+  // Priced per location: checkout asks how many, and the billing portal can change it later.
+  const locations=Math.min(MAX_LOCATIONS,Math.max(1,Math.floor(asNum(body?.locations))||1));
   const params:Record<string,string>={
     mode:'subscription',
     'line_items[0][price]':yearly||env.STRIPE_PRICE_ID!,
-    'line_items[0][quantity]':'1',
+    'line_items[0][quantity]':String(locations),
+    'line_items[0][adjustable_quantity][enabled]':'true',
+    'line_items[0][adjustable_quantity][minimum]':'1',
+    'line_items[0][adjustable_quantity][maximum]':String(MAX_LOCATIONS),
     client_reference_id:clean(employer.id,100),
     'subscription_data[metadata][employer_id]':clean(employer.id,100),
     success_url:ORIGIN+'/app?billing=success',
