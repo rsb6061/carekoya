@@ -113,10 +113,15 @@ test('employer finds caregivers: closest first, plain tags, profile panel', asyn
   await expect(page.getByRole('heading',{name:'Find caregivers'})).toBeVisible();
   const near=page.locator('.talent-card',{hasText:'Casey T.'});
   await expect(near.getByText('$18/hr')).toBeVisible();
-  // Someone across the country sits under Farther away, with readable pay.
-  await expect(page.locator('.talent-divider')).toHaveText('Farther away');
+  // The search opens at commuting distance, so someone across the country isn't shown until asked for.
   const far=page.locator('.talent-card',{hasText:'Dana F.'});
+  await expect(far).toHaveCount(0);
+  await page.getByLabel('Distance from ZIP').selectOption('all');
+  await page.getByRole('button',{name:'Search',exact:true}).click();
+  await expect(page.locator('.talent-divider')).toHaveText('Farther away');
   await expect(far.getByText('$50/hr')).toBeVisible();
+  // They can't take a job that far away, so there's nothing to invite them to.
+  await expect(far.getByText(/Lives beyond their commute/)).toBeVisible();
   await near.getByRole('button',{name:'View profile'}).click();
   const panel=page.getByRole('dialog',{name:'Casey T.'});
   await expect(panel.getByRole('link',{name:'Open in new tab ↗'})).toHaveAttribute('href',/\/app\?talent=/);

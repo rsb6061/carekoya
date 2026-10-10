@@ -101,7 +101,11 @@ export function caregiverActivationReminderEmail(firstName: string, link: string
 
 export function caregiverJobInviteEmail(input:{
   firstName:string; company:string; title:string; role:string; location:string; pay:string; shift:string; link:string;
+  /** The employer's own words about working there, from their workspace settings. */
+  about?:string; benefits?:string;
 }) {
+  const aboutHtml=input.about||input.benefits?`<div style="margin:20px 0;color:#4f4962;line-height:1.7">${input.about?`<p style="margin:0 0 8px"><strong>About ${esc(input.company)}:</strong> ${esc(input.about)}</p>`:''}${input.benefits?`<p style="margin:0"><strong>Benefits:</strong> ${esc(input.benefits)}</p>`:''}</div>`:'';
+  const aboutText=[input.about?`About ${input.company}: ${input.about}`:'',input.benefits?`Benefits: ${input.benefits}`:''].filter(Boolean).join('\n');
   const location=esc(input.location||'Location provided by employer');
   const pay=esc(input.pay||'Pay discussed with employer');
   const shift=esc(input.shift||'Shift details provided by employer');
@@ -113,10 +117,10 @@ export function caregiverJobInviteEmail(input:{
       <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.company)}</strong> is hiring for <strong>${esc(input.title)}</strong>.</p>
       <div style="background:#f0edff;border:1px solid #d8d2ff;border-radius:18px;padding:16px 18px;margin:20px 0;color:#4f4962;line-height:1.7">
         <div>${location}</div><div>${pay}</div><div>${shift}</div>
-      </div>
+      </div>${aboutHtml}
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Tap below to see the details and tell CareJoys whether you’re interested. If you are, you can choose an available interview time if the employer has added one.</p>
       <p style="margin:26px 0"><a href="${url}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">View job and respond</a></p>`),
-    text:`Hi ${input.firstName||'there'},\n\n${input.company} is hiring for ${input.title}.\n${input.location}\n${input.pay}\n${input.shift}\n\nView the job and respond here:\n${input.link}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.firstName||'there'},\n\n${input.company} is hiring for ${input.title}.\n${input.location}\n${input.pay}\n${input.shift}${aboutText?'\n\n'+aboutText:''}\n\nView the job and respond here:\n${input.link}\n\nCareJoys · carejoys.com`
   };
 }
 
@@ -208,8 +212,8 @@ export function agencyCandidateTeaserEmail(input:{
       ${rows}
       <p style="font-size:14px;line-height:1.6;color:#6e6882">These previews are intentionally de-identified. Claim your agency to review the matching profiles, confirm what you hire for, and contact interested caregivers through CareJoys.</p>
       <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Review caregiver matches</a></p>
-      <p style="font-size:13px;line-height:1.6;color:#8a849b">Your first 5 interested caregiver candidates are free during the CareJoys pilot.</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free during the CareJoys pilot.\n\nCareJoys · carejoys.com`
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">Your first 5 interested caregiver candidates are free.</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free.\n\nCareJoys · carejoys.com`
   };
 }
 
@@ -321,21 +325,27 @@ export function caregiverApplicationEmail(input:{firstName:string;jobTitle:strin
   };
 }
 
-/** Outreach to an agency whose openings CareJoys already lists: confirm hiring needs to get matched caregivers and the jobs widget. */
+/**
+ * Outreach to an agency whose openings CareJoys already lists. It leads with what works on day one (its jobs are live,
+ * applications land in one inbox, the widget is free); matching is promised only as caregivers near them join.
+ */
 export function agencyHiringNeedsEmail(input:{contactName:string;agencyName:string;jobCount:number;city:string;link:string}) {
   const P='font-size:16px;line-height:1.6;color:#5f5972';
   const near=input.city?`near ${input.city}`:'near you';
-  const openings=input.jobCount===1?'1 of '+input.agencyName+'’s openings':input.jobCount+' of '+input.agencyName+'’s openings';
+  const jobs=input.jobCount===1?'1 of your jobs is':input.jobCount+' of your jobs are';
+  const lines=[
+    `${jobs} already listed on CareJoys, taken from your careers page. Caregivers ${near} can apply in a minute, and every application lands in one free inbox for ${input.agencyName}.`,
+    `You also get a free widget for your own careers page. It’s two lines of code and stays in sync with your listings.`,
+    `As caregivers ${near} join CareJoys, we’ll also match you with the ones whose certifications and availability fit your openings.`
+  ];
   return {
-    subject:`The most qualified caregivers for ${input.agencyName}, matched to what you need`,
-    html:shell('Qualified caregivers, matched to your needs',`
+    subject:`${input.jobCount===1?'Your job is':'Your jobs are'} live on CareJoys, ${input.agencyName}`,
+    html:shell('Your jobs are live on CareJoys',`
       <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
-      <p style="${P}">CareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you’re hiring for, and we match you with caregivers ${esc(near)} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.</p>
-      <p style="${P}">We already list ${esc(openings)} from your careers page. Take a minute to confirm what you’re hiring for and we’ll start matching.</p>
-      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Verify your agency needs</a></p>
-      <p style="${P}">You’ll also get a free widget that shows your jobs on your own website. It’s two lines of code, stays in sync with your careers page, and every application lands in one inbox.</p>
+      ${lines.map(l=>`<p style="${P}">${esc(l)}</p>`).join('\n      ')}
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">See your jobs and inbox</a></p>
       <p style="${P}">Rebecca<br>CareJoys</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you're hiring for, and we match you with caregivers ${near} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.\n\nWe already list ${openings.replace('’',"'")} from your careers page. Take a minute to confirm what you're hiring for and we'll start matching.\n\nVerify your agency needs: ${input.link}\n\nYou'll also get a free widget that shows your jobs on your own website. It's two lines of code, stays in sync with your careers page, and every application lands in one inbox.\n\nRebecca\nCareJoys`
+    text:`Hi ${input.contactName||'there'},\n\n${lines.join('\n\n').replace(/’/g,"'")}\n\nSee your jobs and inbox: ${input.link}\n\nRebecca\nCareJoys`
   };
 }
 
@@ -387,5 +397,52 @@ export function caregiverRoleClosedEmail(input:{firstName:string;company:string;
       p('Your profile stays active, and CareJoys will keep matching you with jobs near you.')+
       cta(input.jobsLink,'See jobs near you')),
     text:`Hi ${input.firstName||'there'},\n\n${input.filled?`${input.company} has filled ${input.title}.`:`${input.company} decided to go another way for ${input.title}.`} Thank you for saying you were interested.\n\nYour profile stays active, and CareJoys will keep matching you with jobs near you.\n\n${input.jobsLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
+const button=(href:string,label:string)=>`<p style="margin:26px 0"><a href="${esc(href)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">${esc(label)}</a></p>`;
+
+export type DigestPerson={name:string;title:string;detail:string};
+/** The morning email: who applied since yesterday, who is still waiting on a reply, and today's interviews. */
+export function dailyDigestEmail(input:{company:string;fresh:DigestPerson[];waiting:DigestPerson[];interviews:DigestPerson[];link:string;settingsLink:string}){
+  const total=input.fresh.length+input.waiting.length+input.interviews.length;
+  const list=(heading:string,people:DigestPerson[])=>people.length?`<h2 style="font-size:17px;margin:22px 0 8px">${esc(heading)}</h2><ul style="${P};padding-left:20px;margin:0">${people.slice(0,10).map(p=>`<li><strong>${esc(p.name)}</strong>${p.title?' · '+esc(p.title):''}${p.detail?' · '+esc(p.detail):''}</li>`).join('')}</ul>${people.length>10?`<p style="${P}">and ${people.length-10} more</p>`:''}`:'';
+  const textList=(heading:string,people:DigestPerson[])=>people.length?`${heading}\n${people.slice(0,10).map(p=>'- '+[p.name,p.title,p.detail].filter(Boolean).join(' · ')).join('\n')}\n\n`:'';
+  const subject=[input.fresh.length?`${input.fresh.length} new`:'',input.waiting.length?`${input.waiting.length} waiting on you`:'',input.interviews.length?`${input.interviews.length} interview${input.interviews.length===1?'':'s'} today`:''].filter(Boolean).join(', ');
+  return {
+    subject:`${input.company}: ${subject||total+' caregivers'}`,
+    html:shell('Your caregivers this morning',`
+      ${list('New since yesterday',input.fresh)}
+      ${list('Waiting on your reply',input.waiting)}
+      ${list('Interviews today',input.interviews)}
+      ${button(input.link,'Open your candidates')}
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">You get this email on mornings when something needs you. <a href="${esc(input.settingsLink)}" style="color:#8a849b">Turn it off in Settings</a>.</p>`),
+    text:`Your caregivers this morning\n\n${textList('New since yesterday',input.fresh)}${textList('Waiting on your reply',input.waiting)}${textList('Interviews today',input.interviews)}${input.link}\n\nTurn this email off in Settings: ${input.settingsLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** The first-of-the-month results: what CareJoys did for the employer last month. */
+export function monthlyResultsEmail(input:{company:string;month:string;views:number;applied:number;invited:number;yes:number;hired:number;link:string}){
+  const rows:[string,number][]=[['Caregivers who viewed your jobs',input.views],['Applied to you through CareJoys',input.applied],['Invited',input.invited],['Said yes',input.yes],['Hired',input.hired]];
+  return {
+    subject:`${input.company} on CareJoys in ${input.month}: ${input.applied+input.yes} caregiver${input.applied+input.yes===1?'':'s'} interested, ${input.hired} hired`,
+    html:shell(`Your ${input.month} on CareJoys`,`
+      <table style="width:100%;border-collapse:collapse;${P}">${rows.map(([label,n])=>`<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${esc(label)}</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right"><strong>${n}</strong></td></tr>`).join('')}</table>
+      ${button(input.link,'Open your workspace')}`),
+    text:`Your ${input.month} on CareJoys\n\n${rows.map(([label,n])=>label+': '+n).join('\n')}\n\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** One candidate sent to the agency's ATS or recruiting inbox, in a shape an ATS email parser can read. */
+export function atsForwardEmail(input:{company:string;title:string;source:string;note:string;caregiver:{name:string;email:string;phone:string;city:string;state:string;zip:string;role:string;certifications:string};link:string}){
+  const c=input.caregiver;
+  const fields:[string,string][]=[['Name',c.name],['Email',c.email],['Phone',c.phone],['Location',[c.city,c.state,c.zip].filter(Boolean).join(', ')],['Role',c.role],['Certifications',c.certifications],['Position',input.title],['Source',input.source],['Note',input.note]];
+  const shown=fields.filter(([,v])=>v);
+  return {
+    subject:`Candidate: ${c.name}${input.title?' — '+input.title:''} (CareJoys)`,
+    html:shell(c.name,`
+      <table style="width:100%;border-collapse:collapse;${P}">${shown.map(([k,v])=>`<tr><td style="padding:4px 12px 4px 0;vertical-align:top"><strong>${esc(k)}</strong></td><td style="padding:4px 0">${esc(v)}</td></tr>`).join('')}</table>
+      ${button(input.link,'See them on CareJoys')}`),
+    text:`${shown.map(([k,v])=>k+': '+v).join('\n')}\n\nOn CareJoys: ${input.link}\n\nForwarded by CareJoys for ${input.company}.`
   };
 }

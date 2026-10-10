@@ -6,24 +6,25 @@ import { payLabel } from './jobFormat';
 import { AccountMenu, CloseAccountSide } from './AccountLink';
 import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { JobsWidgetCard } from './JobsWidgetCard';
-import { AgencyInbox } from './AgencyInboxTab';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
-import { MatchList, type MatchRow } from './MatchList';
-import { CandidatePage, CandidatePanel, type CandidateActions } from './CandidatePanel';
+import { MatchList, STAGE_LABELS, needsReply, type DecideStage, type MatchRow } from './MatchList';
+import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, stageCounts, type InboxItem } from './candidates';
+import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
 import { TalentPage, TalentPanel, type TalentActions } from './TalentPanel';
-import { certificationsLabel, profileTags, shiftsLabel } from './profileTags';
+import { shiftsLabel } from './profileTags';
 import { CHECKLIST } from './checklist';
 import { EmailTemplatesModal } from './EmailTemplatesModal';
 import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import { parseOpeningSchedule } from './schedule';
+import { WorkspaceSettings } from './WorkspaceSettings';
 import './workspace.css';
 
 type Opening={
   id:string;title:string;role:string;city?:string;state?:string;zip?:string;
   pay_min?:number;pay_max?:number;shift_preferences?:string;status?:string;
   source?:string;agency_organization_id?:string;available_interview_slots?:number;
-  schedule_json?:string|null;requirements?:string;transportation_required?:number;created_at?:string;
+  schedule_json?:string|null;requirements?:string;transportation_required?:number;created_at?:string;service_radius_miles?:number|null;
 };
 type InterviewSlot={id:string;starts_at:string;duration_minutes:number;timezone:string;status:string;location?:string|null};
 type StageFilter=''|'matched'|'contacted'|'interested'|'interview'|'hired';
@@ -37,12 +38,7 @@ function timeZoneLabel(){
   try{return new Intl.DateTimeFormat(undefined,{timeZoneName:'long'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value||Intl.DateTimeFormat().resolvedOptions().timeZone}
   catch{return Intl.DateTimeFormat().resolvedOptions().timeZone||'your local time'}
 }
-type AgencyMatch={
-  caregiverId:string;name:string;city?:string;state?:string;role?:string;
-  certifications?:string;yearsExperience?:number;desiredWage?:string;shifts?:string;
-  fitScore:number;freshness?:string;
-};
-type AgencyNetwork={agency:any|null;hiringProfile:any|null;matches:AgencyMatch[]};
+type AgencyNetwork={agency:any|null};
 type Candidate=TalentCandidate;
 type PipelineRow=MatchRow;
 type SessionEmployer={id:string;companyName:string;contactName:string;email:string;zip?:string};
@@ -53,7 +49,7 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
   if(!res.ok)throw new Error(body.error||'Request failed');
   return body;
 }
-const EMPTY_FILTERS={role:'',zip:'',radius:'all',state:'',freshness:'all',shift:'',hours:'',cert:'',car:'',sort:'',payMax:'',language:'',checked:''};
+const EMPTY_FILTERS={role:'',zip:'',radius:'commute',state:'',freshness:'all',shift:'',hours:'',cert:'',car:'',sort:'',payMax:'',language:'',checked:''};
 type TalentFilterState=typeof EMPTY_FILTERS;
 /** Find caregivers filters from the page URL, so a saved-search email opens on that search. */
 const filtersFromUrl=():TalentFilterState=>{
@@ -94,9 +90,10 @@ export function EmployerWorkspace(){
   const [talentPanelId,setTalentPanelId]=useState('');
   const [talentPageId,setTalentPageId]=useState(()=>new URLSearchParams(window.location.search).get('talent')||'');
   const firstTalentLoad=useRef('');
-  const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'|'plan'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':'openings'});
-  const [inboxWaiting,setInboxWaiting]=useState(0);
+  const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
+  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':'openings'});
+  const [applications,setApplications]=useState<InboxItem[]>([]);
+  const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
   const [loading,setLoading]=useState(false);
   const [message,setMessageText]=useState('');
   const [messageTone,setMessageTone]=useState<'ok'|'info'|'error'>('ok');
@@ -150,7 +147,8 @@ export function EmployerWorkspace(){
       setPipeline(p.pipeline||[]);
       const network=await api<AgencyNetwork>('/api/agency/network');
       setAgencyNetwork(network);
-      if(network.agency)void api<{items:{stage:string}[]}>('/api/agency/inbox').then(d=>setInboxWaiting((d.items||[]).filter(i=>i.stage==='new').length)).catch(()=>{});
+      setApplications(network.agency&&data.approval?.approved!==false?(await api<{items:InboxItem[]}>('/api/agency/inbox').catch(()=>({items:[]}))).items||[]:[]);
+      setLicenseChecks((await api<{checks:Record<string,LicenseCheck>}>('/api/license-checks').catch(()=>({checks:{}}))).checks||{});
       setBilling(await api<any>('/api/billing').catch(()=>null));
       setSavedTemplates((await api<{templates:EmailTemplate[]}>('/api/email-templates').catch(()=>({templates:[]}))).templates||[]);
     }catch(e){
@@ -162,10 +160,9 @@ export function EmployerWorkspace(){
   }
 
   useEffect(()=>{void loadSession()},[]);
-  // A claim link lands on /app?tab=hiring; open that tab once the linked agency has loaded.
+  // A claim link lands on /app?tab=jobs; open that tab once the linked agency has loaded.
   useEffect(()=>{
-    const t=new URLSearchParams(window.location.search).get('tab');
-    if(agencyNetwork.agency&&(t==='hiring'||t==='jobs'))setTab(t);
+    if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='jobs')setTab('jobs');
   },[agencyNetwork.agency]);
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
 
@@ -209,7 +206,8 @@ export function EmployerWorkspace(){
     if(tab!=='talent'||!session||!approvalKnown||pendingApproval||firstTalentLoad.current===session.id)return;
     firstTalentLoad.current=session.id;
     const homeZip=String(workspace?.zip||session.zip||openings.find(o=>o.status==='open')?.zip||'').trim().slice(0,5);
-    const initial={...filters,zip:filters.zip||homeZip,radius:'all'};
+    // Nearby first: only caregivers whose own commute reaches this ZIP. Any distance is one click away.
+    const initial={...filters,zip:filters.zip||homeZip,radius:filters.radius||'commute'};
     setFilters(initial);
     void searchTalent(undefined,initial);
   },[tab,session?.id,approvalKnown,pendingApproval,workspace?.zip,openings.length]);
@@ -332,13 +330,27 @@ export function EmployerWorkspace(){
   }
 
   const patchRow=(id:string,change:Partial<PipelineRow>)=>setPipeline(rows=>rows.map(r=>r.id===id?{...r,...change}:r));
+  const patchApplication=(id:string,change:Partial<InboxItem>)=>setApplications(items=>items.map(i=>i.id===id?{...i,...change}:i));
+  /** Saves a stage or notes on an application (a caregiver who applied to the agency). */
+  async function saveApplication(row:PipelineRow,patch:{stage?:InboxItem['stage'];notes?:string}){
+    const id=row.application_id||row.id.slice(APPLICATION_PREFIX.length);
+    await api('/api/agency/inbox/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(patch)});
+    patchApplication(id,patch);
+  }
   async function saveNotes(row:PipelineRow,notes:string){
-    try{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({notes})});patchRow(row.id,{employer_notes:notes})}
-    catch(error){setMessage(error instanceof Error?error.message:'Could not save notes','error')}
+    try{
+      if(row.kind==='application')await saveApplication(row,{notes});
+      else{await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({notes})});patchRow(row.id,{employer_notes:notes})}
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not save notes','error')}
+  }
+  /** Emailing or calling an applicant who was waiting means they've heard back. */
+  function reach(row:PipelineRow){
+    if(row.kind==='application'&&row.stage==='interested'&&!row.reached)void saveApplication(row,{stage:INBOX_STAGE_FOR.reached}).catch(()=>{});
   }
 
   async function restore(row:PipelineRow){
     try{
+      if(row.kind==='application'){await saveApplication(row,{stage:INBOX_STAGE_FOR.restore});setMessage(row.name+' is back in your candidates.');return}
       await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({stage:'restore'})});
       setMessage(row.name+' is back in your candidates.');
       await refreshWorkspace();
@@ -365,10 +377,11 @@ export function EmployerWorkspace(){
     return ()=>window.removeEventListener('popstate',onPop);
   },[]);
 
-  async function decide(row:PipelineRow,stage:'hired'|'rejected'){
+  async function decide(row:PipelineRow,stage:DecideStage){
     if(!session)return;
-    if(stage==='rejected'&&!window.confirm('Mark '+row.name+' as not a fit for '+row.title+'?'))return;
+    if(stage==='rejected'&&!window.confirm('Mark '+row.name+' as not a fit'+(row.title?' for '+row.title:'')+'?'))return;
     try{
+      if(row.kind==='application'){await saveApplication(row,{stage:INBOX_STAGE_FOR[stage]});return}
       await api('/api/pipeline/'+row.id,{method:'PATCH',body:JSON.stringify({stage})});
       await refreshWorkspace();
     }catch(error){setMessage(error instanceof Error?error.message:'Could not update this caregiver','error')}
@@ -413,42 +426,19 @@ export function EmployerWorkspace(){
     }
   }
 
-  async function saveHiringProfile(e:FormEvent<HTMLFormElement>){
-    e.preventDefault();
-    const fd=new FormData(e.currentTarget);
-    const data={
-      hiringStatus:String(fd.get('hiringStatus')||'unknown'),
-      roles:String(fd.get('roles')||''),
-      shifts:String(fd.get('shifts')||''),
-      payMin:Number(fd.get('payMin')||0)||null,
-      payMax:Number(fd.get('payMax')||0)||null,
-      serviceRadiusMiles:Number(fd.get('serviceRadiusMiles')||0)||null,
-      serviceAreas:String(fd.get('serviceAreas')||''),
-      transportationRequired:fd.get('transportationRequired')==='on',
-      requirements:String(fd.get('requirements')||'')
-    };
-    setMessage('Saving hiring preferences and refreshing matches…','info');
-    try{
-      await api('/api/agency/hiring-profile',{method:'POST',body:JSON.stringify(data)});
-      setMessage('Hiring preferences saved. CareJoys will keep matching your agency to caregivers.');
-      await refreshWorkspace();
-    }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not save hiring preferences','error');
-    }
-  }
-
   async function logout(){
     await api('/api/auth/logout',{method:'POST'});
     setSession(null);setWorkspace(null);setOpenings([]);setPipeline([]);
   }
 
-  const counts=useMemo(()=>{
-    const by=(s:string)=>pipeline.filter(p=>p.stage===s).length;
-    return{matched:by('matched'),contacted:by('contacted'),interested:by('interested'),interview:by('interview'),hired:by('hired')};
-  },[pipeline]);
+  // Everyone in one list: caregivers who applied to the agency and caregivers matched to openings, one set of stages.
+  const everyone=useMemo(()=>mergeCandidates(pipeline,applications),[pipeline,applications]);
+  const counts=useMemo(()=>stageCounts(everyone),[everyone]);
+  const results=useMemo(()=>resultsOf(everyone),[everyone]);
+  const waitingReply=everyone.filter(needsReply);
   const openingPipeline=useMemo(
-    ()=>intakeOpeningId?pipeline.filter(p=>p.opening_id===intakeOpeningId):pipeline,
-    [pipeline,intakeOpeningId]
+    ()=>intakeOpeningId?everyone.filter(p=>p.opening_id===intakeOpeningId):everyone,
+    [everyone,intakeOpeningId]
   );
   const viewCounts={active:openingPipeline.filter(p=>p.stage!=='rejected').length,archived:openingPipeline.filter(p=>p.stage==='rejected').length};
   const visiblePipeline=useMemo(
@@ -463,13 +453,15 @@ export function EmployerWorkspace(){
     pipeline.filter(p=>p.stage==='interview'&&p.interview_at&&Date.parse(p.interview_at)>Date.now()&&Date.parse(p.interview_at)<soon)
       .sort((a,b)=>Date.parse(a.interview_at!)-Date.parse(b.interview_at!))
       .forEach(p=>items.push({key:'iv'+p.id,text:'Interview with '+p.name+', '+new Date(p.interview_at!).toLocaleDateString(undefined,{weekday:'long'})+' at '+new Date(p.interview_at!).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}),action:'View',go:()=>setPanelRowId(p.id)}));
-    const waiting=pipeline.filter(p=>p.stage==='interested');
-    if(waiting.length===1)items.push({key:'yes',text:waiting[0].name+' said yes to '+waiting[0].title+' and is waiting on you',action:'Review',go:()=>setPanelRowId(waiting[0].id)});
-    else if(waiting.length>1)items.push({key:'yes',text:waiting.length+' caregivers said yes and are waiting on you',action:'Review',go:()=>showCandidates('interested')});
-    const fresh=pipeline.filter(p=>p.stage==='matched').length;
+    // Caregivers who applied or said yes and haven't heard back: the most urgent thing an agency can act on.
+    const waiting=everyone.filter(needsReply);
+    const what=(p:PipelineRow)=>p.kind==='application'?'applied'+(p.title?' to '+p.title:''):'said yes to '+p.title;
+    if(waiting.length===1)items.unshift({key:'yes',text:waiting[0].name+' '+what(waiting[0])+' and needs a reply',action:'Reply',go:()=>setPanelRowId(waiting[0].id)});
+    else if(waiting.length>1)items.unshift({key:'yes',text:waiting.length+' caregivers applied or said yes and need a reply',action:'Review',go:()=>showCandidates('interested')});
+    const fresh=everyone.filter(p=>p.stage==='matched').length;
     if(fresh)items.push({key:'new',text:fresh+' matched caregiver'+(fresh===1?'':'s')+' not invited yet',action:'Pick who to invite',go:()=>showCandidates('matched')});
     return items;
-  },[pipeline,pendingApproval]);
+  },[everyone,pipeline,pendingApproval]);
   const openOpenings=openings.filter(o=>o.status!=='closed');
   const closedOpenings=openings.filter(o=>o.status==='closed');
   // First visit: three steps until the employer has invited someone and added interview times (or the list is long enough to know their way around).
@@ -478,12 +470,18 @@ export function EmployerWorkspace(){
     {done:pipeline.some(p=>!!p.contacted_at),label:'Invite the caregivers you like',go:()=>showCandidates('matched')},
     {done:openings.some(o=>Number(o.available_interview_slots||0)>0),label:'Add interview times (optional)',go:()=>openOpenings[0]&&void openInterviewSlots(openOpenings[0])}
   ];
-  const showSetup=!pendingApproval&&openOpenings.length>0&&openings.length<=2&&setupSteps.some(x=>!x.done)&&!pipeline.some(p=>['interested','interview','hired'].includes(p.stage));
+  const showSetup=!pendingApproval&&openOpenings.length>0&&openings.length<=2&&setupSteps.some(x=>!x.done)&&!everyone.some(p=>['interested','interview','hired'].includes(p.stage));
   const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
-  const candidateActions:CandidateActions={onInvite:invite,onDecide:decide,onNotes:saveNotes,onRestore:restore};
+  async function checkLicense(row:MatchRow,result:LicenseCheck['result']|''){
+    try{
+      const data=await api<{check:LicenseCheck|null}>('/api/license-checks/'+encodeURIComponent(row.caregiver_id),{method:'POST',body:JSON.stringify({result})});
+      setLicenseChecks(prev=>{const next={...prev};if(data.check)next[row.caregiver_id]=data.check;else delete next[row.caregiver_id];return next});
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not save the license check','error')}
+  }
+  const candidateActions:CandidateActions={onInvite:invite,onDecide:decide,onNotes:saveNotes,onRestore:restore,onReach:reach,licenseChecks,onLicenseCheck:checkLicense};
   const talentActions:TalentActions={
     openings:openings.filter(o=>o.status==='open').map(o=>({id:o.id,title:o.title})),
-    pipelineFor:id=>pipeline.filter(p=>p.caregiver_id===id&&p.stage!=='rejected').map(p=>({rowId:p.id,title:p.title})),
+    pipelineFor:id=>everyone.filter(p=>p.caregiver_id===id&&p.stage!=='rejected').map(p=>({rowId:p.id,title:p.kind==='application'?'your agency (applied'+(p.title?' to '+p.title:'')+')':p.title,applied:p.kind==='application'})),
     onInvite:inviteFromTalent,disabled:pendingApproval
   };
   const talentPanel=candidates.find(c=>c.id===talentPanelId)||null;
@@ -491,8 +489,8 @@ export function EmployerWorkspace(){
   const sender={company:workspace?.company_name||session?.companyName||'',contactName:session?.contactName||''};
   const shownTab=pageRowId||talentPageId?'':tab;
   function leavePage(){if(pageRowId||talentPageId){window.history.pushState(null,'','/app');setPageRowId('');setTalentPageId('')}}
-  const panelRow=pipeline.find(p=>p.id===panelRowId)||null;
-  const pageRow=pipeline.find(p=>p.id===pageRowId)||null;
+  const panelRow=everyone.find(p=>p.id===panelRowId)||null;
+  const pageRow=everyone.find(p=>p.id===pageRowId)||null;
   const intakeOpening=useMemo(
     ()=>openings.find(o=>o.id===intakeOpeningId)||null,
     [openings,intakeOpeningId]
@@ -514,11 +512,11 @@ export function EmployerWorkspace(){
      <nav className="dash-sidenav" aria-label="Workspace">
       <div className="dash-sidenav-label">Hiring</div>
       <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Openings</button>
-      <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setStageFilter('');setTab('pipeline')}}>Candidates{inboxWaiting?` (${inboxWaiting} new)`:''}</button>
+      <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setStageFilter('');setTab('pipeline')}}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
-      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='hiring'?'active':'')} onClick={()=>{leavePage();setTab('hiring')}}>Hiring preferences</button>}
       {billing?.enabled&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>{leavePage();setTab('plan')}}>Plan</button>}
+      <button className={'dash-sidenav-item '+(tab==='settings'?'active':'')} onClick={()=>{leavePage();setTab('settings')}}>Settings</button>
      </nav>
      <div className="dash-main-col">
       <section className="page-head page-head-row">
@@ -528,7 +526,7 @@ export function EmployerWorkspace(){
 
       <div className="result-summary workspace-summary">
         <strong>{openOpenings.length} open role{openOpenings.length===1?'':'s'}</strong>
-        {([['matched','to review',counts.matched],['contacted','invited',counts.contacted],['interested','interested',counts.interested],['interview',counts.interview===1?'interview':'interviews',counts.interview],['hired','hired',counts.hired]] as const)
+        {([['matched','to review',counts.matched],['contacted','invited',counts.contacted],['interested',applications.length?'said yes or applied':'said yes',counts.interested],['interview',counts.interview===1?'interview':'interviews',counts.interview],['hired','hired',counts.hired]] as const)
           .map(([stage,label,n])=>pendingApproval?<span key={stage}>— {label}</span>
             :<button type="button" key={stage} className={'summary-chip'+(tab==='pipeline'&&stageFilter===stage?' on':'')} onClick={()=>showCandidates(stage)}>{n} {label}</button>)}
       </div>
@@ -557,6 +555,7 @@ export function EmployerWorkspace(){
 
       {shownTab==='openings'&&<section className="section-block">
         <div className="section-heading"><h2>Openings</h2><p>Describe the role once, see matches and invite caregivers. Adding interview times is optional.</p></div>
+        {results.invited+results.applied>0&&<p className="results-line" role="status"><strong>Your results on CareJoys:</strong> {[results.applied?results.applied+' applied':'',results.invited?results.invited+' invited · '+results.yes+' said yes':'',results.hired+' hired'].filter(Boolean).join(' · ')}</p>}
         {openings.length===0?<div className="empty"><strong>No openings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create opening</button></div></div>:
         <>{openOpenings.length===0&&<div className="empty"><strong>No open roles.</strong><div>Reopen one below or add a new opening.</div></div>}
         <div className="job-list">{openOpenings.map((o,i)=><OpeningCard key={o.id} opening={o} tone={cardTone(i)} pipeline={pipeline} pendingApproval={pendingApproval}
@@ -587,21 +586,19 @@ export function EmployerWorkspace(){
           </div>
         </div>:<div className="section-heading">
           <h2>All candidates</h2>
-          <p>People matched to or interested in your openings, by stage. Interest and interview bookings update automatically.</p>
+          <p>{agencyNetwork.agency?'Caregivers who applied to your jobs and caregivers matched to your openings, in one list.':'Caregivers matched to your openings, by stage. Answers and interview bookings update automatically.'}</p>
         </div>}
-        {agencyNetwork.agency&&<div hidden={!!intakeOpening}><AgencyInbox onCount={setInboxWaiting}/></div>}
-        {openingPipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Find caregivers</button></div></div>:
-        <>{!intakeOpening&&agencyNetwork.agency&&<div className="candidate-group-head"><h3>Matched to your openings</h3></div>}
-        <div className="candidate-views">
+        {openingPipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':agencyNetwork.agency?'Caregivers who apply to your jobs and caregivers matched to your openings show here.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Find caregivers</button></div></div>:
+        <><div className="candidate-views">
           <div className="inbox-filters" role="group" aria-label="Show">
             {([['active','Active'],['archived','Not a fit']] as const).map(([k,label])=><button type="button" key={k} className={'chip'+(candidateView===k&&!(k==='active'&&stageFilter)?' on':'')} aria-pressed={candidateView===k} onClick={()=>{setCandidateView(k);setStageFilter('')}}>{label} <strong>{viewCounts[k]}</strong></button>)}
-            {stageFilter&&candidateView==='active'&&<button type="button" className="chip on" aria-pressed="true" onClick={()=>setStageFilter('')} title="Show everyone">{({matched:'Not invited yet',contacted:'Invited',interested:'Said yes',interview:'Interviews',hired:'Hired'} as Record<string,string>)[stageFilter]} <strong>{visiblePipeline.length}</strong> ×</button>}
+            {stageFilter&&candidateView==='active'&&<button type="button" className="chip on" aria-pressed="true" onClick={()=>setStageFilter('')} title="Show everyone">{STAGE_LABELS[stageFilter]} <strong>{visiblePipeline.length}</strong> ×</button>}
           </div>
           <button type="button" className="text-button" onClick={()=>setShowTemplates(true)}>Email templates</button>
         </div>
         {visiblePipeline.length===0&&stageFilter&&candidateView==='active'?<div className="empty"><strong>Nobody here right now.</strong><div><button type="button" className="text-button" onClick={()=>setStageFilter('')}>Show all candidates</button></div></div>
         :visiblePipeline.length===0?<div className="empty"><strong>{candidateView==='archived'?'Nobody is marked not a fit.':'Everyone here is marked not a fit.'}</strong><div>{candidateView==='archived'?'Caregivers you mark not a fit, or who decline, show here. You can restore the ones you marked.':'Open Not a fit to restore someone.'}</div></div>
-        :<MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide} onNotes={saveNotes} onOpen={r=>setPanelRowId(r.id)} onRestore={restore}/>}</>}
+        :<MatchList rows={visiblePipeline} showOpening={!intakeOpening} disabled={pendingApproval} onInvite={invite} onDecide={decide} onNotes={saveNotes} onOpen={r=>setPanelRowId(r.id)} onRestore={restore} onReach={reach}/>}</>}
       </section>}
 
       {shownTab==='talent'&&<section className="section-block">
@@ -610,7 +607,7 @@ export function EmployerWorkspace(){
           <div className="talent-filters-row">
             <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role or skill: CNA, dementia" aria-label="Role or skill" />
             <input value={filters.zip} onChange={e=>setFilters({...filters,zip:e.target.value})} placeholder="ZIP" inputMode="numeric" aria-label="ZIP" />
-            <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="all">Any distance</option><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
+            <select value={filters.radius} onChange={e=>setFilters({...filters,radius:e.target.value})} aria-label="Distance from ZIP"><option value="commute">Commuting distance</option><option value="all">Any distance</option><option value="10">Within 10 mi</option><option value="25">Within 25 mi</option><option value="50">Within 50 mi</option><option value="100">Within 100 mi</option></select>
             <button className="button">Search</button>
           </div>
           <div className="talent-filters-row more">
@@ -629,47 +626,14 @@ export function EmployerWorkspace(){
         {alerts.length>0&&<div className="talent-alerts"><span>Email alerts:</span>{alerts.map(a=><span className="badge" key={a.id}>{a.label}<button type="button" className="badge-remove" aria-label={'Turn off alert '+a.label} onClick={()=>void removeAlert(a.id)}>×</button></span>)}</div>}
         {talentState==='loading'?<div className="empty"><strong>Loading available caregivers…</strong></div>:
          talentState==='error'?<div className="empty"><strong>Couldn't load caregivers.</strong><div>Retry the search to view available profiles.</div></div>:
-         talentState==='ready'&&candidates.length===0?<div className="empty"><strong>No caregivers match these filters yet.</strong><div>Caregivers show here once they confirm their availability and verify their profile. Try Any distance, or Clear the filters.</div></div>:
+         talentState==='ready'&&candidates.length===0?<div className="empty"><strong>{filters.radius==='commute'?'No caregivers near '+(talentSearchedZip||'you')+' match yet.':'No caregivers match these filters yet.'}</strong><div>{filters.radius==='commute'?'Nobody who matches lives within commuting distance yet. Save this search and CareJoys emails you when someone nearby joins.':'Caregivers show here once they confirm their availability and verify their profile. Try clearing the filters.'}</div>{filters.radius==='commute'&&<div className="empty-actions"><button type="button" className="button secondary" onClick={()=>void saveAlert()}>Email me when someone nearby joins</button></div>}</div>:
          talentState==='ready'?<TalentResults candidates={candidates} total={talentTotal} nearby={talentNearby} zip={talentSearchedZip} sortedByDistance={!filters.sort&&!!talentSearchedZip} actions={talentActions} onOpen={c=>setTalentPanelId(c.id)} onSaveAlert={()=>void saveAlert()}/>:
          <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
-      {shownTab==='hiring'&&agencyNetwork.agency&&<section className="section-block">
-        <div className="section-heading"><h2>Always-on hiring preferences</h2><p>Optional: save your usual hiring needs so CareJoys can keep scoring new caregivers even when you do not have an urgent opening.</p></div>
-        <div className="agency-profile-grid">
-          <div className="settings-card agency-profile-card">
-            <div className="modal-kicker">Licensed provider</div>
-            <h3>{agencyNetwork.agency.name}</h3>
-            <div className="job-meta">{[agencyNetwork.agency.city,agencyNetwork.agency.state,agencyNetwork.agency.providerTypes].filter(Boolean).join(' · ')}</div>
-            <div className="job-badges">
-              <span className="badge">{agencyNetwork.agency.currentHiringSignal==='hiring_detected'?'Careers page shows hiring':agencyNetwork.agency.currentHiringSignal||'Hiring unknown'}</span>
-              {agencyNetwork.agency.website&&<a className="text-link" href={agencyNetwork.agency.website} target="_blank">Website ↗</a>}
-              {agencyNetwork.agency.careersUrl&&<a className="text-link" href={agencyNetwork.agency.careersUrl} target="_blank">Careers ↗</a>}
-            </div>
-          </div>
-          <form className="settings-card intake-form" onSubmit={saveHiringProfile} key={agencyNetwork.hiringProfile?.updated_at||'profile'}>
-            <div className="form-grid">
-              <label>Hiring status<select name="hiringStatus" defaultValue={agencyNetwork.hiringProfile?.hiring_status||'unknown'}><option value="always_hiring">Always hiring good caregivers</option><option value="hiring">Hiring now</option><option value="not_hiring">Not hiring right now</option><option value="unknown">Not sure</option></select></label>
-              <label>Roles<input name="roles" defaultValue={agencyNetwork.hiringProfile?.roles||agencyNetwork.agency.inferredRoles||''} placeholder="CNA, HHA, PCA, Caregiver" /></label>
-            </div>
-            <div className="form-grid"><label>Min pay / hr<input name="payMin" type="number" defaultValue={agencyNetwork.hiringProfile?.pay_min||''} /></label><label>Max pay / hr<input name="payMax" type="number" defaultValue={agencyNetwork.hiringProfile?.pay_max||''} /></label></div>
-            <div className="form-grid"><label>Shifts<input name="shifts" defaultValue={agencyNetwork.hiringProfile?.shifts||''} placeholder="Days, nights, weekends" /></label><label>Service radius<input name="serviceRadiusMiles" type="number" defaultValue={agencyNetwork.hiringProfile?.service_radius_miles||''} placeholder="25" /></label></div>
-            <label>Service areas<input name="serviceAreas" defaultValue={agencyNetwork.hiringProfile?.service_areas||[agencyNetwork.agency.city,agencyNetwork.agency.state].filter(Boolean).join(', ')} placeholder="Baltimore County, Towson, Timonium…" /></label>
-            <label>Requirements<textarea name="requirements" rows={3} defaultValue={agencyNetwork.hiringProfile?.requirements||''} placeholder="Credentials, experience, schedule, client requirements…" /></label>
-            <label className="check-row"><input type="checkbox" name="transportationRequired" defaultChecked={!!agencyNetwork.hiringProfile?.transportation_required} /><span>Reliable transportation required</span></label>
-            <button className="button">Save hiring preferences</button>
-          </form>
-        </div>
-        <div className="section-heading agency-match-head"><h2>Continuous matches</h2><p>{agencyNetwork.matches.length} caregivers currently score against these preferences.</p></div>
-        {agencyNetwork.matches.length===0?<div className="empty"><strong>No local matches yet.</strong><div>CareJoys will keep this profile active as the network grows.</div></div>:
-        <div className="job-list">{agencyNetwork.matches.slice(0,20).map((match,i)=><article className={'job-card '+cardTone(i)} key={match.caregiverId}>
-          <div className="job-card-main"><h3>{match.name}</h3><div className="job-meta">{[match.role,match.city,match.state].filter(Boolean).join(' · ')}</div>
-          <div className="match-reasons">{profileTags({matchScore:match.fitScore,freshness:match.freshness,shifts:match.shifts,desiredWage:match.desiredWage}).map(t=><span className={'badge'+(t.tone?' '+t.tone:'')} key={t.label}>{t.label}</span>)}</div>
-          {match.certifications&&<div className="job-card-cue">{certificationsLabel(match.certifications)}</div>}</div>
-        </article>)}</div>}
-      </section>}
+      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency}/>}
 
       {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
@@ -679,7 +643,7 @@ export function EmployerWorkspace(){
       {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')}/>}
       {talentPanel&&!talentPageId&&<TalentPanel candidate={talentPanel} actions={talentActions} onClose={()=>setTalentPanelId('')}/>}
       {showTemplates&&<EmailTemplatesModal templates={templates} onSave={saveTemplate} onDelete={deleteTemplate} onClose={()=>setShowTemplates(false)}/>}
-      {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} pendingApproval={pendingApproval} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
+      {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} serviceArea={workspace?.employer_type!=='assisted_living'} pendingApproval={pendingApproval} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
 
       {slotsFor&&<div className="modal-backdrop" onMouseDown={()=>setSlotsFor(null)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setSlotsFor(null)}>×</button>
@@ -730,7 +694,9 @@ function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onO
   const [openingId,setOpeningId]=useState(actions.openings[0]?.id||'');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{if(!actions.openings.some(o=>o.id===openingId))setOpeningId(actions.openings[0]?.id||'')},[actions.openings.map(o=>o.id).join()]);
-  const canPick=(c:Candidate)=>actions.openings.length>0&&!actions.pipelineFor(c.id).length;
+  // Someone who lives beyond their own commute from the searched ZIP can't take the job, so they can't be invited.
+  const tooFar=(c:Candidate)=>c.distanceMiles!=null&&!c.withinCommute;
+  const canPick=(c:Candidate)=>actions.openings.length>0&&!actions.pipelineFor(c.id).length&&!tooFar(c);
   const pickable=near.filter(canPick);
   const chosen=candidates.filter(c=>picked.has(c.id)&&canPick(c));
   const allPicked=pickable.length>0&&pickable.every(c=>picked.has(c.id));
@@ -741,10 +707,10 @@ function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onO
   }
   const tile=(c:Candidate,i:number)=>{
     const spots=actions.pipelineFor(c.id);
-    const quickInvite=actions.openings.length===1&&!spots.length&&!chosen.length;
+    const quickInvite=canPick(c)&&actions.openings.length===1&&!chosen.length;
     return <TalentCard candidate={c} tone={cardTone(i)} key={c.id} onOpen={()=>onOpen(c)}
       selected={canPick(c)?picked.has(c.id):undefined} onSelect={canPick(c)?()=>toggle(c.id):undefined}
-      note={spots.length?'In your candidates for '+spots.map(s=>s.title).join(', '):undefined}
+      note={spots.length?'In your candidates for '+spots.map(s=>s.title).join(', '):tooFar(c)?'Lives beyond their commute from '+zip:undefined}
       action={quickInvite?<button type="button" className="button compact" disabled={actions.disabled} onClick={()=>void actions.onInvite(c,actions.openings[0].id)}>Invite</button>:undefined}/>;
   };
   return <>
@@ -769,7 +735,9 @@ function OpeningCard({opening:o,tone,pipeline,pendingApproval,onMatch,onSlots,on
   onMatch:()=>void;onSlots:()=>void;onEdit:()=>void;onClose:()=>void;
 }){
   const rows=pipeline.filter(p=>p.opening_id===o.id);
-  const interested=rows.filter(p=>['interested','interview','hired'].includes(p.stage)).length;
+  const invited=rows.filter(p=>!!p.contacted_at).length;
+  const yes=rows.filter(p=>p.response_value==='interested').length;
+  const hired=rows.filter(p=>p.stage==='hired').length;
   const pay=payLabel({payMin:o.pay_min,payMax:o.pay_max,payPeriod:'hour'});
   const slots=Number(o.available_interview_slots||0);
   return <article className={'job-card '+tone}>
@@ -777,10 +745,11 @@ function OpeningCard({opening:o,tone,pipeline,pendingApproval,onMatch,onSlots,on
       <div className="job-card-title-row"><h3>{o.title}</h3></div>
       <div className="job-meta">{[o.role,o.city,o.state,o.zip].filter(Boolean).join(' · ')}</div>
       <div className="job-badges">
+        {Number(o.service_radius_miles||0)>0&&<span className="badge">Clients within {o.service_radius_miles} mi</span>}
         {shiftsLabel(o.shift_preferences)&&<span className="badge">{shiftsLabel(o.shift_preferences)}</span>}
         {pay&&<span className="badge">{pay}</span>}
         <span className="status">{o.source==='agency_profile'?'Always-on':postedLabel(o.created_at)||'Open'}</span>
-        {rows.length>0&&<span className="badge">{rows.length} matched · {interested} interested</span>}
+        {rows.length>0&&<span className="badge">{invited?invited+' invited · '+yes+' said yes'+(hired?' · '+hired+' hired':''):rows.length+' matched'}</span>}
         {slots>0&&<span className="badge">{slots} interview time{slots===1?'':'s'} ready</span>}
       </div>
       <div className="opening-links">
@@ -796,8 +765,8 @@ function OpeningCard({opening:o,tone,pipeline,pendingApproval,onMatch,onSlots,on
   </article>;
 }
 
-function OpeningForm({opening,roles,pendingApproval,onSubmit,onCancel}:{
-  opening:Opening|null;roles:string[];pendingApproval:boolean;
+function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCancel}:{
+  opening:Opening|null;roles:string[];serviceArea:boolean;pendingApproval:boolean;
   onSubmit:(e:FormEvent<HTMLFormElement>)=>void;onCancel:()=>void;
 }){
   const [busy,setBusy]=useState(false);
@@ -818,6 +787,10 @@ function OpeningForm({opening,roles,pendingApproval,onSubmit,onCancel}:{
         <label>Role<select name="role" required defaultValue={opening?.role||''}><option value="" disabled>Select</option>{roleOptions.map(r=><option key={r}>{r}</option>)}</select></label>
       </div>
       <p className="field-hint">We fill in the city and state from the ZIP code.</p>
+      {serviceArea&&<label>Where the work is<select name="serviceRadiusMiles" defaultValue={String(opening?.service_radius_miles||'')}>
+        <option value="">At one location</option>
+        {[10,15,25,50].map(n=><option key={n} value={n}>Clients’ homes within {n} miles</option>)}
+      </select></label>}
       <label><span>Job title <span className="optional">(optional)</span></span><input name="title" defaultValue={opening?.title||''} placeholder="We’ll name it from the role and city" /></label>
       <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" defaultValue={opening?.pay_min??''} /></label><label>Max pay / hr<input type="number" name="payMax" defaultValue={opening?.pay_max??''} /></label></div>
       <ScheduleEditor initial={parseOpeningSchedule(opening?.schedule_json)}/>

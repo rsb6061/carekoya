@@ -155,10 +155,11 @@ export async function jobPageContext(env:FeatureEnv,job:Row){
     .map(({r,d})=>({id:clean(r.id,200),title:normalizeTitle(r.title),employerName:clean(r.employer_name,200),city:clean(r.city,120),state:clean(r.state,20),
       pay:payText(r.pay_min,r.pay_max,r.pay_period),distanceMiles:d===null?null:Math.round(d*10)/10}));
 
-  const org=job.agency_organization_id?await env.DB.prepare('SELECT id,canonical_name,city,state,provider_types,primary_website FROM agency_organizations WHERE id=? LIMIT 1').bind(job.agency_organization_id).first<Row>():null;
+  const org=job.agency_organization_id?await env.DB.prepare("SELECT ao.id,ao.canonical_name,ao.city,ao.state,ao.provider_types,ao.primary_website,e.company_about,e.company_benefits FROM agency_organizations ao LEFT JOIN employer_leads e ON e.id=ao.claimed_employer_id AND e.status!='disabled' WHERE ao.id=? LIMIT 1").bind(job.agency_organization_id).first<Row>():null;
   const otherJobs=org?asNum((await env.DB.prepare("SELECT COUNT(*) AS count FROM caregiver_jobs WHERE agency_organization_id=? AND is_published=1 AND status='current' AND id!=?").bind(org.id,job.id).first<Row>())?.count):0;
   const employer=org?{name:clean(org.canonical_name,200)||clean(job.employer_name,200),city:clean(org.city,120),state:clean(org.state,20),
-    providerTypes:clean(org.provider_types,300),website:clean(org.primary_website,500),otherOpenJobs:otherJobs}:null;
+    providerTypes:clean(org.provider_types,300),website:clean(org.primary_website,500),otherOpenJobs:otherJobs,
+    about:clean(org.company_about,1000),benefits:clean(org.company_benefits,600)}:null;
 
   let payContext:null|{role:string;state:string;median:number;count:number;unit:string;position:'above'|'near'|'below'|null}=null;
   const midpoint=(min:unknown,max:unknown,period:unknown)=>{

@@ -1,6 +1,6 @@
 import { agencyCandidateTeaserEmail, agencyHiringNeedsEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
-import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
+import { employerSession, employerSessionCookie, publicFormGuard, startEmployerSession, type FeatureEnv } from './serverFeatures';
 import { waitingInterestPreviews } from './agencyInbox';
 import { DEFAULT_COMMUTE_MILES } from './geo';
 
@@ -272,28 +272,39 @@ export async function getAgencyTeaser(url:URL,env:FeatureEnv){
   },candidateCount:previews.length,candidates:previews,interests,jobCount:jobs.length,jobs:jobs.slice(0,5)});
 }
 
-export async function requestAgencyClaim(request:Request,env:FeatureEnv){
-  if(!env.DB||!env.EMAIL)return json({ok:false,error:'CareJoys email is not configured'},{status:503});
+/**
+ * The agency clicked the link we emailed to its own address, which proves that inbox, so one click on the page signs
+ * it in: no second email. The click is a POST from the page, never the GET, so link scanners can't claim an agency.
+ * A link claims once; after that the page asks the agency to sign in like anyone else.
+ */
+export async function requestAgencyClaim(request:Request,env:FeatureEnv,accountCookie?:(employerId:string)=>Promise<string|null>){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Row|null;
   const guard=await publicFormGuard(request,env,'agency_claim',data,4,30);
   if(guard)return guard;
   const token=clean(data?.token,300);
   const row=await teaserRecord(env,token);
   if(!row)return json({ok:false,error:'This agency link is invalid or has expired.'},{status:404});
+  if(row.claimed_employer_id||row.claimed_at)return json({ok:false,error:'This agency is already linked to a CareJoys workspace. Sign in to continue.'},{status:409});
   const email=clean(row.recipient_email,320).toLowerCase();
+  const org=await env.DB.prepare('SELECT zip,primary_contact_name,provider_kind FROM agency_organizations WHERE id=?').bind(row.organization_id).first<Row>();
   let employer=await env.DB.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
   let employerId=employer?.id||'';
   if(!employerId){
     employerId=crypto.randomUUID();
-    await env.DB.prepare(`INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status)
-      VALUES (?,?,?,?,?,'Caregiver, CNA, HHA, PCA','Imported from licensed provider directory','active')`)
-      .bind(employerId,row.canonical_name,'',email,'').run();
+    await env.DB.prepare(`INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status,employer_type)
+      VALUES (?,?,?,?,?,'Caregiver, CNA, HHA, PCA','Imported from licensed provider directory','active',?)`)
+      .bind(employerId,row.canonical_name,clean(org?.primary_contact_name,120),email,clean(org?.zip,10).slice(0,5),clean(org?.provider_kind,40)==='facility'?'assisted_living':'home_care').run();
   }
   await env.DB.prepare("UPDATE agency_teaser_tokens SET claim_requested_at=CURRENT_TIMESTAMP,employer_id=? WHERE id=?").bind(employerId,row.token_id).run();
+  // Starting the session finishes the claim (see startEmployerSession).
+  const session=await startEmployerSession(env,employerId);
   const waiting=await env.DB.prepare("SELECT 1 AS hit FROM agency_interests WHERE organization_id=? LIMIT 1").bind(row.organization_id).first();
-  // Waiting caregivers open the Inbox; otherwise the agency lands on its hiring preferences to confirm what it needs.
-  await sendEmployerMagicLink(env,employerId,waiting?'/app?tab=inbox':'/app?tab=hiring');
-  return json({ok:true,message:'Check your agency email for a secure CareJoys sign-in link.'});
+  const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store','Set-Cookie':employerSessionCookie(session)});
+  const account=accountCookie?await accountCookie(employerId):null;
+  if(account)headers.append('Set-Cookie',account);
+  // Caregivers already waiting open Candidates; otherwise the jobs and widget, which work before any caregiver matches.
+  return new Response(JSON.stringify({ok:true,redirect:waiting?'/app?tab=candidates':'/app?tab=jobs'}),{status:200,headers});
 }
 
 export async function getAgencyNetwork(request:Request,env:FeatureEnv){
@@ -354,16 +365,16 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv,r
   if(!opening){
     const openingId=crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO openings
-      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source,agency_organization_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'agency_profile',?)`)
+      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source,agency_organization_id,service_radius_miles)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'agency_profile',?,?)`)
       .bind(openingId,employer.id,openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
-        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',org.id).run();
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',org.id,Math.min(50,asNum(data?.serviceRadiusMiles))||null).run();
     opening={id:openingId};
   }else{
     await env.DB.prepare(`UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,transportation_required=?,requirements=?,
-      status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      status=?,service_radius_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
       .bind(openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
-        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',opening.id).run();
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',Math.min(50,asNum(data?.serviceRadiusMiles))||null,opening.id).run();
   }
 
   // The opening goes through the same matcher as every other opening: commute distance, role and schedule.

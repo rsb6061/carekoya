@@ -1,6 +1,8 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
 import { contactAllowance, lockedIntroductions } from './billing';
+import { employerPitch } from './employerPitch';
+import { APPLIED_TO_EMPLOYER_SQL } from './applications';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
@@ -238,8 +240,9 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));
   const rows=await env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.is_active=1 AND c.work_status='actively_looking'
   AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
-  AND c.email IS NOT NULL AND c.email!=''${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,...chosen,limit).all<Record<string,unknown>>();
+  AND c.email IS NOT NULL AND c.email!='' AND NOT ${APPLIED_TO_EMPLOYER_SQL}${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,workspaceId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
+  const pitch=await employerPitch(env,workspaceId);
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
     const hash=await sha256Hex(token);
@@ -251,7 +254,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
       company:clean(employer.company_name,200),
       title:clean(opening.title,200),
       role:clean(opening.role,80),
-      location,pay,shift:clean(opening.shift_preferences,300),link
+      location,pay,shift:clean(opening.shift_preferences,300),link,about:pitch.about,benefits:pitch.benefits
     });
     try{
       const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
@@ -310,7 +313,7 @@ const RESPONSE_RECORD_SELECT=`SELECT cp.id AS pipeline_id,cp.stage,cp.response_v
     c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email,c.work_status,
     cp.employer_notified_interest_at,
     o.title,o.role,o.city,o.state,o.zip,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,
-    e.id AS employer_id,e.company_name,e.contact_name,e.email AS employer_email
+    e.id AS employer_id,e.company_name,e.contact_name,e.email AS employer_email,e.company_about,e.company_benefits
     FROM candidate_pipeline cp
     JOIN caregivers c ON c.id=cp.caregiver_id
     JOIN openings o ON o.id=cp.opening_id
@@ -335,7 +338,7 @@ export async function getCandidateResponse(url:URL,env:FeatureEnv){
   const locked=(await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100));
   const slots=locked?{results:[]}:await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE opening_id=? AND status='available' AND datetime(starts_at)>datetime('now') ORDER BY starts_at ASC LIMIT 20").bind(row.opening_id).all<Record<string,unknown>>();
   return json({ok:true,opportunity:{
-    company:row.company_name,title:row.title,role:row.role,city:row.city,state:row.state,zip:row.zip,
+    company:row.company_name,about:clean(row.company_about,1000)||null,benefits:clean(row.company_benefits,600)||null,title:row.title,role:row.role,city:row.city,state:row.state,zip:row.zip,
     payMin:row.pay_min,payMax:row.pay_max,shift:row.shift_preferences,requirements:row.requirements,
     stage:row.stage,response:row.response_value,interviewBookedAt:row.interview_booked_at,
     slots:(slots.results||[]).map(s=>({id:s.id,startsAt:s.starts_at,durationMinutes:s.duration_minutes,timezone:s.timezone}))

@@ -3,16 +3,49 @@ import { IntroVideo, TalentDetails, type TalentCandidate } from './TalentCard';
 import { certificationsLabel, profileTags, withoutRole, type ProfileTag } from './profileTags';
 import { CHECKLIST } from './checklist';
 import { fitSummary } from './fitSummary';
-import { statusOf, type MatchRow } from './MatchList';
+import { sourceOf, statusOf, type DecideStage, type MatchRow } from './MatchList';
 import { templateMailto, type EmailTemplate, type TemplateValues } from './emailTemplateFill';
+import { NURSE_AIDE_REGISTRIES } from './nurseAideRegistries';
 
 export type CandidateActions={
   onInvite:(rows:MatchRow[])=>Promise<void>;
-  onDecide:(row:MatchRow,stage:'hired'|'rejected')=>Promise<void>;
+  onDecide:(row:MatchRow,stage:DecideStage)=>Promise<void>;
   onNotes:(row:MatchRow,notes:string)=>Promise<void>;
   onRestore:(row:MatchRow)=>Promise<void>;
+  /** An applicant was emailed or called: they no longer need a reply. */
+  onReach?:(row:MatchRow)=>void;
+  /** The employer's own nurse-aide registry checks, by caregiver id. */
+  licenseChecks?:Record<string,LicenseCheck>;
+  onLicenseCheck?:(row:MatchRow,result:LicenseCheck['result']|'')=>Promise<void>;
 };
+export type LicenseCheck={result:'active'|'not_found';checkedBy:string;checkedAt:string};
 type DetailProps={row:MatchRow;actions:CandidateActions;templates:EmailTemplate[];sender:Omit<TemplateValues,'firstName'|'opening'>;disabled?:boolean};
+
+const CERTIFIED=/\b(CNA|GNA|CMT|HHA|CNA-?II|nurse aide|nursing assistant|medication tech)/i;
+
+/**
+ * The nurse-aide registry check every agency does by hand: a link to the caregiver's state registry and a place to
+ * record what it said. State registries have no public API, so the employer looks it up and CareJoys keeps the result.
+ */
+function LicenseCheckSection({row:r,check,onCheck,disabled}:{row:MatchRow;check?:LicenseCheck;onCheck:(result:LicenseCheck['result']|'')=>Promise<void>;disabled?:boolean}){
+  const p=r.profile;
+  const certified=!!p?.licensed||CERTIFIED.test([p?.certifications,r.role].filter(Boolean).join(' '));
+  if(!certified)return null;
+  const state=(p?.licenseState||r.state||'').toUpperCase();
+  const registry=NURSE_AIDE_REGISTRIES.find(x=>x.code===state);
+  const when=check?new Date(check.checkedAt.includes('T')?check.checkedAt:check.checkedAt.replace(' ','T')+'Z').toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}):'';
+  return <section className="candidate-license">
+    <h3>License</h3>
+    {check?<p><span className={'badge'+(check.result==='active'?' good':' warn')}>{check.result==='active'?'Active on the '+state+' registry':'Not found on the '+state+' registry'}</span> <span className="job-meta">Checked {when}{check.checkedBy?' by '+check.checkedBy:''}</span></p>
+      :<p className="job-meta">{firstName(r.name)||'They'} list{firstName(r.name)?'s':''} {p?.certifications||r.role}. Look them up on the {registry?.agency||'state nurse-aide registry'}, then record what you found.</p>}
+    <div className="license-check">
+      {registry?.lookupUrl&&<a className="button secondary" href={registry.lookupUrl} target="_blank" rel="noreferrer">Look up on the {state} registry ↗</a>}
+      {check?<button type="button" className="text-button" disabled={disabled} onClick={()=>void onCheck('')}>Clear</button>
+        :<><button type="button" className="button secondary" disabled={disabled} onClick={()=>void onCheck('active')}>Active</button>
+          <button type="button" className="text-button" disabled={disabled} onClick={()=>void onCheck('not_found')}>Not found</button></>}
+    </div>
+  </section>;
+}
 
 export const canRestore=(r:MatchRow)=>r.stage==='rejected'&&r.rejected_reason==='employer_not_a_fit';
 const firstName=(name:string)=>(name||'').trim().split(/\s+/)[0]||'';
@@ -28,7 +61,7 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
   const [busy,setBusy]=useState(false);
   const template=templates.find(t=>t.id===templateId)||templates[0];
   const values:TemplateValues={...sender,firstName:firstName(r.name),opening:r.title};
-  const summary=fitSummary({name:r.name,reasons:r.match_reasons||[],profile:p});
+  const summary=fitSummary({name:r.name,reasons:r.match_reasons||[],profile:p||undefined});
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);try{await fn()}finally{setBusy(false)}};
   const off=disabled||busy;
 
@@ -39,10 +72,12 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
   </>;
 
   return <div className="candidate-detail">
-    <ProfileHead name={r.name} photo={r.profilePhotoUrl} role={r.role} meta={[r.role,[r.city,r.state].filter(Boolean).join(', '),'For '+r.title].filter(Boolean).join(' · ')}
+    <ProfileHead name={r.name} photo={r.profilePhotoUrl} role={r.role} meta={[r.role,[r.city,r.state].filter(Boolean).join(', '),sourceOf(r)].filter(Boolean).join(' · ')}
       status={r.stage==='matched'?undefined:status} actions={decideButtons}
       tags={profileTags({matchScore:r.match_score,reasons:r.match_reasons,freshness:p?.freshness||r.profile?.freshness,employmentTypes:p?.employmentTypes,shifts:p?.shifts,desiredWage:p?.desiredWage})}
       certifications={p?.certifications}/>
+
+    {r.caregiver_note&&<blockquote className="inbox-note">“{r.caregiver_note}”</blockquote>}
 
     {summary?<section className="candidate-fit">
       <h3>Why they fit</h3>
@@ -53,15 +88,18 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
       <div className="candidate-actions">
         {r.contact_email&&template&&<>
           <select aria-label="Email template" value={template.id} onChange={e=>setTemplateId(e.target.value)}>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <a className="button" href={templateMailto(r.contact_email,template,values)}>Email</a>
+          <a className="button" href={templateMailto(r.contact_email,template,values)} onClick={()=>actions.onReach?.(r)}>Email</a>
         </>}
-        {r.contact_phone&&<a className="button secondary" href={'tel:'+r.contact_phone.replace(/[^\d+]/g,'')}>Call</a>}
+        {r.contact_phone&&<a className="button secondary" href={'tel:'+r.contact_phone.replace(/[^\d+]/g,'')} onClick={()=>actions.onReach?.(r)}>Call</a>}
+        {r.stage==='interested'&&<button className="button secondary" disabled={off} onClick={()=>void run(()=>actions.onDecide(r,'interview'))}>Interviewing</button>}
         {['interested','interview'].includes(r.stage)&&<button className="button secondary" disabled={off} onClick={()=>void run(()=>actions.onDecide(r,'hired'))}>Mark hired</button>}
       </div>
       {(r.contact_email||r.contact_phone)&&<p className="match-contact">{[r.contact_email,r.contact_phone].filter(Boolean).join(' · ')}</p>}
       {r.contact_locked?<p className="job-meta">You’ve used your free introductions. Upgrade to see {firstName(r.name)}’s email, phone and resume.</p>
         :!r.contact_email&&r.stage!=='rejected'&&<p className="job-meta">Email, phone{p?.hasResume?' and resume':''} are shared once {firstName(r.name)||'they'} says they’re interested.</p>}
     </section>}
+
+    {actions.onLicenseCheck&&<LicenseCheckSection row={r} check={actions.licenseChecks?.[r.caregiver_id]} onCheck={result=>run(()=>actions.onLicenseCheck!(r,result))} disabled={off}/>}
 
     {p&&<ProfileBody candidate={p} resumeUrl={r.resume_url}/>}
 

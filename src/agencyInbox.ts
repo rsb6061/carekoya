@@ -446,7 +446,7 @@ export function inboxItem(r:Row,locked=false){
   return {
     contactLocked:locked,
     resumeUrl:!locked&&Number(r.has_resume)===1?'/api/agency/inbox/'+encodeURIComponent(id)+'/resume':null,
-    id:clean(r.id,120),stage:interestStage(r),createdAt:clean(r.created_at,40),viewed:!!r.agency_viewed_at,
+    id:clean(r.id,120),caregiverId:clean(r.caregiver_id,120),stage:interestStage(r),createdAt:clean(r.created_at,40),viewed:!!r.agency_viewed_at,
     source:clean(r.source,40)==='mcp'?'AI assistant':'CareJoys job page',
     note:clean(r.caregiver_note,1000)||null,notes:clean(r.agency_notes,4000),
     job:r.caregiver_job_id?{id:clean(r.caregiver_job_id,120),title:clean(r.job_title,200),url:ORIGIN+'/jobs/'+encodeURIComponent(clean(r.caregiver_job_id,120))}:null,
@@ -460,7 +460,10 @@ export function inboxItem(r:Row,locked=false){
   };
 }
 
-export async function getAgencyInbox(request:Request,env:BillingEnv){
+/** Full employer-facing profiles by caregiver id, the same card Find caregivers shows (supplied by the Worker). */
+export type InboxProfiles=(caregiverIds:string[])=>Promise<Map<string,unknown>>;
+
+export async function getAgencyInbox(request:Request,env:BillingEnv,profiles?:InboxProfiles){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const {org,employerId,error}=await claimedOrg(request,env);
   if(error)return error;
@@ -471,7 +474,8 @@ export async function getAgencyInbox(request:Request,env:BillingEnv){
     FROM agency_interests ai JOIN caregivers c ON c.id=ai.caregiver_id LEFT JOIN caregiver_jobs j ON j.id=ai.caregiver_job_id
     WHERE ai.organization_id=? ORDER BY ai.created_at DESC LIMIT 300`).bind(org.id).all<Row>();
   const locked=await lockedIntroductions(env,employerId!);
-  const items=(rows.results||[]).map(r=>inboxItem(r,locked.has(clean(r.id,120))));
+  const byId=profiles?await profiles([...new Set((rows.results||[]).map(r=>clean(r.caregiver_id,120)))]):new Map<string,unknown>();
+  const items=(rows.results||[]).map(r=>({...inboxItem(r,locked.has(clean(r.id,120))),profile:byId.get(clean(r.caregiver_id,120))||null}));
   await env.DB.prepare('UPDATE agency_interests SET agency_viewed_at=CURRENT_TIMESTAMP WHERE organization_id=? AND agency_viewed_at IS NULL').bind(org.id).run();
   return json({ok:true,agency:{id:org.id,name:org.canonical_name},stages:STAGE_LABELS,items});
 }

@@ -188,9 +188,15 @@ export function AgencySuggestions({onLinked}:{onLinked:()=>void}){
   </section>;
 }
 
-type AgencyJob={id:string;title:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;sourceUrl:string;published:boolean;hidden:boolean;lastSeenAt?:string;applyClicks:number};
+type AgencyJob={id:string;title:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;sourceUrl:string;published:boolean;hidden:boolean;lastSeenAt?:string;applyClicks:number;views?:number;applicants?:number};
 
 /** The claimed agency's scraped jobs, with hide/show. Edits happen on the agency's own careers page. */
+/** "38 caregivers viewed · 5 apply clicks · 2 applied": what CareJoys did for this job so far. */
+function jobStats(job:AgencyJob){
+  const n=(v:number|undefined,one:string,many:string)=>(v||0)+' '+((v||0)===1?one:many);
+  return [n(job.views,'view','views'),n(job.applyClicks,'apply click','apply clicks'),n(job.applicants,'applied through CareJoys','applied through CareJoys')].join(' · ');
+}
+
 export function AgencyJobsPanel({onRecruit}:{onRecruit?:(openingId:string)=>void}={}){
   const [jobs,setJobs]=useState<AgencyJob[]|null>(null);
   const [busy,setBusy]=useState('');
@@ -218,7 +224,8 @@ export function AgencyJobsPanel({onRecruit}:{onRecruit?:(openingId:string)=>void
     {jobs.length===0?<div className="empty"><strong>No jobs found on your careers page yet.</strong><div>CareJoys checks your site regularly.</div></div>:
     <div className="job-list">{jobs.map(job=><article className={'job-card '+(job.hidden?'job-card-muted':'')} key={job.id}>
       <div className="job-card-main"><h3>{job.hidden?job.title:<a href={'/jobs/'+encodeURIComponent(job.id)} target="_blank">{job.title}</a>}</h3>
-        <div className="job-meta">{[job.role,[job.city,job.state].filter(Boolean).join(', '),job.applyClicks?job.applyClicks+' apply click'+(job.applyClicks===1?'':'s'):''].filter(Boolean).join(' · ')}</div>
+        <div className="job-meta">{[job.role,[job.city,job.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</div>
+        {!job.hidden&&<div className="job-stats">{jobStats(job)}</div>}
         <div className="job-badges"><span className={job.hidden?'status':'status applied'}>{job.hidden?'Hidden on CareJoys':'Live on CareJoys'}</span><a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer">Your listing ↗</a></div></div>
       <div className="job-card-actions">{onRecruit&&!job.hidden&&<button className="button" disabled={busy===job.id} onClick={()=>void recruit(job)}>Find caregivers for this job</button>}<button className="button secondary" disabled={busy===job.id} onClick={()=>toggle(job)}>{job.hidden?'Show again':'Hide'}</button></div>
     </article>)}</div>}
