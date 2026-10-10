@@ -6,7 +6,6 @@ import { isSuppressed, unsubscribeLink } from './emailPreferences';
 import { withUnsubscribe } from './email';
 import { lockedIntroductions, type BillingEnv } from './billing';
 import { resumeDownload } from './resumeFile';
-import { teamEmails } from './team';
 
 // The Agency Inbox: every caregiver who asked to be sent to an agency, in five stages.
 //
@@ -167,11 +166,10 @@ export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|
   const previews=await interestPreviews(env,orgId,!!claimedBy);
   if(!previews.length)return 'skipped';
   const agencyName=clean(org.canonical_name,200);
-  let to='',cc:string[]=[],body:{subject:string;html:string;text:string},eventType='',headers:Record<string,string>|undefined;
+  let to='',body:{subject:string;html:string;text:string},eventType='',headers:Record<string,string>|undefined;
   if(claimedBy){
     const employer=await env.DB.prepare("SELECT email,contact_name FROM employer_leads WHERE id=? AND status!='disabled'").bind(claimedBy).first<Row>();
     to=clean(employer?.email,320).toLowerCase();
-    cc=(await teamEmails(env,claimedBy)).filter(e=>e!==to);
     eventType='interest_notify';
     body=agencyInterestNotifyEmail({recipientName:clean(employer?.contact_name,120).split(/\s+/)[0]||'',agencyName,items:previews,count:previews.length,link:ORIGIN+'/app?tab=inbox'});
   }else{
@@ -187,7 +185,7 @@ export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|
   }
   if(!emailLooksValid(to))return 'skipped';
   try{
-    const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:cc.length?[to,...cc]:to,subject:body.subject,html:body.html,text:body.text,...(headers?{headers}:{})});
+    const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text,...(headers?{headers}:{})});
     await env.DB.prepare("UPDATE agency_interests SET agency_notified_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND agency_notified_at IS NULL").bind(orgId).run();
     await env.DB.prepare('INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)')
       .bind(crypto.randomUUID(),orgId,eventType,to,result.messageId||null,JSON.stringify({count:previews.length})).run();

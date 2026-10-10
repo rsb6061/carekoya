@@ -17,7 +17,7 @@ import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfile
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRadiusMiles, MAX_SERVICE_RADIUS_MILES } from './matching';
 import { alreadyApplied, appliedCaregiverIds } from './applications';
-import { addTeammate, DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getTeam, getWorkspaceSettings, removeTeammate, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
+import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
@@ -425,7 +425,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:freeContacts(env)?"Hire Caregivers: Free Until Your First Hire | CareJoys":"Hire Caregivers for $79/Month Per Location | CareJoys",
       description:"Meet local caregivers who verified their email and want the work. For home-care agencies and assisted living: $79/month per location, no placement fees.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Caregivers find their best matches with AI. Make sure they find yours.</h1><p>For home-care agencies and senior living. Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $79/month per location</h2><p>Or $790/year. Month-to-month. Cancel anytime.'+(freeContacts(env)?' Free until your first hire through CareJoys.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Caregivers find their best matches with AI. Make sure they find yours.</h1><p>For home-care agencies and senior living. Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $79/month per location</h2><p>Or $790/year. Month-to-month. Cancel anytime.'+(freeContacts(env)?' Free until your first hire through CareJoys, up to '+freeContacts(env)+' introductions.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
@@ -2077,11 +2077,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     let inboxItem=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)$/);
     if(request.method==="POST"&&inboxItem){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyInterest(request,env,decodeURIComponent(inboxItem[1])); }
     if(request.method==="POST"&&url.pathname==="/api/agency/hiring-profile"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyHiringProfile(request,env,(employerId,openingId)=>matchOpening(employerId,openingId,env)); }
-    // Workspace settings: teammates, emails, ATS forwarding, the agency's pitch, license checks and the export.
-    if(url.pathname==="/api/team"&&request.method==="GET") return getTeam(request,env);
-    if(url.pathname==="/api/team"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return addTeammate(request,env); }
-    const teammate=url.pathname.match(/^\/api\/team\/([^/]+)$/);
-    if(teammate&&request.method==="DELETE"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return removeTeammate(request,env,decodeURIComponent(teammate[1])); }
+    // Workspace settings: emails, ATS forwarding, the agency's pitch, license checks and the export.
     if(url.pathname==="/api/workspace/settings"&&request.method==="GET") return getWorkspaceSettings(request,env);
     if(url.pathname==="/api/workspace/settings"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveWorkspaceSettings(request,env); }
     if(url.pathname==="/api/workspace/candidates.csv"&&request.method==="GET") return exportCandidatesCsv(request,env);

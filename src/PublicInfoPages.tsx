@@ -141,7 +141,7 @@ function LocalSupplyCheck(){
 export function PricingPage(){
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
-  const free=freeContacts??25;
+  const free=freeContacts??5;
   return <div>
     <SiteHeader audience="employer"/>
     <main>
@@ -149,7 +149,7 @@ export function PricingPage(){
         <div>
           <div className="modal-kicker">For home-care agencies and senior living</div>
           <h1>Caregivers find their best matches with AI. Make sure they find yours.</h1>
-          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Free until your first hire through CareJoys.':''}</p>
+          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Free until your first hire through CareJoys, up to '+free+' introductions.':''}</p>
         </div>
         <div className="pricing-offer">
           <article className="plan-card">
@@ -158,7 +158,7 @@ export function PricingPage(){
               <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">{free>0?'Start free':'Start hiring'} →</a>
-            <div className="plan-terms">{free>0?'Free until your first hire. ':''}Month-to-month. Cancel anytime.</div>
+            <div className="plan-terms">{free>0?'Free until your first hire (up to '+free+' introductions). ':''}Month-to-month. Cancel anytime.</div>
             <div className="plan-terms">Or {YEARLY}/year, two months free.</div>
             <ul className="plan-list">
               <li>Matches for every opening by distance, shift and pay.</li>

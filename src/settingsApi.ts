@@ -1,15 +1,13 @@
 import { employerSession, type FeatureEnv } from './serverFeatures';
 import { lockedIntroductions, type BillingEnv } from './billing';
-import { teamRecipients } from './team';
-import { atsForwardEmail, dailyDigestEmail, monthlyResultsEmail, teamInviteEmail, type DigestPerson } from './email';
+import { atsForwardEmail, dailyDigestEmail, monthlyResultsEmail, type DigestPerson } from './email';
 
-// What an agency sets up once in its workspace: teammates, the morning digest and monthly results, forwarding to its
+// What an agency sets up once in its workspace: the morning digest and monthly results, forwarding to its
 // ATS, its own words for caregivers, and the candidate export. Also the scheduled emails those settings drive.
 
 type Row=Record<string,unknown>;
 const ORIGIN='https://carejoys.com';
 const FROM='CareJoys <hello@carejoys.com>';
-export const MAX_TEAMMATES=20;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):typeof v==='number'?String(v).slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
 const emailValid=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
@@ -22,48 +20,7 @@ const sourceOf=(source:unknown)=>clean(source,40)==='mcp'?'AI assistant':'CareJo
 async function signedIn(request:Request,env:FeatureEnv){
   const employer=await employerSession(request,env);
   return employer?{id:clean(employer.id,100),company:clean(employer.company_name,200),ownerEmail:clean(employer.email,320).toLowerCase(),
-    me:clean(employer.signed_in_email,320).toLowerCase()||clean(employer.email,320).toLowerCase(),contactName:clean(employer.contact_name,120)}:null;
-}
-
-// ---------- Teammates ----------
-
-export async function getTeam(request:Request,env:FeatureEnv){
-  const e=await signedIn(request,env);
-  if(!e)return json({ok:false,error:'Sign in required'},{status:401});
-  const rows=await env.DB!.prepare('SELECT id,email,created_at FROM employer_members WHERE employer_id=? ORDER BY created_at ASC').bind(e.id).all<Row>();
-  return json({ok:true,me:e.me,owner:{email:e.ownerEmail,name:e.contactName},
-    members:(rows.results||[]).map(r=>({id:clean(r.id,100),email:clean(r.email,320),addedAt:clean(r.created_at,40)}))});
-}
-
-/** Adds a teammate by email and emails them a sign-in link. They sign in with their own address; nothing is shared. */
-export async function addTeammate(request:Request,env:FeatureEnv){
-  const e=await signedIn(request,env);
-  if(!e)return json({ok:false,error:'Sign in required'},{status:401});
-  const data=await request.json().catch(()=>null) as Row|null;
-  const email=clean(data?.email,320).toLowerCase();
-  if(!emailValid(email))return json({ok:false,error:'Enter a valid email address.'},{status:400});
-  if(email===e.ownerEmail)return json({ok:false,error:'That’s already the workspace’s main email.'},{status:409});
-  const count=asNum((await env.DB!.prepare('SELECT COUNT(*) AS count FROM employer_members WHERE employer_id=?').bind(e.id).first<Row>())?.count);
-  if(count>=MAX_TEAMMATES)return json({ok:false,error:`A workspace can have up to ${MAX_TEAMMATES} teammates.`},{status:409});
-  const id=crypto.randomUUID();
-  const added=await env.DB!.prepare('INSERT OR IGNORE INTO employer_members(id,employer_id,email,invited_by) VALUES (?,?,?,?)').bind(id,e.id,email,e.me||null).run();
-  if(Number(added.meta?.changes||0)!==1)return json({ok:false,error:'They’re already on your team.'},{status:409});
-  if(env.EMAIL){
-    const mail=teamInviteEmail({inviterName:e.me===e.ownerEmail?e.contactName:e.me,company:e.company,link:ORIGIN+'/login?next=%2Fapp'});
-    await env.EMAIL.send({from:FROM,to:email,subject:mail.subject,html:mail.html,text:mail.text}).catch(()=>null);
-  }
-  return json({ok:true,member:{id,email}});
-}
-
-/** Removes a teammate and signs them out of this workspace. */
-export async function removeTeammate(request:Request,env:FeatureEnv,memberId:string){
-  const e=await signedIn(request,env);
-  if(!e)return json({ok:false,error:'Sign in required'},{status:401});
-  const row=await env.DB!.prepare('SELECT email FROM employer_members WHERE id=? AND employer_id=?').bind(memberId,e.id).first<Row>();
-  if(!row)return json({ok:false,error:'Not found'},{status:404});
-  await env.DB!.prepare('DELETE FROM employer_members WHERE id=?').bind(memberId).run();
-  await env.DB!.prepare('DELETE FROM employer_sessions WHERE employer_id=? AND signed_in_email=?').bind(e.id,clean(row.email,320).toLowerCase()).run();
-  return json({ok:true});
+    contactName:clean(employer.contact_name,120)}:null;
 }
 
 // ---------- Settings ----------
@@ -122,8 +79,8 @@ export async function saveLicenseCheck(request:Request,env:FeatureEnv,caregiverI
   }
   if(!(LICENSE_RESULTS as readonly string[]).includes(result))return json({ok:false,error:'Choose active or not found.'},{status:400});
   await env.DB!.prepare(`INSERT INTO license_checks(employer_id,caregiver_id,result,checked_by,checked_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP)
-    ON CONFLICT(employer_id,caregiver_id) DO UPDATE SET result=excluded.result,checked_by=excluded.checked_by,checked_at=CURRENT_TIMESTAMP`).bind(e.id,caregiverId,result,e.me||null).run();
-  return json({ok:true,check:{result,checkedBy:e.me,checkedAt:new Date().toISOString()}});
+    ON CONFLICT(employer_id,caregiver_id) DO UPDATE SET result=excluded.result,checked_by=excluded.checked_by,checked_at=CURRENT_TIMESTAMP`).bind(e.id,caregiverId,result,e.ownerEmail||null).run();
+  return json({ok:true,check:{result,checkedBy:e.ownerEmail,checkedAt:new Date().toISOString()}});
 }
 
 // ---------- Export ----------
@@ -174,12 +131,12 @@ export async function exportCandidatesCsv(request:Request,env:BillingEnv){
 export const DIGEST_UTC_HOUR=11;
 
 /**
- * One morning email per workspace, to the owner and teammates, on days something needs them: who applied or said yes
+ * One morning email per workspace on days something needs them: who applied or said yes
  * since the last digest, who is still waiting on a reply after a day, and interviews today. Skipped when there's nothing.
  */
 export async function sendDailyDigests(env:BillingEnv,limit=100){
   if(!env.DB||!env.EMAIL)return {sent:0};
-  const due=await env.DB.prepare(`SELECT id,company_name,last_digest_at FROM employer_leads WHERE status!='disabled' AND COALESCE(digest_enabled,1)=1
+  const due=await env.DB.prepare(`SELECT id,company_name,email,last_digest_at FROM employer_leads WHERE status!='disabled' AND COALESCE(digest_enabled,1)=1
     AND (last_digest_at IS NULL OR datetime(last_digest_at)<=datetime('now','-20 hours')) ORDER BY COALESCE(last_digest_at,'') ASC LIMIT ?`).bind(limit).all<Row>();
   let sent=0;
   for(const e of due.results||[]){
@@ -207,8 +164,8 @@ export async function sendDailyDigests(env:BillingEnv,limit=100){
     const claimed=await env.DB.prepare("UPDATE employer_leads SET last_digest_at=CURRENT_TIMESTAMP WHERE id=? AND (last_digest_at IS NULL OR datetime(last_digest_at)<=datetime('now','-20 hours'))").bind(id).run();
     if(Number(claimed.meta?.changes||0)!==1)continue;
     if(!fresh.length&&!waiting.length&&!interviews.length)continue;
-    const to=await teamRecipients(env,id,'');
-    if(!to.length)continue;
+    const to=clean(e.email,320).toLowerCase();
+    if(!emailValid(to))continue;
     const mail=dailyDigestEmail({company:clean(e.company_name,200),fresh,waiting,interviews,link:ORIGIN+'/app?tab=candidates',settingsLink:ORIGIN+'/app?tab=settings'});
     try{await env.EMAIL.send({from:FROM,to,subject:mail.subject,html:mail.html,text:mail.text});sent++}catch{}
   }
@@ -229,7 +186,7 @@ export async function sendMonthlyResults(env:FeatureEnv,now=new Date(),limit=100
   const start=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth()-1,1));
   const key=start.toISOString().slice(0,7);
   const from=start.toISOString().slice(0,10),to=now.toISOString().slice(0,10);
-  const due=await env.DB.prepare(`SELECT id,company_name FROM employer_leads WHERE status!='disabled' AND COALESCE(last_results_month,'')!=? LIMIT ?`).bind(key,limit).all<Row>();
+  const due=await env.DB.prepare(`SELECT id,company_name,email FROM employer_leads WHERE status!='disabled' AND COALESCE(last_results_month,'')!=? LIMIT ?`).bind(key,limit).all<Row>();
   let sent=0;
   for(const e of due.results||[]){
     const id=clean(e.id,100);
@@ -246,8 +203,8 @@ export async function sendMonthlyResults(env:FeatureEnv,now=new Date(),limit=100
       AND ev.path IN (SELECT '/jobs/'||j.id FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE ao.claimed_employer_id=?)`,from,to,id);
     const hired=hiredMatches+hiredApps;
     if(!invited&&!yes&&!applied&&!hired&&!views)continue;
-    const recipients=await teamRecipients(env,id,'');
-    if(!recipients.length)continue;
+    const recipients=clean(e.email,320).toLowerCase();
+    if(!emailValid(recipients))continue;
     const mail=monthlyResultsEmail({company:clean(e.company_name,200),month:MONTHS[start.getUTCMonth()],views,applied,invited,yes,hired,link:ORIGIN+'/app'});
     try{await env.EMAIL.send({from:FROM,to:recipients,subject:mail.subject,html:mail.html,text:mail.text});sent++}catch{}
   }

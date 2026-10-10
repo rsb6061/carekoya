@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 type Settings={digest:boolean;atsEmail:string;about:string;benefits:string};
-type Team={me:string;owner:{email:string;name:string};members:{id:string;email:string;addedAt:string}[]};
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
   const res=await fetch(path,{credentials:'include',...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
@@ -11,19 +10,16 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
 }
 
 /**
- * Set up once: what caregivers read about the agency, who else on the team signs in, which emails arrive, where
+ * Set up once: what caregivers read about the agency, which emails arrive, where
  * candidates are forwarded, and the export.
  */
 export function WorkspaceSettings({agency}:{agency:boolean}){
   const [settings,setSettings]=useState<Settings|null>(null);
-  const [team,setTeam]=useState<Team|null>(null);
   const [notice,setNotice]=useState<{text:string;tone:'ok'|'error'}|null>(null);
-  const [newMember,setNewMember]=useState('');
   const [busy,setBusy]=useState(false);
 
   useEffect(()=>{
     api<{settings:Settings}>('/api/workspace/settings').then(d=>setSettings(d.settings)).catch(e=>setNotice({text:e.message,tone:'error'}));
-    api<Team>('/api/team').then(setTeam).catch(()=>{});
   },[]);
 
   async function save(patch:Partial<Settings>,done:string){
@@ -42,23 +38,6 @@ export function WorkspaceSettings({agency}:{agency:boolean}){
     const ats=String(new FormData(e.currentTarget).get('atsEmail')||'').trim();
     await save({atsEmail:ats},ats?'New candidates will be forwarded to '+ats+'.':'Forwarding is off.');
   }
-  async function addMember(e:FormEvent<HTMLFormElement>){
-    e.preventDefault();
-    setBusy(true);
-    try{
-      await api('/api/team',{method:'POST',body:JSON.stringify({email:newMember})});
-      setTeam(await api<Team>('/api/team'));
-      setNotice({text:'Added. '+newMember+' gets an email to sign in.',tone:'ok'});
-      setNewMember('');
-    }catch(err){setNotice({text:(err as Error).message,tone:'error'})}
-    finally{setBusy(false)}
-  }
-  async function removeMember(id:string,email:string){
-    if(!window.confirm('Remove '+email+' from this workspace? They’ll be signed out.'))return;
-    try{await api('/api/team/'+encodeURIComponent(id),{method:'DELETE'});setTeam(await api<Team>('/api/team'));setNotice({text:email+' was removed.',tone:'ok'})}
-    catch(err){setNotice({text:(err as Error).message,tone:'error'})}
-  }
-
   if(!settings)return <section className="section-block"><div className="section-heading"><h2>Settings</h2></div>{notice?<div className="alert-status alert-error">{notice.text}</div>:<p className="job-meta">Loading…</p>}</section>;
   return <section className="section-block workspace-settings">
     <div className="section-heading"><h2>Settings</h2></div>
@@ -71,19 +50,6 @@ export function WorkspaceSettings({agency}:{agency:boolean}){
         <label>About your {agency?'agency':'company'}<textarea name="about" rows={3} maxLength={1000} defaultValue={settings.about} placeholder="Family-owned since 2009. Clients in Towson and Parkville, steady weekly hours, a coordinator who answers the phone."/></label>
         <label>Benefits<textarea name="benefits" rows={2} maxLength={600} defaultValue={settings.benefits} placeholder="Weekly pay, mileage, paid training, health insurance after 60 days"/></label>
         <button className="button" disabled={busy}>Save</button>
-      </form>
-    </div>
-
-    <div className="settings-card">
-      <h3>Team</h3>
-      <p className="job-meta">Teammates sign in with their own email and see the same openings and candidates. Emails about new caregivers go to everyone here.</p>
-      {team&&<ul className="team-list">
-        <li><span>{team.owner.email}{team.owner.email===team.me?' (you)':''}</span><span className="job-meta">Main contact</span></li>
-        {team.members.map(m=><li key={m.id}><span>{m.email}{m.email===team.me?' (you)':''}</span><button type="button" className="text-button" onClick={()=>void removeMember(m.id,m.email)}>Remove</button></li>)}
-      </ul>}
-      <form className="inline-form" onSubmit={addMember}>
-        <input type="email" required value={newMember} onChange={e=>setNewMember(e.target.value)} placeholder="recruiter@youragency.com" aria-label="Teammate email"/>
-        <button className="button secondary" disabled={busy||!newMember}>Add teammate</button>
       </form>
     </div>
 

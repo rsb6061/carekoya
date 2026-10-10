@@ -14,7 +14,7 @@ export type BillingEnv=FeatureEnv&{
 
 const ORIGIN='https://carejoys.com';
 // Free until the first hire through CareJoys. The cap is a backstop for a workspace that never marks anyone hired.
-export const DEFAULT_FREE_CONTACTS=25;
+export const DEFAULT_FREE_CONTACTS=5;
 const MAX_LOCATIONS=100;
 // past_due keeps access while Stripe retries the card; Stripe's retry settings end it as unpaid or canceled.
 const ACTIVE_STATUSES=new Set(['active','trialing','past_due']);

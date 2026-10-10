@@ -4,20 +4,6 @@ ALTER TABLE openings ADD COLUMN service_radius_miles INTEGER;
 -- Views per job on the agency's Jobs tab.
 CREATE INDEX IF NOT EXISTS idx_analytics_events_path ON analytics_events(path);
 
--- Teammates: more people from the same agency sign in to one workspace with their own email.
-CREATE TABLE IF NOT EXISTS employer_members (
-  id TEXT PRIMARY KEY,
-  employer_id TEXT NOT NULL,
-  email TEXT NOT NULL,
-  invited_by TEXT,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(employer_id,email),
-  FOREIGN KEY (employer_id) REFERENCES employer_leads(id)
-);
-CREATE INDEX IF NOT EXISTS idx_employer_members_email ON employer_members(email);
--- Who opened a workspace session, so removing a teammate signs them out.
-ALTER TABLE employer_sessions ADD COLUMN signed_in_email TEXT;
-
 -- Workspace settings: the morning digest, the monthly results email, forwarding to an ATS inbox, and the agency's
 -- own words that caregivers see on invitations and job pages.
 ALTER TABLE employer_leads ADD COLUMN digest_enabled INTEGER NOT NULL DEFAULT 1;

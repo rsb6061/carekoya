@@ -1,6 +1,5 @@
 import { caregiverInviteReminderEmail, employerInterestNudgeEmail, caregiverRoleClosedEmail } from './email';
 import { lockedIntroductions } from './billing';
-import { teamRecipients } from './team';
 
 import type { FeatureEnv } from './serverFeatures';
 
@@ -64,8 +63,7 @@ export async function sendHiringFollowups(env:FollowupEnv,limit=40){
     if(Number(claimed.meta?.changes||0)!==1)continue;
     const mail=employerInterestNudgeEmail({recipientName:clean(r.contact_name,120).split(/\s+/)[0]||'there',caregiverName:publicName(r.first_name,r.last_name,r.display_name),title:clean(r.title,200),
       appLink:'https://carejoys.com/app?candidate='+encodeURIComponent(clean(r.id,100))});
-    const to=await teamRecipients(env,employerId,clean(r.employer_email,320));
-    try{const sent=await env.EMAIL.send({from:FROM,to,subject:mail.subject,html:mail.html,text:mail.text});await log(env,r.caregiver_id,r.opening_id,'employer_interest_nudge',r.id,sent.messageId);nudges++}
+    try{const sent=await env.EMAIL.send({from:FROM,to:clean(r.employer_email,320),subject:mail.subject,html:mail.html,text:mail.text});await log(env,r.caregiver_id,r.opening_id,'employer_interest_nudge',r.id,sent.messageId);nudges++}
     catch{await log(env,r.caregiver_id,r.opening_id,'employer_interest_nudge_failed',r.id)}
   }
   return {reminders,nudges};

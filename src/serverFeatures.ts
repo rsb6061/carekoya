@@ -1,7 +1,7 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
 import { contactAllowance, lockedIntroductions } from './billing';
-import { employerPitch, teamRecipients } from './team';
+import { employerPitch } from './employerPitch';
 import { APPLIED_TO_EMPLOYER_SQL } from './applications';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
@@ -163,12 +163,12 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
 export const employerSessionCookie=(session:string)=>`__Host-cj_session=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`;
 
 /** Opens a 30-day employer session for a proven email and finishes any agency claims that were waiting on it. Returns the cookie value. */
-export async function startEmployerSession(env:FeatureEnv,employerId:string,signedInEmail?:string){
+export async function startEmployerSession(env:FeatureEnv,employerId:string){
   if(!env.DB)throw new Error('Database not configured');
   const session=crypto.randomUUID()+'-'+crypto.randomUUID();
   const sessionHash=await sha256Hex(session);
   const expires=new Date(Date.now()+30*86400000).toISOString();
-  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at,signed_in_email) VALUES (?,?,?,?,?)').bind(crypto.randomUUID(),employerId,sessionHash,expires,signedInEmail?signedInEmail.toLowerCase():null).run();
+  await env.DB.prepare('INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(),employerId,sessionHash,expires).run();
   await env.DB.prepare('UPDATE employer_leads SET last_login_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(employerId).run();
   const pendingClaims=await env.DB.prepare("SELECT id,organization_id FROM agency_teaser_tokens WHERE employer_id=? AND claim_requested_at IS NOT NULL AND claimed_at IS NULL AND datetime(expires_at)>datetime('now')").bind(employerId).all<{id:string;organization_id:string}>();
   for(const claim of pendingClaims.results||[]){
@@ -186,7 +186,7 @@ export async function employerSession(request:Request,env:FeatureEnv){
   const token=cookie(request,'__Host-cj_session')||cookie(request,'cj_session');
   if(!token)return null;
   const hash=await sha256Hex(token);
-  const row=await env.DB.prepare("SELECT e.id,e.company_name,e.contact_name,e.email,e.phone,e.zip,e.roles_needed,e.status,s.id AS session_id,s.signed_in_email FROM employer_sessions s JOIN employer_leads e ON e.id=s.employer_id WHERE s.session_hash=? AND datetime(s.expires_at)>datetime('now') AND e.status!='disabled' LIMIT 1").bind(hash).first<Record<string,unknown>>();
+  const row=await env.DB.prepare("SELECT e.id,e.company_name,e.contact_name,e.email,e.phone,e.zip,e.roles_needed,e.status,s.id AS session_id FROM employer_sessions s JOIN employer_leads e ON e.id=s.employer_id WHERE s.session_hash=? AND datetime(s.expires_at)>datetime('now') AND e.status!='disabled' LIMIT 1").bind(hash).first<Record<string,unknown>>();
   if(!row)return null;
   await env.DB.prepare('UPDATE employer_sessions SET last_seen_at=CURRENT_TIMESTAMP WHERE id=?').bind(row.session_id).run();
   return row;
@@ -390,7 +390,7 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
         hasInterviewSlots:!locked&&asNumber(slotCount?.count)>0
       });
       try{
-        const sent=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:await teamRecipients(env,clean(row.employer_id,100),clean(row.employer_email,320)),subject:notice.subject,html:notice.html,text:notice.text});
+        const sent=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:notice.subject,html:notice.html,text:notice.text});
         await env.DB.prepare("UPDATE candidate_pipeline SET employer_notified_interest_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
         await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','employer_interest_notice',?,?)")
           .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,sent.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
@@ -436,8 +436,7 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
   const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label,where:clean(slot.location,300)});
   const sends:Promise<unknown>[]=[];
   if(emailValid(clean(row.email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:caregiverEmail.subject,html:caregiverEmail.html,text:caregiverEmail.text,attachments:[attachment]}));
-  const team=await teamRecipients(env,clean(row.employer_id,100),clean(row.employer_email,320));
-  if(team.length)sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:team,subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
+  if(emailValid(clean(row.employer_email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));
   await Promise.allSettled(sends);
   return json({ok:true,startsAt:slot.starts_at,label});
 }

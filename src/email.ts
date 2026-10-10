@@ -402,18 +402,6 @@ export function caregiverRoleClosedEmail(input:{firstName:string;company:string;
 
 const button=(href:string,label:string)=>`<p style="margin:26px 0"><a href="${esc(href)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">${esc(label)}</a></p>`;
 
-/** A teammate added to an agency's workspace: they sign in with their own email. */
-export function teamInviteEmail(input:{inviterName:string;company:string;link:string}){
-  return {
-    subject:`${input.inviterName||'Your team'} added you to ${input.company} on CareJoys`,
-    html:shell('You’re on the team',`
-      <p style="${P}">${esc(input.inviterName||'A teammate')} added you to <strong>${esc(input.company)}</strong>’s hiring workspace on CareJoys, where caregivers who apply to your jobs and caregivers matched to your openings land.</p>
-      <p style="${P}">Sign in with this email address. CareJoys sends you a one-time link, no password.</p>
-      ${button(input.link,'Open the workspace')}`),
-    text:`${input.inviterName||'A teammate'} added you to ${input.company}'s hiring workspace on CareJoys.\n\nSign in with this email address (CareJoys sends a one-time link):\n${input.link}\n\nCareJoys · carejoys.com`
-  };
-}
-
 export type DigestPerson={name:string;title:string;detail:string};
 /** The morning email: who applied since yesterday, who is still waiting on a reply, and today's interviews. */
 export function dailyDigestEmail(input:{company:string;fresh:DigestPerson[];waiting:DigestPerson[];interviews:DigestPerson[];link:string;settingsLink:string}){

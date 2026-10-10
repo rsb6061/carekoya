@@ -298,7 +298,7 @@ export async function requestAgencyClaim(request:Request,env:FeatureEnv,accountC
   }
   await env.DB.prepare("UPDATE agency_teaser_tokens SET claim_requested_at=CURRENT_TIMESTAMP,employer_id=? WHERE id=?").bind(employerId,row.token_id).run();
   // Starting the session finishes the claim (see startEmployerSession).
-  const session=await startEmployerSession(env,employerId,email);
+  const session=await startEmployerSession(env,employerId);
   const waiting=await env.DB.prepare("SELECT 1 AS hit FROM agency_interests WHERE organization_id=? LIMIT 1").bind(row.organization_id).first();
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store','Set-Cookie':employerSessionCookie(session)});
   const account=accountCookie?await accountCookie(employerId):null;

@@ -36,7 +36,7 @@ async function addCaregiver(id:string,zip:string,extra:Record<string,unknown>={}
 beforeAll(async()=>{
   proxy=await getPlatformProxy({configPath:'tests/wrangler.test.jsonc',persist:{path:'.wrangler/test/v3'}});
   DB=(proxy.env as any).DB;
-  for(const t of ['talent_alerts','caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_members','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
+  for(const t of ['talent_alerts','caregiver_intro_videos','worker_funnel_events','worker_funnel_links','caregiver_job_alert_preferences','caregiver_resume_files','candidate_pipeline','interview_slots','openings','employer_sessions','employer_auth_tokens','availability_events','outreach_events','caregiver_resume_imports','caregiver_referrals','agency_org_candidate_matches','caregivers','employer_leads','email_suppressions','email_unsubscribe_tokens','outreach_runs','analytics_events','rate_limits','employer_billing','login_tokens','account_sessions']){
     await DB.prepare(`DELETE FROM ${t}`).run();
   }
   await addCaregiver('baltimore','21201');
@@ -1923,7 +1923,7 @@ describe('opening follow-through', ()=>{
   });
 });
 
-describe('agency buyer: claim, team, settings and pricing', ()=>{
+describe('agency buyer: claim, settings and pricing', ()=>{
   const headers={cookie:'cj_session=buy-cookie','content-type':'application/json',origin:'https://carejoys.com'};
   const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test'};
   let openingId='';
@@ -1964,33 +1964,6 @@ describe('agency buyer: claim, team, settings and pricing', ()=>{
     expect(ids).not.toContain('buy-app');
   });
 
-  it('adds a teammate who signs in to the same workspace, and removing them signs them out', async()=>{
-    sent.length=0;
-    const added=await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'Recruiter@Buy.test'})});
-    expect(added.status).toBe(200);
-    const memberId=(await added.json() as any).member.id;
-    expect(sent.find(m=>m.to==='recruiter@buy.test')?.subject).toBe('Jo Park added you to Buy Care on CareJoys');
-    expect((await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'recruiter@buy.test'})})).status).toBe(409);
-    expect((await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'owner@buy.test'})})).status).toBe(409);
-    // Another workspace can't remove them.
-    expect((await call('/api/team/'+memberId,{method:'DELETE',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com'}})).status).toBe(404);
-
-    sent.length=0;
-    await post('/api/login/request',{email:'recruiter@buy.test'});
-    const token=decodeURIComponent(sent.find(m=>m.to==='recruiter@buy.test')!.html!.match(/token=([^"&]+)/)![1]);
-    const verified=await post('/api/login/verify',{token});
-    expect((await verified.json() as any).redirect).toBe('/app');
-    const workspace=verified.headers.get('set-cookie')!.match(/__Host-cj_session=([^;]+)/)![1];
-    const team=await (await call('/api/team',{headers:{cookie:'__Host-cj_session='+workspace}})).json() as any;
-    expect(team).toMatchObject({me:'recruiter@buy.test',owner:{email:'owner@buy.test'}});
-    expect((await call('/api/session',{headers:{cookie:'__Host-cj_session='+workspace}})).status).toBe(200);
-
-    expect((await call('/api/team/'+memberId,{method:'DELETE',headers})).status).toBe(200);
-    expect((await call('/api/session',{headers:{cookie:'__Host-cj_session='+workspace}})).status).toBe(401);
-    // Back on for the emails below.
-    await call('/api/team',{method:'POST',headers,body:JSON.stringify({email:'recruiter@buy.test'})});
-  });
-
   it('shows the agency’s own words on invitations and job pages', async()=>{
     const saved=await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({about:'Family owned in Towson since 2009.',benefits:'Weekly pay, mileage'})});
     expect((await saved.json() as any).settings).toMatchObject({about:'Family owned in Towson since 2009.',benefits:'Weekly pay, mileage',digest:true,atsEmail:''});
@@ -2002,12 +1975,11 @@ describe('agency buyer: claim, team, settings and pricing', ()=>{
     expect(invite.html).toContain('Weekly pay, mileage');
     const page=await (await call('/jobs/job-buy',{},htmlAssets)).text();
     expect(page).toContain('Family owned in Towson since 2009.');
-    // The caregiver's yes goes to the owner and the teammate.
     const respondToken=decodeURIComponent(invite.html!.match(/respond\?token=([^"&\s]+)/)![1]);
     expect((await (await call('/api/respond?token='+encodeURIComponent(respondToken))).json() as any).opportunity.about).toBe('Family owned in Towson since 2009.');
     sent.length=0;
     await post('/api/respond',{token:respondToken,choice:'interested'},{origin:'https://carejoys.com'});
-    expect(sent.find(m=>m.subject.startsWith('Interested candidate:'))?.to).toEqual(['owner@buy.test','recruiter@buy.test']);
+    expect(sent.find(m=>m.subject.startsWith('Interested candidate:'))?.to).toBe('owner@buy.test');
   });
 
   it('forwards new candidates to the ATS inbox once, and exports everyone as CSV', async()=>{
@@ -2038,11 +2010,10 @@ describe('agency buyer: claim, team, settings and pricing', ()=>{
     expect((await call('/api/workspace/candidates.csv')).status).toBe(401);
   });
 
-  it('sends one morning digest to the team, and none when it is turned off', async()=>{
+  it('sends one morning digest, and none when it is turned off', async()=>{
     sent.length=0;
     await sendDailyDigests(env(),1000);
-    const digest=sent.find(m=>Array.isArray(m.to)&&m.to.includes('owner@buy.test'));
-    expect(digest?.to).toEqual(['owner@buy.test','recruiter@buy.test']);
+    const digest=sent.find(m=>m.to==='owner@buy.test');
     expect(digest?.html).toContain('buy-app Test');
     expect(digest?.html).toContain('/app?tab=settings');
     sent.length=0;
@@ -2082,7 +2053,7 @@ describe('agency buyer: claim, team, settings and pricing', ()=>{
 
   it('is free until the first hire, then new introductions and invitations wait for a subscription', async()=>{
     let status=await (await call('/api/billing',{headers},stripe)).json() as any;
-    expect(status).toMatchObject({enabled:true,subscribed:false,firstHire:false,freeContacts:25});
+    expect(status).toMatchObject({enabled:true,subscribed:false,firstHire:false,freeContacts:5});
     expect(status.freeContactsRemaining).toBeGreaterThan(0);
     expect((await call('/api/agency/inbox/ai-buy',{method:'POST',headers,body:JSON.stringify({stage:'hired'})},stripe)).status).toBe(200);
     status=await (await call('/api/billing',{headers},stripe)).json() as any;

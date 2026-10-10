@@ -524,8 +524,6 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .workspace-settings{display:flex;flex-direction:column;gap:16px}
 .workspace-settings h3{margin:0 0 6px}
 .workspace-settings .intake-form{margin-top:12px}
-.team-list{list-style:none;margin:12px 0;padding:0}
-.team-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--lavender);overflow-wrap:anywhere}
 .inline-form{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .inline-form input{flex:1 1 220px;min-width:0;height:44px;border:1px solid var(--lavender);border-radius:16px;padding:0 12px;background:rgba(255,255,255,.85);font:inherit;color:var(--ink)}
 .inline-form input:focus{outline:none;border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
