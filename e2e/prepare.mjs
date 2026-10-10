@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { CAREGIVER, NEW_CAREGIVER, EMPLOYER, JOBS } from './fixtures.mjs';
+import { ADMIN, CAREGIVER, NEW_CAREGIVER, EMPLOYER, JOBS, LINKS, TRAINING } from './fixtures.mjs';
 
 if(!existsSync('dist/index.html')){console.error('Build the site first: npm run build');process.exit(1);}
 const PERSIST='.wrangler/e2e';
@@ -24,7 +24,17 @@ INSERT INTO caregivers(id,first_name,last_name,email,phone,zip,state,city,role,c
 INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES
   ('e2e-s1',${q(CAREGIVER.email)},${q(hash(CAREGIVER.session))},${later}),
   ('e2e-s2',${q(NEW_CAREGIVER.email)},${q(hash(NEW_CAREGIVER.session))},${later}),
-  ('e2e-s3',${q(EMPLOYER.email)},${q(hash(EMPLOYER.session))},${later});
+  ('e2e-s3',${q(EMPLOYER.email)},${q(hash(EMPLOYER.session))},${later}),
+  ('e2e-s4',${q(ADMIN.email)},${q(hash(ADMIN.session))},${later});
+INSERT INTO caregivers(id,first_name,last_name,email,zip,state,city,role,work_status,source,is_active,activation_token_hash)
+  VALUES ('e2e-legacy','Lee','Legacy','e2e-legacy@example.test','21204','MD','Towson','GNA','unknown','legacy_carekoya',0,${q(hash(LINKS.activation))});
+UPDATE agency_organizations SET primary_email='jobs@harborhomecare.test',primary_contact_name='Morgan Owner' WHERE id='e2e-org';
+INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at)
+  VALUES ('e2e-teaser','e2e-org',${q(hash(LINKS.agencyTeaser))},'jobs@harborhomecare.test',${later},CURRENT_TIMESTAMP);
+INSERT INTO training_organizations(id,organization_key,canonical_name,slug,credential_categories,is_active)
+  VALUES ('e2e-torg','e2e-torg','Harbor CNA Academy',${q(TRAINING.slug)},'CNA/GNA',1);
+INSERT INTO training_programs(id,source,source_key,organization_id,program_name,provider_type,city,zip,is_active)
+  VALUES ('e2e-tp','test','e2e-tp','e2e-torg','Harbor CNA Academy','Freestanding Program','Baltimore','21201',1);
 INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at)
   VALUES (${q(EMPLOYER.id)},'Harbor Home Care','Pat Tester',${q(EMPLOYER.email)},'21201','CNA','active',CURRENT_TIMESTAMP);
 INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('e2e-es1',${q(EMPLOYER.id)},${q(hash(EMPLOYER.session))},${later});
