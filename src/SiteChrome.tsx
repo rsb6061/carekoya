@@ -11,7 +11,7 @@ export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver',cta=
   // Homepage: caregiver jobs in the middle, the employer button on the right.
   if(cta)return <header className="nav"><div className="wrap nav-inner nav-inner-cta">
     <a className="brand" href="/">CareJoys</a>
-    <nav className="nav-center"><a href={jobsHref}>Find <span className="hide-sm">caregiver </span>jobs</a></nav>
+    <nav className="nav-center"><a href={jobsHref}>Find <span className="hide-sm">best-matched caregiver </span>jobs</a></nav>
     <nav className="navlinks"><AccountLink className="nav-signin" cta/></nav>
   </div></header>;
   return <header className="nav"><div className="wrap nav-inner">
