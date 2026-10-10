@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { certificationsLabel, profileTags } from './profileTags';
 
 type Stage='new'|'contacted'|'interview'|'hired'|'not_fit';
 type InboxItem={
@@ -76,12 +77,10 @@ export function AgencyInbox({onCount}:{onCount?:(waiting:number)=>void}){
             <span className={'match-status '+st.tone}>{st.label}</span>
           </div>
           <div className="match-reasons">
-            <span className="badge">{c.freshness.replace(/^Confirmed/,'Available, confirmed')}</span>
-            {c.shifts&&<span className="badge">{c.shifts}</span>}
-            {c.desiredWage&&<span className="badge">{c.desiredWage}</span>}
-            {c.certifications&&<span className="badge">{c.certifications}</span>}
+            {profileTags({freshness:c.freshness,shifts:c.shifts,desiredWage:c.desiredWage},3).map(t=><span className={'badge'+(t.tone?' '+t.tone:'')} key={t.label}>{t.label}</span>)}
             <span className="badge">{item.source} · {received(item.createdAt)}</span>
           </div>
+          {c.certifications&&<div className="job-card-cue">{certificationsLabel(c.certifications)}</div>}
           {item.note&&<blockquote className="inbox-note">“{item.note}”</blockquote>}
           <textarea className="inbox-notes" rows={2} defaultValue={item.notes} placeholder="Private notes" aria-label={'Notes on '+c.name}
             onBlur={e=>{if(e.target.value!==item.notes)void save(item.id,{notes:e.target.value})}} />

@@ -156,6 +156,40 @@ describe('distance matching', ()=>{
     expect(all.candidates.slice(0,2).map((c:any)=>c.id)).toEqual(['baltimore','towson']);
     expect(all.candidates.find((c:any)=>c.id==='la').distanceMiles).toBeGreaterThan(100);
   });
+  it('talent search leaves out non-US caregivers, drops mileage when the ZIP contradicts the state, and groups by commute', async()=>{
+    await addCaregiver('abroad','21204',{state:'South Africa',city:'Johannesburg'});
+    await addCaregiver('misplaced','21204',{state:'CA',city:'Hesperia'});
+    try{
+      const all=await (await call('/api/candidates?zip=21201&radius=all',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+      const ids=all.candidates.map((c:any)=>c.id);
+      expect(ids).not.toContain('abroad');
+      expect(all.nearby).toBe(2);
+      expect(all.candidates.slice(0,2).map((c:any)=>c.withinCommute)).toEqual([true,true]);
+      const misplaced=all.candidates.find((c:any)=>c.id==='misplaced');
+      expect(misplaced.distanceMiles).toBeNull();
+      expect(misplaced.withinCommute).toBe(false);
+      expect(ids.at(-1)).toBe('misplaced');
+      expect((await call('/api/candidates/abroad',{headers:{cookie:'cj_session='+SESSION}})).status).toBe(404);
+    }finally{
+      await DB.prepare("DELETE FROM caregivers WHERE id IN ('abroad','misplaced')").run();
+    }
+  });
+  it('opens one network caregiver and adds them to an opening for an invite', async()=>{
+    const one=await (await call('/api/candidates/towson?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(one.candidate.id).toBe('towson');
+    expect(one.candidate.distanceMiles).toBeGreaterThan(5);
+    expect((await call('/api/candidates/towson',{headers:{cookie:'cj_session=emp-unknown-cookie'}})).status).toBe(403);
+    const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'Network pick',role:'CNA',zip:'21201'})});
+    const {id}=await created.json() as any;
+    const add=()=>call(`/api/openings/${id}/candidates`,{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({caregiverId:'la'})});
+    const first=await (await add()).json() as any;
+    expect(first.stage).toBe('matched');
+    const again=await (await add()).json() as any;
+    expect(again.pipelineId).toBe(first.pipelineId);
+    expect(await DB.prepare('SELECT source FROM candidate_pipeline WHERE id=?').bind(first.pipelineId).first()).toEqual({source:'talent_network'});
+    await DB.prepare('DELETE FROM candidate_pipeline WHERE opening_id=?').bind(id).run();
+    await DB.prepare('DELETE FROM openings WHERE id=?').bind(id).run();
+  });
   it('opening match uses commute radius and infers location from ZIP', async()=>{
     const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'CNA days',role:'CNA',zip:'21201'})});
     const {id}=await created.json() as any;
