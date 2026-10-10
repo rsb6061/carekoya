@@ -6,6 +6,7 @@ import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
+import { alertNewClientErrors, runDailyMonitor } from '../src/monitoring';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -1628,5 +1629,85 @@ describe('homepage hero stats',()=>{
     const employers=body.latest.map((j:any)=>j.employerName.toLowerCase());
     expect(new Set(employers).size).toBe(employers.length);
     for(const j of body.latest)expect(j.payMax).not.toBeNull();
+  });
+});
+
+describe('site monitoring', ()=>{
+  const report=(body:unknown,ua='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1')=>call('/api/client-errors',
+    {method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com','user-agent':ua},body:JSON.stringify(body)});
+  beforeAll(async()=>{for(const t of ['client_errors','monitor_alerts','analytics_events','worker_funnel_events'])await DB.prepare(`DELETE FROM ${t}`).run();});
+  it('stores browser errors grouped across deploys, and drops bots, extensions and other sites\' scripts', async()=>{
+    expect((await report({kind:'error',message:"Cannot read properties of undefined (reading 'id')",source:'https://carejoys.com/assets/index-AbC12345.js:1:200',path:'/jobs/job-1?zip=21201'})).status).toBe(204);
+    await report({kind:'error',message:"Cannot read properties of undefined (reading 'id')",source:'https://carejoys.com/assets/index-ZzZ98765.js:1:999',path:'/jobs/job-2'});
+    await report({kind:'api',message:'POST /api/caregivers returned 500',path:'/caregiver-resume'});
+    await report({kind:'error',message:'boom',source:'chrome-extension://abc/content.js:1:1',path:'/'});
+    await report({kind:'error',message:'boom from an ad',source:'https://ads.example.net/tag.js:1:1',path:'/'});
+    await report({kind:'error',message:'Script error.',path:'/'});
+    await report({kind:'error',message:'crawler error',source:'https://carejoys.com/assets/x.js:1:1',path:'/'},'Googlebot/2.1');
+    expect((await call('/api/client-errors',{method:'POST',headers:{'content-type':'application/json',origin:'https://evil.test'},body:'{}'})).status).toBe(403);
+    const rows=(await DB.prepare('SELECT kind,message,count,first_path,last_path FROM client_errors ORDER BY kind').all()).results;
+    expect(rows).toEqual([
+      {kind:'api',message:'POST /api/caregivers returned 500',count:1,first_path:'/caregiver-resume',last_path:'/caregiver-resume'},
+      {kind:'error',message:"Cannot read properties of undefined (reading 'id')",count:2,first_path:'/jobs/job-1',last_path:'/jobs/job-2'},
+    ]);
+  });
+  it('records uncaught Worker exceptions and still fails the request', async()=>{
+    const broken={ASSETS:{fetch:async()=>{throw new Error('asset store down')}}};
+    await expect(call('/missing-file.css',{},broken)).rejects.toThrow('asset store down');
+    const row=await DB.prepare("SELECT message,source FROM client_errors WHERE kind='server'").first() as any;
+    expect(row).toEqual({message:'GET /missing-file.css: asset store down',source:'worker'});
+  });
+  it('emails new errors once, at most every 30 minutes', async()=>{
+    sent.length=0;
+    const first=await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}));
+    expect(first).toMatchObject({sent:true,count:3});
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toEqual(['alerts@carejoys.test']);
+    expect(sent[0].subject).toBe('CareJoys alert: 3 new site errors');
+    expect((sent[0] as any).text).toContain('API call failed on /caregiver-resume: POST /api/caregivers returned 500');
+    // Nothing new: no email.
+    expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:false,count:0});
+    // A new problem inside the 30 minutes waits for the next window.
+    await report({kind:'react',message:'Minified React error #31',source:'https://carejoys.com/assets/index-AbC12345.js:2:10',path:'/app'});
+    expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:false,count:1});
+    expect(sent).toHaveLength(1);
+    // With no ALERT_EMAILS or ADMIN_EMAILS the owner accounts get it.
+    await DB.prepare("UPDATE monitor_alerts SET created_at=datetime('now','-31 minutes')").run();
+    expect(await alertNewClientErrors(env())).toMatchObject({sent:true,count:1});
+    expect(sent[1].to).toContain('myersrebeccal@gmail.com');
+  });
+  it('daily funnel alarm fires only when a step that was due dropped to zero', async()=>{
+    const add=async(table:string,type:string,daysAgo:number,n:number)=>{
+      for(let i=0;i<n;i++){
+        const at=new Date(Date.now()-daysAgo*86400000-i*60000).toISOString().replace('T',' ').slice(0,19);
+        if(table==='analytics_events')await DB.prepare("INSERT INTO analytics_events(id,event_type,path,created_at) VALUES (?,'page_view','/',?)").bind(crypto.randomUUID(),at).run();
+        else await DB.prepare('INSERT INTO worker_funnel_events(id,visitor_id,event_type,created_at) VALUES (?,?,?,?)').bind(crypto.randomUUID(),crypto.randomUUID(),type,at).run();
+      }
+    };
+    // Two weeks of 20 page views and 5 ZIP searches a day; today 20 page views and no searches.
+    for(let d=1;d<=14;d++){await add('analytics_events','',d+0.1,20);await add('worker_funnel_events','preview_jobs',d+0.1,5);}
+    await add('analytics_events','',0.1,20);
+    sent.length=0;
+    const result=await runDailyMonitor(env({ALERT_EMAILS:'alerts@carejoys.test'}));
+    expect(result.findings.map((f:any)=>f.key)).toEqual(['zip_searches']);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].subject).toBe('CareJoys alert: Job searches by ZIP dropped to zero');
+    expect((sent[0] as any).text).toContain('20 page views in the same 24 hours');
+    // One search today: healthy, no email.
+    await add('worker_funnel_events','preview_empty',0.1,1);
+    sent.length=0;
+    expect((await runDailyMonitor(env({ALERT_EMAILS:'alerts@carejoys.test'}))).findings).toEqual([]);
+    expect(sent).toHaveLength(0);
+  });
+  it('daily alarm reports Clarity rage clicks and the admin report shows everything', async()=>{
+    const today=new Date().toISOString().slice(0,10);
+    await DB.prepare("INSERT OR REPLACE INTO clarity_insights(pulled_on,dimension,status,payload,pulled_at) VALUES (?,'','ok',?,?)")
+      .bind(today,JSON.stringify([{metricName:'RageClickCount',information:[{sessionsCount:9,sessionsWithMetricPercentage:11.11,subTotal:3}]},{metricName:'DeadClickCount',information:[{sessionsCount:9,sessionsWithMetricPercentage:11.11,subTotal:4}]}]),today).run();
+    sent.length=0;
+    const result=await runDailyMonitor(env({ALERT_EMAILS:'alerts@carejoys.test'}));
+    expect(result.clicks).toEqual(['3 rage clicks (someone clicking the same spot over and over), in 11.11% of 9 sessions']);
+    expect(sent[0].subject).toBe('CareJoys alert: visitors struggling with clicks');
+    await DB.prepare("DELETE FROM clarity_insights WHERE pulled_on=?").bind(today).run();
+    expect((await call('/api/admin/monitoring')).status).toBe(401);
   });
 });

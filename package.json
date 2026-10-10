@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "test:e2e": "node e2e/prepare.mjs && playwright test -c e2e",
     "test:node": "node --no-warnings --test scripts/test-*.mjs",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
     "deploy": "npm run build && npm run db:migrations:apply && wrangler deploy",
@@ -26,6 +27,7 @@
     "vite": "^7.1.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
     "esbuild": ">=0.25.0",

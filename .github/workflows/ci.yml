@@ -9,7 +9,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,3 +20,16 @@ jobs:
       - run: npm test
       - run: npm run test:node
       - run: npm run build
+      - name: Click-through test (search, signup, Apply, Apply for me, employer onboarding, workspace)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Click-through test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: click-through-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

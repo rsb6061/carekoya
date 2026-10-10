@@ -2,9 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { CaregiverAuthProvider } from './caregiverAuth';
+import { installErrorReporter, reactErrorHandler } from './errorReporter';
 import './styles.css';
 
 const path=window.location.pathname;
+installErrorReporter();
 
 function trackPageView(){
   try{
@@ -17,6 +19,8 @@ function trackPageView(){
 }
 if(!path.startsWith('/admin'))trackPageView();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById('root')!,{
+  onUncaughtError:(error,info)=>{console.error(error);reactErrorHandler(error,info)}
+}).render(
   <React.StrictMode><CaregiverAuthProvider><App /></CaregiverAuthProvider></React.StrictMode>
 );

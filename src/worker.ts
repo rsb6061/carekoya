@@ -5,6 +5,7 @@ import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
+import { alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
@@ -56,6 +57,7 @@ interface Env {
   GOOGLE_CLIENT_SECRET?: string;
   ADMIN_EMAILS?: string;
   ADMIN_TOKEN?: string;
+  ALERT_EMAILS?: string;
   OUTREACH_ENABLED?: string;
   REACTIVATION_DAILY_CAP?: string;
   REACTIVATION_REMINDER_ENABLED?: string;
@@ -1679,8 +1681,7 @@ async function recordedSummaryRun(env:Env,cron:string|undefined){
   }
 }
 
-export default {
-  async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
+async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     const url=new URL(request.url);
     // One canonical host: www and any other alias get a permanent redirect for reads.
     if(url.hostname==="www.carejoys.com"&&(request.method==="GET"||request.method==="HEAD")){
@@ -1703,6 +1704,7 @@ export default {
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/client-errors"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordClientError(request,env); }
 
     if(url.pathname==="/api/me"||url.pathname.startsWith("/api/me/")){
       if(request.method==="POST"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
@@ -1750,6 +1752,7 @@ export default {
       if(request.method==="GET"&&url.pathname==="/api/admin/health") return handleHealth(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/clarity") return json({ok:true,...await clarityInsights(env,Number(url.searchParams.get("days"))||30)});
       if(request.method==="POST"&&url.pathname==="/api/admin/clarity/pull") return json(await pullClarityInsights(env,{force:true}));
+      if(request.method==="GET"&&url.pathname==="/api/admin/monitoring") return monitoringReport(env);
       if(request.method==="GET"&&url.pathname==="/api/activation-stats") return activationStats(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/overview"){
         const [funnel,outreach,employers]=await Promise.all([adminFunnel(env,clean(url.searchParams.get("window"),10)||"30"),outreachStatus(env),adminEmployers(env)]);
@@ -1923,11 +1926,23 @@ export default {
     // Every page route is handled above, so what is left is a real 404 rather than the homepage with a 200.
     return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist on CareJoys.",canonical:url.pathname,robots:"noindex,follow",
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
+}
+
+export default {
+  async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
+    try{return await handleRequest(request,env,ctx)}
+    catch(error){
+      // Still the runtime's own error page, but now the exception is on record and in the next alert email.
+      await recordServerError(env,request,error);
+      throw error;
+    }
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{
       if(event.cron==="*/5 * * * *"){
+        // Errors visitors' browsers reported since the last run, emailed at most every 30 minutes. First, because the crawl below can use up the run.
+        await alertNewClientErrors(env).catch(error=>console.error('error alert failed',error));
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
         await normalizeExistingJobsBatch(env,100).catch(()=>null);
@@ -1965,6 +1980,8 @@ export default {
       if(event.cron==="41 15 * * *"){
         // The last 24 hours of Clarity insights into D1. No-op until CLARITY_API_TOKEN is set.
         await pullClarityInsights(env).catch(()=>null);
+        // Funnel alarm: emails only when a step dropped to zero though its traffic said some were due, or Clarity saw broken clicks.
+        await runDailyMonitor(env).catch(error=>console.error('daily monitor failed',error));
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
         // School introductions have a separate enabled flag and cap on the hourly cron.
         await runScheduledOutreach(env);

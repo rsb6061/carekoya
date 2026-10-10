@@ -162,8 +162,10 @@ function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicati
 }){
   const [agentActive,setAgentActive]=useState(false);
   const [agentSubmitted,setAgentSubmitted]=useState(false);
+  // The key keeps one ApplyForMe across the two layouts below; without it React remounts it the moment it starts,
+  // dropping its progress, questions and errors and asking for the resume again.
   const agent=job.applyForMe&&!result&&!alreadyApplied||agentSubmitted
-    ?<ApplyForMe jobId={job.id} employerName={job.employerName||'the employer'} hasResume={hasResume} onActive={setAgentActive} onSubmitted={()=>setAgentSubmitted(true)}/>
+    ?<ApplyForMe key="apply-for-me" jobId={job.id} employerName={job.employerName||'the employer'} hasResume={hasResume} onActive={setAgentActive} onSubmitted={()=>setAgentSubmitted(true)}/>
     :null;
   if(agentActive||agentSubmitted)return <div className="caregiver-onboarding compact apply-with-profile">{agent}</div>;
   const employer=job.employerName||'the employer';

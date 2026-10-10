@@ -1,0 +1,19 @@
+// Local-only config for the click-through test (npm run test:e2e): the real Worker and built site, a local D1, no remote bindings.
+{
+  "name": "carejoys-e2e",
+  "main": "../src/worker.ts",
+  "compatibility_date": "2026-09-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/*", "!/assets/*", "!/og/*", "!/favicon.png"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "carejoys", "database_id": "e2e-local", "migrations_dir": "../migrations" }
+  ],
+  // Local email: wrangler keeps each message on disk instead of sending it.
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": { "OUTREACH_ENABLED": "false", "ADMIN_EMAILS": "owner@carejoys.test" }
+}
