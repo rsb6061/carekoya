@@ -15,6 +15,11 @@ a{color:inherit;text-decoration:none}
 .navlinks .nav-signin:hover{background:#ddd6ff}
 .navlinks .nav-cta{background:var(--blue);color:#fff;font-weight:600;padding:9px 16px;box-shadow:0 5px 14px rgba(66,85,255,.18)}
 .navlinks .nav-cta:hover{background:#3445e6;color:#fff}
+.nav-inner-cta{position:relative}
+.nav-center{position:absolute;left:50%;transform:translateX(-50%)}
+.nav-center a{white-space:nowrap;padding:9px 14px;border-radius:999px;color:#514b65;font-size:15px;font-weight:600;transition:background .15s,color .15s}
+.nav-center a:hover{background:#efeaff;color:var(--ink)}
+@media(max-width:760px){.nav-center{position:static;transform:none;margin-left:auto}.nav-center a{font-size:13px;padding:8px 9px}.nav-inner-cta{gap:4px}.nav-center .hide-sm{display:none}}
 .btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--blue);background:var(--blue);color:white;border-radius:999px;min-height:46px;padding:11px 20px;font-size:14px;font-weight:600;box-shadow:0 5px 14px rgba(66,85,255,.16);transition:transform .15s ease,box-shadow .15s ease,background .15s ease;cursor:pointer}
 .btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(66,85,255,.22)}
 .btn.secondary{background:rgba(255,255,255,.82);border-color:var(--lavender);color:var(--ink);box-shadow:none}
@@ -369,6 +374,7 @@ a{color:inherit;text-decoration:none}
 .plan-price strong{font-family:var(--display);font-size:40px;font-weight:400;letter-spacing:-.04em;line-height:1}
 .plan-price span{font-size:16px;color:var(--muted);margin-left:4px}
 .plan-cta{width:100%;min-height:54px;font-size:16px;margin:24px 0 0}
+.plan-terms{text-align:center;color:var(--muted);font-size:13px;margin-top:12px}
 .plan-save,.plan-free{text-align:center;color:var(--green);font-size:13px;font-weight:700;margin-top:10px}
 .plan-list{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--lavender)}
 .plan-list li{position:relative;padding:14px 0 14px 34px;border-bottom:1px solid #e7e1f5;font-size:15px;line-height:1.45;font-weight:500}
@@ -486,3 +492,4 @@ a{color:inherit;text-decoration:none}
   .home-job-preview .search select,.home-job-preview .search input{min-width:0;background-color:#fff;border:1px solid var(--line);border-radius:16px}
   .home-job-preview .search .btn{grid-column:1/-1}
 }
+.pricing-supply-section h2{margin-bottom:8px}.pricing-supply-section .pricing-supply{margin-top:20px}

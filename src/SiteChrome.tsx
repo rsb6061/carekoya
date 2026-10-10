@@ -8,12 +8,18 @@ type Links={jobsHref?:string;showTraining?:boolean};
 type Audience={audience?:'caregiver'|'employer'};
 
 export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver',cta=false}:Omit<Links,'showTraining'>&Audience&{cta?:boolean}){
+  // Homepage: caregiver jobs in the middle, the employer button on the right.
+  if(cta)return <header className="nav"><div className="wrap nav-inner nav-inner-cta">
+    <a className="brand" href="/">CareJoys</a>
+    <nav className="nav-center"><a href={jobsHref}>Find <span className="hide-sm">best-matched caregiver </span>jobs</a></nav>
+    <nav className="navlinks"><AccountLink className="nav-signin" cta/></nav>
+  </div></header>;
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
-      <a className={audience==='caregiver'&&!cta?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
+      <a className={audience==='caregiver'?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
       <a className={audience==='employer'?undefined:'hide-sm'} href="/pricing">For employers</a>
-      <AccountLink className="nav-signin" cta={cta}/>
+      <AccountLink className="nav-signin"/>
     </nav>
   </div></header>;
 }

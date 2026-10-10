@@ -85,7 +85,7 @@ export function AboutCareJoysPage(){
         <div className="jobs">
           <div className="job"><div><h3>For caregivers</h3><div className="meta">Always free. Preview nearby jobs without a resume, create one profile, and choose which employers see it.</div></div><a className="text-link" href="/caregiver-jobs">Find jobs →</a></div>
           <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Free. Give graduates a CareJoys link and see how many create profiles, get matched and get hired.</div></div><a className="text-link" href="/training-programs/maryland">Maryland training programs →</a></div>
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $35 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $79 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
         </div>
       </div></section>
 
@@ -103,7 +103,7 @@ export function AboutCareJoysPage(){
   </div>;
 }
 
-const PLANS={monthly:{price:'$35',per:'/month'},yearly:{price:'$350',per:'/year'}} as const;
+const PRICE='$79',YEARLY='$790';
 
 type Supply={found:boolean;city?:string;state?:string;miles?:number;jobs?:number;caregivers?:number|null;caregiversBelow?:number|null};
 
@@ -126,8 +126,8 @@ function LocalSupplyCheck(){
   return <div className="pricing-supply">
     <form className="search" onSubmit={check}>
       <label className="sr-only" htmlFor="supply-zip">Your ZIP code</label>
-      <input id="supply-zip" inputMode="numeric" maxLength={5} placeholder="Your ZIP code" value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,''))}/>
-      <button className="btn" type="submit" disabled={status==='loading'}>{status==='loading'?'Checking…':'See who is near you'}</button>
+      <input id="supply-zip" inputMode="numeric" maxLength={5} placeholder="ZIP code" value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,''))}/>
+      <button className="btn" type="submit" disabled={status==='loading'}>{status==='loading'?'Checking…':'See caregivers near you'}</button>
     </form>
     {status==='error'&&<p role="alert" className="notice">Enter a five-digit ZIP code and try again.</p>}
     {status==='ready'&&supply&&(supply.found?<p className="pricing-supply-result" aria-live="polite">
@@ -137,10 +137,8 @@ function LocalSupplyCheck(){
   </div>;
 }
 
-/** /pricing: where "For employers" lands. Shows local supply first, then the free start, then the price. Checkout isn't live yet, so the button starts employer sign-up. */
+/** /pricing: where "Hire caregivers" lands. One plan, the free start, and a local supply check. Checkout isn't live yet, so the button starts employer sign-up. */
 export function PricingPage(){
-  const [plan,setPlan]=useState<keyof typeof PLANS>('monthly');
-  const p=PLANS[plan];
   const [freeContacts,setFreeContacts]=useState<number|null>(null);
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   const free=freeContacts??5;
@@ -149,36 +147,56 @@ export function PricingPage(){
     <main>
       <section className="hero pricing-hero"><div className="wrap pricing-grid">
         <div>
-          <div className="modal-kicker">For home-care agencies, assisted living and senior-care communities</div>
-          <h1>Hire caregivers who already want to work near you.</h1>
-          <p>CareJoys introduces you to local CNAs, GNAs, HHAs, PCAs and caregivers who verified their email and told us they are looking. Caregivers join free through job search and Maryland CNA/GNA training programs.</p>
-          <LocalSupplyCheck/>
-          <ol className="pricing-steps">
-            <li><strong>Post an opening.</strong> Role, ZIP, shifts and pay. Already listed on CareJoys? <a className="text-link" href="/hire-caregivers#claim-agency">Claim your agency free</a>.</li>
-            <li><strong>We find caregivers who fit.</strong> Matched by distance, shift and pay, and each one confirms they're interested.</li>
-            <li><strong>You get their contact.</strong> Call or email them directly. Interview booking is there if you want it.</li>
-          </ol>
+          <div className="modal-kicker">For home-care agencies and senior living</div>
+          <h1>Caregivers find their best matches with AI. Make sure they find yours.</h1>
+          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Your first '+free+' introductions are free.':''}</p>
         </div>
         <div className="pricing-offer">
-          <div className="pricing-toggle" role="group" aria-label="Billing period">
-            {(['monthly','yearly'] as const).map(k=><button key={k} type="button" className={'pricing-toggle-btn'+(plan===k?' active':'')} aria-pressed={plan===k} onClick={()=>setPlan(k)}>{k==='monthly'?'Monthly':'Annually'}</button>)}
-          </div>
           <article className="plan-card">
             <div className="plan-head">
               <div><h2>Hiring</h2><span className="plan-note">Per location</span></div>
-              <div className="plan-price"><strong>{p.price}</strong><span>{p.per}</span></div>
+              <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
-            <a className="btn plan-cta" href={'/hire-caregivers?plan='+plan}>{free>0?'Start free':'Start hiring for '+p.price+p.per}</a>
-            {free>0&&<div className="plan-free">Your first {free} caregiver introductions are free. Pay only when you want more.</div>}
-            {plan==='yearly'&&<div className="plan-save">Save $70 per year</div>}
+            <a className="btn plan-cta" href="/hire-caregivers">{free>0?'Start free':'Start hiring'} →</a>
+            <div className="plan-terms">{free>0?'First '+free+' introductions free. ':''}Month-to-month. Cancel anytime.</div>
+            <div className="plan-terms">Or {YEARLY}/year, two months free.</div>
             <ul className="plan-list">
-              <li>Ranked local caregiver matches for every opening, by role, ZIP, shift and pay.</li>
-              <li>CareJoys contacts them for you and only introduces caregivers who say yes.</li>
-              <li>Every interested caregiver by email and in one inbox. Interview booking optional.</li>
-              <li>No placement fees and no per-hire charges. Keep your existing hiring process.</li>
+              <li>Matches for every opening by distance, shift and pay.</li>
+              <li>We reach out and introduce only caregivers who say yes.</li>
+              <li>Every introduction lands in your inbox and email.</li>
+              <li>Book interviews if you want.</li>
+              <li>No placement fees or per-hire charges.</li>
             </ul>
           </article>
         </div>
+      </div></section>
+
+      <section className="section"><div className="wrap">
+        <div className="modal-kicker">How it works</div>
+        <h2>From opening to interview</h2>
+        <div className="steps">
+          <div className="step">
+            <div className="modal-kicker">1 · Post</div>
+            <h3>Post an opening</h3>
+            <p className="meta">Role, ZIP, shifts and pay. Already listed on CareJoys? <a className="text-link" href="/hire-caregivers#claim-agency">Claim your agency free</a>.</p>
+          </div>
+          <div className="step">
+            <div className="modal-kicker">2 · Match</div>
+            <h3>We find caregivers who fit</h3>
+            <p className="meta">Matched by distance, shift and pay, and each one confirms they're interested.</p>
+          </div>
+          <div className="step">
+            <div className="modal-kicker">3 · Hire</div>
+            <h3>You get their contact</h3>
+            <p className="meta">Call or email them directly. Interview booking is there if you want it.</p>
+          </div>
+        </div>
+      </div></section>
+
+      <section className="section"><div className="wrap pricing-supply-section">
+        <h2>See who's looking near you</h2>
+        <p className="meta">Enter your ZIP to see how many verified caregivers are looking nearby, and how many caregiver jobs are open around you.</p>
+        <LocalSupplyCheck/>
       </div></section>
     </main>
     <SiteFooter/>
