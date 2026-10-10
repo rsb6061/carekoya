@@ -349,6 +349,25 @@ export function agencyHiringNeedsEmail(input:{contactName:string;agencyName:stri
   };
 }
 
+/** The facility outreach pilot email (Rebecca approved 2026-10-10), to small assisted living homes. */
+export function facilityPilotEmail(input:{contactName:string;facilityName:string;jobCount:number;city:string;link:string}) {
+  const P='font-size:16px;line-height:1.6;color:#5f5972';
+  const near=input.city?`near ${input.city}`:'near you';
+  // Only facilities whose openings CareJoys already lists are told so.
+  const listed=input.jobCount>0?`We already show ${input.facilityName}’s openings to caregivers searching ${near}. `:'';
+  return {
+    subject:`Caregivers and CNAs ${near} for ${input.facilityName}`,
+    html:shell('Caregivers and CNAs near you',`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      <p style="${P}">CareJoys is a free job site for caregivers and CNAs, built to help small assisted living homes fill shifts without staffing agency fees.</p>
+      <p style="${P}">${esc(listed)}Claim your free listing and tell us the roles, shifts and pay you’re hiring for. When a caregiver who fits says they’re interested, we introduce you directly. There are no placement fees.</p>
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Claim ${esc(input.facilityName)}’s free listing</a></p>
+      <p style="${P}">You’ll also get a free widget that shows your openings on your own website and sends every application to one inbox.</p>
+      <p style="${P}">Rebecca<br>CareJoys</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys is a free job site for caregivers and CNAs, built to help small assisted living homes fill shifts without staffing agency fees.\n\n${listed.replace('’',"'")}Claim your free listing and tell us the roles, shifts and pay you're hiring for. When a caregiver who fits says they're interested, we introduce you directly. There are no placement fees.\n\nClaim ${input.facilityName}'s free listing: ${input.link}\n\nYou'll also get a free widget that shows your openings on your own website and sends every application to one inbox.\n\nRebecca\nCareJoys`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 export function withUnsubscribe<T extends {subject:string;html:string;text:string}>(message:T, unsubscribeLink:string):T {
   const url=esc(unsubscribeLink);
