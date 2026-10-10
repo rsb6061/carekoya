@@ -33,7 +33,7 @@ export function HomeHero(){
   return <section className="hero home-ai-hero">
     <div className="wrap">
       <h1>
-        <span className="hero-title-line">Be first to every better-paying CNA and caregiver job near you.</span>{' '}
+        <span className="hero-title-line">Match with the best CNA and caregiver jobs near you.</span>{' '}
         <span className="hero-title-accent">Let AI do the legwork.</span>
       </h1>
       <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
