@@ -3,14 +3,16 @@ import { IntroVideo, TalentDetails, type TalentCandidate } from './TalentCard';
 import { certificationsLabel, profileTags, withoutRole, type ProfileTag } from './profileTags';
 import { CHECKLIST } from './checklist';
 import { fitSummary } from './fitSummary';
-import { statusOf, type MatchRow } from './MatchList';
+import { sourceOf, statusOf, type DecideStage, type MatchRow } from './MatchList';
 import { templateMailto, type EmailTemplate, type TemplateValues } from './emailTemplateFill';
 
 export type CandidateActions={
   onInvite:(rows:MatchRow[])=>Promise<void>;
-  onDecide:(row:MatchRow,stage:'hired'|'rejected')=>Promise<void>;
+  onDecide:(row:MatchRow,stage:DecideStage)=>Promise<void>;
   onNotes:(row:MatchRow,notes:string)=>Promise<void>;
   onRestore:(row:MatchRow)=>Promise<void>;
+  /** An applicant was emailed or called: they no longer need a reply. */
+  onReach?:(row:MatchRow)=>void;
 };
 type DetailProps={row:MatchRow;actions:CandidateActions;templates:EmailTemplate[];sender:Omit<TemplateValues,'firstName'|'opening'>;disabled?:boolean};
 
@@ -28,7 +30,7 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
   const [busy,setBusy]=useState(false);
   const template=templates.find(t=>t.id===templateId)||templates[0];
   const values:TemplateValues={...sender,firstName:firstName(r.name),opening:r.title};
-  const summary=fitSummary({name:r.name,reasons:r.match_reasons||[],profile:p});
+  const summary=fitSummary({name:r.name,reasons:r.match_reasons||[],profile:p||undefined});
   const run=async(fn:()=>Promise<void>)=>{setBusy(true);try{await fn()}finally{setBusy(false)}};
   const off=disabled||busy;
 
@@ -39,10 +41,12 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
   </>;
 
   return <div className="candidate-detail">
-    <ProfileHead name={r.name} photo={r.profilePhotoUrl} role={r.role} meta={[r.role,[r.city,r.state].filter(Boolean).join(', '),'For '+r.title].filter(Boolean).join(' · ')}
+    <ProfileHead name={r.name} photo={r.profilePhotoUrl} role={r.role} meta={[r.role,[r.city,r.state].filter(Boolean).join(', '),sourceOf(r)].filter(Boolean).join(' · ')}
       status={r.stage==='matched'?undefined:status} actions={decideButtons}
       tags={profileTags({matchScore:r.match_score,reasons:r.match_reasons,freshness:p?.freshness||r.profile?.freshness,employmentTypes:p?.employmentTypes,shifts:p?.shifts,desiredWage:p?.desiredWage})}
       certifications={p?.certifications}/>
+
+    {r.caregiver_note&&<blockquote className="inbox-note">“{r.caregiver_note}”</blockquote>}
 
     {summary?<section className="candidate-fit">
       <h3>Why they fit</h3>
@@ -53,9 +57,10 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
       <div className="candidate-actions">
         {r.contact_email&&template&&<>
           <select aria-label="Email template" value={template.id} onChange={e=>setTemplateId(e.target.value)}>{templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-          <a className="button" href={templateMailto(r.contact_email,template,values)}>Email</a>
+          <a className="button" href={templateMailto(r.contact_email,template,values)} onClick={()=>actions.onReach?.(r)}>Email</a>
         </>}
-        {r.contact_phone&&<a className="button secondary" href={'tel:'+r.contact_phone.replace(/[^\d+]/g,'')}>Call</a>}
+        {r.contact_phone&&<a className="button secondary" href={'tel:'+r.contact_phone.replace(/[^\d+]/g,'')} onClick={()=>actions.onReach?.(r)}>Call</a>}
+        {r.stage==='interested'&&<button className="button secondary" disabled={off} onClick={()=>void run(()=>actions.onDecide(r,'interview'))}>Interviewing</button>}
         {['interested','interview'].includes(r.stage)&&<button className="button secondary" disabled={off} onClick={()=>void run(()=>actions.onDecide(r,'hired'))}>Mark hired</button>}
       </div>
       {(r.contact_email||r.contact_phone)&&<p className="match-contact">{[r.contact_email,r.contact_phone].filter(Boolean).join(' · ')}</p>}

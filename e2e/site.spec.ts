@@ -179,13 +179,13 @@ test('legacy caregiver confirms they are still looking from the email link', asy
   clean(w);
 });
 
-test('agency opens its emailed caregiver preview and asks to claim', async({page})=>{
+test('agency opens its emailed link and one click opens its dashboard', async({page})=>{
   const w=await watch(page);
   await page.goto('/agency?token='+LINKS.agencyTeaser);
-  await expect(page.locator('h1')).toBeVisible();
-  await expect(page.locator('h1')).not.toHaveText(/Loading|couldn’t/);
-  await page.locator('main button').first().click();
-  await expect(page.getByRole('heading',{name:'Check your agency email.'})).toBeVisible();
+  await expect(page.locator('h1')).toHaveText(/live on CareJoys/);
+  await page.getByRole('button',{name:'Open my dashboard'}).click();
+  await expect(page).toHaveURL(/\/app\?tab=jobs/);
+  await expect(page.getByRole('heading',{name:'Show these jobs on your website'})).toBeVisible();
   clean(w);
 });
 

@@ -1,6 +1,7 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
 
 import { contactAllowance, lockedIntroductions } from './billing';
+import { APPLIED_TO_EMPLOYER_SQL } from './applications';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
@@ -238,7 +239,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));
   const rows=await env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.is_active=1 AND c.work_status='actively_looking'
   AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
-  AND c.email IS NOT NULL AND c.email!=''${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,...chosen,limit).all<Record<string,unknown>>();
+  AND c.email IS NOT NULL AND c.email!='' AND NOT ${APPLIED_TO_EMPLOYER_SQL}${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,workspaceId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();

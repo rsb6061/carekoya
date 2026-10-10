@@ -321,21 +321,27 @@ export function caregiverApplicationEmail(input:{firstName:string;jobTitle:strin
   };
 }
 
-/** Outreach to an agency whose openings CareJoys already lists: confirm hiring needs to get matched caregivers and the jobs widget. */
+/**
+ * Outreach to an agency whose openings CareJoys already lists. It leads with what works on day one (its jobs are live,
+ * applications land in one inbox, the widget is free); matching is promised only as caregivers near them join.
+ */
 export function agencyHiringNeedsEmail(input:{contactName:string;agencyName:string;jobCount:number;city:string;link:string}) {
   const P='font-size:16px;line-height:1.6;color:#5f5972';
   const near=input.city?`near ${input.city}`:'near you';
-  const openings=input.jobCount===1?'1 of '+input.agencyName+'’s openings':input.jobCount+' of '+input.agencyName+'’s openings';
+  const jobs=input.jobCount===1?'1 of your jobs is':input.jobCount+' of your jobs are';
+  const lines=[
+    `${jobs} already listed on CareJoys, taken from your careers page. Caregivers ${near} can apply in a minute, and every application lands in one free inbox for ${input.agencyName}.`,
+    `You also get a free widget for your own careers page. It’s two lines of code and stays in sync with your listings.`,
+    `As caregivers ${near} join CareJoys, we’ll also match you with the ones whose certifications and availability fit your openings.`
+  ];
   return {
-    subject:`The most qualified caregivers for ${input.agencyName}, matched to what you need`,
-    html:shell('Qualified caregivers, matched to your needs',`
+    subject:`${input.jobCount===1?'Your job is':'Your jobs are'} live on CareJoys, ${input.agencyName}`,
+    html:shell('Your jobs are live on CareJoys',`
       <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
-      <p style="${P}">CareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you’re hiring for, and we match you with caregivers ${esc(near)} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.</p>
-      <p style="${P}">We already list ${esc(openings)} from your careers page. Take a minute to confirm what you’re hiring for and we’ll start matching.</p>
-      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Verify your agency needs</a></p>
-      <p style="${P}">You’ll also get a free widget that shows your jobs on your own website. It’s two lines of code, stays in sync with your careers page, and every application lands in one inbox.</p>
+      ${lines.map(l=>`<p style="${P}">${esc(l)}</p>`).join('\n      ')}
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">See your jobs and inbox</a></p>
       <p style="${P}">Rebecca<br>CareJoys</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys helps home care agencies find and hire the most qualified caregivers for their needs. Tell us the roles, shifts, pay and service area you're hiring for, and we match you with caregivers ${near} whose certifications, experience and availability fit, so you only spend time on candidates who are ready to work.\n\nWe already list ${openings.replace('’',"'")} from your careers page. Take a minute to confirm what you're hiring for and we'll start matching.\n\nVerify your agency needs: ${input.link}\n\nYou'll also get a free widget that shows your jobs on your own website. It's two lines of code, stays in sync with your careers page, and every application lands in one inbox.\n\nRebecca\nCareJoys`
+    text:`Hi ${input.contactName||'there'},\n\n${lines.join('\n\n').replace(/’/g,"'")}\n\nSee your jobs and inbox: ${input.link}\n\nRebecca\nCareJoys`
   };
 }
 

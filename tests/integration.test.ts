@@ -182,7 +182,11 @@ describe('distance matching', ()=>{
     expect((await call('/api/candidates/towson',{headers:{cookie:'cj_session=emp-unknown-cookie'}})).status).toBe(403);
     const created=await call('/api/openings',{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({title:'Network pick',role:'CNA',zip:'21201'})});
     const {id}=await created.json() as any;
-    const add=()=>call(`/api/openings/${id}/candidates`,{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({caregiverId:'la'})});
+    const add=(caregiverId='towson')=>call(`/api/openings/${id}/candidates`,{method:'POST',headers:{cookie:'cj_session='+SESSION,'content-type':'application/json'},body:JSON.stringify({caregiverId})});
+    // Los Angeles is far beyond any commute to a Baltimore opening, so nobody can invite them to it.
+    const far=await add('la');
+    expect(far.status).toBe(409);
+    expect((await far.json() as any).error).toMatch(/too far/);
     const first=await (await add()).json() as any;
     expect(first.stage).toBe('matched');
     const again=await (await add()).json() as any;
@@ -304,7 +308,8 @@ describe('optional interview scheduling and verified owner admin', ()=>{
     const after=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
     expect(after.filter((r:any)=>r.stage==='contacted').map((r:any)=>r.caregiver_id)).toEqual(['towson']);
     const other=after.find((r:any)=>r.caregiver_id!=='towson');
-    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'interview'})})).status).toBe(400);
+    // Interviewing is the employer's own mark, but only for someone who said yes.
+    expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'interview'})})).status).toBe(409);
     expect((await call('/api/pipeline/'+other.id,{method:'PATCH',headers,body:JSON.stringify({stage:'rejected'})})).status).toBe(200);
     const final=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
     expect(final.find((r:any)=>r.id===other.id)).toMatchObject({stage:'rejected',rejected_reason:'employer_not_a_fit',interview_at:null});
@@ -1451,8 +1456,9 @@ describe('agency hiring-needs invites', ()=>{
     const first=await sendAgencyHiringInvites(env(),50,'hello@carejoys.com');
     const mine=sent.filter(m=>m.to==='jobs@brightway.test');
     expect(mine).toHaveLength(1);
-    expect(mine[0].subject).toBe('The most qualified caregivers for Brightway Care, matched to what you need');
-    expect(mine[0].html).toContain('Verify your agency needs');
+    expect(mine[0].subject).toBe('Your job is live on CareJoys, Brightway Care');
+    expect(mine[0].html).toContain('1 of your jobs is already listed on CareJoys');
+    expect(mine[0].html).toContain('See your jobs and inbox');
     expect(mine[0].headers?.['List-Unsubscribe']).toBeTruthy();
     expect(sent.filter(m=>m.to==='hello@carejoys.com')).toHaveLength(1);
     expect(first.sent).toBeGreaterThan(0);

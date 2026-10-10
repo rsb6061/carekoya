@@ -519,3 +519,5 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .closed-opening .text-button{margin:0;padding:0}
 .field-hint{margin:-6px 0 4px;font-size:13px;color:var(--muted)}
 .optional{font-weight:400;color:var(--muted)}
+.results-line{margin:0 0 16px;padding:12px 16px;border-radius:16px;background:#eef8f1;color:#244b35;font-size:15px}
+.job-stats{margin:6px 0 2px;color:#244b35;font-size:14px;font-variant-numeric:tabular-nums}

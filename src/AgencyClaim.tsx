@@ -24,7 +24,7 @@ export function AgencyClaim(){
   const [jobs,setJobs]=useState<JobPreview[]>([]);
   const [jobCount,setJobCount]=useState(0);
   const [turnstileToken,setTurnstileToken]=useState('');
-  const [status,setStatus]=useState<'loading'|'ready'|'sending'|'sent'|'error'>('loading');
+  const [status,setStatus]=useState<'loading'|'ready'|'sending'|'error'>('loading');
   const [message,setMessage]=useState('');
 
   useEffect(()=>{
@@ -37,11 +37,10 @@ export function AgencyClaim(){
   async function claim(){
     setStatus('sending');setMessage('');
     try{
-      const data=await api<{message:string}>('/api/agency/claim/request',{method:'POST',body:JSON.stringify({token,turnstileToken})});
-      setMessage(data.message||'Check your agency email for a secure CareJoys sign-in link.');
-      setStatus('sent');
+      const data=await api<{redirect:string}>('/api/agency/claim/request',{method:'POST',body:JSON.stringify({token,turnstileToken})});
+      window.location.assign(data.redirect||'/app');
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not start agency verification.');
+      setMessage(error instanceof Error?error.message:'Could not open your dashboard.');
       setStatus('ready');
     }
   }
@@ -53,28 +52,28 @@ export function AgencyClaim(){
   return <div className="activation-shell">
     <SiteHeader/>
     <main className="activation-card">
-      <div className="activation-kicker">{interests.length?'Caregivers waiting for '+agency.name:'Verify your agency needs'}</div>
+      <div className="activation-kicker">{interests.length?'Caregivers waiting for '+agency.name:agency.name+' on CareJoys'}</div>
       {interests.length?<>
         <h1>{interests.length===1?'A caregiver wants':interests.length+' caregivers want'} to work with you.</h1>
-        <p className="activation-intro">{interests.length===1?'This caregiver':'These caregivers'} asked CareJoys to send {interests.length===1?'their profile':'their profiles'} to your agency. Verify your agency email to see full profiles and contact details in your Inbox.</p>
+        <p className="activation-intro">{interests.length===1?'This caregiver':'These caregivers'} asked CareJoys to send {interests.length===1?'their profile':'their profiles'} to your agency. Open your inbox to see full profiles and contact details.</p>
         <div className="candidate-preview-list">
           {interests.map((c,i)=><div className="candidate-preview" key={'i'+i}>
             <strong>{c.role}{c.jobTitle?' · '+c.jobTitle:''}</strong>
             <span>{[c.area,c.experience].filter(Boolean).join(' · ')}</span>
           </div>)}
         </div>
-        {count>0&&<p className="activation-intro">CareJoys also matched {count} more caregiver profile{count===1?'':'s'} near you.</p>}
       </>:<>
-      <h1>Tell CareJoys what {agency.name} is hiring for.</h1>
-      <p className="activation-intro">Confirm the roles, shifts, pay and service area you hire for, and CareJoys matches you with qualified caregivers near you whose certifications, experience and availability fit. You also get a free widget that shows your jobs on your own website.</p>
+      <h1>{jobCount===1?'Your job is':'Your jobs are'} live on CareJoys.</h1>
+      <p className="activation-intro">Caregivers can apply in a minute, and every application lands in one free inbox. Open your dashboard to see who applies and to copy a free widget for your own careers page.</p>
       {jobCount>0&&<>
         <div className="activation-kicker">Your openings on CareJoys{jobCount>jobs.length?' ('+jobCount+')':''}</div>
         <div className="candidate-preview-list">
           {jobs.map((j,i)=><div className="candidate-preview" key={'j'+i}><strong>{j.title}</strong>{j.area&&<span>{j.area}</span>}</div>)}
         </div>
       </>}
+      </>}
       {count>0&&<>
-        <div className="activation-kicker">Caregivers already matched near you</div>
+        <div className="activation-kicker">Caregivers near you on CareJoys</div>
         <div className="candidate-preview-list">
           {candidates.map((c,i)=><div className="candidate-preview" key={i}>
             <strong>{c.role}</strong>
@@ -82,26 +81,21 @@ export function AgencyClaim(){
           </div>)}
         </div>
       </>}
-      </>}
 
       <div className="agency-source-note">
         <strong>{agency.name}</strong>
         <span>{[agency.city,agency.state,agency.providerTypes].filter(Boolean).join(' · ')}</span>
       </div>
 
-      {agency.claimed?<div className="notice">This agency is already linked to a CareJoys employer workspace. Sign in to continue.</div>:
-      status==='sent'?<div className="activation-success">
-        <div className="success-mark">✓</div>
-        <div className="activation-kicker">Verification sent</div>
-        <h2>Check your agency email.</h2>
-        <p>{message}</p>
-      </div>:<>
-        <p className="activation-intro">{interests.length?'Claim your agency to see full profiles and contact interested caregivers.':'We’ll email your agency address a secure link that opens your hiring needs, prefilled from your website.'} Your first 5 interested caregiver candidates are free during the pilot.</p>
+      {agency.claimed?<>
+        <div className="notice">This agency is already linked to a CareJoys workspace. Sign in to continue.</div>
+        <a className="btn" href="/login?next=/app">Sign in to CareJoys</a>
+      </>:<>
+        <p className="activation-intro">This link was sent to your agency email, so one click opens your dashboard. CareJoys is free until you hire someone through it.</p>
         <TurnstileField onToken={setTurnstileToken}/>
         {message&&<div className="notice">{message}</div>}
-        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Sending verification…':interests.length?'Verify and open your Inbox':'Verify your agency needs'}</button>
+        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Opening…':interests.length?'Open my inbox':'Open my dashboard'}</button>
       </>}
-      {agency.claimed&&<a className="btn" href="/login?next=/app">Sign in to CareJoys</a>}
     </main>
   </div>;
 }

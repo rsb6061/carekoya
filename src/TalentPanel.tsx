@@ -5,7 +5,7 @@ import { profileTags } from './profileTags';
 
 export type TalentOpening={id:string;title:string};
 /** Where this caregiver already is in the employer's candidates: the opening and the row to open. */
-export type PipelineSpot={rowId:string;title:string};
+export type PipelineSpot={rowId:string;title:string;applied?:boolean};
 export type TalentActions={
   openings:TalentOpening[];
   pipelineFor:(caregiverId:string)=>PipelineSpot[];
@@ -17,11 +17,15 @@ const talentPageUrl=(id:string)=>'/app?talent='+encodeURIComponent(id);
 
 /** "Invite to …": picks one of the employer's open openings, or invites straight away when there is only one. */
 function InviteToOpening({candidate,actions}:{candidate:TalentCandidate;actions:TalentActions}){
-  const placed=new Set(actions.pipelineFor(candidate.id).map(s=>s.title));
+  const spots=actions.pipelineFor(candidate.id);
+  const placed=new Set(spots.map(s=>s.title));
   const options=actions.openings.filter(o=>!placed.has(o.title));
   const [openingId,setOpeningId]=useState(options[0]?.id||'');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{if(!options.some(o=>o.id===openingId))setOpeningId(options[0]?.id||'')},[options.map(o=>o.id).join()]);
+  // Already applied to the agency, or lives beyond their own commute: nothing to invite them to.
+  if(spots.some(s=>s.applied))return null;
+  if(candidate.distanceMiles!=null&&candidate.withinCommute===false)return <span className="job-meta">Lives beyond their commute from you</span>;
   if(!actions.openings.length)return <a className="button secondary" href="/app?tab=openings">Add an opening to invite</a>;
   if(!options.length)return null;
   const go=async()=>{setBusy(true);try{await actions.onInvite(candidate,openingId)}finally{setBusy(false)}};

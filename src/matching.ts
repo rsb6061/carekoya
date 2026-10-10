@@ -49,6 +49,13 @@ const ROLE_ALIASES:Record<string,string[]>={
  * Scores a caregiver for an opening (0-100). Rows may carry `geo_lat`/`geo_lng` from zip_geo;
  * when both do, geography is distance-based and caregivers outside their commute radius are excluded (score 0).
  */
+/** Home care hires for a service area: the agency's clients live up to this many miles from the opening's ZIP. */
+export const MAX_SERVICE_RADIUS_MILES=50;
+export function serviceRadiusMiles(opening:Row){
+  const miles=Number(opening.service_radius_miles||0);
+  return Number.isFinite(miles)&&miles>0?Math.min(MAX_SERVICE_RADIUS_MILES,miles):0;
+}
+
 export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
   if(c.auth0_email_verified!==undefined&&Number(c.auth0_email_verified)!==1&&!(c.source==='legacy_carekoya'&&c.activation_completed_at))return {score:0,reasons:['email not verified'],distanceMiles:null};
   if(c.work_status!==undefined&&c.work_status!=='actively_looking')return {score:0,reasons:['availability not confirmed'],distanceMiles:null};
@@ -57,13 +64,16 @@ export function scoreCandidate(opening:Row,c:Row,now=Date.now()){
   const distanceMiles=rowDistanceMiles(opening,c);
 
   if(distanceMiles!==null){
-    const radius=commuteRadiusMiles(c);
-    if(distanceMiles>radius)return {score:0,reasons:['outside commute radius'],distanceMiles};
+    // With a service area, a caregiver who lives inside it (or within their commute of its edge) can reach clients.
+    const area=serviceRadiusMiles(opening);
+    const reach=Math.max(0,distanceMiles-area);
+    if(reach>commuteRadiusMiles(c))return {score:0,reasons:['outside commute radius'],distanceMiles};
     const miles=Math.round(distanceMiles);
-    if(distanceMiles<=5){score+=25;reasons.push(miles<=1?'within 1 mi':`${miles} mi away`)}
-    else if(distanceMiles<=10){score+=22;reasons.push(`${miles} mi away`)}
-    else if(distanceMiles<=20){score+=18;reasons.push(`${miles} mi away`)}
-    else {score+=12;reasons.push(`${miles} mi away`)}
+    const label=area&&distanceMiles<=area?'lives in your service area':miles<=1?'within 1 mi':`${miles} mi away`;
+    if(reach<=5){score+=25;reasons.push(label)}
+    else if(reach<=10){score+=22;reasons.push(label)}
+    else if(reach<=20){score+=18;reasons.push(label)}
+    else {score+=12;reasons.push(label)}
   }else{
     const openingZip=clean(opening.zip),caregiverZip=clean(c.zip);
     const openingState=clean(opening.state).toLowerCase(),caregiverState=clean(c.state).toLowerCase();
