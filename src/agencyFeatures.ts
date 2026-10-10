@@ -1,4 +1,4 @@
-import { agencyCandidateTeaserEmail, agencyHiringNeedsEmail, withUnsubscribe } from './email';
+import { agencyCandidateTeaserEmail, agencyHiringNeedsEmail, facilityPilotEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
 import { employerSession, employerSessionCookie, publicFormGuard, startEmployerSession, type FeatureEnv } from './serverFeatures';
 import { waitingInterestPreviews } from './agencyInbox';
@@ -487,41 +487,81 @@ function hiringInviteFor(org:Row,link:string){
   });
 }
 
-/** Sends the hiring-needs invite to up to `limit` agencies, each with a 14-day claim link that lands on hiring preferences. */
-export async function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo=''){
+/** Facilities Rebecca picked for the outreach pilot (agency_organizations.outreach_pilot), with an email, never invited. */
+const FACILITY_PILOT_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.city,COUNT(j.id) AS job_count
+    FROM agency_organizations o
+    LEFT JOIN caregiver_jobs j ON j.agency_organization_id=o.id AND j.is_published=1 AND j.status='current'
+    WHERE o.outreach_pilot IS NOT NULL AND o.outreach_pilot!='' AND o.provider_kind='facility' AND COALESCE(o.is_chain,0)=0
+      AND o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
+      AND o.primary_email IS NOT NULL AND o.primary_email!=''
+      AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
+      AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE (e.organization_id=o.id OR lower(trim(e.recipient_email))=lower(trim(o.primary_email))) AND e.event_type IN ('facility_pilot_invite','facility_pilot_invite_failed','hiring_needs_invite','hiring_needs_invite_failed','candidate_teaser'))
+    GROUP BY o.id
+    ORDER BY COUNT(j.id) DESC,o.id
+    LIMIT ?`;
+
+function facilityPilotInviteFor(org:Row,link:string){
+  return facilityPilotEmail({
+    contactName:clean(org.primary_contact_name,120).split(/\s+/)[0]||'',
+    facilityName:friendlyAgencyName(clean(org.canonical_name,180)),
+    jobCount:asNum(org.job_count),city:clean(org.city,100),link
+  });
+}
+
+type InviteBody={subject:string;html:string;text:string};
+
+/** Emails each org a 14-day claim link and records `eventType`; stops the batch at the account's sending limit. */
+async function sendClaimInvites(env:FeatureEnv,sql:string,limit:number,build:(org:Row,link:string)=>InviteBody,eventType:string,unsubscribeTopic:string,copyTo=''){
   if(!env.DB||!env.EMAIL||limit<=0)return {attempted:0,sent:0,failed:0};
-  const orgs=await env.DB.prepare(HIRING_INVITE_ELIGIBLE_SQL).bind(limit).all<Row>();
+  const orgs=await env.DB.prepare(sql).bind(limit).all<Row>();
   let sent=0,failed=0;
   for(const org of orgs.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
     const email=clean(org.primary_email,320).toLowerCase();
-    const unsubscribe=await unsubscribeLink(env.DB,email,'agency_hiring_invite');
-    const body=withUnsubscribe(hiringInviteFor(org,'https://carejoys.com/agency?token='+encodeURIComponent(token)),unsubscribe.link);
+    const unsubscribe=await unsubscribeLink(env.DB,email,unsubscribeTopic);
+    const body=withUnsubscribe(build(org,'https://carejoys.com/agency?token='+encodeURIComponent(token)),unsubscribe.link);
     try{
       const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text,headers:unsubscribe.headers});
       await env.DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
         .bind(crypto.randomUUID(),org.id,await sha256Hex(token),email,new Date(Date.now()+14*86400000).toISOString()).run();
       await env.DB.prepare("UPDATE agency_organizations SET teaser_last_sent_at=CURRENT_TIMESTAMP,teaser_send_count=teaser_send_count+1,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(org.id).run();
-      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,'hiring_needs_invite',?,?,?)")
-        .bind(crypto.randomUUID(),org.id,email,result.messageId||null,JSON.stringify({jobCount:asNum(org.job_count)})).run();
-      // The campaign's first send also goes to CareJoys, with an inert link, so Rebecca sees exactly what agencies get.
+      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)")
+        .bind(crypto.randomUUID(),org.id,eventType,email,result.messageId||null,JSON.stringify({jobCount:asNum(org.job_count)})).run();
+      // The campaign's first send also goes to CareJoys, with an inert link, so Rebecca sees exactly what was sent.
       if(copyTo){
-        const copy=hiringInviteFor(org,'https://carejoys.com/agency');
+        const copy=build(org,'https://carejoys.com/agency');
         await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:copyTo,subject:'[Copy of email sent to '+email+'] '+copy.subject,html:copy.html,text:copy.text}).catch(()=>null);
         copyTo='';
       }
       sent++;
     }catch(error){
-      // A sending limit is the account's, not this agency's: stop the batch and leave everyone queued for a later run.
+      // A sending limit is the account's, not this org's: stop the batch and leave everyone queued for a later run.
       const code=String((error as {code?:unknown})?.code||'');
       const message=error instanceof Error?error.message:'';
       if(/LIMIT_EXCEEDED/.test(code)||/quota|limit exceeded/i.test(message))break;
-      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'hiring_needs_invite_failed',?,?)")
-        .bind(crypto.randomUUID(),org.id,email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
+      await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,?,?,?)")
+        .bind(crypto.randomUUID(),org.id,eventType+'_failed',email,JSON.stringify({error:error instanceof Error?error.message:'send failed'})).run();
       failed++;
     }
   }
   return {attempted:(orgs.results||[]).length,sent,failed};
+}
+
+/** Sends the hiring-needs invite to up to `limit` agencies, each with a 14-day claim link that lands on hiring preferences. */
+export function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo=''){
+  return sendClaimInvites(env,HIRING_INVITE_ELIGIBLE_SQL,limit,hiringInviteFor,'hiring_needs_invite','agency_hiring_invite',copyTo);
+}
+
+/** Sends the facility pilot email to up to `limit` of the facilities marked for the pilot. */
+export function sendFacilityPilotInvites(env:FeatureEnv,limit:number,copyTo=''){
+  return sendClaimInvites(env,FACILITY_PILOT_ELIGIBLE_SQL,limit,facilityPilotInviteFor,'facility_pilot_invite','facility_pilot_invite',copyTo);
+}
+
+/** Facility pilot emails sent so far: today (UTC) and ever. */
+export async function facilityPilotCounts(env:FeatureEnv){
+  if(!env.DB)return {today:0,total:0};
+  const row=await env.DB.prepare("SELECT COUNT(*) AS total,SUM(datetime(created_at)>=datetime('now','start of day')) AS today FROM agency_outreach_events WHERE event_type='facility_pilot_invite'").first<Row>();
+  return {today:asNum(row?.today),total:asNum(row?.total)};
 }
 
 /** Hiring-needs invites sent so far: today (UTC) and ever. */

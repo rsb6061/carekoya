@@ -11,7 +11,7 @@ import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
-import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts } from './agencyFeatures';
+import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -69,6 +69,7 @@ interface Env {
   WEEKLY_DIGEST_ENABLED?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
   AGENCY_HIRING_INVITES_ENABLED?: string;
+  FACILITY_PILOT_ENABLED?: string;
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
@@ -2221,7 +2222,14 @@ export default {
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
           const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
           const counts=await hiringInviteCounts(env);
-          await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          // The facility pilot shares this cap and goes first, a couple an hour; nothing sends until FACILITY_PILOT_ENABLED=true.
+          let pilotToday=0;
+          if(String(env.FACILITY_PILOT_ENABLED||'').toLowerCase()==='true'){
+            const pilot=await facilityPilotCounts(env);
+            const sent=await sendFacilityPilotInvites(env,Math.min(2,cap-counts.today-pilot.today),pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
+            pilotToday=pilot.today+(sent?.sent||0);
+          }
+          await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today-pilotToday),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
         }
         return;
       }

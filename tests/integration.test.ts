@@ -5,7 +5,7 @@ import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
-import { sendAgencyHiringInvites, friendlyAgencyName } from '../src/agencyFeatures';
+import { sendAgencyHiringInvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
@@ -1498,6 +1498,29 @@ describe('agency hiring-needs invites', ()=>{
     sent.length=0;
     await sendAgencyHiringInvites(env(),50);
     expect(sent.filter(m=>m.to==='jobs@quota.test')).toHaveLength(1);
+  });
+});
+
+describe('facility outreach pilot', ()=>{
+  it('emails only facilities marked for the pilot, once each, with a claim link', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,primary_contact_name,city,state,is_active,provider_kind,outreach_pilot) VALUES ('org-pilot','org-pilot','Maple House Assisted Living, LLC','director@maplehouse.test','Ana Ruiz','Fresno','CA',1,'facility','facility_2026_10')").run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active,provider_kind) VALUES ('org-unpicked','org-unpicked','Cedar Assisted Living','office@cedar.test','Fresno','CA',1,'facility')").run();
+    sent.length=0;
+    const result=await sendFacilityPilotInvites(env(),50,'hello@carejoys.com');
+    expect(result.sent).toBe(1);
+    const mine=sent.filter(m=>m.to==='director@maplehouse.test');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].subject).toBe('Caregivers and CNAs near Fresno for Maple House Assisted Living');
+    expect(mine[0].html).toContain('Hi Ana,');
+    // No openings listed yet, so the email doesn't claim any.
+    expect(mine[0].html).not.toContain('We already show');
+    expect(mine[0].html).toMatch(/agency\?token=/);
+    expect(mine[0].headers?.['List-Unsubscribe']).toBeTruthy();
+    expect(sent.map(m=>m.to)).not.toContain('office@cedar.test');
+    expect(sent.filter(m=>m.to==='hello@carejoys.com')).toHaveLength(1);
+    sent.length=0;
+    await sendFacilityPilotInvites(env(),50);
+    expect(sent).toHaveLength(0);
   });
 });
 
