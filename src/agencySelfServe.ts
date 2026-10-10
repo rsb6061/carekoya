@@ -1,4 +1,5 @@
 import { FREE_MAIL } from './employerApproval';
+import { adminRecipients } from './monitoring';
 import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEnv } from './serverFeatures';
 import { TEST_JOB_REASON } from './agencyFeatures';
 import { payLabel } from './jobFormat';
@@ -145,9 +146,9 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
   if(!workEmail)return json({ok:false,needsEmail:true,error:'We have no email on file for this agency. Enter your work email and CareJoys will verify you by hand.'},{status:400});
   await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'manual_claim_requested',?,?)")
     .bind(crypto.randomUUID(),orgId,workEmail,JSON.stringify({name:clean(data?.name,200),phone:clean(data?.phone,40)})).run();
-  const admins=clean(env.ADMIN_EMAILS,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
+  const admins=await adminRecipients(env);
   for(const to of admins.slice(0,5)){
-    await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:'Manual agency claim: '+orgName,
+    await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,replyTo:workEmail,subject:'Manual agency claim: '+orgName,
       text:workEmail+' asked to manage '+orgName+' ('+[org.city,org.state].filter(Boolean).join(', ')+') on CareJoys. Agency id: '+orgId+'. Reply to them after checking they work there.',
       html:'<p>'+escapeHtml(workEmail)+' asked to manage <strong>'+escapeHtml(orgName)+'</strong> ('+escapeHtml([org.city,org.state].filter(Boolean).join(', '))+') on CareJoys.</p><p>Agency id: '+escapeHtml(orgId)+'</p><p>Reply to them after checking they work there.</p>'}).catch(()=>null);
   }

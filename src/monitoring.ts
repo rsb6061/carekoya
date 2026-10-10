@@ -78,17 +78,23 @@ async function saveError(db:DB,e:{kind:string;message:string;source:string;stack
     .bind(fingerprint,e.kind,e.message,e.source||null,e.stack||null,e.path,e.path,e.userAgent||null).run();
 }
 
-/** Who gets alerts: ALERT_EMAILS, else ADMIN_EMAILS, else the owner accounts in admin_authorizations. */
-export async function alertRecipients(env:MonitorEnv){
-  const parse=(v:unknown)=>clean(v,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
-  const list=parse(env.ALERT_EMAILS);
-  if(list.length)return list;
-  const admins=parse(env.ADMIN_EMAILS);
-  if(admins.length)return admins;
-  if(!env.DB)return [];
-  const rows=(await env.DB.prepare('SELECT email FROM admin_authorizations ORDER BY email').all<{email:string}>().catch(()=>({results:[]}))).results||[];
-  return rows.map(r=>String(r.email||'').toLowerCase()).filter(e=>e.includes('@'));
+/** Who gets admin notifications (employers waiting, agency claims, alerts): ADMIN_EMAILS plus the owner accounts in admin_authorizations. */
+export async function adminRecipients(env:MonitorEnv){
+  const set=new Set(parseEmails(env.ADMIN_EMAILS));
+  if(env.DB){
+    const rows=(await env.DB.prepare('SELECT email FROM admin_authorizations ORDER BY email').all<{email:string}>().catch(()=>({results:[]}))).results||[];
+    for(const r of rows){const e=String(r.email||'').trim().toLowerCase();if(e.includes('@'))set.add(e)}
+  }
+  return [...set];
 }
+
+/** Who gets alerts: ALERT_EMAILS when set, else every admin recipient. */
+export async function alertRecipients(env:MonitorEnv){
+  const list=parseEmails(env.ALERT_EMAILS);
+  return list.length?list:adminRecipients(env);
+}
+
+const parseEmails=(v:unknown)=>clean(v,4000).toLowerCase().split(/[\s,;]+/).filter(e=>e.includes('@'));
 
 async function sendAlert(env:MonitorEnv,kind:string,subject:string,lines:string[],summary:string){
   const to=await alertRecipients(env);
