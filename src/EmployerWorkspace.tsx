@@ -386,16 +386,20 @@ export function EmployerWorkspace(){
     <header className="app-header"><div className="app-wrap header-inner">
       <a className="brand" href="/">CareJoys</a>
       <nav className="app-nav">
-        <button className={'nav-button '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Openings</button>
-        <button className={'nav-button '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('pipeline')}}>Candidates{inboxWaiting?` (${inboxWaiting} new)`:''}</button>
-        <button className={'nav-button '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
-        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
-        {agencyNetwork.agency&&<button className={'nav-button '+(tab==='hiring'?'active':'')} onClick={()=>{leavePage();setTab('hiring')}}>Hiring preferences</button>}
         <WorkspaceAccount logout={logout}/>
       </nav>
     </div></header>
 
-    <main className="app-wrap app-content">
+    <main className="app-wrap app-content dash-layout">
+     <nav className="dash-sidenav" aria-label="Workspace">
+      <div className="dash-sidenav-label">Hiring</div>
+      <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Openings</button>
+      <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('pipeline')}}>Candidates{inboxWaiting?` (${inboxWaiting} new)`:''}</button>
+      <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Talent network</button>
+      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
+      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='hiring'?'active':'')} onClick={()=>{leavePage();setTab('hiring')}}>Hiring preferences</button>}
+     </nav>
+     <div className="dash-main-col">
       <section className="page-head page-head-row">
         <div><h1>{workspace?.company_name||session.companyName||'Recruiting workspace'}</h1><p>From hiring need to interested caregiver to booked interview.</p></div>
         <div className="header-action"><button className="button" onClick={()=>setShowOpening(true)}>+ New opening</button></div>
@@ -410,7 +414,7 @@ export function EmployerWorkspace(){
       {billing?.enabled&&<div className="settings-card workspace-alert" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
         {billing.subscribed
           ?<><span><strong>CareJoys Hiring</strong> · unlimited caregiver introductions</span><button className="button secondary" onClick={()=>void openBilling('portal')}>Manage billing</button></>
-          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><span style={{display:'flex',gap:12,alignItems:'center'}}><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</span></>}
+          :<><span><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. An introduction counts when a caregiver says they’re interested or sends you their profile; inviting is free.</span><span style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',whiteSpace:'nowrap'}}><button className="button" onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button>{billing.yearly&&<button className="text-button" onClick={()=>void openBilling('checkout','yearly')}>or $790/year</button>}</span></>}
       </div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
 
@@ -556,6 +560,7 @@ export function EmployerWorkspace(){
           <button className="button submit-button">Save interview times</button>
         </form>
       </div></div>}
+     </div>
     </main>
     <footer className="app-footer"><div className="app-wrap">CareJoys · Caregivers ready to work. Interviews ready for you.<CloseWorkspace/></div></footer>
   </div>;
