@@ -124,3 +124,24 @@ test('employer workspace: create an opening and view matches', async({page})=>{
   await expect(page.locator('.job-card',{hasText:'E2E CNA weekends'}).getByRole('button',{name:'View matches'})).toBeVisible();
   clean(w);
 });
+
+test('employer finds caregivers: closest first, plain tags, profile panel', async({page})=>{
+  const w=await watch(page);
+  await signIn(page,EMPLOYER,true);
+  await page.goto('/app');
+  await page.getByRole('button',{name:'Find caregivers'}).click();
+  await expect(page.getByRole('heading',{name:'Find caregivers'})).toBeVisible();
+  const near=page.locator('.talent-card',{hasText:'Casey T.'});
+  await expect(near.getByText('$18/hr')).toBeVisible();
+  // Someone across the country sits under Farther away, with readable pay.
+  await expect(page.locator('.talent-divider')).toHaveText('Farther away');
+  const far=page.locator('.talent-card',{hasText:'Dana F.'});
+  await expect(far.getByText('$50/hr')).toBeVisible();
+  await near.getByRole('button',{name:'View profile'}).click();
+  const panel=page.getByRole('dialog',{name:'Casey T.'});
+  await expect(panel.getByRole('link',{name:'Open in new tab ↗'})).toHaveAttribute('href',/\/app\?talent=/);
+  await expect(panel.getByText(/In your candidates for/)).toBeVisible();
+  await panel.getByRole('button',{name:'Close'}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  clean(w);
+});

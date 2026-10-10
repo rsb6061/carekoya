@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { TalentDetails, type TalentCandidate } from './TalentCard';
+import { profileTags } from './profileTags';
 
 export type MatchRow={
   id:string;opening_id:string;stage:string;match_score?:number;match_reasons?:string[];
@@ -28,11 +29,11 @@ export function statusOf(r:MatchRow):{label:string;tone:string}{
  * Matched caregivers as selectable tiles: why each one matched, where they stand, and the next action.
  * Invitations go out per caregiver or for the selected ones; the employer's only manual marks are Hired and Not a fit.
  */
-export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,onOpen,onFavorite,onRestore}:{
+export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,onOpen,onRestore}:{
   rows:MatchRow[];showOpening:boolean;disabled?:boolean;
   onInvite:(rows:MatchRow[])=>Promise<void>;onDecide:(row:MatchRow,stage:'hired'|'rejected')=>Promise<void>;
   onNotes?:(row:MatchRow,notes:string)=>Promise<void>;
-  onOpen?:(row:MatchRow)=>void;onFavorite?:(row:MatchRow,on:boolean)=>Promise<void>;onRestore?:(row:MatchRow)=>Promise<void>;
+  onOpen?:(row:MatchRow)=>void;onRestore?:(row:MatchRow)=>Promise<void>;
 }){
   const [selected,setSelected]=useState<Set<string>>(new Set());
   const [busy,setBusy]=useState(false);
@@ -64,15 +65,12 @@ export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,o
               <h3>{onOpen?<button type="button" className="match-name-button" onClick={()=>onOpen(r)}>{r.name}</button>:r.name}</h3>
               <div className="job-meta">{[r.role,[r.city,r.state].filter(Boolean).join(', '),showOpening?'For '+r.title:''].filter(Boolean).join(' · ')}</div>
             </div>
-            <span className={'match-status '+status.tone}>{status.label}</span>
-            {onFavorite&&<button type="button" className={'save-button compact'+(r.favorite?' on':'')} aria-pressed={!!r.favorite} aria-label={(r.favorite?'Saved: ':'Save ')+r.name} disabled={disabled} onClick={()=>void onFavorite(r,!r.favorite)}>{r.favorite?'Saved':'Save'}</button>}
+            {r.stage!=='matched'&&<span className={'match-status '+status.tone}>{status.label}</span>}
           </div>
           <div className="match-reasons">
-            {r.match_score?<span className="badge strong">{r.match_score}% match</span>:null}
-            {(r.match_reasons||[]).filter(x=>!/confirmed|availability/.test(x)).map(x=><span className="badge" key={x}>{x}</span>)}
-            {r.profile?.freshness&&<span className="badge">{r.profile.freshness.replace(/^Confirmed/,'Available, confirmed')}</span>}
+            {profileTags({matchScore:r.match_score,reasons:r.match_reasons,freshness:r.profile?.freshness,employmentTypes:r.profile?.employmentTypes,shifts:r.profile?.shifts,desiredWage:r.profile?.desiredWage}).map(t=><span className={'badge'+(t.tone?' '+t.tone:'')} key={t.label}>{t.label}</span>)}
           </div>
-          {onOpen?<button type="button" className="text-button match-open" onClick={()=>onOpen(r)}>View profile and why they fit</button>
+          {onOpen?<button type="button" className="text-button match-open" onClick={()=>onOpen(r)}>View profile</button>
             :r.profile&&<details className="talent-more"><summary>Full profile</summary><TalentDetails candidate={r.profile}/></details>}
           {onOpen&&r.employer_notes&&<p className="match-note-preview"><strong>Note:</strong> {r.employer_notes}</p>}
           {onNotes&&!onOpen&&r.stage!=='matched'&&<textarea className="inbox-notes" rows={2} defaultValue={r.employer_notes||''} placeholder="Private notes" aria-label={'Notes on '+r.name}

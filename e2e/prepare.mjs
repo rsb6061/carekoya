@@ -20,7 +20,8 @@ INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,
   VALUES (${q(JOBS.applyForMe)},'e2e-org',${q(JOBS.applyForMe)},'lever','https://jobs.lever.co/harborhomecare/11111111-2222-3333-4444-555555555555','CNA - Day Shift','CNA','Harbor Home Care','Baltimore','MD','21201',18,22,'hour','current',1,'Day shift CNA visits for older adults in Baltimore.'),
          (${q(JOBS.external)},'e2e-org',${q(JOBS.external)},'test','https://harborhomecare.test/careers/hha','Home Health Aide','HHA','Harbor Home Care','Baltimore','MD','21202',17,20,'hour','current',1,'Home health aide visits around downtown Baltimore.');
 INSERT INTO caregivers(id,first_name,last_name,email,phone,zip,state,city,role,certifications,work_status,last_confirmed_at,source,is_active,auth0_email_verified,shift_preferences,desired_wage,travel_distance_miles)
-  VALUES (${q(CAREGIVER.id)},'Casey','Tester',${q(CAREGIVER.email)},'4105550100','21201','MD','Baltimore','CNA','CNA','actively_looking',CURRENT_TIMESTAMP,'organic',1,1,'days','18',25);
+  VALUES (${q(CAREGIVER.id)},'Casey','Tester',${q(CAREGIVER.email)},'4105550100','21201','MD','Baltimore','CNA','CNA','actively_looking',CURRENT_TIMESTAMP,'organic',1,1,'days','18',25),
+         ('e2e-far','Dana','Faraway','dana.far@example.test','','90001','CA','Los Angeles','HHA','HHA','actively_looking',CURRENT_TIMESTAMP,'organic',1,1,'part_time, full_time','50',25);
 INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES
   ('e2e-s1',${q(CAREGIVER.email)},${q(hash(CAREGIVER.session))},${later}),
   ('e2e-s2',${q(NEW_CAREGIVER.email)},${q(hash(NEW_CAREGIVER.session))},${later}),
