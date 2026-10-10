@@ -20,7 +20,7 @@ jobs:
       - run: npm test
       - run: npm run test:node
       - run: npm run build
-      - name: Click-through test (search, signup, Apply, Apply for me, employer onboarding, workspace)
+      - name: Click-through test (every page, link and button, and the main flows)
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
