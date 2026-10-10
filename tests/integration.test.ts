@@ -420,6 +420,13 @@ describe('billing checkout', ()=>{
       expect(first.get('line_items[0][adjustable_quantity][enabled]')).toBe('true');
       expect((await call('/api/billing/checkout',{method:'POST',headers,body:JSON.stringify({locations:3})},stripe)).status).toBe(200);
       expect(new URLSearchParams(bodies[3]).get('line_items[0][quantity]')).toBe('3');
+      // Stripe Tax only when switched on.
+      expect(first.get('automatic_tax[enabled]')).toBeNull();
+      expect((await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},{...stripe,STRIPE_AUTOMATIC_TAX:'1'})).status).toBe(200);
+      const taxed=new URLSearchParams(bodies[4]);
+      expect(taxed.get('automatic_tax[enabled]')).toBe('true');
+      expect(taxed.get('billing_address_collection')).toBe('required');
+      expect(taxed.get('tax_id_collection[enabled]')).toBe('true');
     }finally{globalThis.fetch=original}
   });
 });
