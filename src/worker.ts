@@ -2150,7 +2150,6 @@ export default {
         await repairJobCityBatch(env,100).catch(()=>null);
         await unpublishNonJobsBatch(env,2000).catch(()=>null);
         // New sites before retries, and one step failing never skips the rest.
-        // 48 sites, 8 at a time, keeps each run inside its five minutes (about 13k sites a day).
         await discoverAgencyJobsBatch(env,48).catch(()=>null);
         await recoverRejectedJobsBatch(env,180).catch(()=>null);
         await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
@@ -2162,6 +2161,8 @@ export default {
         await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
+        // A second job crawl in its own invocation (own connections and time), past the sites the */5 run took.
+        await discoverAgencyJobsBatch(env,24,48).catch(()=>null);
         return;
       }
       if(event.cron==="17 * * * *"){

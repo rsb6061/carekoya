@@ -1395,8 +1395,10 @@ export async function repairJobCityBatch(env:FeatureEnv,limit=100){
   return counts;
 }
 
-const SCAN_CONCURRENCY=8;
-export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
+// A Worker invocation keeps at most six outgoing connections open, so more than six sites at once only queues them.
+const SCAN_CONCURRENCY=6;
+// offset skips sites another invocation may still be scanning, since both pick from the same ordered list.
+export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
   const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain,scan.last_scanned_at
     FROM agency_organizations ao
@@ -1425,7 +1427,7 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12){
       CASE WHEN ao.current_hiring_signal="hiring_detected" THEN 0 ELSE 1 END,
       COALESCE(scan.last_scanned_at,"") ASC,
       ao.caregiver_relevance_score DESC
-    LIMIT ?`).bind(limit).all<Row>();
+    LIMIT ? OFFSET ?`).bind(limit,offset).all<Row>();
   let seen=0,published=0,rejected=0;
   async function scanOne(org:Row){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
