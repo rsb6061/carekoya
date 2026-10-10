@@ -26,7 +26,7 @@ function applicationStatus(a:Application){
   return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
 }
 type Caregiver=CaregiverProfileData&{
-  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;
+  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;
 };
 type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
 
@@ -161,6 +161,15 @@ export function CaregiverDashboard(){
         </a>
       </div>
       {(notice||new URLSearchParams(window.location.search).get('saved'))&&<div className="alert-status workspace-alert" role="status">{notice||'Profile saved. Your matches were refreshed.'}</div>}
+
+      {c.locationCheck&&<div className="settings-card profile-checklist location-check" role="status">
+        <div>
+          <div className="modal-kicker">Check your location</div>
+          <h3>Your ZIP {c.zip}{c.locationCheck.zipPlace?' is in '+c.locationCheck.zipPlace:''}, but your profile says {[c.city,c.state].filter(Boolean).join(', ')}.</h3>
+          <div className="job-meta">Employers near you can’t see how far away you are until these match. Confirm your home ZIP and we’ll update the rest.</div>
+        </div>
+        <a className="button" href="/dashboard/profile">Fix my location</a>
+      </div>}
 
       {invites.length>0&&<section className="section-block invite-banner" id="interviews">
         <div className="section-heading"><h2>{open.length?'An employer wants to interview you':'Your employer invitations'}</h2><p>{open.length?`${open.length} waiting on your answer.`:'Interviews and replies from employers who reached out to you.'}</p></div>

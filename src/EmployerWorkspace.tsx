@@ -13,6 +13,7 @@ import { MatchList, type MatchRow } from './MatchList';
 import { CandidatePage, CandidatePanel, type CandidateActions } from './CandidatePanel';
 import { TalentPage, TalentPanel, type TalentActions } from './TalentPanel';
 import { certificationsLabel, profileTags, shiftsLabel } from './profileTags';
+import { CHECKLIST } from './checklist';
 import { EmailTemplatesModal } from './EmailTemplatesModal';
 import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import './workspace.css';
@@ -39,7 +40,16 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
   if(!res.ok)throw new Error(body.error||'Request failed');
   return body;
 }
-const EMPTY_FILTERS={role:'',zip:'',radius:'all',state:'',freshness:'all',shift:'',hours:'',cert:'',car:'',sort:''};
+const EMPTY_FILTERS={role:'',zip:'',radius:'all',state:'',freshness:'all',shift:'',hours:'',cert:'',car:'',sort:'',payMax:'',language:'',checked:''};
+type TalentFilterState=typeof EMPTY_FILTERS;
+/** Find caregivers filters from the page URL, so a saved-search email opens on that search. */
+const filtersFromUrl=():TalentFilterState=>{
+  const q=new URLSearchParams(window.location.search);
+  if(q.get('tab')!=='talent')return EMPTY_FILTERS;
+  return Object.fromEntries(Object.entries(EMPTY_FILTERS).map(([k,v])=>[k,q.get(k)||v])) as TalentFilterState;
+};
+const LANGUAGES=['Spanish','French','Haitian Creole','Amharic','Tagalog','Portuguese','Russian','Arabic','Mandarin','Swahili'];
+type TalentAlert={id:string;label:string;query:string};
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
 
 function EmployerSignIn(){
@@ -72,7 +82,7 @@ export function EmployerWorkspace(){
   const [talentPageId,setTalentPageId]=useState(()=>new URLSearchParams(window.location.search).get('talent')||'');
   const firstTalentLoad=useRef('');
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null,hiringProfile:null,matches:[]});
-  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'|'plan'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':'openings'});
+  const [tab,setTab]=useState<'hiring'|'openings'|'talent'|'pipeline'|'jobs'|'plan'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':'openings'});
   const [inboxWaiting,setInboxWaiting]=useState(0);
   const [loading,setLoading]=useState(false);
   const [message,setMessageText]=useState('');
@@ -81,7 +91,8 @@ export function EmployerWorkspace(){
   const [pendingApproval,setPendingApproval]=useState(false);
   const [approvalKnown,setApprovalKnown]=useState(false);
   const [billing,setBilling]=useState<{enabled:boolean;subscribed:boolean;freeContacts:number;freeContactsRemaining:number|null;yearly?:boolean}|null>(null);
-  const [filters,setFilters]=useState(EMPTY_FILTERS);
+  const [filters,setFilters]=useState(filtersFromUrl);
+  const [alerts,setAlerts]=useState<TalentAlert[]>([]);
   const [showOpening,setShowOpening]=useState(false);
   const [slotsFor,setSlotsFor]=useState<Opening|null>(null);
   const [slotInputs,setSlotInputs]=useState([{startsAt:'',durationMinutes:30}]);
@@ -155,8 +166,7 @@ export function EmployerWorkspace(){
     e?.preventDefault();
     if(pendingApproval)return;
     setTalentState('loading');
-    const params=new URLSearchParams();
-    Object.entries(chosen).forEach(([k,v])=>{if(v&&(k==='radius'||v!=='all'))params.set(k,v)});
+    const params=talentParams(chosen);
     const primaryRole=openings.find(o=>o.status==='open')?.role;
     if(primaryRole&&!chosen.role)params.set('preferredRole',primaryRole);
     try{
@@ -236,21 +246,44 @@ export function EmployerWorkspace(){
     await refreshWorkspace();
   }
 
-  /** Adds a network caregiver to an opening's candidates, then sends the usual invitation. */
-  async function inviteFromTalent(candidate:Candidate,openingId:string){
-    if(!session||pendingApproval)return;
+  /** Adds network caregivers to an opening's candidates, then sends the usual invitations in one go. */
+  async function inviteFromTalent(chosen:Candidate|Candidate[],openingId:string){
+    const list=Array.isArray(chosen)?chosen:[chosen];
+    if(!session||pendingApproval||!list.length)return;
+    const title=openings.find(o=>o.id===openingId)?.title||'this opening';
     try{
-      const added=await api<{pipelineId:string;stage:string}>('/api/openings/'+openingId+'/candidates',{method:'POST',body:JSON.stringify({caregiverId:candidate.id})});
-      if(added.stage==='matched'){
-        const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds:[added.pipelineId]})});
-        const title=openings.find(o=>o.id===openingId)?.title||'this opening';
-        setMessage(Number(result.sent||0)?candidate.name+' was invited to '+title+'. They’re in your candidates now.':candidate.name+' was added to your candidates, but the invitation didn’t send.',Number(result.sent||0)?'ok':'info');
-      }else setMessage(candidate.name+' is already in your candidates for that opening.','info');
+      const pipelineIds:string[]=[];
+      for(const c of list){
+        const added=await api<{pipelineId:string;stage:string}>('/api/openings/'+openingId+'/candidates',{method:'POST',body:JSON.stringify({caregiverId:c.id})});
+        if(added.stage==='matched')pipelineIds.push(added.pipelineId);
+      }
+      if(!pipelineIds.length)setMessage((list.length===1?list[0].name+' is':'They are')+' already in your candidates for that opening.','info');
+      else{
+        const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds})});
+        const sent=Number(result.sent||0);
+        const who=list.length===1?list[0].name:sent+' caregiver'+(sent===1?'':'s');
+        setMessage(sent?who+(sent===1&&list.length===1?' was':' were')+' invited to '+title+'. They’re in your candidates now.':'Added to your candidates, but the invitations didn’t send.',sent?'ok':'info');
+      }
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not invite this caregiver','error');
+      setMessage(error instanceof Error?error.message:'Could not invite these caregivers','error');
     }
     await refreshWorkspace();
   }
+
+  async function loadAlerts(){
+    try{setAlerts((await api<{alerts:TalentAlert[]}>('/api/talent-alerts')).alerts||[])}catch{setAlerts([])}
+  }
+  async function saveAlert(){
+    try{
+      setAlerts((await api<{alerts:TalentAlert[]}>('/api/talent-alerts',{method:'POST',body:JSON.stringify({query:talentParams(filters).toString()})})).alerts||[]);
+      setMessage('Saved. We’ll email '+(session?.email||'you')+' when new caregivers match this search.','ok');
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not save this alert','error')}
+  }
+  async function removeAlert(id:string){
+    try{await api('/api/talent-alerts/'+encodeURIComponent(id),{method:'DELETE'});setAlerts(list=>list.filter(a=>a.id!==id))}
+    catch(error){setMessage(error instanceof Error?error.message:'Could not turn off this alert','error')}
+  }
+  useEffect(()=>{if(tab==='talent'&&session&&approvalKnown&&!pendingApproval)void loadAlerts()},[tab,session?.id,approvalKnown,pendingApproval]);
 
   async function openBilling(kind:'checkout'|'portal',plan:'monthly'|'yearly'='monthly'){
     try{
@@ -518,14 +551,18 @@ export function EmployerWorkspace(){
             <select value={filters.cert} onChange={e=>setFilters({...filters,cert:e.target.value})} aria-label="Certification"><option value="">Any certification</option><option value="CNA">CNA</option><option value="GNA">GNA</option><option value="HHA">HHA</option><option value="CMT">CMT</option><option value="CPR">CPR / First Aid</option></select>
             <select value={filters.freshness} onChange={e=>setFilters({...filters,freshness:e.target.value})} aria-label="Availability"><option value="all">Any availability</option><option value="confirmed">Confirmed in last 30 days</option></select>
             <select value={filters.sort} onChange={e=>setFilters({...filters,sort:e.target.value})} aria-label="Sort"><option value="">Closest first</option><option value="recent">Recently confirmed</option></select>
+            <select value={filters.payMax} onChange={e=>setFilters({...filters,payMax:e.target.value})} aria-label="Pay"><option value="">Any pay</option>{[18,20,22,25,30].map(n=><option key={n} value={String(n)}>Up to ${n}/hr</option>)}</select>
+            <select value={filters.language} onChange={e=>setFilters({...filters,language:e.target.value})} aria-label="Language"><option value="">Any language</option>{LANGUAGES.map(l=><option key={l}>{l}</option>)}</select>
+            <select value={filters.checked} onChange={e=>setFilters({...filters,checked:e.target.value})} aria-label="Confirmed"><option value="">Any checks</option>{CHECKLIST.map(([k,label])=><option key={k} value={k}>{label}</option>)}</select>
             <label className="check-row talent-car"><input type="checkbox" checked={filters.car==='1'} onChange={e=>setFilters({...filters,car:e.target.checked?'1':''})}/><span>Has a car</span></label>
             <button type="button" className="text-button talent-clear" onClick={()=>{const reset={...EMPTY_FILTERS,zip:homeZip};setFilters(reset);void searchTalent(undefined,reset)}}>Clear</button>
           </div>
         </form>
+        {alerts.length>0&&<div className="talent-alerts"><span>Email alerts:</span>{alerts.map(a=><span className="badge" key={a.id}>{a.label}<button type="button" className="badge-remove" aria-label={'Turn off alert '+a.label} onClick={()=>void removeAlert(a.id)}>×</button></span>)}</div>}
         {talentState==='loading'?<div className="empty"><strong>Loading available caregivers…</strong></div>:
          talentState==='error'?<div className="empty"><strong>Couldn't load caregivers.</strong><div>Retry the search to view available profiles.</div></div>:
          talentState==='ready'&&candidates.length===0?<div className="empty"><strong>No caregivers match these filters yet.</strong><div>Caregivers show here once they confirm their availability and verify their profile. Try Any distance, or Clear the filters.</div></div>:
-         talentState==='ready'?<TalentResults candidates={candidates} total={talentTotal} nearby={talentNearby} zip={talentSearchedZip} sortedByDistance={!filters.sort&&!!talentSearchedZip} actions={talentActions} onOpen={c=>setTalentPanelId(c.id)}/>:
+         talentState==='ready'?<TalentResults candidates={candidates} total={talentTotal} nearby={talentNearby} zip={talentSearchedZip} sortedByDistance={!filters.sort&&!!talentSearchedZip} actions={talentActions} onOpen={c=>setTalentPanelId(c.id)} onSaveAlert={()=>void saveAlert()}/>:
          <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
@@ -619,19 +656,53 @@ function WorkspaceAccount({logout}:{logout:()=>void}){
   return auth.isAuthenticated?<AccountMenu/>:<button className="nav-button" onClick={logout}>Sign out</button>;
 }
 
-/** Search results: caregivers within commuting range first, then everyone farther away under a divider. */
-function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onOpen}:{candidates:Candidate[];total:number;nearby:number;zip:string;sortedByDistance:boolean;actions:TalentActions;onOpen:(c:Candidate)=>void}){
+/** The search as URL params: everything set, with "all" meaning no filter (except radius, where "all" is a real choice). */
+function talentParams(chosen:TalentFilterState){
+  const params=new URLSearchParams();
+  Object.entries(chosen).forEach(([k,v])=>{if(v&&(k==='radius'||v!=='all'))params.set(k,v)});
+  return params;
+}
+
+/**
+ * Search results: caregivers within commuting range first, then everyone farther away under a divider. Tiles can be
+ * picked and invited to one opening together.
+ */
+function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onOpen,onSaveAlert}:{candidates:Candidate[];total:number;nearby:number;zip:string;sortedByDistance:boolean;actions:TalentActions;onOpen:(c:Candidate)=>void;onSaveAlert:()=>void}){
   const near=sortedByDistance?candidates.filter(c=>c.withinCommute):candidates;
   const far=sortedByDistance?candidates.filter(c=>!c.withinCommute):[];
+  const [picked,setPicked]=useState<Set<string>>(new Set());
+  const [openingId,setOpeningId]=useState(actions.openings[0]?.id||'');
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{if(!actions.openings.some(o=>o.id===openingId))setOpeningId(actions.openings[0]?.id||'')},[actions.openings.map(o=>o.id).join()]);
+  const canPick=(c:Candidate)=>actions.openings.length>0&&!actions.pipelineFor(c.id).length;
+  const pickable=near.filter(canPick);
+  const chosen=candidates.filter(c=>picked.has(c.id)&&canPick(c));
+  const allPicked=pickable.length>0&&pickable.every(c=>picked.has(c.id));
+  const toggle=(id:string)=>setPicked(prev=>{const next=new Set(prev);next.has(id)?next.delete(id):next.add(id);return next});
+  async function inviteChosen(){
+    setBusy(true);
+    try{await actions.onInvite(chosen,openingId);setPicked(new Set())}finally{setBusy(false)}
+  }
   const tile=(c:Candidate,i:number)=>{
     const spots=actions.pipelineFor(c.id);
-    const quickInvite=actions.openings.length===1&&!spots.length;
+    const quickInvite=actions.openings.length===1&&!spots.length&&!chosen.length;
     return <TalentCard candidate={c} tone={cardTone(i)} key={c.id} onOpen={()=>onOpen(c)}
+      selected={canPick(c)?picked.has(c.id):undefined} onSelect={canPick(c)?()=>toggle(c.id):undefined}
       note={spots.length?'In your candidates for '+spots.map(s=>s.title).join(', '):undefined}
       action={quickInvite?<button type="button" className="button compact" disabled={actions.disabled} onClick={()=>void actions.onInvite(c,actions.openings[0].id)}>Invite</button>:undefined}/>;
   };
   return <>
-    <p className="talent-results-meta" role="status">{total} caregiver{total===1?'':'s'}{zip?' · '+nearby+' within commuting distance of '+zip:''}</p>
+    <div className="talent-results-head">
+      <p className="talent-results-meta" role="status">{total} caregiver{total===1?'':'s'}{zip?' · '+nearby+' within commuting distance of '+zip:''}</p>
+      <button type="button" className="text-button" onClick={onSaveAlert}>Email me new matches</button>
+    </div>
+    {pickable.length>0&&<div className="match-toolbar talent-toolbar">
+      <label className="match-select-all"><input type="checkbox" checked={allPicked} disabled={actions.disabled||busy} onChange={()=>setPicked(allPicked?new Set():new Set(pickable.map(c=>c.id)))}/><span>{chosen.length?chosen.length+' selected':'Select all nearby ('+pickable.length+')'}</span></label>
+      <div className="invite-to-opening">
+        {actions.openings.length>1&&<select aria-label="Opening to invite to" value={openingId} onChange={e=>setOpeningId(e.target.value)}>{actions.openings.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select>}
+        <button type="button" className="button" disabled={actions.disabled||busy||!chosen.length||!openingId} onClick={()=>void inviteChosen()}>{busy?'Inviting…':chosen.length?'Invite '+chosen.length+' selected':'Invite selected'}</button>
+      </div>
+    </div>}
     {near.length>0&&<div className="job-list talent-list">{near.map(tile)}</div>}
     {far.length>0&&<><div className="talent-divider"><span>Farther away</span></div><div className="job-list talent-list">{far.map((c,i)=>tile(c,i+near.length))}</div></>}
   </>;

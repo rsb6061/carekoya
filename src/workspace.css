@@ -57,7 +57,17 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .talent-car{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;margin:0 4px;font-size:15px;color:var(--ink)}
 .talent-car input{width:18px;height:18px;margin:0}
 .talent-clear{margin:0 0 0 auto;padding:0 4px}
-.talent-results-meta{color:var(--muted);margin:0 0 14px}
+.talent-results-meta{color:var(--muted);margin:0}
+.talent-results-head{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;margin:0 0 14px}
+.talent-results-head .text-button{margin:0}
+.talent-toolbar{margin-bottom:16px}
+.talent-pick{margin-left:auto;display:flex;align-items:center;padding:4px}
+.talent-pick input{width:20px;height:20px;margin:0;cursor:pointer}
+.talent-card.picked{--card-border:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+.talent-alerts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-8px 0 18px;color:var(--muted);font-size:15px}
+.talent-alerts .badge{margin:0;gap:6px}
+.badge-remove{border:0;background:none;padding:0 2px;font:inherit;font-size:16px;line-height:1;color:var(--muted);cursor:pointer}
+.location-check{margin-bottom:22px}
 .talent-list{align-items:stretch}
 .talent-card{min-height:0;padding:20px 22px}
 .talent-card.clickable{cursor:pointer}
@@ -479,3 +489,4 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .plan-section .plan-actions .text-button{white-space:nowrap;margin:0;font-size:16px}
 .workspace-alert .upgrade-link{display:inline;margin:0 0 0 4px;font-weight:600}
 .alert-info .upgrade-link{color:var(--blue,#4353ff)}
+.talent-filters .talent-car span{font-size:15px;color:var(--ink)}

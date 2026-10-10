@@ -143,5 +143,10 @@ test('employer finds caregivers: closest first, plain tags, profile panel', asyn
   await expect(panel.getByText(/In your candidates for/)).toBeVisible();
   await panel.getByRole('button',{name:'Close'}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Save this search as an email alert; it shows as a removable chip.
+  await page.getByRole('button',{name:'Email me new matches'}).click();
+  await expect(page.locator('.talent-alerts')).toContainText('near 21201');
+  await page.getByRole('button',{name:/^Turn off alert/}).click();
+  await expect(page.locator('.talent-alerts')).toHaveCount(0);
   clean(w);
 });

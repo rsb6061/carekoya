@@ -1,6 +1,6 @@
 import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
-import { type EmailBinding } from './email';
+import { talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
@@ -16,13 +16,14 @@ import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob,
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles } from './matching';
-import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute } from './talentSearch';
+import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
 import { hasSchedule, parseOpeningSchedule, scheduleSummary } from './schedule';
 import { adminEmployers, adminFromRequest, adminFunnel, outreachStatus, recordAnalyticsEvent, requestAdminMagicLink, runAdminOutreach, adminAgencySearch, sendAdminAgencyTest, sendAdminOutreachTest } from './admin';
 import { runReactivationReminders, runScheduledOutreach } from './outreach';
 import { listText } from './listField';
+import { distanceLabel } from './profileTags';
 import { summarizeJobsBatch, type AiBinding } from './jobSummary';
 import { descriptionBlocks } from './jobFormat';
 import { runDataForSeoJobs } from './dataforseo';
@@ -32,7 +33,7 @@ import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
 import { resumeDownload } from './resumeFile';
-import { parseChecklist } from './checklist';
+import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
@@ -1429,19 +1430,24 @@ const talentDistance=(center:{lat:number;lng:number}|null,c:Record<string,unknow
   const geo=rowGeo(c);
   return center&&geo&&locationMatchesZip(c)?haversineMiles(center,geo):null;
 };
-async function searchCandidates(url: URL, env: Env) {
-  if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
-  const role=clean(url.searchParams.get("role"),80).toLowerCase();
-  const preferredRole=clean(url.searchParams.get("preferredRole"),80).toLowerCase();
-  const zip=normalizeZip(url.searchParams.get("zip"));
-  const state=clean(url.searchParams.get("state"),40).toLowerCase();
-  const freshness=clean(url.searchParams.get("freshness"),30);
-  const sort=url.searchParams.get("sort")==="recent"?"recent":"closest";
-  const filters={shift:clean(url.searchParams.get("shift"),20),hours:clean(url.searchParams.get("hours"),20),cert:clean(url.searchParams.get("cert"),20),car:url.searchParams.get("car")==="1"};
-  const allDistances=url.searchParams.get("radius")==='all';
-  const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(url.searchParams.get("radius")||0)||25));
-  const center=zip?await lookupZip(env.DB,zip):null;
-  let sql=`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
+/** The agency filters from a search URL or a saved search's stored query. */
+function talentFiltersFrom(q:URLSearchParams):TalentFilters{
+  return {shift:clean(q.get("shift"),20),hours:clean(q.get("hours"),20),cert:clean(q.get("cert"),20),car:q.get("car")==="1",
+    payMax:Math.max(0,Math.min(200,Number(q.get("payMax"))||0)),language:clean(q.get("language"),40),checked:clean(q.get("checked"),40)};
+}
+/** Talent network search for a query (a search URL's params or a saved search): eligible caregivers, ranked. */
+async function findTalent(db:NonNullable<Env["DB"]>,q:URLSearchParams){
+  const role=clean(q.get("role"),80).toLowerCase();
+  const preferredRole=clean(q.get("preferredRole"),80).toLowerCase();
+  const zip=normalizeZip(q.get("zip"));
+  const state=clean(q.get("state"),40).toLowerCase();
+  const freshness=clean(q.get("freshness"),30);
+  const sort=q.get("sort")==="recent"?"recent":"closest";
+  const filters=talentFiltersFrom(q);
+  const allDistances=q.get("radius")==='all';
+  const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,Number(q.get("radius")||0)||25));
+  const center=zip?await lookupZip(db,zip):null;
+  let sql=`SELECT ${TALENT_COLUMNS},c.created_at FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
   const args:unknown[]=[];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
   if(center&&!allDistances){
@@ -1451,7 +1457,7 @@ async function searchCandidates(url: URL, env: Env) {
   if(state){ sql+=" AND lower(COALESCE(c.state,''))=?"; args.push(state); }
   if(freshness==="confirmed"){ sql+=" AND c.work_status='actively_looking' AND datetime(c.last_confirmed_at)>=datetime('now','-30 days')"; }
   sql+=" ORDER BY CASE WHEN c.last_confirmed_at IS NULL THEN 1 ELSE 0 END, c.last_confirmed_at DESC LIMIT 1000";
-  const result=await env.DB.prepare(sql).bind(...args).all<Record<string,unknown>>();
+  const result=await db.prepare(sql).bind(...args).all<Record<string,unknown>>();
   let rows=(result.results||[]).filter(c=>inUs(c)&&matchesTalentFilters(c,filters)).map(c=>({c,distanceMiles:talentDistance(center,c)}));
   if(center&&!allDistances)rows=rows.filter(r=>r.distanceMiles!==null&&r.distanceMiles<=radius);
   if(center){
@@ -1464,9 +1470,87 @@ async function searchCandidates(url: URL, env: Env) {
       rows=[...near.map((r,i)=>({r,i})).sort((a,b)=>fits(a.r)-fits(b.r)||a.i-b.i).map(x=>x.r),...far];
     }
   }
+  return {rows,center,radiusMiles:center&&!allDistances?radius:null};
+}
+async function searchCandidates(url: URL, env: Env) {
+  if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
+  const {rows,radiusMiles}=await findTalent(env.DB,url.searchParams);
   const nearby=rows.filter(withinCommute).length;
-  return json({ok:true,total:rows.length,nearby,radiusMiles:center&&!allDistances?radius:null,
+  return json({ok:true,total:rows.length,nearby,radiusMiles,
     candidates:rows.slice(0,100).map(r=>({...talentCandidate(r.c,r.distanceMiles),withinCommute:withinCommute(r)}))});
+}
+const TALENT_ALERT_KEYS=["role","zip","radius","state","freshness","shift","hours","cert","car","payMax","language","checked"];
+const MAX_TALENT_ALERTS=5;
+/** A saved search's query, kept to the known filter keys so stored rows never carry anything else. */
+function talentAlertQuery(raw:unknown){
+  const from=new URLSearchParams(clean(raw,1000));
+  const q=new URLSearchParams();
+  for(const k of TALENT_ALERT_KEYS){const v=clean(from.get(k),80);if(v&&v!=='all')q.set(k,v)}
+  return q;
+}
+/** A saved search in plain words: "CNA · Overnights · near 21201". */
+function talentAlertLabel(q:URLSearchParams){
+  const words:Record<string,Record<string,string>>={shift:{overnight:'Overnights',live_in:'Live-in',weekends:'Weekends'},hours:{full_time:'Full time',part_time:'Part time',per_diem:'Per diem'},
+    checked:Object.fromEntries(CHECKLIST.map(([k,l])=>[k,l]))};
+  const parts=[q.get("role"),q.get("cert"),words.shift[q.get("shift")||''],words.hours[q.get("hours")||''],q.get("language"),q.get("payMax")?'Up to $'+q.get("payMax")+'/hr':'',
+    q.get("car")==='1'?'Has a car':'',words.checked[q.get("checked")||''],q.get("zip")?(q.get("radius")?'within '+q.get("radius")+' mi of ':'near ')+q.get("zip"):''];
+  return parts.filter(Boolean).join(' · ')||'Everyone available';
+}
+/** Saved searches an employer gets emailed about when new caregivers match: list, create and delete. */
+async function talentAlerts(request:Request,env:Env,workspaceId:string,alertId?:string){
+  const db=env.DB!;
+  if(request.method==="DELETE"&&alertId){
+    await db.prepare("DELETE FROM talent_alerts WHERE id=? AND employer_id=?").bind(alertId,workspaceId).run();
+    return json({ok:true});
+  }
+  if(request.method==="POST"){
+    const data=await readJson(request);
+    const q=talentAlertQuery(data?.query);
+    const count=await db.prepare("SELECT COUNT(*) AS n FROM talent_alerts WHERE employer_id=?").bind(workspaceId).first<{n:number}>();
+    if(Number(count?.n||0)>=MAX_TALENT_ALERTS)return json({ok:false,error:`You can keep up to ${MAX_TALENT_ALERTS} alerts. Turn one off to add another.`},{status:400});
+    const existing=await db.prepare("SELECT id FROM talent_alerts WHERE employer_id=? AND query=?").bind(workspaceId,q.toString()).first();
+    if(!existing){
+      await db.prepare("INSERT INTO talent_alerts(id,employer_id,query,label,off_token) VALUES (?,?,?,?,?)")
+        .bind(crypto.randomUUID(),workspaceId,q.toString(),talentAlertLabel(q),crypto.randomUUID()+'-'+crypto.randomUUID()).run();
+    }
+  }
+  const rows=await db.prepare("SELECT id,label,query,created_at FROM talent_alerts WHERE employer_id=? ORDER BY created_at").bind(workspaceId).all<Record<string,unknown>>();
+  return json({ok:true,alerts:(rows.results||[]).map(r=>({id:r.id,label:r.label,query:r.query,createdAt:r.created_at}))});
+}
+/** The one-click "turn off this alert" link in an alert email. */
+async function turnOffTalentAlert(url:URL,env:Env){
+  const token=clean(url.searchParams.get("token"),200);
+  if(token&&env.DB)await env.DB.prepare("DELETE FROM talent_alerts WHERE off_token=?").bind(token).run();
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert turned off</title><body style="font-family:Arial,sans-serif;background:#f7f0e6;color:#1b153c;padding:48px 20px;text-align:center"><h1 style="font-family:Georgia,serif;font-weight:400">This alert is off.</h1><p>You won't get emails for this search anymore. <a href="/app?tab=talent">Open Find caregivers</a></p></body>`,{headers:{'content-type':'text/html; charset=utf-8'}});
+}
+/**
+ * Daily: for each saved search, caregivers who joined since the last check and live within commuting range (or the
+ * search's radius). One email per alert with new people; the check time moves forward either way.
+ */
+async function sendTalentAlerts(env:Env,limit=200){
+  if(!env.DB||!env.EMAIL)return {sent:0};
+  const alerts=await env.DB.prepare(`SELECT a.id,a.query,a.label,a.last_checked_at,a.off_token,e.email,e.contact_name FROM talent_alerts a JOIN employer_leads e ON e.id=a.employer_id
+    WHERE e.approved_at IS NOT NULL AND e.email!='' ORDER BY a.last_checked_at LIMIT ?`).bind(limit).all<Record<string,unknown>>();
+  let sent=0;
+  for(const alert of alerts.results||[]){
+    const since=clean(alert.last_checked_at,40);
+    const checkedAt=new Date().toISOString().replace('T',' ').slice(0,19);
+    const q=new URLSearchParams(clean(alert.query,1000));
+    const {rows,radiusMiles}=await findTalent(env.DB,q);
+    const fresh=rows.filter(r=>clean(r.c.created_at,40)>since&&(radiusMiles!==null||withinCommute(r)));
+    if(fresh.length){
+      const people=fresh.slice(0,5).map(r=>{const p=talentCandidate(r.c,r.distanceMiles);return {name:String(p.name),detail:[p.role,[p.city,p.state].filter(Boolean).join(', '),distanceLabel(p.distanceMiles)].filter(Boolean).join(' · ')}});
+      const message=talentAlertEmail({recipientName:clean(alert.contact_name,120),label:clean(alert.label,300),count:fresh.length,people,
+        link:'https://carejoys.com/app?tab=talent&'+q.toString(),offLink:'https://carejoys.com/talent-alert/off?token='+encodeURIComponent(clean(alert.off_token,200))});
+      try{
+        await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(alert.email,320),subject:message.subject,html:message.html,text:message.text});
+        await env.DB.prepare("UPDATE talent_alerts SET last_sent_at=CURRENT_TIMESTAMP WHERE id=?").bind(alert.id).run();
+        sent++;
+      }catch(error){console.error('talent alert failed',error)}
+    }
+    await env.DB.prepare("UPDATE talent_alerts SET last_checked_at=? WHERE id=?").bind(checkedAt,alert.id).run();
+  }
+  return {sent};
 }
 /** One caregiver from the network, for the profile panel and its own page. */
 async function talentProfile(id:string,url:URL,env:Env){
@@ -1872,6 +1956,14 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(employer instanceof Response)return employer;
       return searchCandidates(url,env);
     }
+    let talentAlert=url.pathname.match(/^\/api\/talent-alerts(?:\/([^/]+))?$/);
+    if(talentAlert&&(request.method==="GET"||request.method==="POST"||(request.method==="DELETE"&&talentAlert[1]))){
+      if(request.method!=="GET"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      const employer=await approvedEmployer(request,env);
+      if(employer instanceof Response)return employer;
+      return talentAlerts(request,env,String(employer.id),talentAlert[1]?decodeURIComponent(talentAlert[1]):undefined);
+    }
+    if(request.method==="GET"&&url.pathname==="/talent-alert/off")return turnOffTalentAlert(url,env);
     let talentId=url.pathname.match(/^\/api\/candidates\/([^/]+)$/);
     if(request.method==="GET"&&talentId){
       const employer=await approvedEmployer(request,env);
@@ -2033,6 +2125,8 @@ export default {
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
+        // Saved Find caregivers searches: one email per search when new caregivers nearby match it.
+        await sendTalentAlerts(env).catch(error=>console.error("talent alerts failed",error));
         return;
       }
       // A schedule none of the branches above recognised: note the exact string so a mismatch shows up in D1.
