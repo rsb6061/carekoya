@@ -132,9 +132,9 @@ export function employerCandidateInterestedEmail(input:{
     html:shell('A caregiver is interested',`
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
       <p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>${esc(input.caregiverName)}</strong> said they are interested in <strong>${esc(input.title)}</strong>${input.location?' in '+esc(input.location):''}.</p>
-      <p style="font-size:16px;line-height:1.6;color:#5f5972">Your free introductions are used up. Upgrade in your workspace to see how to reach them.</p>
+      <p style="font-size:16px;line-height:1.6;color:#5f5972">You've used your free introductions. Upgrade in your workspace to see how to reach them.</p>
       <p style="margin:26px 0"><a href="${esc(input.appLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Open recruiting workspace</a></p>`),
-    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nYour free introductions are used up. Upgrade in your workspace to see how to reach them.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} is interested in ${input.title}${input.location?' in '+input.location:''}.\n\nYou've used your free introductions. Upgrade in your workspace to see how to reach them.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
   };
   return {
     subject:`Interested candidate: ${input.caregiverName} — ${input.title}`,
@@ -212,8 +212,8 @@ export function agencyCandidateTeaserEmail(input:{
       ${rows}
       <p style="font-size:14px;line-height:1.6;color:#6e6882">These previews are intentionally de-identified. Claim your agency to review the matching profiles, confirm what you hire for, and contact interested caregivers through CareJoys.</p>
       <p style="margin:26px 0"><a href="${esc(input.claimLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Review caregiver matches</a></p>
-      <p style="font-size:13px;line-height:1.6;color:#8a849b">CareJoys is free until you hire someone through it.</p>`),
-    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nCareJoys is free until you hire someone through it.\n\nCareJoys · carejoys.com`
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">Your first 5 interested caregiver candidates are free.</p>`),
+    text:`Hi ${input.contactName||'there'},\n\nCareJoys matched ${input.candidateCount} caregiver profile${input.candidateCount===1?'':'s'} to ${input.agencyName} based on location, caregiver role, and your provider profile.\n\n${input.previews.slice(0,3).map(p=>[p.role,p.area,p.experience,p.freshness].filter(Boolean).join(' · ')).join('\n')}\n\nThe previews are de-identified. Claim your agency to review the matches and confirm your hiring profile:\n${input.claimLink}\n\nYour first 5 interested caregiver candidates are free.\n\nCareJoys · carejoys.com`
   };
 }
 

@@ -95,7 +95,7 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
         {['interested','interview'].includes(r.stage)&&<button className="button secondary" disabled={off} onClick={()=>void run(()=>actions.onDecide(r,'hired'))}>Mark hired</button>}
       </div>
       {(r.contact_email||r.contact_phone)&&<p className="match-contact">{[r.contact_email,r.contact_phone].filter(Boolean).join(' · ')}</p>}
-      {r.contact_locked?<p className="job-meta">Your free period is over. Upgrade to see {firstName(r.name)}’s email, phone and resume.</p>
+      {r.contact_locked?<p className="job-meta">You’ve used your free introductions. Upgrade to see {firstName(r.name)}’s email, phone and resume.</p>
         :!r.contact_email&&r.stage!=='rejected'&&<p className="job-meta">Email, phone{p?.hasResume?' and resume':''} are shared once {firstName(r.name)||'they'} says they’re interested.</p>}
     </section>}
 

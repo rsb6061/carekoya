@@ -13,7 +13,6 @@ export type BillingEnv=FeatureEnv&{
 };
 
 const ORIGIN='https://carejoys.com';
-// Free until the first hire through CareJoys. The cap is a backstop for a workspace that never marks anyone hired.
 export const DEFAULT_FREE_CONTACTS=5;
 const MAX_LOCATIONS=100;
 // past_due keeps access while Stripe retries the card; Stripe's retry settings end it as unpaid or canceled.
@@ -45,51 +44,38 @@ const INTRODUCTIONS_SQL=`SELECT cp.id,julianday(COALESCE(cp.response_at,cp.respo
   SELECT ai.id,julianday(ai.created_at) AS at FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id
     WHERE ao.claimed_employer_id=?`;
 
-// When the employer first marked someone hired through CareJoys, on an opening or an application.
-const FIRST_HIRE_SQL=`SELECT MIN(at) AS at FROM (
-  SELECT julianday(COALESCE(cp.hired_at,cp.updated_at)) AS at FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=? AND cp.stage='hired'
-  UNION ALL
-  SELECT julianday(COALESCE(ai.agency_stage_at,ai.updated_at)) AS at FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id WHERE ao.claimed_employer_id=? AND ai.agency_stage='hired')`;
-
 /**
  * The employer's introductions: an introduction is a caregiver who said they're interested in one of the employer's
- * openings or sent their profile to the employer's agency. Everything is free until the employer's first hire through
- * CareJoys (or the backstop cap of free introductions). After that, new introductions and new invitations wait for a
- * subscription; caregivers introduced before the hire stay visible.
+ * openings or sent their profile to the employer's agency, which is what /pricing sells. Inviting, matching and browsing stay free. Once the free introductions are
+ * used, new invitations wait for a subscription.
  */
 export async function contactAllowance(env:BillingEnv,employerId:string){
-  if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,status:'',used:0,free:0,remaining:Infinity,hired:false,lockedAfter:null as number|null};
+  if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,status:'',used:0,free:0,remaining:Infinity};
   const billing=await env.DB.prepare('SELECT status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employerId).first<Row>();
   const status=clean(billing?.status,40);
   const subscribed=ACTIVE_STATUSES.has(status);
   const used=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM (${INTRODUCTIONS_SQL})`).bind(employerId,employerId).first<Row>())?.count);
-  const firstHire=(await env.DB.prepare(FIRST_HIRE_SQL).bind(employerId,employerId).first<Row>())?.at;
-  const hired=firstHire!=null;
   const free=freeContacts(env);
-  const remaining=subscribed?Infinity:hired?0:Math.max(0,free-used);
-  return {enabled:true,subscribed,status,used,free,remaining,hired,lockedAfter:hired?Number(firstHire):null};
+  return {enabled:true,subscribed,status,used,free,remaining:subscribed?Infinity:Math.max(0,free-used)};
 }
 
 /**
- * Introductions (pipeline ids and agency interest ids) the employer can't see without a subscription: those that came
- * after their first hire, and those past the backstop cap. The earliest yeses are the free ones.
+ * Introductions (pipeline ids and agency interest ids) past the free ones, while the employer has no subscription. Their contact details
+ * stay hidden until the employer upgrades. The earliest yeses are the free ones.
  */
 export async function lockedIntroductions(env:BillingEnv,employerId:string):Promise<Set<string>>{
   const allowance=await contactAllowance(env,employerId);
-  if(!allowance.enabled||allowance.subscribed||!env.DB)return new Set();
-  const rows=await env.DB.prepare(`SELECT id,at FROM (${INTRODUCTIONS_SQL}) ORDER BY at ASC,id ASC`).bind(employerId,employerId).all<Row>();
-  const locked=new Set<string>();
-  (rows.results||[]).forEach((r,i)=>{
-    if(i>=allowance.free||(allowance.lockedAfter!=null&&Number(r.at)>allowance.lockedAfter))locked.add(clean(r.id,100));
-  });
-  return locked;
+  if(!allowance.enabled||allowance.subscribed||allowance.used<=allowance.free||!env.DB)return new Set();
+  const rows=await env.DB.prepare(`SELECT id FROM (${INTRODUCTIONS_SQL}) ORDER BY at ASC,id ASC LIMIT -1 OFFSET ?`)
+    .bind(employerId,employerId,allowance.free).all<Row>();
+  return new Set((rows.results||[]).map(r=>clean(r.id,100)));
 }
 
 export async function billingStatus(request:Request,env:BillingEnv){
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const allowance=await contactAllowance(env,clean(employer.id,100));
-  return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,firstHire:allowance.hired,
+  return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
     freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,
     paymentIssue:allowance.status==='past_due'||allowance.status==='unpaid',yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY)});
 }

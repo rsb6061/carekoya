@@ -91,7 +91,7 @@ export function AgencyClaim(){
         <div className="notice">This agency is already linked to a CareJoys workspace. Sign in to continue.</div>
         <a className="btn" href="/login?next=/app">Sign in to CareJoys</a>
       </>:<>
-        <p className="activation-intro">This link was sent to your agency email, so one click opens your dashboard. CareJoys is free until you hire someone through it.</p>
+        <p className="activation-intro">This link was sent to your agency email, so one click opens your dashboard. Your first 5 caregiver introductions are free.</p>
         <TurnstileField onToken={setTurnstileToken}/>
         {message&&<div className="notice">{message}</div>}
         <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Opening…':interests.length?'Open my inbox':'Open my dashboard'}</button>

@@ -233,8 +233,8 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(opening.status==='closed')return json({ok:false,error:'This opening is closed. Reopen it to invite caregivers.'},{status:409});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const allowance=await contactAllowance(env,workspaceId);
-  // CareJoys is free until the employer's first hire through it (with a cap on free introductions as a backstop).
-  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:allowance.hired?'You made your first hire through CareJoys. Upgrade to keep inviting caregivers.':`You've used your ${allowance.free} free introductions. Upgrade to keep inviting caregivers.`},{status:402});
+  // Inviting is free while free introductions remain; an introduction is counted when a caregiver says yes.
+  if(allowance.remaining<1)return json({ok:false,upgradeRequired:true,error:`You've used your ${allowance.free} free introductions. Upgrade to keep inviting caregivers.`},{status:402});
   // The employer may pick exactly who to invite; without a pick, the top matches by score are invited.
   const chosen=Array.isArray(body.pipelineIds)?[...new Set(body.pipelineIds.map(v=>clean(v,100)).filter(Boolean))].slice(0,50):[];
   const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));

@@ -2050,23 +2050,4 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     expect((await check('buy-app','')).status).toBe(200);
     expect((await (await call('/api/license-checks',{headers})).json() as any).checks['buy-app']).toBeUndefined();
   });
-
-  it('is free until the first hire, then new introductions and invitations wait for a subscription', async()=>{
-    let status=await (await call('/api/billing',{headers},stripe)).json() as any;
-    expect(status).toMatchObject({enabled:true,subscribed:false,firstHire:false,freeContacts:5});
-    expect(status.freeContactsRemaining).toBeGreaterThan(0);
-    expect((await call('/api/agency/inbox/ai-buy',{method:'POST',headers,body:JSON.stringify({stage:'hired'})},stripe)).status).toBe(200);
-    status=await (await call('/api/billing',{headers},stripe)).json() as any;
-    expect(status).toMatchObject({firstHire:true,freeContactsRemaining:0});
-    const blocked=await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:'{}'},stripe);
-    expect(blocked.status).toBe(402);
-    expect((await blocked.json() as any).error).toContain('first hire');
-    await addCaregiver('buy-later','21204');
-    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,created_at) VALUES ('ai-buy-later','org-buy','buy-later','','job_apply',datetime('now','+5 minutes'))").run();
-    const items=(await (await call('/api/agency/inbox',{headers},stripe)).json() as any).items;
-    expect(items.find((i:any)=>i.id==='ai-buy-later').contactLocked).toBe(true);
-    expect(items.find((i:any)=>i.id==='ai-buy').contactLocked).toBe(false);
-    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp-buy','active')").run();
-    expect((await (await call('/api/agency/inbox',{headers},stripe)).json() as any).items.every((i:any)=>!i.contactLocked)).toBe(true);
-  });
 });
