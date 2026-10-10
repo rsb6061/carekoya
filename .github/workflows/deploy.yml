@@ -25,7 +25,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 14
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +38,21 @@ jobs:
       - run: npm test
       - run: npm run test:node
       - run: npm run build
+
+      # A flow that breaks in a real browser stops the deploy here.
+      - name: Click-through test (search, signup, Apply, Apply for me, employer onboarding, workspace)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Click-through test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: click-through-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
 
       - name: Deploy Worker and D1 migrations
         env:
@@ -72,6 +87,8 @@ jobs:
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/activation.json -w '%{http_code}' https://carejoys.com/api/activation-stats)" = "401"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/me.json -w '%{http_code}' https://carejoys.com/api/me)" = "401"
           curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/api/health | jq -e 'has("tables") | not' >/dev/null
+          echo "Browser error reporting endpoint:"
+          test "$(curl --connect-timeout 3 --max-time 10 -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' --data '{}' https://carejoys.com/api/client-errors)" = "204"
           echo "Private caregiver photo boundary:"
           test "$(curl --connect-timeout 3 --max-time 10 -s -o /tmp/photo.json -w '%{http_code}' https://carejoys.com/api/caregivers/not-a-real-caregiver/photo)" = "401"
           echo "CareJoys favicon:"

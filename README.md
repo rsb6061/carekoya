@@ -35,6 +35,14 @@ The deploy script builds the Vite app, applies D1 migrations, then runs Wrangler
 
 The Worker config is committed as `wrangler.jsonc`.
 
+## Monitoring
+
+- **Site errors.** Visitors' browsers report JavaScript crashes, CareJoys API calls that fail or hang for 20+ seconds, and uncaught Worker exceptions (`src/errorReporter.ts`, `src/monitoring.ts`). New problems are emailed from the five-minute cron, at most every 30 minutes. Details with stack traces: `/api/admin/monitoring`.
+- **Daily funnel alarm.** At 15:41 UTC CareJoys emails if a step (ZIP searches, caregiver sign-ups, Apply clicks, Apply for me, employer sign-ups, workspace visits, openings) had zero in the last 24 hours although its traffic said about 3 or more were due, or if Clarity saw rage clicks or clicks that hit an error. Quiet days send nothing.
+- **Click-through test.** `npm run build && npm run test:e2e` runs the main flows in Chromium against a local copy (`e2e/`). It runs on every PR and before every deploy; a failure stops the deploy.
+
+Alerts go to `ALERT_EMAILS` (a Worker variable or secret), else `ADMIN_EMAILS`, else the owner accounts in `admin_authorizations`.
+
 ## Floot migration rule
 
 Floot is now **source data only**, not a production dependency.
