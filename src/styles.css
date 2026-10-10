@@ -374,6 +374,7 @@ a{color:inherit;text-decoration:none}
 .plan-price strong{font-family:var(--display);font-size:40px;font-weight:400;letter-spacing:-.04em;line-height:1}
 .plan-price span{font-size:16px;color:var(--muted);margin-left:4px}
 .plan-cta{width:100%;min-height:54px;font-size:16px;margin:24px 0 0}
+.plan-terms{text-align:center;color:var(--muted);font-size:13px;margin-top:12px}
 .plan-save,.plan-free{text-align:center;color:var(--green);font-size:13px;font-weight:700;margin-top:10px}
 .plan-list{list-style:none;margin:24px 0 0;padding:0;border-top:1px solid var(--lavender)}
 .plan-list li{position:relative;padding:14px 0 14px 34px;border-bottom:1px solid #e7e1f5;font-size:15px;line-height:1.45;font-weight:500}
