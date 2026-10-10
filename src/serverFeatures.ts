@@ -52,14 +52,15 @@ function startsLabel(startsAt:string,timeZone:string){
 }
 function icsStamp(date:Date){return date.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z')}
 function icsEscape(value:string){return value.replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n')}
-function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;caregiverEmail:string;employerEmail:string;startsAt:string;duration:number}){
+function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;caregiverEmail:string;employerEmail:string;startsAt:string;duration:number;where?:string}){
   const start=new Date(input.startsAt);
   const end=new Date(start.getTime()+input.duration*60000);
   return [
     'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//CareJoys//Interview//EN','CALSCALE:GREGORIAN','METHOD:REQUEST',
     'BEGIN:VEVENT',`UID:${icsEscape(input.uid)}@carejoys.com`,`DTSTAMP:${icsStamp(new Date())}`,`DTSTART:${icsStamp(start)}`,`DTEND:${icsStamp(end)}`,
     `SUMMARY:${icsEscape('CareJoys interview — '+input.title)}`,
-    `DESCRIPTION:${icsEscape('Interview between '+input.company+' and '+input.caregiver+'. Employer will provide meeting format or location.')}`,
+    `DESCRIPTION:${icsEscape('Interview between '+input.company+' and '+input.caregiver+'. '+(input.where?'Where: '+input.where:'Employer will provide meeting format or location.'))}`,
+    ...(input.where?[`LOCATION:${icsEscape(input.where)}`]:[]),
     `ORGANIZER;CN=${icsEscape(input.company)}:mailto:${icsEscape(input.employerEmail)}`,
     `ATTENDEE;CN=${icsEscape(input.caregiver)};ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:${icsEscape(input.caregiverEmail)}`,
     `ATTENDEE;CN=${icsEscape(input.company)};ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:${icsEscape(input.employerEmail)}`,
@@ -227,6 +228,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const opening=await env.DB.prepare('SELECT * FROM openings WHERE id=? AND employer_id=? LIMIT 1').bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening)return json({ok:false,error:'Opening not found'},{status:404});
+  if(opening.status==='closed')return json({ok:false,error:'This opening is closed. Reopen it to invite caregivers.'},{status:409});
   const body=await request.json().catch(()=>({})) as Record<string,unknown>;
   const allowance=await contactAllowance(env,workspaceId);
   // Inviting is free while free introductions remain; an introduction is counted when a caregiver says yes.
@@ -274,7 +276,7 @@ export async function interviewSlots(request:Request,env:FeatureEnv,workspaceId:
   const opening=await env.DB.prepare('SELECT id FROM openings WHERE id=? AND employer_id=?').bind(openingId,workspaceId).first();
   if(!opening)return json({ok:false,error:'Opening not found'},{status:404});
   if(request.method==='GET'){
-    const rows=await env.DB.prepare('SELECT id,starts_at,duration_minutes,timezone,status,booked_pipeline_id FROM interview_slots WHERE opening_id=? ORDER BY starts_at ASC').bind(openingId).all();
+    const rows=await env.DB.prepare('SELECT id,starts_at,duration_minutes,timezone,location,status,booked_pipeline_id FROM interview_slots WHERE opening_id=? ORDER BY starts_at ASC').bind(openingId).all();
     return json({ok:true,slots:rows.results||[]});
   }
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
@@ -288,14 +290,16 @@ export async function interviewSlots(request:Request,env:FeatureEnv,workspaceId:
   }
   const raw=Array.isArray(data?.slots)?data!.slots as Record<string,unknown>[]:[];
   if(raw.length<1||raw.length>10)return json({ok:false,error:'Add 1–10 interview times.'},{status:400});
+  // Where the interview happens (phone, a video link or an address), shared in the confirmation email.
+  const location=clean(data?.location,300);
   let added=0;
   for(const item of raw){
     const startsAt=clean(item.startsAt,80),timezone=safeTimeZone(clean(item.timezone,80)||'UTC');
     const duration=Math.max(15,Math.min(120,asNumber(item.durationMinutes)||30));
     const d=new Date(startsAt);
     if(!startsAt||!Number.isFinite(d.getTime())||d.getTime()<Date.now()+5*60000)continue;
-    await env.DB.prepare('INSERT INTO interview_slots(id,opening_id,employer_id,starts_at,duration_minutes,timezone) VALUES (?,?,?,?,?,?)')
-      .bind(crypto.randomUUID(),openingId,workspaceId,d.toISOString(),duration,timezone).run();
+    await env.DB.prepare('INSERT INTO interview_slots(id,opening_id,employer_id,starts_at,duration_minutes,timezone,location) VALUES (?,?,?,?,?,?,?)')
+      .bind(crypto.randomUUID(),openingId,workspaceId,d.toISOString(),duration,timezone,location||null).run();
     added++;
   }
   if(!added)return json({ok:false,error:'Add at least one future interview time.'},{status:400});
@@ -414,7 +418,7 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
   if(!row||row.response_value!=='interested')return json({ok:false,error:'Confirm interest before booking an interview.'},{status:400});
   if(row.interview_booked_at)return json({ok:false,error:'You already booked an interview for this opening.'},{status:409});
   if((await lockedIntroductions(env,clean(row.employer_id,100))).has(clean(row.pipeline_id,100)))return json({ok:false,error:'The employer will reach out to set up an interview.'},{status:409});
-  const slot=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,status FROM interview_slots WHERE id=? AND opening_id=? LIMIT 1").bind(slotId,row.opening_id).first<Record<string,unknown>>();
+  const slot=await env.DB.prepare("SELECT id,starts_at,duration_minutes,timezone,location,status FROM interview_slots WHERE id=? AND opening_id=? LIMIT 1").bind(slotId,row.opening_id).first<Record<string,unknown>>();
   if(!slot||slot.status!=='available'||Date.parse(clean(slot.starts_at,80))<=Date.now())return json({ok:false,error:'That interview time is no longer available.'},{status:409});
   const claimed=await env.DB.prepare("UPDATE interview_slots SET status='booked',booked_pipeline_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='available' AND datetime(starts_at)>datetime('now')").bind(row.pipeline_id,slotId).run();
   if(asNumber(claimed.meta?.changes)!==1)return json({ok:false,error:'That interview time was just booked. Choose another time.'},{status:409});
@@ -423,10 +427,10 @@ async function bookInterviewSlot(env:FeatureEnv,row:Record<string,unknown>|null,
 
   const caregiverName=publicName(row.first_name,row.last_name,row.display_name);
   const label=startsLabel(clean(slot.starts_at,80),clean(slot.timezone,80));
-  const ics=interviewIcs({uid:String(row.pipeline_id),title:clean(row.title,200),company:clean(row.company_name,200),caregiver:caregiverName,caregiverEmail:clean(row.email,320),employerEmail:clean(row.employer_email,320),startsAt:clean(slot.starts_at,80),duration:asNumber(slot.duration_minutes)||30});
+  const ics=interviewIcs({uid:String(row.pipeline_id),title:clean(row.title,200),company:clean(row.company_name,200),caregiver:caregiverName,caregiverEmail:clean(row.email,320),employerEmail:clean(row.employer_email,320),startsAt:clean(slot.starts_at,80),duration:asNumber(slot.duration_minutes)||30,where:clean(slot.location,300)});
   const attachment={content:new TextEncoder().encode(ics),filename:'carejoys-interview.ics',type:'text/calendar; charset=utf-8; method=REQUEST',disposition:'attachment' as const};
-  const caregiverEmail=interviewConfirmedEmail({recipientName:clean(row.first_name,100)||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
-  const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label});
+  const caregiverEmail=interviewConfirmedEmail({recipientName:clean(row.first_name,100)||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label,where:clean(slot.location,300)});
+  const employerEmail=interviewConfirmedEmail({recipientName:clean(row.contact_name,120).split(/\s+/)[0]||'there',company:clean(row.company_name,200),caregiverName,title:clean(row.title,200),startsLabel:label,where:clean(slot.location,300)});
   const sends:Promise<unknown>[]=[];
   if(emailValid(clean(row.email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:caregiverEmail.subject,html:caregiverEmail.html,text:caregiverEmail.text,attachments:[attachment]}));
   if(emailValid(clean(row.employer_email,320)))sends.push(env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.employer_email,320),subject:employerEmail.subject,html:employerEmail.html,text:employerEmail.text,attachments:[attachment]}));

@@ -15,7 +15,10 @@ export type BillingEnv=FeatureEnv&{
 const ORIGIN='https://carejoys.com';
 export const DEFAULT_FREE_CONTACTS=5;
 const MAX_LOCATIONS=100;
-const ACTIVE_STATUSES=new Set(['active','trialing']);
+// past_due keeps access while Stripe retries the card; Stripe's retry settings end it as unpaid or canceled.
+const ACTIVE_STATUSES=new Set(['active','trialing','past_due']);
+// A subscription that still exists in Stripe. A new checkout would start a second one, so these go to the billing portal.
+const OPEN_STATUSES=new Set(['active','trialing','past_due','unpaid','incomplete','paused']);
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
 const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
@@ -47,12 +50,13 @@ const INTRODUCTIONS_SQL=`SELECT cp.id,julianday(COALESCE(cp.response_at,cp.respo
  * used, new invitations wait for a subscription.
  */
 export async function contactAllowance(env:BillingEnv,employerId:string){
-  if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,used:0,free:0,remaining:Infinity};
+  if(!billingEnabled(env)||!env.DB)return {enabled:false,subscribed:false,status:'',used:0,free:0,remaining:Infinity};
   const billing=await env.DB.prepare('SELECT status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employerId).first<Row>();
-  const subscribed=ACTIVE_STATUSES.has(clean(billing?.status,40));
+  const status=clean(billing?.status,40);
+  const subscribed=ACTIVE_STATUSES.has(status);
   const used=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM (${INTRODUCTIONS_SQL})`).bind(employerId,employerId).first<Row>())?.count);
   const free=freeContacts(env);
-  return {enabled:true,subscribed,used,free,remaining:subscribed?Infinity:Math.max(0,free-used)};
+  return {enabled:true,subscribed,status,used,free,remaining:subscribed?Infinity:Math.max(0,free-used)};
 }
 
 /**
@@ -72,13 +76,16 @@ export async function billingStatus(request:Request,env:BillingEnv){
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const allowance=await contactAllowance(env,clean(employer.id,100));
   return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
-    freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY)});
+    freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,
+    paymentIssue:allowance.status==='past_due'||allowance.status==='unpaid',yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY)});
 }
 
-async function stripe(env:BillingEnv,path:string,params:Record<string,string>){
+async function stripe(env:BillingEnv,path:string,params:Record<string,string>,idempotencyKey?:string){
+  const headers:Record<string,string>={authorization:'Bearer '+env.STRIPE_SECRET_KEY,'content-type':'application/x-www-form-urlencoded'};
+  if(idempotencyKey)headers['idempotency-key']=idempotencyKey;
   const res=await fetch('https://api.stripe.com/v1/'+path,{
     method:'POST',
-    headers:{authorization:'Bearer '+env.STRIPE_SECRET_KEY,'content-type':'application/x-www-form-urlencoded'},
+    headers,
     body:new URLSearchParams(params)
   });
   const body=await res.json() as Row&{error?:{message?:string}};
@@ -90,7 +97,15 @@ export async function createCheckout(request:Request,env:BillingEnv){
   if(!billingEnabled(env))return json({ok:false,error:'Billing is not set up yet'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
-  const existing=await env.DB!.prepare('SELECT stripe_customer_id FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
+  const existing=await env.DB!.prepare('SELECT stripe_customer_id,status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
+  const customer=clean(existing?.stripe_customer_id,100);
+  // Already subscribed (or a card is failing): fix it in the portal instead of starting a second subscription.
+  if(customer&&OPEN_STATUSES.has(clean(existing?.status,40))){
+    try{
+      const portal=await stripe(env,'billing_portal/sessions',{customer,return_url:ORIGIN+'/app'});
+      return json({ok:true,url:portal.url});
+    }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not open billing'},{status:502})}
+  }
   const body=await request.json().catch(()=>({})) as {plan?:unknown;locations?:unknown};
   const yearly=body?.plan==='yearly'&&clean(env.STRIPE_PRICE_ID_YEARLY);
   // Priced per location: checkout asks how many, and the billing portal can change it later.
@@ -107,7 +122,6 @@ export async function createCheckout(request:Request,env:BillingEnv){
     success_url:ORIGIN+'/app?billing=success',
     cancel_url:ORIGIN+'/app?billing=cancelled'
   };
-  const customer=clean(existing?.stripe_customer_id,100);
   if(customer)params.customer=customer;else params.customer_email=clean(employer.email,320);
   if(['1','true'].includes(clean(env.STRIPE_AUTOMATIC_TAX).toLowerCase())){
     params['automatic_tax[enabled]']='true';
@@ -117,7 +131,9 @@ export async function createCheckout(request:Request,env:BillingEnv){
     if(customer){params['customer_update[address]']='auto';params['customer_update[name]']='auto';}
   }
   try{
-    const session=await stripe(env,'checkout/sessions',params);
+    // A double-click within the same minute gets the same checkout instead of a second one.
+    const key=['checkout',clean(employer.id,100),params['line_items[0][price]'],locations,Math.floor(Date.now()/60000)].join(':');
+    const session=await stripe(env,'checkout/sessions',params,key);
     return json({ok:true,url:session.url});
   }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not start checkout'},{status:502})}
 }

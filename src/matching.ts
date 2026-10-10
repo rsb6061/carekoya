@@ -38,7 +38,11 @@ const ROLE_ALIASES:Record<string,string[]>={
   gna:['gna','geriatric nursing assistant','nursing assistant'],
   hha:['hha','home health aide'],
   pca:['pca','personal care aide'],
-  caregiver:['caregiver','personal care','home health','cna','hha','pca']
+  caregiver:['caregiver','personal care','home health','cna','hha','pca'],
+  // Assisted living roles.
+  'cmt / med tech':['cmt','med tech','medication technician','medication aide'],
+  'resident assistant':['resident assistant','cna','gna','pca','caregiver','personal care'],
+  'memory care aide':['memory care','dementia','alzheimer','cna','gna']
 };
 
 /**

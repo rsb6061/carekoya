@@ -165,7 +165,7 @@ export function talentAlertEmail(input:{
 }
 
 export function interviewConfirmedEmail(input:{
-  recipientName:string; company:string; caregiverName:string; title:string; startsLabel:string;
+  recipientName:string; company:string; caregiverName:string; title:string; startsLabel:string; where?:string;
 }) {
   return {
     subject:`Interview confirmed: ${input.title}`,
@@ -173,8 +173,9 @@ export function interviewConfirmedEmail(input:{
       <p style="font-size:16px;line-height:1.6;color:#5f5972">Hi ${esc(input.recipientName||'there')},</p>
       <p style="font-size:16px;line-height:1.6;color:#5f5972">The interview for <strong>${esc(input.title)}</strong> with <strong>${esc(input.company)}</strong> and <strong>${esc(input.caregiverName)}</strong> is confirmed.</p>
       <p style="font-size:18px;font-weight:700;margin:22px 0">${esc(input.startsLabel)}</p>
-      <p style="font-size:14px;line-height:1.6;color:#6e6882">A calendar invite is attached. The employer should follow up directly with the interview format or meeting location.</p>`),
-    text:`Hi ${input.recipientName||'there'},\n\nYour CareJoys interview for ${input.title} with ${input.company} and ${input.caregiverName} is confirmed for ${input.startsLabel}.\n\nA calendar invite is attached.\n\nCareJoys · carejoys.com`
+      ${input.where?`<p style="font-size:16px;line-height:1.6;color:#5f5972"><strong>Where:</strong> ${esc(input.where)}</p>`:''}
+      <p style="font-size:14px;line-height:1.6;color:#6e6882">A calendar invite is attached.${input.where?'':' The employer should follow up directly with the interview format or meeting location.'}</p>`),
+    text:`Hi ${input.recipientName||'there'},\n\nYour CareJoys interview for ${input.title} with ${input.company} and ${input.caregiverName} is confirmed for ${input.startsLabel}.${input.where?'\nWhere: '+input.where:''}\n\nA calendar invite is attached.\n\nCareJoys · carejoys.com`
   };
 }
 
@@ -344,4 +345,47 @@ export function withUnsubscribe<T extends {subject:string;html:string;text:strin
   const footer=`<p style="font-size:12px;line-height:1.6;color:#8a849b;text-align:center;margin:14px 0 0">Don't want these emails? <a href="${url}" style="color:#8a849b">Unsubscribe</a>.</p>`;
   const html=message.html.replace(/<\/div>\s*<\/div>\s*$/,`</div>${footer}</div>`);
   return {...message,html:html===message.html?message.html+footer:html,text:`${message.text}\n\nUnsubscribe: ${unsubscribeLink}`};
+}
+
+const p=(text:string)=>`<p style="font-size:16px;line-height:1.6;color:#5f5972">${text}</p>`;
+const cta=(href:string,label:string)=>`<p style="margin:26px 0"><a href="${esc(href)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">${esc(label)}</a></p>`;
+
+/** One reminder, two days after an invitation the caregiver hasn't answered. */
+export function caregiverInviteReminderEmail(input:{firstName:string;company:string;title:string;link:string}) {
+  return {
+    subject:`Still interested? ${input.company} is waiting to hear from you`,
+    html:shell('Still thinking it over?',
+      p(`Hi ${esc(input.firstName||'there')},`)+
+      p(`<strong>${esc(input.company)}</strong> invited you to <strong>${esc(input.title)}</strong> a couple of days ago. One tap tells them yes or no, and either answer is fine.`)+
+      cta(input.link,'See the job and answer')),
+    text:`Hi ${input.firstName||'there'},\n\n${input.company} invited you to ${input.title} a couple of days ago. One tap tells them yes or no, and either answer is fine.\n\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** One nudge, two days after a caregiver said yes and the employer hasn't done anything yet. */
+export function employerInterestNudgeEmail(input:{recipientName:string;caregiverName:string;title:string;appLink:string}) {
+  return {
+    subject:`${input.caregiverName} is still waiting to hear from you`,
+    html:shell(`${input.caregiverName} is waiting`,
+      p(`Hi ${esc(input.recipientName||'there')},`)+
+      p(`<strong>${esc(input.caregiverName)}</strong> said yes to <strong>${esc(input.title)}</strong> two days ago and hasn’t heard back yet.`)+
+      p('Reach out, book an interview, or mark them not a fit so they can keep looking.')+
+      cta(input.appLink,'Open their profile')),
+    text:`Hi ${input.recipientName||'there'},\n\n${input.caregiverName} said yes to ${input.title} two days ago and hasn't heard back yet.\n\nReach out, book an interview, or mark them not a fit so they can keep looking.\n\n${input.appLink}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** A kind close-out when the role is filled or the employer chose someone else. */
+export function caregiverRoleClosedEmail(input:{firstName:string;company:string;title:string;filled:boolean;jobsLink:string}) {
+  const line=input.filled
+    ?`<strong>${esc(input.company)}</strong> has filled <strong>${esc(input.title)}</strong>. Thank you for saying you were interested.`
+    :`<strong>${esc(input.company)}</strong> decided to go another way for <strong>${esc(input.title)}</strong>. Thank you for saying you were interested.`;
+  return {
+    subject:`Update on ${input.title}`,
+    html:shell('An update on this job',
+      p(`Hi ${esc(input.firstName||'there')},`)+p(line)+
+      p('Your profile stays active, and CareJoys will keep matching you with jobs near you.')+
+      cta(input.jobsLink,'See jobs near you')),
+    text:`Hi ${input.firstName||'there'},\n\n${input.filled?`${input.company} has filled ${input.title}.`:`${input.company} decided to go another way for ${input.title}.`} Thank you for saying you were interested.\n\nYour profile stays active, and CareJoys will keep matching you with jobs near you.\n\n${input.jobsLink}\n\nCareJoys · carejoys.com`
+  };
 }

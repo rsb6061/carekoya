@@ -1,32 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 // @ts-expect-error plain JS fixtures shared with prepare.mjs
 import { CAREGIVER, EMPLOYER, JOBS } from './fixtures.mjs';
+import { clean, signIn, watch } from './helpers';
 
 // Click-through test of CareJoys' main flows, run before every deploy (.github/workflows/deploy.yml) and on PRs.
 // Each test also fails if the page throws a JavaScript error or the error reporter would have sent an alert,
 // so a frozen button or a crash fails here instead of on carejoys.com.
-
-type Watch={problems:string[];allow:RegExp[];allowed:string[]};
-async function watch(page:Page,allow:RegExp[]=[]):Promise<Watch>{
-  const w:Watch={problems:[],allow,allowed:[]};
-  page.on('pageerror',e=>w.problems.push('JavaScript error: '+e.message));
-  // src/errorReporter.ts announces every report it sends, so the test sees exactly what an alert would contain.
-  await page.exposeFunction('__e2eErrorReport',(body:string)=>{if(w.allow.some(a=>a.test(body)))w.allowed.push(body);else w.problems.push('Error report: '+body)});
-  await page.addInitScript(()=>window.addEventListener('carejoys:error-report',e=>(window as any).__e2eErrorReport(JSON.stringify((e as CustomEvent).detail))));
-  page.on('response',r=>{
-    const u=new URL(r.url());
-    if(u.pathname.startsWith('/api/')&&r.status()>=500&&!w.allow.some(a=>a.test(r.request().method()+' '+u.pathname+' '+r.status())))
-      w.problems.push(`API ${r.request().method()} ${u.pathname} returned ${r.status()}`);
-  });
-  return w;
-}
-const clean=(w:Watch)=>expect(w.problems,'no JavaScript errors or failed API calls').toEqual([]);
-
-// Signed in as a seeded account (e2e/prepare.mjs), with the same cookies a real sign-in sets.
-async function signIn(page:Page,account:{session:string},employer=false){
-  const names=['__Host-cj_account',...(employer?['__Host-cj_session']:[])];
-  await page.context().addCookies(names.map(name=>({name,value:account.session,domain:'localhost',path:'/',secure:true,httpOnly:true,sameSite:'Strict' as const})));
-}
 
 test('@phone job search by ZIP from the homepage', async({page})=>{
   const w=await watch(page);
@@ -99,6 +78,7 @@ test('employer onboarding from Hire caregivers', async({page})=>{
   await page.getByLabel('Role needed').selectOption('CNA');
   await page.getByLabel('Hiring ZIP').fill('21201');
   await page.getByLabel('Company name').fill('Bayview Care');
+  await page.getByLabel('What kind of employer are you?').selectOption('home_care');
   await page.getByLabel('Your name').fill('Sam Employer');
   await page.getByRole('textbox',{name:'Email'}).fill('e2e-new-employer@example.test');
   await page.getByRole('button',{name:'Create opening & continue'}).click();

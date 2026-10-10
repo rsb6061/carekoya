@@ -12,12 +12,12 @@ const PRESETS=[
 const WEEKDAYS:ScheduleDay[]=['mon','tue','wed','thu','fri'];
 
 /**
- * The hours worked on each day of the week, for a new opening. Submits as JSON in a hidden `schedule` field,
+ * The hours worked on each day of the week, for a new opening or one being edited. Submits as JSON in a hidden `schedule` field,
  * so it works inside any plain form.
  */
-export function ScheduleEditor({name='schedule'}:{name?:string}){
-  const [days,setDays]=useState<OpeningSchedule['days']>({});
-  const [liveIn,setLiveIn]=useState(false);
+export function ScheduleEditor({name='schedule',initial}:{name?:string;initial?:OpeningSchedule|null}){
+  const [days,setDays]=useState<OpeningSchedule['days']>(initial?.days||{});
+  const [liveIn,setLiveIn]=useState(!!initial?.liveIn);
   const schedule:OpeningSchedule={days,liveIn};
 
   const setDay=(d:ScheduleDay,hours:{start:string;end:string}|null)=>setDays(prev=>{
