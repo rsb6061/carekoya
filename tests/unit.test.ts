@@ -1,6 +1,7 @@
 import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
+import { classifySmsReply, normalizePhone, twilioSignature, verifyTwilioSignature } from '../src/sms';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
 import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from '../src/schedule';
@@ -621,5 +622,36 @@ describe('talent search', ()=>{
     const old=new Date(Date.now()-20*86400000).toISOString(),fresh=new Date().toISOString();
     const rows=[{c:{id:'far',last_confirmed_at:fresh},distanceMiles:2257},{c:{id:'near',last_confirmed_at:old},distanceMiles:3},{c:{id:'unknown',last_confirmed_at:fresh},distanceMiles:null}];
     expect(sortTalent(rows).map(r=>r.c.id)).toEqual(['near','far','unknown']);
+  });
+});
+
+describe('sms', ()=>{
+  it('normalizes US numbers to E.164 and rejects what can not be a mobile number', ()=>{
+    expect(normalizePhone('(410) 555-0123')).toBe('+14105550123');
+    expect(normalizePhone('1-410-555-0123')).toBe('+14105550123');
+    expect(normalizePhone('+44 20 7946 0958')).toBe('+442079460958');
+    for(const bad of ['', '555-0123', '(010) 555-0123', 'abc', '+1'])expect(normalizePhone(bad)).toBeNull();
+  });
+  it('reads replies as yes/no and the carrier keywords as stop/start/help', ()=>{
+    expect(classifySmsReply('Yes!')).toBe('yes');
+    expect(classifySmsReply('yes I can do nights')).toBe('yes');
+    expect(classifySmsReply('Still interested')).toBe('yes');
+    expect(classifySmsReply('no thanks')).toBe('no');
+    expect(classifySmsReply('STOP')).toBe('stop');
+    expect(classifySmsReply(' unsubscribe ')).toBe('stop');
+    expect(classifySmsReply('start')).toBe('start');
+    expect(classifySmsReply('HELP')).toBe('help');
+    expect(classifySmsReply('stop texting me after 5pm please')).toBe('other');
+    expect(classifySmsReply('whatever', 'STOP')).toBe('stop');
+  });
+  it('signs webhooks the way Twilio does: URL plus sorted fields, HMAC-SHA1', async()=>{
+    const url='https://carejoys.com/api/sms/inbound?x=1';
+    const params:[string,string][]=[['To','+18005551212'],['Body','yes'],['From','+14105550123'],['AccountSid','AC1']];
+    // HMAC-SHA1('token', url+'AccountSidAC1BodyyesFrom+14105550123To+18005551212'), computed outside JS.
+    const expected='TA0HUTuuI8YbRm/3/MhXHQ5Fquk=';
+    expect(await twilioSignature('token',url,params)).toBe(expected);
+    expect(await verifyTwilioSignature('token',url,params,expected)).toBe(true);
+    expect(await verifyTwilioSignature('other',url,params,expected)).toBe(false);
+    expect(await verifyTwilioSignature('token',url,[...params,['Extra','1']],expected)).toBe(false);
   });
 });

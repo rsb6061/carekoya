@@ -38,6 +38,7 @@ import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, save
 import { resumeDownload } from './resumeFile';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
+import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus } from './carejoysSms';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 // The facility pilot sends its whole day in one batch at this hour (15:17 UTC, 11:17 Eastern).
@@ -90,6 +91,11 @@ interface Env {
   AI?: AiBinding;
   JOB_SUMMARY_MODEL?: string;
   STREAM?: StreamBinding;
+  // Twilio SMS (src/sms.ts): dormant until all three exist; sending also needs SMS_ENABLED="true".
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  TWILIO_MESSAGING_SERVICE_SID?: string;
+  SMS_ENABLED?: string;
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -1943,6 +1949,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     }
 
     if(request.method==="POST"&&url.pathname==="/api/stripe/webhook") return handleStripeWebhook(request,env);
+    if(url.pathname===SMS_INBOUND_PATH) return handleCareJoysSmsInbound(request,env);
+    if(url.pathname===SMS_STATUS_PATH) return handleCareJoysSmsStatus(request,env);
     if(request.method==="GET"&&url.pathname==="/api/billing") return billingStatus(request,env);
     if(request.method==="POST"&&(url.pathname==="/api/billing/checkout"||url.pathname==="/api/billing/portal")){
       const cross=rejectCrossSiteWrite(request);if(cross)return cross;
@@ -1973,6 +1981,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="POST"&&url.pathname==="/api/admin/apply-test") return adminApplyTest(request,env);
       if(request.method==="GET"&&url.pathname==="/api/admin/agencies") return adminAgencySearch(env,url.searchParams.get("q")||"");
       if(request.method==="GET"&&url.pathname==="/api/admin/videos") return adminIntroVideos(env);
+      if(request.method==="GET"&&url.pathname==="/api/admin/sms") return adminSmsReport(env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/sms/test") return adminSmsTest(request,env,admin.email);
       const videoReview=url.pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(approve|reject)$/);
       if(request.method==="POST"&&videoReview) return reviewIntroVideo(env,decodeURIComponent(videoReview[1]),videoReview[2] as "approve"|"reject",admin.email||"admin_token");
       return json({ok:false,error:"Not found"},{status:404});

@@ -8,6 +8,8 @@ import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
+import { sendCareJoysSms } from '../src/carejoysSms';
+import { recordSmsConsent, twilioSignature } from '../src/sms';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
@@ -2072,5 +2074,120 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     expect(theirs['buy-app']).toBeUndefined();
     expect((await check('buy-app','')).status).toBe(200);
     expect((await (await call('/api/license-checks',{headers})).json() as any).checks['buy-app']).toBeUndefined();
+  });
+});
+
+describe('sms', ()=>{
+  const TWILIO={TWILIO_ACCOUNT_SID:'ACtest',TWILIO_AUTH_TOKEN:'twilio-token',TWILIO_MESSAGING_SERVICE_SID:'MGtest'};
+  const ON={...TWILIO,SMS_ENABLED:'true'};
+  const PHONE='+14105550199';
+  const twilioCalls:Array<{url:string;body:URLSearchParams}>=[];
+  let nextSid=0;
+  const realFetch=globalThis.fetch;
+  // No real texts: every Twilio API call in this block lands here.
+  beforeAll(()=>{
+    globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(!url.startsWith('https://api.twilio.com/'))return realFetch(input,init);
+      const body=new URLSearchParams(String(init?.body));
+      twilioCalls.push({url,body});
+      if(body.get('To')==='+14105550111')return Response.json({code:21610,message:'Attempt to send to unsubscribed recipient'},{status:400});
+      return Response.json({sid:'SM'+(++nextSid),status:'queued'},{status:201});
+    }) as typeof fetch;
+  });
+  afterAll(()=>{globalThis.fetch=realFetch});
+  const webhook=async(path:string,fields:Record<string,string>,{sign=true,extra=TWILIO as Record<string,unknown>}={})=>{
+    const url='https://carejoys.com'+path;
+    const params=new URLSearchParams({AccountSid:'ACtest',...fields});
+    const signature=sign?await twilioSignature('twilio-token',url,params):'bad';
+    return call(path,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','x-twilio-signature':signature},body:params.toString()},extra);
+  };
+  const bySid=(sid:string)=>DB.prepare('SELECT * FROM sms_messages WHERE twilio_sid=?').bind(sid).first();
+  const consent=(phone:string)=>DB.prepare("SELECT status FROM sms_consents WHERE brand='carejoys' AND phone=?").bind(phone).first();
+
+  it('stays dormant without credentials and texts only numbers with a logged opt-in', async()=>{
+    expect((await call('/api/sms/inbound',{method:'POST',body:''})).status).toBe(503);
+    expect((await call('/api/sms/status',{method:'POST',body:''})).status).toBe(503);
+    expect(await sendCareJoysSms(env(),{to:PHONE,body:'hi'})).toEqual({ok:false,reason:'not_configured'});
+    expect(await sendCareJoysSms(env(TWILIO),{to:PHONE,body:'hi'})).toEqual({ok:false,reason:'disabled'});
+    expect(await sendCareJoysSms(env(ON),{to:'555',body:'hi'})).toEqual({ok:false,reason:'invalid_phone'});
+    expect(await sendCareJoysSms(env(ON),{to:PHONE,body:'hi'})).toEqual({ok:false,reason:'no_consent'});
+    expect(twilioCalls).toHaveLength(0);
+    await recordSmsConsent(env(),{brand:'carejoys',phone:'(410) 555-0199',event:'opt_in',source:'application',consentText:'Text me about this job'});
+    expect(await DB.prepare("SELECT event,source,consent_text FROM sms_consent_events WHERE phone=?").bind(PHONE).first()).toEqual({event:'opt_in',source:'application',consent_text:'Text me about this job'});
+  });
+
+  it('sends through the Messaging Service with a status callback and logs the message', async()=>{
+    const result=await sendCareJoysSms(env(ON),{to:PHONE,body:'Still interested in the CNA job? Reply YES',template:'screen_v1',relatedType:'candidate_pipeline',relatedId:'cp1'});
+    expect(result).toMatchObject({ok:true,sid:'SM1',status:'queued'});
+    expect(twilioCalls[0].url).toBe('https://api.twilio.com/2010-04-01/Accounts/ACtest/Messages.json');
+    expect(Object.fromEntries(twilioCalls[0].body)).toMatchObject({To:PHONE,MessagingServiceSid:'MGtest',StatusCallback:'https://carejoys.com/api/sms/status'});
+    expect(await bySid('SM1')).toMatchObject({direction:'outbound',status:'queued',template:'screen_v1',related_type:'candidate_pipeline',related_id:'cp1'});
+  });
+
+  it('rejects unsigned webhooks and records delivery without moving backwards', async()=>{
+    expect((await webhook('/api/sms/status',{MessageSid:'SM1',MessageStatus:'delivered'},{sign:false})).status).toBe(403);
+    expect((await bySid('SM1')).status).toBe('queued');
+    expect((await webhook('/api/sms/status',{MessageSid:'SM1',MessageStatus:'delivered'})).status).toBe(204);
+    expect((await webhook('/api/sms/status',{MessageSid:'SM1',MessageStatus:'sent'})).status).toBe(204);
+    const row=await bySid('SM1');
+    expect(row.status).toBe('delivered');
+    expect(row.delivered_at).toBeTruthy();
+  });
+
+  it('keeps "not delivered" apart from "no reply", with the carrier reason', async()=>{
+    await recordSmsConsent(env(),{brand:'carejoys',phone:'+14105550122',event:'opt_in',source:'application'});
+    const r=await sendCareJoysSms(env(ON),{to:'+14105550122',body:'Hi',template:'screen_v1'}) as any;
+    await webhook('/api/sms/status',{MessageSid:r.sid,MessageStatus:'undelivered',ErrorCode:'30007'});
+    expect(await bySid(r.sid)).toMatchObject({status:'undelivered',error_code:'30007'});
+    expect((await bySid(r.sid)).error_message).toMatch(/Filtered by the carrier/);
+  });
+
+  it('links a reply to the text it answers and passes it on as a yes', async()=>{
+    const res=await webhook('/api/sms/inbound',{MessageSid:'SMin1',From:PHONE,To:'+18885550100',Body:'Yes!'});
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/xml/);
+    expect(await res.text()).toContain('<Response></Response>');
+    const reply=await bySid('SMin1');
+    expect(reply).toMatchObject({direction:'inbound',intent:'yes',related_type:'candidate_pipeline',related_id:'cp1',template:'screen_v1'});
+    expect(reply.in_reply_to).toBe((await bySid('SM1')).id);
+    // Twilio retries are ignored.
+    await webhook('/api/sms/inbound',{MessageSid:'SMin1',From:PHONE,To:'+18885550100',Body:'Yes!'});
+    expect((await DB.prepare("SELECT COUNT(*) AS n FROM sms_messages WHERE twilio_sid='SMin1'").first()).n).toBe(1);
+  });
+
+  it('STOP opts the number out, clears the profile flag and blocks later sends; START opts back in', async()=>{
+    await addCaregiver('texter','21201',{phone:'(410) 555-0199',sms_consent:1});
+    await webhook('/api/sms/inbound',{MessageSid:'SMin2',From:PHONE,Body:'STOP',OptOutType:'STOP'});
+    expect(await consent(PHONE)).toEqual({status:'opted_out'});
+    expect((await DB.prepare("SELECT sms_consent FROM caregivers WHERE id='texter'").first()).sms_consent).toBe(0);
+    const calls=twilioCalls.length;
+    expect(await sendCareJoysSms(env(ON),{to:PHONE,body:'hi'})).toEqual({ok:false,reason:'opted_out'});
+    expect(twilioCalls).toHaveLength(calls);
+    await webhook('/api/sms/inbound',{MessageSid:'SMin3',From:PHONE,Body:'START'});
+    expect(await consent(PHONE)).toEqual({status:'opted_in'});
+    const events=(await DB.prepare("SELECT event FROM sms_consent_events WHERE phone=? ORDER BY created_at,rowid").bind(PHONE).all()).results.map((e:any)=>e.event);
+    expect(events).toEqual(['opt_in','opt_out','opt_in']);
+  });
+
+  it('records Twilio’s own opt-out refusal (21610) as an opt-out', async()=>{
+    await recordSmsConsent(env(),{brand:'carejoys',phone:'+14105550111',event:'opt_in',source:'application'});
+    expect(await sendCareJoysSms(env(ON),{to:'+14105550111',body:'hi'})).toMatchObject({ok:false,reason:'opted_out'});
+    expect(await consent('+14105550111')).toEqual({status:'opted_out'});
+  });
+
+  it('admin can see delivery and reply counts and send a test text', async()=>{
+    const admin={authorization:'Bearer t0ken'};
+    expect((await call('/api/admin/sms')).status).toBe(401);
+    const report=await (await call('/api/admin/sms',{headers:admin},{...ON,ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(report).toMatchObject({ok:true,configured:true,sendingEnabled:true});
+    expect(report.totals.find((t:any)=>t.template==='screen_v1')).toMatchObject({sent:2,delivered:1,not_delivered:1,replied:1});
+    const test=await call('/api/admin/sms/test',{method:'POST',headers:admin,body:JSON.stringify({to:'410-555-0177'})},{...ON,ADMIN_TOKEN:'t0ken'});
+    expect(test.status).toBe(200);
+    expect(await consent('+14105550177')).toEqual({status:'opted_in'});
+    expect((await call('/api/admin/sms/test',{method:'POST',headers:admin,body:JSON.stringify({to:'410-555-0177'})},{...TWILIO,ADMIN_TOKEN:'t0ken'})).status).toBe(503);
+    // A number that texted STOP is not opted back in by an admin test.
+    expect((await call('/api/admin/sms/test',{method:'POST',headers:admin,body:JSON.stringify({to:'+14105550111'})},{...ON,ADMIN_TOKEN:'t0ken'})).status).toBe(409);
+    expect(await consent('+14105550111')).toEqual({status:'opted_out'});
   });
 });
