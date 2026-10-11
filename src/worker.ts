@@ -40,6 +40,9 @@ import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
+// The facility pilot sends its whole day in one batch at this hour (15:17 UTC, 11:17 Eastern).
+const FACILITY_PILOT_UTC_HOUR=15;
+
 interface D1Result<T = unknown> {
   results?: T[];
   success?: boolean;
@@ -2222,11 +2225,11 @@ export default {
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
           const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
           const counts=await hiringInviteCounts(env);
-          // The facility pilot shares this cap and goes first, a couple an hour; nothing sends until FACILITY_PILOT_ENABLED=true.
+          // The facility pilot shares this cap and goes first, as one batch a day at 15:17 UTC (Rebecca, 2026-10-11); nothing sends until FACILITY_PILOT_ENABLED=true.
           let pilotToday=0;
           if(String(env.FACILITY_PILOT_ENABLED||'').toLowerCase()==='true'){
             const pilot=await facilityPilotCounts(env);
-            const sent=await sendFacilityPilotInvites(env,Math.min(2,cap-counts.today-pilot.today),pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
+            const sent=await sendFacilityPilotInvites(env,hour.getUTCHours()===FACILITY_PILOT_UTC_HOUR?cap-counts.today-pilot.today:0,pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
             pilotToday=pilot.today+(sent?.sent||0);
           }
           await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today-pilotToday),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
