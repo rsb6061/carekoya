@@ -35,6 +35,15 @@ The deploy script builds the Vite app, applies D1 migrations, then runs Wrangler
 
 The Worker config is committed as `wrangler.jsonc`.
 
+## Text messages (Twilio)
+
+Candidates get texts, agencies get email. `src/sms.ts` is a brand-agnostic module (no CareJoys imports; copy it with `migrations/0062_sms.sql` to reuse it for another brand on the same Twilio account with its own Messaging Service). `src/carejoysSms.ts` is CareJoys' binding.
+
+- **Dormant until configured.** Needs the secrets `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`; sending also needs the var `SMS_ENABLED="true"`. Nothing sends texts automatically yet.
+- **Consent.** `recordSmsConsent` logs every opt-in with the exact wording shown (`sms_consent_events`); sends go only to numbers whose latest state is opted in. STOP/START/HELP (and Twilio's error 21610) update consent; STOP also clears `caregivers.sms_consent`.
+- **Webhooks** (Twilio-signed, others get 403): Messaging Service "incoming messages" → `https://carejoys.com/api/sms/inbound`; status callbacks are set per message to `https://carejoys.com/api/sms/status`.
+- **Logs.** `sms_messages` holds every text in and out with Twilio's delivery status and error code, and links each reply to the text it answers. `/api/admin/sms` shows delivered / not delivered / replied per template; `POST /api/admin/sms/test {"to":"..."}` texts your own phone.
+
 ## Monitoring
 
 - **Site errors.** Visitors' browsers report JavaScript crashes, CareJoys API calls that fail or hang for 20+ seconds, and uncaught Worker exceptions (`src/errorReporter.ts`, `src/monitoring.ts`). New problems are emailed from the five-minute cron, at most every 30 minutes. Details with stack traces: `/api/admin/monitoring`.

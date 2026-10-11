@@ -73,6 +73,9 @@
     // School outreach is an independent daily channel (no more than 5 per hourly run).
     "SCHOOL_OUTREACH_ENABLED": "true",
     "SCHOOL_OUTREACH_DAILY_CAP": "15",
+    // Twilio SMS to candidates (src/sms.ts). Credentials are secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
+    // TWILIO_MESSAGING_SERVICE_SID); nothing is texted until this is "true" and the toll-free number is verified.
+    "SMS_ENABLED": "false",
     // Microsoft Clarity tag on public pages (public ID; the Data Export token is the CLARITY_API_TOKEN secret).
     "CLARITY_PROJECT_ID": "ysz8riafaj"
   },
