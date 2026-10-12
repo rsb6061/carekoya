@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { useCaregiverAuth } from './caregiverAuth';
 
 type Settings={digest:boolean;atsEmail:string;about:string;benefits:string};
 type TalentAlert={id:string;label:string;query:string};
@@ -15,6 +16,7 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
  * candidates are forwarded, and the export.
  */
 export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agency:boolean;homeAlertQuery:string;onOpenTemplates:()=>void}){
+  const profilePath=useCaregiverAuth().employerProfilePath;
   const [settings,setSettings]=useState<Settings|null>(null);
   // Saved caregiver searches that email new matches; null while loading or when the workspace can't use them yet.
   const [alerts,setAlerts]=useState<TalentAlert[]|null>(null);
@@ -66,6 +68,7 @@ export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agenc
 
     <div className="settings-card">
       <h3>Your profile</h3>
+      {profilePath&&<p><a className="text-link" href={profilePath} target="_blank" rel="noopener">View public profile ↗</a></p>}
       <form className="intake-form" onSubmit={saveProfile}>
         <label>About<textarea name="about" rows={3} maxLength={1000} defaultValue={settings.about} placeholder="Family-owned since 2009. Clients in Towson and Parkville, steady weekly hours, a coordinator who answers the phone."/></label>
         <label>Benefits<textarea name="benefits" rows={2} maxLength={600} defaultValue={settings.benefits} placeholder="Weekly pay, mileage, paid training, health insurance after 60 days"/></label>

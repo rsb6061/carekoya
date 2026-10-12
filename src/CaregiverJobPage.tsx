@@ -15,7 +15,7 @@ type Job={
 
 type JobContext={
   similar:{id:string;title:string;employerName:string;city:string;state:string;pay:string;distanceMiles:number|null}[];
-  employer:{name:string;city:string;state:string;providerTypes:string;website:string;otherOpenJobs:number;about?:string;benefits?:string}|null;
+  employer:{name:string;city:string;state:string;providerTypes:string;website:string;otherOpenJobs:number;about?:string;benefits?:string;profilePath?:string}|null;
   payContext:{role:string;state:string;median:number;count:number;unit:string;position:'above'|'near'|'below'|null}|null;
 };
 
@@ -131,6 +131,7 @@ export function CaregiverJobPage(){
           {context.employer.about&&<p>{context.employer.about}</p>}
           {context.employer.benefits&&<p><strong>Benefits:</strong> {context.employer.benefits}</p>}
           {context.employer.otherOpenJobs>0&&<p>{context.employer.otherOpenJobs} other current opening{context.employer.otherOpenJobs===1?'':'s'} at this employer on CareJoys.</p>}
+          {context.employer.profilePath&&<p><a className="text-link" href={context.employer.profilePath}>See {context.employer.name}’s profile and all their jobs</a></p>}
           {context.employer.website&&<a className="text-link" href={context.employer.website} target="_blank" rel="noreferrer">Employer website ↗</a>}
         </section>}
         {context&&context.similar.length>0&&<section className="section job-description-section"><h2>Similar caregiver jobs nearby</h2>

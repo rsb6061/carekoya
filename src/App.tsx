@@ -19,6 +19,7 @@ const SchoolAuth=named(()=>import('./SchoolPortal'),'SchoolAuth');
 const SchoolDashboard=named(()=>import('./SchoolPortal'),'SchoolDashboard');
 const MarylandSchoolsPage=named(()=>import('./MarylandSchoolsPage'),'MarylandSchoolsPage');
 const TrainingOrganizationPage=named(()=>import('./TrainingOrganizationPage'),'TrainingOrganizationPage');
+const EmployerProfilePage=named(()=>import('./EmployerProfilePage'),'EmployerProfilePage');
 const EmployerRecruitingPage=named(()=>import('./PublicInfoPages'),'EmployerRecruitingPage');
 const AboutCareJoysPage=named(()=>import('./PublicInfoPages'),'AboutCareJoysPage');
 const PricingPage=named(()=>import('./PublicInfoPages'),'PricingPage');
@@ -57,6 +58,7 @@ function routePage(path:string){
   if (isNationalJobsPath(path) || parseJobsHubPath(path) || path.startsWith('/join/')) return <CaregiverJobsHub />;
   if (path.startsWith('/training-programs/maryland') || path.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
   if (path.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
+  if (path.startsWith('/employers/')) return <EmployerProfilePage />;
   if (path.startsWith('/school-auth')) return <SchoolAuth />;
   if (path.startsWith('/school-dashboard')) return <SchoolDashboard />;
   if (path.startsWith('/school/')) return <SchoolProgramPage />;

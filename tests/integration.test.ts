@@ -767,6 +767,39 @@ describe('audit fixes: onboarding', ()=>{
   });
 });
 
+describe('public employer pages', ()=>{
+  const ID='abcd1234-0000-4000-8000-000000000001';
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at,company_about,company_benefits) VALUES (?,'Bright Home Care','Lee','lee@bright.test','21201','CNA','active',CURRENT_TIMESTAMP,'Family-owned since 2009.','Weekly pay')").bind(ID).run();
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('ffff9999-0000-4000-8000-000000000002','Unchecked Care','Al','al@unchecked.test','21201','CNA','active')").run();
+    await DB.prepare("INSERT INTO openings(id,employer_id,title,role,city,state,zip,pay_min,pay_max,status) VALUES ('pub-open','"+ID+"','CNA weekends','CNA','Baltimore','MD','21201',18,21,'open')").run();
+    await DB.prepare("INSERT INTO openings(id,employer_id,title,role,zip,status) VALUES ('pub-closed','"+ID+"','Old job','CNA','21201','closed')").run();
+  });
+  afterAll(async()=>{
+    await DB.prepare("DELETE FROM openings WHERE id IN ('pub-open','pub-closed')").run();
+    await DB.prepare("DELETE FROM employer_leads WHERE id IN (?,'ffff9999-0000-4000-8000-000000000002')").bind(ID).run();
+  });
+  it('shows an approved employer with About, Benefits and only open jobs', async()=>{
+    const res=await call('/api/public/employer/bright-home-care-abcd1234');
+    expect(res.status).toBe(200);
+    const {employer}=await res.json() as any;
+    expect(employer).toMatchObject({name:'Bright Home Care',path:'/employers/bright-home-care-abcd1234',city:'Baltimore',state:'MD',about:'Family-owned since 2009.',benefits:'Weekly pay'});
+    expect(employer.jobs.map((j:any)=>j.title)).toEqual(['CNA weekends']);
+    const page=await call('/employers/bright-home-care-abcd1234',{},htmlAssets);
+    expect(page.status).toBe(200);
+    const html=await page.text();
+    expect(html).toContain('Family-owned since 2009.');
+    expect(html).toContain('"@type":"Organization"');
+  });
+  it('redirects an old name to the current page and hides unapproved workspaces', async()=>{
+    const old=await call('/employers/old-name-abcd1234',{},htmlAssets);
+    expect(old.status).toBe(301);
+    expect(old.headers.get('location')).toBe('https://carejoys.com/employers/bright-home-care-abcd1234');
+    expect((await call('/api/public/employer/unchecked-care-ffff9999')).status).toBe(404);
+    expect((await call('/employers/unchecked-care-ffff9999',{},htmlAssets)).status).toBe(404);
+  });
+});
+
 describe('audit fixes: SEO responses', ()=>{
   beforeAll(async()=>{
     await DB.prepare("DELETE FROM agency_teaser_tokens WHERE organization_id='org-test'").run();

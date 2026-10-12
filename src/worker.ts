@@ -18,6 +18,7 @@ import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRadiusMiles, MAX_SERVICE_RADIUS_MILES } from './matching';
 import { alreadyApplied, appliedCaregiverIds } from './applications';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
+import { loadEmployerProfile } from './employerProfile';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
@@ -730,6 +731,29 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
           {"@type":"WebPage","url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug),"name":name+" caregiver training","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
           {"@type":"EducationalOrganization","name":name,"url":SEO_ORIGIN+"/training-programs/"+encodeURIComponent(slug),"areaServed":{"@type":"State","name":"Maryland"}}
         ]}
+      });
+    }
+  }
+  const employerMatch=url.pathname.match(/^\/employers\/([^/]+)$/);
+  if(employerMatch&&env.DB){
+    const profile=await loadEmployerProfile(env,decodeURIComponent(employerMatch[1]));
+    if(profile){
+      // An old link after a name change still lands on the current page.
+      if(url.pathname!==profile.path)return Response.redirect(SEO_ORIGIN+profile.path,301);
+      const where=[profile.city,profile.state].filter(Boolean).join(", ");
+      const jobsHtml=profile.jobs.length?'<h2>Open caregiver jobs</h2><ul>'+profile.jobs.map(j=>'<li>'+(j.jobPath?'<a href="'+j.jobPath+'">'+htmlEscape(j.title)+'</a>':htmlEscape(j.title))+' — '+htmlEscape([j.city,j.state].filter(Boolean).join(", "))+(j.pay?" · "+htmlEscape(j.pay):"")+"</li>").join("")+"</ul>"
+        :"<p>No open caregiver jobs right now.</p>";
+      return seoAsset(request,env,{
+        title:fitTitle(profile.name+(where?" in "+where:"")+": Caregiver Jobs"),
+        description:(profile.about||profile.name+" is hiring caregivers"+(where?" in "+where:"")+" on CareJoys.").slice(0,165),
+        canonical:profile.path,
+        // Test workspaces and pages with nothing to say stay out of search results.
+        robots:profile.isTest||(!profile.about&&!profile.jobs.length)?"noindex,follow":undefined,
+        snapshot:'<main><h1>'+htmlEscape(profile.name)+'</h1>'+(where?'<p>'+htmlEscape(where)+'</p>':'')+(profile.about?'<h2>About</h2><p>'+htmlEscape(profile.about)+'</p>':'')+
+          (profile.benefits?'<h2>Benefits</h2><p>'+htmlEscape(profile.benefits)+'</p>':'')+jobsHtml+'<p><a href="/caregiver-resume">Create a free CareJoys profile</a> to be matched with jobs like these.</p></main>',
+        jsonLd:{"@context":"https://schema.org","@type":"Organization","name":profile.name,"url":SEO_ORIGIN+profile.path,
+          ...(where?{"address":{"@type":"PostalAddress","addressLocality":profile.city,"addressRegion":profile.state,"addressCountry":"US"}}:{}),
+          ...(profile.website?{"sameAs":[profile.website]}:{})}
       });
     }
   }
@@ -2069,6 +2093,11 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/school/dashboard") return schoolDashboard(request,env);
     if(request.method==="POST"&&url.pathname==="/api/school/cohorts"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return createSchoolCohort(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/school/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return schoolLogout(request,env); }
+    let publicEmployer=url.pathname.match(/^\/api\/public\/employer\/([^/]+)$/);
+    if(request.method==="GET"&&publicEmployer){
+      const profile=await loadEmployerProfile(env,decodeURIComponent(publicEmployer[1]));
+      return profile?json({ok:true,employer:profile}):json({ok:false,error:"This employer page isn’t available."},{status:404});
+    }
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
