@@ -50,7 +50,8 @@ test('every internal link on the public pages resolves', async({page,request})=>
 
 // Every visible button is clicked once (fresh page each time). A button that throws, fails an API call, or changes
 // nothing at all on the page fails the test: that is a frozen button.
-const SKIP_BUTTON=/sign out|log out|close hiring workspace|close, role filled|delete|remove|copy url|copy link|^copy|google/i;
+// Pausing invitations would hide the shared test caregiver from every later agency test; the dashboard test covers it.
+const SKIP_BUTTON=/sign out|log out|close hiring workspace|close, role filled|delete|remove|copy url|copy link|^copy|google|pause invitations/i;
 async function clickEveryButton(page:Page,path:string){
   // Not 'networkidle': the dashboards' keepalive "last dashboard" ping never reports as finished to the browser.
   const open=async()=>{await page.goto(path);await expect(page.getByText(/^Loading/)).toHaveCount(0);await page.waitForTimeout(500)};
@@ -118,6 +119,11 @@ test('caregiver dashboard: availability, weekly emails and profile edits save', 
   await expect(page.getByRole('status')).toHaveText(wasOn?'Weekly job emails turned off.':'Weekly job emails enabled.');
   await page.reload();
   await expect(page.locator('.check-row input[type=checkbox]').first()).toBeChecked({checked:!wasOn});
+  // Pausing invitations hides them from agencies until they resume.
+  await page.getByRole('button',{name:'Pause invitations for 2 weeks'}).click();
+  await expect(page.getByText(/^Paused until/)).toBeVisible();
+  await page.getByRole('button',{name:'Resume invitations'}).click();
+  await expect(page.getByRole('button',{name:'Pause invitations for 2 weeks'})).toBeVisible();
   await page.goto('/dashboard/profile');
   await page.getByLabel('A few words for employers').fill('Patient, reliable CNA. Five years of home care.');
   await page.getByRole('button',{name:'Save my profile'}).click();
