@@ -103,7 +103,7 @@ export function AboutCareJoysPage(){
   </div>;
 }
 
-const PRICE='$499';
+const PRICE='$99';
 
 type Supply={found:boolean;city?:string;state?:string;miles?:number;jobs?:number;caregivers?:number|null;caregiversBelow?:number|null};
 
