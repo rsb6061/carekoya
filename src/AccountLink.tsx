@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { homePath, lastDashboard } from './dashboardHome';
 
-/** The header's account control on every page: "Sign in" when signed out, an account menu when signed in. */
-export function AccountLink({className}:{className?:string}){
+/** The header's account control on every page: "Sign in" when signed out, an account menu when signed in.
+ *  With hireButton, signed-out visitors also get the employer button to /pricing. */
+export function AccountLink({className,hireButton=false}:{className?:string;hireButton?:boolean}){
   const auth=useCaregiverAuth();
+  const hire=hireButton&&<a className="nav-cta" href="/pricing"><span className="hide-sm">Faster AI Hiring</span><span className="show-sm">Hire</span></a>;
   // Keep the space while the session loads so the header doesn't jump.
-  if(auth.loading)return <a className={className} href="/login" style={{visibility:'hidden'}} aria-hidden="true" tabIndex={-1}>Sign in</a>;
-  if(!auth.isAuthenticated)return <a className={className} href="/login">Sign in</a>;
+  if(auth.loading)return <><a className={className} href="/login" style={{visibility:'hidden'}} aria-hidden="true" tabIndex={-1}>Sign in</a>{hire}</>;
+  if(!auth.isAuthenticated)return <><a className={className} href="/login">Sign in</a>{hire}</>;
   return <AccountMenu/>;
 }
 
