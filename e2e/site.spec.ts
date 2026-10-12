@@ -50,7 +50,7 @@ test('every internal link on the public pages resolves', async({page,request})=>
 
 // Every visible button is clicked once (fresh page each time). A button that throws, fails an API call, or changes
 // nothing at all on the page fails the test: that is a frozen button.
-const SKIP_BUTTON=/sign out|log out|close hiring workspace|delete|remove|copy url|copy link|^copy|google/i;
+const SKIP_BUTTON=/sign out|log out|close hiring workspace|close, role filled|delete|remove|copy url|copy link|^copy|google/i;
 async function clickEveryButton(page:Page,path:string){
   // Not 'networkidle': the dashboards' keepalive "last dashboard" ping never reports as finished to the browser.
   const open=async()=>{await page.goto(path);await expect(page.getByText(/^Loading/)).toHaveCount(0);await page.waitForTimeout(500)};
@@ -132,13 +132,13 @@ test('employer invites a caregiver, who says yes from the email and books an int
   const we=await watch(employer);
   await signIn(employer,EMPLOYER,true);
   await employer.goto('/app');
-  await employer.getByRole('button',{name:'+ New opening'}).click();
+  await employer.getByRole('button',{name:'+ New job listing'}).click();
   const title='E2E invite CNA '+Date.now().toString(36);
   await employer.getByLabel('Job title').fill(title);
   const modal=employer.locator('.modal-panel');
   await modal.getByLabel('Role').selectOption('CNA');
   await modal.getByLabel('ZIP').fill('21201');
-  await modal.getByRole('button',{name:/Create (& match|opening)/}).click();
+  await modal.getByRole('button',{name:/Create (& match|job listing)/}).click();
   await expect(employer.getByRole('heading',{name:'Matches for '+title})).toBeVisible();
   // Interview times first, so the caregiver can book one.
   await employer.getByRole('button',{name:/Add interview times|Manage interview times/}).click();

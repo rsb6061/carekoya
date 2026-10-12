@@ -81,7 +81,7 @@ test('employer onboarding from Hire caregivers', async({page})=>{
   await page.getByLabel('What kind of employer are you?').selectOption('home_care');
   await page.getByLabel('Your name').fill('Sam Employer');
   await page.getByRole('textbox',{name:'Email'}).fill('e2e-new-employer@example.test');
-  await page.getByRole('button',{name:'Create opening & continue'}).click();
+  await page.getByRole('button',{name:'Create job listing & continue'}).click();
   await expect(page.getByRole('heading',{name:'Check your email.'})).toBeVisible();
   clean(w);
 });
@@ -90,17 +90,17 @@ test('employer workspace: create an opening and view matches', async({page})=>{
   const w=await watch(page);
   await signIn(page,EMPLOYER,true);
   await page.goto('/app');
-  await page.getByRole('button',{name:'+ New opening'}).click();
+  await page.getByRole('button',{name:'+ New job listing'}).click();
   await page.getByLabel('Job title').fill('E2E CNA weekends');
   const modal=page.locator('.modal-panel');
   await modal.getByLabel('Role').selectOption('CNA');
   await modal.getByLabel('ZIP').fill('21201');
-  await modal.getByRole('button',{name:/Create (& match|opening)/}).click();
+  await modal.getByRole('button',{name:/Create (& match|job listing)/}).click();
   await expect(page.locator('.modal-panel')).toHaveCount(0);
   // Create & match goes straight to the matches, where the seeded Baltimore CNA should be.
   await expect(page.getByRole('heading',{name:'Matches for E2E CNA weekends'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Casey T.'})).toBeVisible();
-  await page.getByRole('button',{name:'← All openings'}).click();
+  await page.getByRole('button',{name:'← All job listings'}).click();
   await expect(page.locator('.job-card',{hasText:'E2E CNA weekends'}).getByRole('button',{name:'View matches'})).toBeVisible();
   clean(w);
 });
@@ -124,14 +124,23 @@ test('employer finds caregivers: closest first, plain tags, profile panel', asyn
   await expect(far.getByText(/Lives beyond their commute/)).toBeVisible();
   await near.getByRole('button',{name:'View profile'}).click();
   const panel=page.getByRole('dialog',{name:'Casey T.'});
-  await expect(panel.getByRole('link',{name:'Open in new tab ↗'})).toHaveAttribute('href',/\/app\?talent=/);
+  await expect(panel.getByRole('link',{name:'View full profile'})).toHaveAttribute('href',/\/app\?talent=/);
   await expect(panel.getByText(/In your candidates for/)).toBeVisible();
-  await panel.getByRole('button',{name:'Close'}).click();
+  // "View full profile" opens the caregiver's own page in place.
+  await panel.getByRole('link',{name:'View full profile'}).click();
+  await expect(page).toHaveURL(/\/app\?talent=/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // Save this search as an email alert; it shows as a removable chip.
-  await page.getByRole('button',{name:'Email me new matches'}).click();
-  await expect(page.locator('.talent-alerts')).toContainText('near 21201');
-  await page.getByRole('button',{name:/^Turn off alert/}).click();
-  await expect(page.locator('.talent-alerts')).toHaveCount(0);
+  await expect(page.getByRole('heading',{name:'Casey T.'})).toBeVisible();
+  // New-caregiver emails are a setting, not a button on the search.
+  await page.getByRole('button',{name:'Settings'}).click();
+  const alertBox=page.getByRole('checkbox',{name:/New caregivers near you/});
+  // The box follows the saved alert, so it flips once CareJoys has saved it.
+  await alertBox.click();
+  await expect(page.getByText('You’ll get an email when new caregivers join near you.')).toBeVisible();
+  await expect(alertBox).toBeChecked();
+  await alertBox.click();
+  await expect(page.getByText('New-caregiver emails turned off.')).toBeVisible();
+  await expect(alertBox).not.toBeChecked();
+  await expect(page.getByRole('button',{name:'Edit email templates'})).toBeVisible();
   clean(w);
 });

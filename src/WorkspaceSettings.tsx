@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 type Settings={digest:boolean;atsEmail:string;about:string;benefits:string};
+type TalentAlert={id:string;label:string;query:string};
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
   const res=await fetch(path,{credentials:'include',...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
@@ -13,14 +14,34 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
  * Set up once: what caregivers read about the agency, which emails arrive, where
  * candidates are forwarded, and the export.
  */
-export function WorkspaceSettings({agency}:{agency:boolean}){
+export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agency:boolean;homeAlertQuery:string;onOpenTemplates:()=>void}){
   const [settings,setSettings]=useState<Settings|null>(null);
+  // Saved caregiver searches that email new matches; null while loading or when the workspace can't use them yet.
+  const [alerts,setAlerts]=useState<TalentAlert[]|null>(null);
   const [notice,setNotice]=useState<{text:string;tone:'ok'|'error'}|null>(null);
   const [busy,setBusy]=useState(false);
 
   useEffect(()=>{
     api<{settings:Settings}>('/api/workspace/settings').then(d=>setSettings(d.settings)).catch(e=>setNotice({text:e.message,tone:'error'}));
+    api<{alerts:TalentAlert[]}>('/api/talent-alerts').then(d=>setAlerts(d.alerts||[])).catch(()=>setAlerts(null));
   },[]);
+  // The server stores the search's keys in its own order, so compare them sorted.
+  const sorted=(q:string)=>{const p=new URLSearchParams(q);p.sort();return p.toString()};
+  const homeAlert=alerts?.find(a=>sorted(a.query)===sorted(homeAlertQuery));
+  async function toggleHomeAlert(on:boolean){
+    setBusy(true);
+    try{
+      if(on)setAlerts((await api<{alerts:TalentAlert[]}>('/api/talent-alerts',{method:'POST',body:JSON.stringify({query:homeAlertQuery})})).alerts||[]);
+      else if(homeAlert){await api('/api/talent-alerts/'+encodeURIComponent(homeAlert.id),{method:'DELETE'});setAlerts(list=>(list||[]).filter(a=>a.id!==homeAlert.id))}
+      setNotice({text:on?'You’ll get an email when new caregivers join near you.':'New-caregiver emails turned off.',tone:'ok'});
+    }catch(e){setNotice({text:(e as Error).message,tone:'error'})}
+    finally{setBusy(false)}
+  }
+  async function removeAlert(id:string){
+    try{await api('/api/talent-alerts/'+encodeURIComponent(id),{method:'DELETE'});setAlerts(list=>(list||[]).filter(a=>a.id!==id))}
+    catch(e){setNotice({text:(e as Error).message,tone:'error'})}
+  }
+  const otherAlerts=(alerts||[]).filter(a=>a.id!==homeAlert?.id);
 
   async function save(patch:Partial<Settings>,done:string){
     setBusy(true);
@@ -44,10 +65,9 @@ export function WorkspaceSettings({agency}:{agency:boolean}){
     {notice&&<div className={'alert-status workspace-alert'+(notice.tone==='ok'?'':' alert-error')} role="status">{notice.tone==='ok'?'✓ ':''}{notice.text}</div>}
 
     <div className="settings-card">
-      <h3>What caregivers see about you</h3>
-      <p className="job-meta">Shown on your invitations{agency?' and your CareJoys job pages':''}. A sentence or two on what it’s like to work with you does more than a long description.</p>
+      <h3>Your profile</h3>
       <form className="intake-form" onSubmit={saveProfile}>
-        <label>About your {agency?'agency':'company'}<textarea name="about" rows={3} maxLength={1000} defaultValue={settings.about} placeholder="Family-owned since 2009. Clients in Towson and Parkville, steady weekly hours, a coordinator who answers the phone."/></label>
+        <label>About<textarea name="about" rows={3} maxLength={1000} defaultValue={settings.about} placeholder="Family-owned since 2009. Clients in Towson and Parkville, steady weekly hours, a coordinator who answers the phone."/></label>
         <label>Benefits<textarea name="benefits" rows={2} maxLength={600} defaultValue={settings.benefits} placeholder="Weekly pay, mileage, paid training, health insurance after 60 days"/></label>
         <button className="button" disabled={busy}>Save</button>
       </form>
@@ -56,15 +76,21 @@ export function WorkspaceSettings({agency}:{agency:boolean}){
     <div className="settings-card">
       <h3>Email</h3>
       <label className="check-row"><input type="checkbox" checked={settings.digest} disabled={busy} onChange={e=>void save({digest:e.target.checked},e.target.checked?'You’ll get a morning email when caregivers are waiting on you.':'Morning email turned off.')}/>
-        <span><strong>Morning digest.</strong> One email at about 7am Eastern on days when someone applied, someone is waiting on your reply, or you have interviews. You’ll still get an email the moment a caregiver says yes.</span></label>
-      <p className="job-meta">On the 1st of each month you also get last month’s numbers: job views, applications, invitations, yeses and hires.</p>
+        <span><strong>Morning digest</strong> when caregivers are waiting on you</span></label>
+      {alerts&&homeAlertQuery&&<label className="check-row"><input type="checkbox" checked={!!homeAlert} disabled={busy} onChange={e=>void toggleHomeAlert(e.target.checked)}/>
+        <span><strong>New caregivers near you</strong></span></label>}
+      {otherAlerts.length>0&&<div className="talent-alerts"><span>Saved searches:</span>{otherAlerts.map(a=><span className="badge" key={a.id}>{a.label}<button type="button" className="badge-remove" aria-label={'Turn off alert '+a.label} onClick={()=>void removeAlert(a.id)}>×</button></span>)}</div>}
     </div>
 
     <div className="settings-card">
-      <h3>Get candidates into your own system</h3>
-      <p className="job-meta">Most applicant tracking systems (WellSky, AxisCare, ClearCare, BambooHR and others) give you an email address that turns emails into applicants. Paste it here and CareJoys forwards each new applicant and each caregiver who says yes, with their contact details, once.</p>
+      <h3>Email templates</h3>
+      <button type="button" className="button secondary" onClick={onOpenTemplates}>Edit email templates</button>
+    </div>
+
+    <div className="settings-card">
+      <h3>Send candidates to your ATS</h3>
       <form className="inline-form" onSubmit={saveAts}>
-        <input type="email" name="atsEmail" defaultValue={settings.atsEmail} placeholder="applicants@youragency.applytojob.com" aria-label="ATS email"/>
+        <input type="email" name="atsEmail" defaultValue={settings.atsEmail} placeholder="Your ATS intake email" aria-label="ATS email"/>
         <button className="button secondary" disabled={busy}>{settings.atsEmail?'Update':'Turn on forwarding'}</button>
       </form>
       <p><a className="text-button" href="/api/workspace/candidates.csv" download>Download all candidates (CSV)</a></p>

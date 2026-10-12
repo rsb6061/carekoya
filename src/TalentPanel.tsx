@@ -26,7 +26,7 @@ function InviteToOpening({candidate,actions}:{candidate:TalentCandidate;actions:
   // Already applied to the agency, or lives beyond their own commute: nothing to invite them to.
   if(spots.some(s=>s.applied))return null;
   if(candidate.distanceMiles!=null&&candidate.withinCommute===false)return <span className="job-meta">Lives beyond their commute from you</span>;
-  if(!actions.openings.length)return <a className="button secondary" href="/app?tab=openings">Add an opening to invite</a>;
+  if(!actions.openings.length)return <a className="button secondary" href="/app?tab=openings">Add a job listing to invite</a>;
   if(!options.length)return null;
   const go=async()=>{setBusy(true);try{await actions.onInvite(candidate,openingId)}finally{setBusy(false)}};
   return <div className="invite-to-opening">
@@ -49,8 +49,8 @@ export function TalentDetail({candidate:c,actions}:{candidate:TalentCandidate;ac
   </div>;
 }
 
-export function TalentPanel({candidate,actions,onClose}:{candidate:TalentCandidate;actions:TalentActions;onClose:()=>void}){
-  return <Drawer label={candidate.name} pageUrl={talentPageUrl(candidate.id)} onClose={onClose}><TalentDetail candidate={candidate} actions={actions}/></Drawer>;
+export function TalentPanel({candidate,actions,onClose,onOpenPage}:{candidate:TalentCandidate;actions:TalentActions;onClose:()=>void;onOpenPage?:()=>void}){
+  return <Drawer label={candidate.name} pageUrl={talentPageUrl(candidate.id)} onOpenPage={onOpenPage} onClose={onClose}><TalentDetail candidate={candidate} actions={actions}/></Drawer>;
 }
 
 /** The same caregiver as its own page at /app?talent=…, for a new tab or a teammate. */

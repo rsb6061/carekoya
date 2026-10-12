@@ -85,7 +85,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
     <h1>{kind === 'employer' ? 'Hire caregivers' : 'Add your training program'}</h1>
     <p className="login-sub">{kind === 'employer'
-      ? 'Tell us who you need. CareJoys creates the opening, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
+      ? 'Tell us who you need. CareJoys creates the job listing, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>
     {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="#claim-agency">Claim your agency free</a>.</p>}
     <form className="intake-form" onSubmit={handleSubmit}>
@@ -120,7 +120,7 @@ function IntakePage({ kind }: { kind: Kind }) {
       </>}
       <TurnstileField onToken={setTurnstileToken} />
       {status === 'error' && <div className="notice">{message}</div>}
-      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Create opening & continue' : 'Request addition'}</button>
+      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Create job listing & continue' : 'Request addition'}</button>
     </form>
   </div>
   {kind==='employer'&&<section id="claim-agency" className="intake-agency-claim" aria-label="Claim your agency">

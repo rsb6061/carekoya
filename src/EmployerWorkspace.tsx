@@ -9,7 +9,7 @@ import { JobsWidgetCard } from './JobsWidgetCard';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
 import { MatchList, STAGE_LABELS, needsReply, type DecideStage, type MatchRow } from './MatchList';
-import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, stageCounts, type InboxItem } from './candidates';
+import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, type InboxItem } from './candidates';
 import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
 import { TalentPage, TalentPanel, type TalentActions } from './TalentPanel';
 import { shiftsLabel } from './profileTags';
@@ -28,6 +28,7 @@ type Opening={
 };
 type InterviewSlot={id:string;starts_at:string;duration_minutes:number;timezone:string;status:string;location?:string|null};
 type StageFilter=''|'matched'|'contacted'|'interested'|'interview'|'hired';
+const STAGE_FILTERS:Exclude<StageFilter,''>[]=['matched','contacted','interested','interview','hired'];
 // Home care roles first for agencies, assisted living roles first for communities.
 const HOME_CARE_ROLES=['CNA','GNA','HHA','PCA','Caregiver','DSP'];
 const ASSISTED_LIVING_ROLES=['CMT / Med Tech','Resident Assistant','Memory Care Aide'];
@@ -58,7 +59,6 @@ const filtersFromUrl=():TalentFilterState=>{
   return Object.fromEntries(Object.entries(EMPTY_FILTERS).map(([k,v])=>[k,q.get(k)||v])) as TalentFilterState;
 };
 const LANGUAGES=['Spanish','French','Haitian Creole','Amharic','Tagalog','Portuguese','Russian','Arabic','Mandarin','Swahili'];
-type TalentAlert={id:string;label:string;query:string};
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
 
 function EmployerSignIn(){
@@ -105,7 +105,6 @@ export function EmployerWorkspace(){
   // Coming back from Stripe with the browser's back button restores this page from cache, so re-enable the buttons.
   useEffect(()=>{const reset=()=>setBillingBusy(false);window.addEventListener('pageshow',reset);return ()=>window.removeEventListener('pageshow',reset)},[]);
   const [filters,setFilters]=useState(filtersFromUrl);
-  const [alerts,setAlerts]=useState<TalentAlert[]>([]);
   const [showOpening,setShowOpening]=useState(false);
   const [editingOpening,setEditingOpening]=useState<Opening|null>(null);
   const [stageFilter,setStageFilter]=useState<StageFilter>('');
@@ -222,7 +221,7 @@ export function EmployerWorkspace(){
       if(editingOpening){
         const result=await api<{matched?:number}>('/api/openings/'+editingOpening.id,{method:'PATCH',body:JSON.stringify(data)});
         setShowOpening(false);setEditingOpening(null);
-        setMessage(result.matched!==undefined?'Opening saved. '+result.matched+' caregiver'+(result.matched===1?'':'s')+' match it now.':'Opening saved.');
+        setMessage(result.matched!==undefined?'Job listing saved. '+result.matched+' caregiver'+(result.matched===1?'':'s')+' match it now.':'Job listing saved.');
         await refreshWorkspace();
         return;
       }
@@ -232,7 +231,7 @@ export function EmployerWorkspace(){
       await refreshWorkspace();
       await runMatch(result.id);
     }catch(error){
-      setMessage(error instanceof Error?error.message:'Could not save the opening','error');
+      setMessage(error instanceof Error?error.message:'Could not save the job listing','error');
     }
   }
 
@@ -242,10 +241,9 @@ export function EmployerWorkspace(){
       const result=await api<{notified?:number}>('/api/openings/'+opening.id,{method:'PATCH',body:JSON.stringify({status})});
       setMessage(status==='closed'?opening.title+' is closed.'+(result.notified?' '+result.notified+' caregiver'+(result.notified===1?' was':'s were')+' told the role is filled.':''):opening.title+' is open again.');
       await refreshWorkspace();
-    }catch(error){setMessage(error instanceof Error?error.message:'Could not update the opening','error')}
+    }catch(error){setMessage(error instanceof Error?error.message:'Could not update the job listing','error')}
   }
   function openOpeningForm(opening:Opening|null){setEditingOpening(opening);setShowOpening(true)}
-  function showCandidates(stage:StageFilter){leavePage();setIntakeOpeningId('');setCandidateView('active');setStageFilter(stage);setTab('pipeline')}
 
   async function runMatch(openingId:string){
     if(!session)return;
@@ -254,7 +252,7 @@ export function EmployerWorkspace(){
     try{
       const result=await api<any>('/api/openings/'+openingId+'/match',{method:'POST'});
       if(result.matched)setMessage(result.matched+' caregiver'+(result.matched===1?'':'s')+' matched. Pick who to invite below.');
-      else setMessage('No caregivers match this opening yet. CareJoys keeps looking and adds matches as caregivers near you join.','info');
+      else setMessage('No caregivers match this job listing yet. CareJoys keeps looking and adds matches as caregivers near you join.','info');
       await refreshWorkspace();
       setIntakeOpeningId(openingId);
       setTab('pipeline');
@@ -285,14 +283,14 @@ export function EmployerWorkspace(){
   async function inviteFromTalent(chosen:Candidate|Candidate[],openingId:string){
     const list=Array.isArray(chosen)?chosen:[chosen];
     if(!session||pendingApproval||!list.length)return;
-    const title=openings.find(o=>o.id===openingId)?.title||'this opening';
+    const title=openings.find(o=>o.id===openingId)?.title||'this job listing';
     try{
       const pipelineIds:string[]=[];
       for(const c of list){
         const added=await api<{pipelineId:string;stage:string}>('/api/openings/'+openingId+'/candidates',{method:'POST',body:JSON.stringify({caregiverId:c.id})});
         if(added.stage==='matched')pipelineIds.push(added.pipelineId);
       }
-      if(!pipelineIds.length)setMessage((list.length===1?list[0].name+' is':'They are')+' already in your candidates for that opening.','info');
+      if(!pipelineIds.length)setMessage((list.length===1?list[0].name+' is':'They are')+' already in your candidates for that job listing.','info');
       else{
         const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds})});
         const sent=Number(result.sent||0);
@@ -305,20 +303,6 @@ export function EmployerWorkspace(){
     await refreshWorkspace();
   }
 
-  async function loadAlerts(){
-    try{setAlerts((await api<{alerts:TalentAlert[]}>('/api/talent-alerts')).alerts||[])}catch{setAlerts([])}
-  }
-  async function saveAlert(){
-    try{
-      setAlerts((await api<{alerts:TalentAlert[]}>('/api/talent-alerts',{method:'POST',body:JSON.stringify({query:talentParams(filters).toString()})})).alerts||[]);
-      setMessage('Saved. We’ll email '+(session?.email||'you')+' when new caregivers match this search.','ok');
-    }catch(error){setMessage(error instanceof Error?error.message:'Could not save this alert','error')}
-  }
-  async function removeAlert(id:string){
-    try{await api('/api/talent-alerts/'+encodeURIComponent(id),{method:'DELETE'});setAlerts(list=>list.filter(a=>a.id!==id))}
-    catch(error){setMessage(error instanceof Error?error.message:'Could not turn off this alert','error')}
-  }
-  useEffect(()=>{if(tab==='talent'&&session&&approvalKnown&&!pendingApproval)void loadAlerts()},[tab,session?.id,approvalKnown,pendingApproval]);
 
   async function openBilling(kind:'checkout'|'portal',plan:'monthly'|'yearly'='monthly'){
     if(billingBusy)return;
@@ -433,7 +417,6 @@ export function EmployerWorkspace(){
 
   // Everyone in one list: caregivers who applied to the agency and caregivers matched to openings, one set of stages.
   const everyone=useMemo(()=>mergeCandidates(pipeline,applications),[pipeline,applications]);
-  const counts=useMemo(()=>stageCounts(everyone),[everyone]);
   const results=useMemo(()=>resultsOf(everyone),[everyone]);
   const waitingReply=everyone.filter(needsReply);
   const openingPipeline=useMemo(
@@ -445,32 +428,8 @@ export function EmployerWorkspace(){
     ()=>openingPipeline.filter(p=>candidateView==='archived'?p.stage==='rejected':p.stage!=='rejected'&&(!stageFilter||p.stage===stageFilter)),
     [openingPipeline,candidateView,stageFilter]
   );
-  // What's waiting on the employer right now, most urgent first. Empty when there's nothing to do.
-  const needsYou=useMemo(()=>{
-    if(pendingApproval)return [];
-    const items:{key:string;text:string;action:string;go:()=>void}[]=[];
-    const soon=Date.now()+2*86400000;
-    pipeline.filter(p=>p.stage==='interview'&&p.interview_at&&Date.parse(p.interview_at)>Date.now()&&Date.parse(p.interview_at)<soon)
-      .sort((a,b)=>Date.parse(a.interview_at!)-Date.parse(b.interview_at!))
-      .forEach(p=>items.push({key:'iv'+p.id,text:'Interview with '+p.name+', '+new Date(p.interview_at!).toLocaleDateString(undefined,{weekday:'long'})+' at '+new Date(p.interview_at!).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}),action:'View',go:()=>setPanelRowId(p.id)}));
-    // Caregivers who applied or said yes and haven't heard back: the most urgent thing an agency can act on.
-    const waiting=everyone.filter(needsReply);
-    const what=(p:PipelineRow)=>p.kind==='application'?'applied'+(p.title?' to '+p.title:''):'said yes to '+p.title;
-    if(waiting.length===1)items.unshift({key:'yes',text:waiting[0].name+' '+what(waiting[0])+' and needs a reply',action:'Reply',go:()=>setPanelRowId(waiting[0].id)});
-    else if(waiting.length>1)items.unshift({key:'yes',text:waiting.length+' caregivers applied or said yes and need a reply',action:'Review',go:()=>showCandidates('interested')});
-    const fresh=everyone.filter(p=>p.stage==='matched').length;
-    if(fresh)items.push({key:'new',text:fresh+' matched caregiver'+(fresh===1?'':'s')+' not invited yet',action:'Pick who to invite',go:()=>showCandidates('matched')});
-    return items;
-  },[everyone,pipeline,pendingApproval]);
   const openOpenings=openings.filter(o=>o.status!=='closed');
   const closedOpenings=openings.filter(o=>o.status==='closed');
-  // First visit: three steps until the employer has invited someone and added interview times (or the list is long enough to know their way around).
-  const setupSteps=[
-    {done:pipeline.length>0,label:'Review your matches',go:()=>openOpenings[0]&&void runMatch(openOpenings[0].id)},
-    {done:pipeline.some(p=>!!p.contacted_at),label:'Invite the caregivers you like',go:()=>showCandidates('matched')},
-    {done:openings.some(o=>Number(o.available_interview_slots||0)>0),label:'Add interview times (optional)',go:()=>openOpenings[0]&&void openInterviewSlots(openOpenings[0])}
-  ];
-  const showSetup=!pendingApproval&&openOpenings.length>0&&openings.length<=2&&setupSteps.some(x=>!x.done)&&!everyone.some(p=>['interested','interview','hired'].includes(p.stage));
   const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
   async function checkLicense(row:MatchRow,result:LicenseCheck['result']|''){
     try{
@@ -510,8 +469,9 @@ export function EmployerWorkspace(){
 
     <main className="app-wrap app-content dash-layout">
      <nav className="dash-sidenav" aria-label="Workspace">
+      <button className="button dash-sidenav-new" onClick={()=>openOpeningForm(null)}>+ New job listing</button>
       <div className="dash-sidenav-label">Hiring</div>
-      <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Openings</button>
+      <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setTab('openings')}}>Job Listings</button>
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>{leavePage();setIntakeOpeningId('');setStageFilter('');setTab('pipeline')}}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>{leavePage();setTab('talent')}} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>{leavePage();setTab('jobs')}}>Jobs</button>}
@@ -521,20 +481,9 @@ export function EmployerWorkspace(){
      <div className="dash-main-col">
       <section className="page-head page-head-row">
         <div><h1>{workspace?.company_name||session.companyName||'Recruiting workspace'}</h1></div>
-        <div className="header-action"><button className="button" onClick={()=>openOpeningForm(null)}>+ New opening</button></div>
       </section>
 
-      <div className="result-summary workspace-summary">
-        <strong>{openOpenings.length} open role{openOpenings.length===1?'':'s'}</strong>
-        {([['matched','to review',counts.matched],['contacted','invited',counts.contacted],['interested',applications.length?'said yes or applied':'said yes',counts.interested],['interview',counts.interview===1?'interview':'interviews',counts.interview],['hired','hired',counts.hired]] as const)
-          .map(([stage,label,n])=>pendingApproval?<span key={stage}>— {label}</span>
-            :<button type="button" key={stage} className={'summary-chip'+(tab==='pipeline'&&stageFilter===stage?' on':'')} onClick={()=>showCandidates(stage)}>{n} {label}</button>)}
-      </div>
-      {needsYou.length>0&&<section className="needs-you" aria-label="Needs you">
-        <div className="needs-you-label">Needs you</div>
-        {needsYou.map(item=><button type="button" key={item.key} className="needs-you-item" onClick={item.go}><span>{item.text}</span><strong>{item.action}</strong></button>)}
-      </section>}
-      {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create openings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
+      {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create job listings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
       {billing?.paymentIssue&&<div className="alert-status alert-error workspace-alert" role="status"><strong>Your last payment didn’t go through.</strong> Update your card to keep unlimited introductions. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Update card</button></div>}
       {billing?.enabled&&!billing.subscribed&&!billing.paymentIssue&&billing.freeContactsRemaining===0&&<div className="alert-status alert-info workspace-alert" role="status"><strong>You’ve used your {billing.freeContacts} free introductions.</strong> New caregivers’ contact details stay hidden until you upgrade. <button className="text-button upgrade-link" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · $79/month</button></div>}
       {message&&<div className={'alert-status workspace-alert'+(messageTone==='ok'?'':' alert-'+messageTone)}>{messageTone==='ok'?'✓ ':''}{message}</div>}
@@ -546,18 +495,12 @@ export function EmployerWorkspace(){
 
       {talentPageId&&<TalentPage id={talentPageId} zip={homeZip} actions={talentActions} onBack={()=>{window.history.pushState(null,'','/app');setTalentPageId('');setTab('talent')}}/>}
 
-      {shownTab==='openings'&&showSetup&&<section className="setup-steps" aria-label="Get started">
-        <div className="needs-you-label">Get started</div>
-        <ol>{setupSteps.map((step,i)=><li key={i} className={step.done?'done':''}>
-          {step.done?<span>{step.label}</span>:<button type="button" className="text-button" onClick={step.go}>{step.label}</button>}
-        </li>)}</ol>
-      </section>}
 
       {shownTab==='openings'&&<section className="section-block">
-        <div className="section-heading"><h2>Openings</h2><p>Describe the role once, see matches and invite caregivers. Adding interview times is optional.</p></div>
+        <div className="section-heading"><h2>Job Listings</h2></div>
         {results.invited+results.applied>0&&<p className="results-line" role="status"><strong>Your results on CareJoys:</strong> {[results.applied?results.applied+' applied':'',results.invited?results.invited+' invited · '+results.yes+' said yes':'',results.hired+' hired'].filter(Boolean).join(' · ')}</p>}
-        {openings.length===0?<div className="empty"><strong>No openings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create opening</button></div></div>:
-        <>{openOpenings.length===0&&<div className="empty"><strong>No open roles.</strong><div>Reopen one below or add a new opening.</div></div>}
+        {openings.length===0?<div className="empty"><strong>No job listings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create job listing</button></div></div>:
+        <>{openOpenings.length===0&&<div className="empty"><strong>No open roles.</strong><div>Reopen one below or add a new job listing.</div></div>}
         <div className="job-list">{openOpenings.map((o,i)=><OpeningCard key={o.id} opening={o} tone={cardTone(i)} pipeline={pipeline} pendingApproval={pendingApproval}
           onMatch={()=>{setIntakeOpeningId(o.id);void runMatch(o.id)}} onSlots={()=>void openInterviewSlots(o)} onEdit={()=>openOpeningForm(o)} onClose={()=>void setOpeningStatus(o,'closed')}/>)}</div>
         {closedOpenings.length>0&&<div className="closed-openings">
@@ -566,8 +509,8 @@ export function EmployerWorkspace(){
         </div>}</>}
       </section>}
 
-      {billing?.enabled&&(shownTab==='openings'||shownTab==='plan')&&<section className="section-block plan-section">
-        <div className="section-heading"><h2>Your plan</h2><p>{billing.subscribed?'Change locations, switch between monthly and yearly, update your card or see invoices.':'An introduction counts when a caregiver says they’re interested or sends you their profile. Inviting is always free.'}</p></div>
+      {billing?.enabled&&shownTab==='plan'&&<section className="section-block plan-section">
+        <div className="section-heading"><h2>Your plan</h2></div>
         {billing.subscribed
           ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
           :<><p className="plan-line"><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. Unlimited introductions are $79/month per location.</p>
@@ -576,7 +519,7 @@ export function EmployerWorkspace(){
 
       {shownTab==='pipeline'&&<section className="section-block">
         {intakeOpening?<div className="match-opening-head">
-          <button className="text-button" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All openings</button>
+          <button className="text-button" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>← All job listings</button>
           <h2>Matches for {intakeOpening.title}</h2>
           <div className="job-meta">{[intakeOpening.role,[intakeOpening.city,intakeOpening.state].filter(Boolean).join(', ')+(intakeOpening.zip?' '+intakeOpening.zip:''),intakeOpening.shift_preferences,payLabel({payMin:intakeOpening.pay_min,payMax:intakeOpening.pay_max,payPeriod:'hour'})].filter(Boolean).join(' · ')}</div>
           <div className="match-opening-links">
@@ -586,15 +529,15 @@ export function EmployerWorkspace(){
           </div>
         </div>:<div className="section-heading">
           <h2>All candidates</h2>
-          <p>{agencyNetwork.agency?'Caregivers who applied to your jobs and caregivers matched to your openings, in one list.':'Caregivers matched to your openings, by stage. Answers and interview bookings update automatically.'}</p>
         </div>}
-        {openingPipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this opening yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':agencyNetwork.agency?'Caregivers who apply to your jobs and caregivers matched to your openings show here.':'Matches appear here after you view matches for an opening.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to openings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Find caregivers</button></div></div>:
+        {openingPipeline.length===0?<div className="empty"><strong>{intakeOpening?'No matched caregivers for this job listing yet.':'No candidates yet.'}</strong><div>{intakeOpening?'CareJoys will keep looking as verified, available caregivers join nearby. Check the role, ZIP, pay and schedule, or revisit other openings.':agencyNetwork.agency?'Caregivers who apply to your jobs and caregivers matched to your job listings show here.':'Matches appear here after you view matches for a job listing.'}</div><div className="empty-actions"><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('openings')}}>Back to job listings</button><button className="button secondary" onClick={()=>{setIntakeOpeningId('');setTab('talent')}} disabled={pendingApproval}>Find caregivers</button></div></div>:
         <><div className="candidate-views">
           <div className="inbox-filters" role="group" aria-label="Show">
-            {([['active','Active'],['archived','Not a fit']] as const).map(([k,label])=><button type="button" key={k} className={'chip'+(candidateView===k&&!(k==='active'&&stageFilter)?' on':'')} aria-pressed={candidateView===k} onClick={()=>{setCandidateView(k);setStageFilter('')}}>{label} <strong>{viewCounts[k]}</strong></button>)}
-            {stageFilter&&candidateView==='active'&&<button type="button" className="chip on" aria-pressed="true" onClick={()=>setStageFilter('')} title="Show everyone">{STAGE_LABELS[stageFilter]} <strong>{visiblePipeline.length}</strong> ×</button>}
+            <button type="button" className={'chip'+(candidateView==='active'&&!stageFilter?' on':'')} aria-pressed={candidateView==='active'&&!stageFilter} onClick={()=>{setCandidateView('active');setStageFilter('')}}>All <strong>{viewCounts.active}</strong></button>
+            {STAGE_FILTERS.map(stage=>{const n=openingPipeline.filter(p=>p.stage===stage).length;const on=candidateView==='active'&&stageFilter===stage;
+              return n||on?<button type="button" key={stage} className={'chip'+(on?' on':'')} aria-pressed={on} onClick={()=>{setCandidateView('active');setStageFilter(on?'':stage)}}>{STAGE_LABELS[stage]} <strong>{n}</strong></button>:null})}
+            <button type="button" className={'chip'+(candidateView==='archived'?' on':'')} aria-pressed={candidateView==='archived'} onClick={()=>{setCandidateView('archived');setStageFilter('')}}>Not a fit <strong>{viewCounts.archived}</strong></button>
           </div>
-          <button type="button" className="text-button" onClick={()=>setShowTemplates(true)}>Email templates</button>
         </div>
         {visiblePipeline.length===0&&stageFilter&&candidateView==='active'?<div className="empty"><strong>Nobody here right now.</strong><div><button type="button" className="text-button" onClick={()=>setStageFilter('')}>Show all candidates</button></div></div>
         :visiblePipeline.length===0?<div className="empty"><strong>{candidateView==='archived'?'Nobody is marked not a fit.':'Everyone here is marked not a fit.'}</strong><div>{candidateView==='archived'?'Caregivers you mark not a fit, or who decline, show here. You can restore the ones you marked.':'Open Not a fit to restore someone.'}</div></div>
@@ -602,7 +545,7 @@ export function EmployerWorkspace(){
       </section>}
 
       {shownTab==='talent'&&<section className="section-block">
-        <div className="section-heading"><h2>Find caregivers</h2><p>Everyone available near you, closest first. Invite someone to an opening to start working with them.</p></div>
+        <div className="section-heading"><h2>Find caregivers</h2></div>
         <form className="talent-filters settings-card" onSubmit={searchTalent}>
           <div className="talent-filters-row">
             <input value={filters.role} onChange={e=>setFilters({...filters,role:e.target.value})} placeholder="Role or skill: CNA, dementia" aria-label="Role or skill" />
@@ -623,25 +566,26 @@ export function EmployerWorkspace(){
             <button type="button" className="text-button talent-clear" onClick={()=>{const reset={...EMPTY_FILTERS,zip:homeZip};setFilters(reset);void searchTalent(undefined,reset)}}>Clear</button>
           </div>
         </form>
-        {alerts.length>0&&<div className="talent-alerts"><span>Email alerts:</span>{alerts.map(a=><span className="badge" key={a.id}>{a.label}<button type="button" className="badge-remove" aria-label={'Turn off alert '+a.label} onClick={()=>void removeAlert(a.id)}>×</button></span>)}</div>}
         {talentState==='loading'?<div className="empty"><strong>Loading available caregivers…</strong></div>:
          talentState==='error'?<div className="empty"><strong>Couldn't load caregivers.</strong><div>Retry the search to view available profiles.</div></div>:
-         talentState==='ready'&&candidates.length===0?<div className="empty"><strong>{filters.radius==='commute'?'No caregivers near '+(talentSearchedZip||'you')+' match yet.':'No caregivers match these filters yet.'}</strong><div>{filters.radius==='commute'?'Nobody who matches lives within commuting distance yet. Save this search and CareJoys emails you when someone nearby joins.':'Caregivers show here once they confirm their availability and verify their profile. Try clearing the filters.'}</div>{filters.radius==='commute'&&<div className="empty-actions"><button type="button" className="button secondary" onClick={()=>void saveAlert()}>Email me when someone nearby joins</button></div>}</div>:
-         talentState==='ready'?<TalentResults candidates={candidates} total={talentTotal} nearby={talentNearby} zip={talentSearchedZip} sortedByDistance={!filters.sort&&!!talentSearchedZip} actions={talentActions} onOpen={c=>setTalentPanelId(c.id)} onSaveAlert={()=>void saveAlert()}/>:
+         talentState==='ready'&&candidates.length===0?<div className="empty"><strong>{filters.radius==='commute'?'No caregivers near '+(talentSearchedZip||'you')+' match yet.':'No caregivers match these filters yet.'}</strong><div>{filters.radius==='commute'?'Nobody who matches lives within commuting distance yet. Turn on new-caregiver emails in Settings to hear when someone nearby joins.':'Caregivers show here once they confirm their availability and verify their profile. Try clearing the filters.'}</div></div>:
+         talentState==='ready'?<TalentResults candidates={candidates} total={talentTotal} nearby={talentNearby} zip={talentSearchedZip} sortedByDistance={!filters.sort&&!!talentSearchedZip} actions={talentActions} onOpen={c=>setTalentPanelId(c.id)}/>:
          <div className="empty"><strong>Loading available caregivers…</strong></div>}
       </section>}
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
-      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency}/>}
+      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
 
       {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
         <AgencyJobsPanel onRecruit={openingId=>void (async()=>{await refreshWorkspace();await runMatch(openingId)})()}/>
       </section>}
 
-      {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')}/>}
-      {talentPanel&&!talentPageId&&<TalentPanel candidate={talentPanel} actions={talentActions} onClose={()=>setTalentPanelId('')}/>}
+      {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')}
+        onOpenPage={()=>{window.history.pushState(null,'','/app?candidate='+encodeURIComponent(panelRow.id));setPageRowId(panelRow.id);setPanelRowId('');window.scrollTo(0,0)}}/>}
+      {talentPanel&&!talentPageId&&<TalentPanel candidate={talentPanel} actions={talentActions} onClose={()=>setTalentPanelId('')}
+        onOpenPage={()=>{window.history.pushState(null,'','/app?talent='+encodeURIComponent(talentPanel.id));setTalentPageId(talentPanel.id);setTalentPanelId('');window.scrollTo(0,0)}}/>}
       {showTemplates&&<EmailTemplatesModal templates={templates} onSave={saveTemplate} onDelete={deleteTemplate} onClose={()=>setShowTemplates(false)}/>}
       {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} serviceArea={workspace?.employer_type!=='assisted_living'} pendingApproval={pendingApproval} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
 
@@ -687,7 +631,7 @@ function talentParams(chosen:TalentFilterState){
  * Search results: caregivers within commuting range first, then everyone farther away under a divider. Tiles can be
  * picked and invited to one opening together.
  */
-function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onOpen,onSaveAlert}:{candidates:Candidate[];total:number;nearby:number;zip:string;sortedByDistance:boolean;actions:TalentActions;onOpen:(c:Candidate)=>void;onSaveAlert:()=>void}){
+function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onOpen}:{candidates:Candidate[];total:number;nearby:number;zip:string;sortedByDistance:boolean;actions:TalentActions;onOpen:(c:Candidate)=>void}){
   const near=sortedByDistance?candidates.filter(c=>c.withinCommute):candidates;
   const far=sortedByDistance?candidates.filter(c=>!c.withinCommute):[];
   const [picked,setPicked]=useState<Set<string>>(new Set());
@@ -716,7 +660,6 @@ function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onO
   return <>
     <div className="talent-results-head">
       <p className="talent-results-meta" role="status">{total} caregiver{total===1?'':'s'}{zip?' · '+nearby+' within commuting distance of '+zip:''}</p>
-      <button type="button" className="text-button" onClick={onSaveAlert}>Email me new matches</button>
     </div>
     {pickable.length>0&&<div className="match-toolbar talent-toolbar">
       <label className="match-select-all"><input type="checkbox" checked={allPicked} disabled={actions.disabled||busy} onChange={()=>setPicked(allPicked?new Set():new Set(pickable.map(c=>c.id)))}/><span>{chosen.length?chosen.length+' selected':'Select all nearby ('+pickable.length+')'}</span></label>
@@ -778,9 +721,9 @@ function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCance
   }
   return <div className="modal-backdrop" onMouseDown={onCancel}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>
     <button className="modal-close" onClick={onCancel}>×</button>
-    <div className="modal-kicker">{opening?'Edit opening':'New opening'}</div>
-    <h2>{opening?'Update this opening.':'Who do you need?'}</h2>
-    <p className="modal-intro">{opening?'Saving re-ranks the caregiver network for this opening. Caregivers you already invited stay on your list.':'Add the role once. CareJoys uses it to rank the caregiver network immediately.'}</p>
+    <div className="modal-kicker">{opening?'Edit job listing':'New job listing'}</div>
+    <h2>{opening?'Update this job listing.':'Who do you need?'}</h2>
+    <p className="modal-intro">{opening?'Saving re-ranks the caregiver network for this job listing. Caregivers you already invited stay on your list.':'Add the role once. CareJoys uses it to rank the caregiver network immediately.'}</p>
     <form className="intake-form" onSubmit={submit}>
       <div className="form-grid">
         <label>ZIP code<input name="zip" required inputMode="numeric" pattern="[0-9]{5}" maxLength={5} defaultValue={opening?.zip||''} placeholder="21030" /></label>
@@ -796,7 +739,7 @@ function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCance
       <ScheduleEditor initial={parseOpeningSchedule(opening?.schedule_json)}/>
       <label>Requirements<textarea name="requirements" rows={4} defaultValue={opening?.requirements||''} placeholder="Experience, credential, schedule, client requirements..." /></label>
       <label className="check-row"><input type="checkbox" name="transportationRequired" defaultChecked={Number(opening?.transportation_required||0)===1} /><span>Reliable transportation required</span></label>
-      <button className="button submit-button" disabled={busy}>{opening?'Save':pendingApproval?'Create opening':'Create & match'}</button>
+      <button className="button submit-button" disabled={busy}>{opening?'Save':pendingApproval?'Create job listing':'Create & match'}</button>
     </form>
   </div></div>;
 }
