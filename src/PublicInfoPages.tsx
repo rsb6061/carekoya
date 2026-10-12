@@ -19,7 +19,7 @@ export function EmployerRecruitingPage(){
     return ()=>window.removeEventListener('hashchange',scrollToClaim);
   },[]);
   return <div>
-    <SiteHeader audience="employer" jobsHref={jobsHubPath(state)}/>
+    <SiteHeader jobsHref={jobsHubPath(state)}/>
     <main>
       <section className="hero"><div className="wrap">
         <div className="modal-kicker">Hire caregivers</div>
@@ -143,7 +143,7 @@ export function PricingPage(){
   useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
   const free=freeContacts??5;
   return <div>
-    <SiteHeader audience="employer"/>
+    <SiteHeader/>
     <main>
       <section className="hero pricing-hero"><div className="wrap pricing-grid">
         <div>

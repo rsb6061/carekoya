@@ -21,7 +21,7 @@ async function submitJson(path: string, data: Record<string, unknown>) {
 
 const ROLES = ['CNA', 'GNA', 'HHA', 'PCA', 'Caregiver', 'DSP', 'CMT / Med Tech', 'Resident Assistant', 'Memory Care Aide'];
 
-/** /hire-caregivers: an employer describes the opening on its own page, laid out like sign-in. */
+/** /hire-caregivers: the step after /pricing. An employer tells us about their hiring, then can book a call from the confirmation. */
 export function FindCaregiversPage() {
   return <IntakePage kind="employer" />;
 }
@@ -43,6 +43,12 @@ function IntakePage({ kind }: { kind: Kind }) {
   const [turnstileToken, setTurnstileToken] = useState('');
   // A signed-in employer's company, name, phone and ZIP are already on file.
   const [known, setKnown] = useState<{companyName?:string;contactName?:string;phone?:string;zip?:string}|null>(null);
+  // Booking link for the confirmation screen; set as EMPLOYER_CALL_URL on the Worker.
+  const [callUrl, setCallUrl] = useState('');
+  useEffect(() => {
+    if (kind !== 'employer') return;
+    fetch('/api/public/pricing').then(r => r.json()).then((d: any) => setCallUrl(typeof d?.callUrl === 'string' ? d.callUrl : '')).catch(() => {});
+  }, [kind]);
   useEffect(() => {
     if(kind!=='employer')return;
     const goToClaim=()=>{if(window.location.hash==='#claim-agency')window.requestAnimationFrame(()=>document.getElementById('claim-agency')?.scrollIntoView({block:'start'}))};
@@ -64,7 +70,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     try {
       const result = await submitJson(kind === 'employer' ? '/api/employers' : '/api/schools', data);
       if (result.redirect) { window.location.assign(result.redirect); return; }
-      if (kind === 'employer') setMessage('The secure link in your email takes you straight to your matches.'+(result.outOfArea?' CareJoys is still growing in your area, so your first matches may be fewer while caregivers near you join.':''));
+      if (kind === 'employer') setMessage('We emailed you a secure link to your hiring workspace.'+(result.outOfArea?' CareJoys is still growing in your area, so we’ll talk through coverage on the call.':''));
       setStatus('success');
     } catch (error) {
       setStatus('error');
@@ -76,16 +82,21 @@ function IntakePage({ kind }: { kind: Kind }) {
 
   if (status === 'success') return <Shell><div className="login-card">
     <div className="success-mark">✓</div>
-    <h1 style={{marginTop:18}}>{kind === 'employer' ? 'Check your email.' : 'Thanks, we have it.'}</h1>
-    <p className="login-sub">{kind === 'employer' ? message : 'CareJoys will review your program for the Maryland directory and reply by email.'}</p>
-    <div className="empty-actions"><a className="button secondary" href="/">Back to CareJoys</a></div>
+    <h1 style={{marginTop:18}}>{kind === 'employer' ? 'You’re in. Let’s pick a time.' : 'Thanks, we have it.'}</h1>
+    <p className="login-sub">{kind === 'employer'
+      ? (callUrl ? 'Book a 15-minute call and we’ll walk through your openings and how we’ll take over your applicant pipeline. '+message : message+' Reply to that email and we’ll set up a 15-minute call about your openings.')
+      : 'CareJoys will review your program for the Maryland directory and reply by email.'}</p>
+    <div className="empty-actions">
+      {kind === 'employer' && callUrl && <a className="button" href={callUrl} target="_blank" rel="noopener noreferrer">Book a call</a>}
+      <a className="button secondary" href="/">Back to CareJoys</a>
+    </div>
   </div></Shell>;
 
   return <Shell wide><div className="intake-page login-card">
     <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
-    <h1>{kind === 'employer' ? 'Hire caregivers' : 'Add your training program'}</h1>
+    <h1>{kind === 'employer' ? 'Tell us about your hiring' : 'Add your training program'}</h1>
     <p className="login-sub">{kind === 'employer'
-      ? 'Tell us who you need. CareJoys creates the job listing, matches local caregivers, and '+(lockedEmail?'opens your matches.':'emails you a secure link to review them.')
+      ? 'We’ll take over your applicant pipeline. Every applicant contacted in 30 minutes, screened, and scheduled.'
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>
     {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="#claim-agency">Claim your agency free</a>.</p>}
     <form className="intake-form" onSubmit={handleSubmit}>
@@ -120,7 +131,7 @@ function IntakePage({ kind }: { kind: Kind }) {
       </>}
       <TurnstileField onToken={setTurnstileToken} />
       {status === 'error' && <div className="notice">{message}</div>}
-      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Create job listing & continue' : 'Request addition'}</button>
+      <button className="button login-continue" disabled={status === 'saving'}>{status === 'saving' ? 'Submitting…' : kind === 'employer' ? 'Get started' : 'Request addition'}</button>
     </form>
   </div>
   {kind==='employer'&&<section id="claim-agency" className="intake-agency-claim" aria-label="Claim your agency">

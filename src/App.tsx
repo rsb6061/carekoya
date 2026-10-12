@@ -90,7 +90,7 @@ function NotFound(){
     <main className="section not-found"><div className="wrap">
       <div className="modal-kicker">404</div>
       <h1>Page not found</h1>
-      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs">caregiver jobs</a>, or <a className="text-link" href="/hire-caregivers">hiring caregivers</a>.</p>
+      <p>That page doesn’t exist. Try <a className="text-link" href="/">the CareJoys home page</a>, <a className="text-link" href="/caregiver-jobs">caregiver jobs</a>, or <a className="text-link" href="/pricing">hiring caregivers</a>.</p>
     </div></main>
     <SiteFooter/>
   </div>;
@@ -103,7 +103,7 @@ function Home() {
     if(!auth.loading&&auth.isAuthenticated)window.location.replace(homePath(auth.roles,lastDashboard()));
   },[auth.loading,auth.isAuthenticated]);
   return <div>
-    <SiteHeader audience="caregiver" cta/>
+    <SiteHeader/>
 
     <main>
       <HomeHero/>

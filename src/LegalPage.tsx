@@ -8,7 +8,7 @@ const updated='October 12, 2026';
 export function LegalPage({kind}:{kind:Kind}){
   const privacy=kind==='privacy';
   return <div>
-    <SiteHeader audience="employer"/>
+    <SiteHeader/>
     <main className="legal-shell"><div className="wrap legal-wrap">
       <div className="legal-kicker">CareJoys</div>
       <h1>{privacy?'Privacy Policy':'Terms of Service'}</h1>

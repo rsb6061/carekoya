@@ -81,8 +81,8 @@ test('employer onboarding from Hire caregivers', async({page})=>{
   await page.getByLabel('What kind of employer are you?').selectOption('home_care');
   await page.getByLabel('Your name').fill('Sam Employer');
   await page.getByRole('textbox',{name:'Email'}).fill('e2e-new-employer@example.test');
-  await page.getByRole('button',{name:'Create job listing & continue'}).click();
-  await expect(page.getByRole('heading',{name:'Check your email.'})).toBeVisible();
+  await page.getByRole('button',{name:'Get started'}).click();
+  await expect(page.getByRole('heading',{name:'You’re in. Let’s pick a time.'})).toBeVisible();
   clean(w);
 });
 
