@@ -1458,6 +1458,8 @@ async function matchCaregiverToOpenings(env:Env,caregiverId:string,source:string
     AND NOT EXISTS (SELECT 1 FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id WHERE ao.claimed_employer_id=o.employer_id AND ai.caregiver_id=?)
     AND NOT EXISTS (SELECT 1 FROM caregiver_hidden_employers h WHERE h.caregiver_id=? AND h.employer_id=o.employer_id)`;
   const args:unknown[]=[caregiverId,caregiverId];
+  // A test profile is only ever matched to test workspaces, so no real agency sees it.
+  if(Number(caregiver.is_test)===1)sql+=" AND o.employer_id IN (SELECT id FROM employer_leads WHERE is_test=1)";
   if(geo){
     const box=boundingBox(geo,commuteRadiusMiles(caregiver)+MAX_SERVICE_RADIUS_MILES);
     sql+=" AND (zg.lat IS NULL OR (zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?))";
@@ -1494,7 +1496,7 @@ async function handleSchool(request: Request, env: Env) {
     .bind(id,clean(data!.organizationName,250),clean(data!.contactName,200),email,clean(data!.phone,40),clean(data!.city,120),clean(data!.state,80),clean(data!.programTypes,500),clean(data!.graduatingCount,50),clean(data!.notes,1500)).run();
   return json({ok:true,id},{status:201});
 }
-const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))";
+const SEARCHABLE_CAREGIVER="c.is_active=1 AND c.work_status='actively_looking' AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND COALESCE(c.is_test,0)=0";
 const TALENT_COLUMNS=`c.id,c.first_name,c.last_name,c.display_name,c.city,c.state,c.zip,c.role,c.certifications,c.specialties,c.languages,c.years_experience,c.desired_wage,c.hourly_rate_min,c.hourly_rate_max,c.shift_preferences,c.travel_distance_miles,c.transportation,c.willing_to_drive,c.work_status,c.last_confirmed_at,c.source,c.profile_photo_url,c.bio,c.care_settings,c.preferred_settings,c.employment_types,c.start_availability,c.availability_json,c.license_number,c.license_state,c.checklist,EXISTS(SELECT 1 FROM caregiver_resume_files rf WHERE rf.caregiver_id=c.id) AS has_resume,${HAS_INTRO_VIDEO_SQL},zg.lat AS geo_lat,zg.lng AS geo_lng,zg.state AS geo_state`;
 /** Miles from the search center, or null when the caregiver's ZIP is unknown or contradicts the location they typed. */
 const talentDistance=(center:{lat:number;lng:number}|null,c:Record<string,unknown>)=>{

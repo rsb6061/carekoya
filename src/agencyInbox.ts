@@ -113,6 +113,9 @@ export type InterestResult={interestId:string;organizationId:string;agencyName:s
 
 export async function createAgencyInterests(env:FeatureEnv,input:{caregiverId:string;targets:ResolvedTarget[];source:string;requestId?:string|null;note?:string}){
   if(!env.DB)throw new Error('CareJoys is not available right now.');
+  // A test profile walks the whole flow but nothing reaches an agency: no inbox entry and no email.
+  const test=await env.DB.prepare('SELECT 1 FROM caregivers WHERE id=? AND is_test=1 LIMIT 1').bind(input.caregiverId).first();
+  if(test)return input.targets.map(t=>({interestId:'test',organizationId:t.organizationId,agencyName:t.agencyName,jobId:t.jobId,jobTitle:t.jobTitle,status:'sent'}) as InterestResult);
   const results:InterestResult[]=[];
   const touched=new Set<string>();
   for(const t of input.targets){

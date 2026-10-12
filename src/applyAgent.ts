@@ -126,6 +126,9 @@ export async function startApplyAgent(env:ApplyEnv,identity:CaregiverIdentity|nu
   if(!caregiverId)return json({ok:false,error:'Add your resume on CareJoys first.',needsProfile:true},{status:404});
   const job=await agentJob(env,jobId);
   if(!job)return json({ok:false,error:'This job is no longer open.'},{status:404});
+  // Never fill in a real employer's application for a CareJoys test account.
+  if(await env.DB.prepare('SELECT 1 FROM caregivers WHERE id=? AND is_test=1 LIMIT 1').bind(caregiverId).first())
+    return json({ok:false,error:'Apply for me is off for test accounts, so no employer gets a test application.',fallbackUrl:job.sourceUrl},{status:403});
   const provider=detectApplyProvider(job.sourceUrl);
   if(!provider)return json({ok:false,error:'CareJoys can’t fill in this employer’s application yet.',fallbackUrl:job.sourceUrl},{status:422});
   if(!env.BROWSER)return json({ok:false,error:'Apply for me isn’t switched on yet.',fallbackUrl:job.sourceUrl},{status:503});

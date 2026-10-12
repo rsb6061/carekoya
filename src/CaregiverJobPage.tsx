@@ -196,7 +196,7 @@ function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicati
   }
   const rows:[string,string][]=([
     ['Name',[profile.firstName,profile.lastName].filter(Boolean).join(' ')],
-    ['Role',[profile.role,profile.certifications].filter(Boolean).join(' · ')],
+    ['Role',[...new Set([profile.role,profile.certifications].filter(Boolean))].join(' · ')],
     ['Location',[profile.city,profile.state,profile.zip].filter(Boolean).join(', ')],
     ['Shifts',profile.shifts||''],
     ['Desired pay',profile.desiredWage||''],
