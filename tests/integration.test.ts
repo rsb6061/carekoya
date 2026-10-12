@@ -2429,7 +2429,7 @@ describe('sms', ()=>{
       expect(sent.some(m=>m.to==='smsrem@example.com')).toBe(false);
       const reminder=(await smsTo(REM)).find((m:any)=>m.template==='invite_reminder_v1');
       expect(reminder.body).toMatch(/^CareJoys: Still interested in the CNA Towson with SMS Home Care\? Reply YES or NO\. Details: carejoys\.com\/r\/[A-Za-z0-9]{10}\. Reply STOP to opt out\.$/);
-      expect(await DB.prepare("SELECT channel FROM outreach_events WHERE caregiver_id='smsrem' AND event_type='invite_reminder' ORDER BY occurred_at DESC LIMIT 1").first()).toEqual({channel:'sms'});
+      expect(await DB.prepare("SELECT channel FROM outreach_events WHERE caregiver_id='smsrem' AND event_type='invite_reminder' AND opening_id=(SELECT opening_id FROM candidate_pipeline WHERE id='sms-on-smsrem')").first()).toEqual({channel:'sms'});
     });
 
     it('texts interview reminders the day before and 2 hours before, once each', async()=>{
