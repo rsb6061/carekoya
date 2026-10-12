@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { useCaregiverAuth } from './caregiverAuth';
 import { ApplyForMe } from './ApplyForMe';
+import { ApplySignIn } from './ApplySignIn';
 import { jobsHubPath, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { descriptionBlocks, payLabel, pillLabel } from './jobFormat';
@@ -42,6 +43,8 @@ export function CaregiverJobPage(){
   const [applying,setApplying]=useState(false);
   const [applyError,setApplyError]=useState('');
   const [applied,setApplied]=useState<ApplyResult|null>(null);
+  // Apply starts with sign-in; "Apply without signing in" skips it for this visit.
+  const [guest,setGuest]=useState(false);
 
   // A signed-in caregiver with a profile applies in one click; everyone else uploads a resume first.
   useEffect(()=>{
@@ -144,12 +147,16 @@ export function CaregiverJobPage(){
     {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
-        {profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
+        {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
+        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} next={window.location.pathname+'#apply'} onGuest={()=>setGuest(true)}/>
+        :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
         :<CaregiverOnboarding
           compact
           targetJobId={job.id}
           heading="Upload your resume to apply"
-          subheading={'We’ll build your CareJoys profile, ask only for anything missing, then send you to '+job.employerName+' to finish the application.'}
+          subheading={job.employerOnCareJoys
+            ?'We’ll read it, ask only for anything missing, then send your application to '+job.employerName+'.'
+            :'We’ll read it, ask only for anything missing, then send you to '+job.employerName+' to finish the application.'}
         />}
       </div>
     </div>}

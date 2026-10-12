@@ -1255,7 +1255,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   if(rejectBot(data))return json({ok:true},{status:201});
   // Sign-in is optional for a new profile; it is only required to change a profile that already exists (below).
   const authIdentity=await caregiverAuthIdentity(request,env);
-  const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60);
+  const guard=await publicFormGuard(request,env,"caregiver_resume",data,8,60,!!authIdentity);
   if(guard)return guard;
   const error=requireFields(data,["firstName","lastName","email","zip","role"]);
   if(error)return json({ok:false,error},{status:400});
