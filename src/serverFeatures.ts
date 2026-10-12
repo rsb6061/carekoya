@@ -89,10 +89,12 @@ export async function validateTurnstile(request:Request,env:FeatureEnv,token:str
   }catch{return false}
 }
 
-export async function publicFormGuard(request:Request,env:FeatureEnv,bucket:string,data:Record<string,unknown>|null,limit=10,minutes=60){
+/** Security check plus a rate limit for public forms. `signedIn` skips the security check: a proven sign-in already
+ *  shows a person is there, and the rate limit still applies. */
+export async function publicFormGuard(request:Request,env:FeatureEnv,bucket:string,data:Record<string,unknown>|null,limit=10,minutes=60,signedIn=false){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const turnstile=clean(data?.turnstileToken||data?.['cf-turnstile-response'],2048);
-  if(!(await validateTurnstile(request,env,turnstile)))return json({ok:false,error:'Please complete the security check and try again.'},{status:400});
+  if(!signedIn&&!(await validateTurnstile(request,env,turnstile)))return json({ok:false,error:'Please complete the security check and try again.'},{status:400});
   const ip=request.headers.get('CF-Connecting-IP')||'unknown';
   const email=clean(data?.email,320).toLowerCase();
   const identity=await sha256Hex(ip+'|'+email);

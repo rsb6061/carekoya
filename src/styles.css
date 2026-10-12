@@ -76,7 +76,7 @@ a{color:inherit;text-decoration:none}
 .intake-form input:focus,.intake-form select:focus,.intake-form textarea:focus{border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
 .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 22px}
 .check-row{display:flex!important;gap:10px!important;align-items:flex-start;font-size:13px!important;font-weight:400!important;color:var(--muted);line-height:1.5}
-.check-row input{width:17px;height:17px;margin-top:2px}
+.check-row input,.resume-profile-form .check-row input{flex:0 0 auto;width:17px;height:17px;margin-top:2px;padding:0;border-radius:4px;box-shadow:none}
 .submit-button{width:100%;min-height:48px;margin-top:4px}
 .modal-success{text-align:center;padding:18px 6px 6px}
 .modal-success h2{margin-top:14px}
@@ -95,7 +95,7 @@ a{color:inherit;text-decoration:none}
 
 .legal-consent{font-size:13px;line-height:1.55;color:var(--muted);background:#f6f3ff;border:1px solid var(--lavender);border-radius:16px;padding:12px 14px}
 .legal-consent a{text-decoration:underline;text-underline-offset:2px}
-.turnstile-wrap{min-height:65px;display:flex;align-items:center}
+.turnstile-wrap{display:flex;align-items:center}
 .turnstile-note{font-size:13px;color:#8b4513;background:#fff4df;border:1px solid #e8c99e;border-radius:14px;padding:10px 12px}
 .legal-shell{padding:56px 0 84px;background:var(--cream)}
 .legal-wrap{max-width:860px}
@@ -487,3 +487,27 @@ a{color:inherit;text-decoration:none}
   .home-job-preview .search .btn{grid-column:1/-1}
 }
 .pricing-supply-section h2{margin-bottom:8px}.pricing-supply-section .pricing-supply{margin-top:20px}
+
+/* Inline form errors instead of the browser's "Please fill out this field" bubble */
+.resume-profile-form [aria-invalid="true"]{border-color:#d0574a;box-shadow:0 0 0 3px rgba(208,87,74,.14)}
+.field-error{font-size:13px;font-weight:500;color:#b5402f}
+.onboarding-skip-resume{display:block;margin:14px auto 0}
+
+/* Apply, step one: sign in with Google or an emailed link */
+.apply-signin{text-align:center;max-width:440px;margin:0 auto;padding:8px 0 4px}
+.apply-signin h2{font-family:var(--display);font-size:34px;line-height:1.08;font-weight:400;letter-spacing:-.03em;margin:6px 0 10px}
+.apply-signin-sub{font-size:16px;line-height:1.5;color:var(--muted);margin:0 0 24px}
+.apply-google{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:52px;padding:0 18px;border:1px solid var(--lavender);border-radius:999px;background:#fff;color:var(--ink);font:inherit;font-size:16px;font-weight:600;cursor:pointer;transition:background .15s,box-shadow .15s}
+.apply-google:hover{background:#fbfaff;box-shadow:0 2px 8px rgba(41,32,89,.08)}
+.apply-or{display:flex;align-items:center;gap:14px;margin:22px 0;color:var(--muted);font-size:14px}
+.apply-or::before,.apply-or::after{content:"";flex:1;height:1px;background:var(--lavender)}
+.apply-signin-form{display:grid;gap:10px;text-align:left}
+.apply-signin-form label{font-size:15px;font-weight:600;color:var(--ink)}
+.apply-signin-form input{width:100%;height:52px;border:1px solid var(--lavender);border-radius:16px;padding:0 14px;background:#fff;color:var(--ink);font:inherit;outline:none}
+.apply-signin-form input:focus{border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
+.apply-signin-form input[aria-invalid="true"]{border-color:#d0574a}
+.apply-continue{width:100%;min-height:52px;margin-top:6px;font-size:16px}
+.apply-guest{margin-top:16px}
+.apply-signin-terms{font-size:13px;line-height:1.55;color:var(--muted);margin:14px 0 0}
+.apply-signin-terms a,.apply-signin-employer a{text-decoration:underline;text-underline-offset:2px}
+.apply-signin-employer{font-size:14px;color:var(--muted);margin:18px 0 0;padding-top:16px;border-top:1px solid var(--lavender)}

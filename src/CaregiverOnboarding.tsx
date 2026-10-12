@@ -84,8 +84,9 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const resumeFileRef=useRef<File|null>(null);
   const [turnstileToken,setTurnstileToken]=useState('');
   const [editParsed,setEditParsed]=useState(false);
-  const [turnstileRequired,setTurnstileRequired]=useState(false);
-  useEffect(()=>{fetch('/api/config').then(r=>r.json()).then((c:any)=>setTurnstileRequired(!!c?.turnstileSiteKey)).catch(()=>{})},[]);
+  // Shown after a submit with something missing: the fields are outlined and named, instead of the browser's own bubble.
+  const [showErrors,setShowErrors]=useState(false);
+  const formRef=useRef<HTMLFormElement>(null);
   const [sendProfile,setSendProfile]=useState(true);
   const [continuing,setContinuing]=useState(false);
 
@@ -131,8 +132,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   // After signing in to claim an existing profile, send the same answers again automatically.
   useEffect(()=>{
+    // Signed-in saves skip the security check, so this can go as soon as they are back.
     if(!pendingResubmit||!auth.isAuthenticated||stage!=='profile'||status==='saving')return;
-    if(turnstileRequired&&!turnstileToken)return;
     setPendingResubmit(false);
     void save();
   },[pendingResubmit,auth.isAuthenticated,stage,turnstileToken]);
@@ -189,6 +190,14 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   async function onSubmit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
+    const invalid=Object.entries(missing).filter(([,v])=>v).map(([k])=>k);
+    if(invalid.length){
+      setShowErrors(true);setStatus('error');
+      setMessage('Fill in the '+(invalid.length===1?'highlighted field':'highlighted fields')+' to continue.');
+      setTimeout(()=>(formRef.current?.querySelector('[aria-invalid="true"]') as HTMLElement|null)?.focus(),0);
+      return;
+    }
+    setShowErrors(false);
     await save();
   }
 
@@ -264,9 +273,17 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   }
 
   const missing=useMemo(()=>({
-    firstName:!form.firstName,lastName:!form.lastName,email:!form.email&&!auth.email,
-    zip:!form.zip,state:needsState&&!form.state,role:!form.role
-  }),[form,auth.email]);
+    firstName:!form.firstName.trim(),lastName:!form.lastName.trim(),email:!auth.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()),
+    zip:!/^\d{5}$/.test(form.zip.trim()),state:needsState&&!/^[A-Za-z]{2}$/.test(form.state),role:!form.role
+  }),[form,auth.email,needsState]);
+  // The fields stay on screen once shown, so fixing one doesn't make the row disappear under the cursor.
+  const shown=useRef({name:false,email:false,place:false,state:false}).current;
+  if(missing.firstName||missing.lastName)shown.name=true;
+  if(missing.email)shown.email=true;
+  if(missing.zip||missing.role||missing.state)shown.place=true;
+  if(missing.state)shown.state=true;
+  const bad=(key:keyof typeof missing)=>showErrors&&missing[key];
+  const fieldError=(key:keyof typeof missing,text='Required')=>bad(key)?<span className="field-error">{text}</span>:null;
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
 
   if(stage==='success'&&result){
@@ -351,17 +368,17 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         {summaryValue('Credentials',form.certifications)}
         {summaryValue('Skills',form.specialties)}
       </div>}
-      <form className="resume-profile-form onboarding-missing-form" onSubmit={onSubmit}>
-        {(missing.firstName||missing.lastName||editParsed)&&<div className="form-grid">
-          <label>First name<input value={form.firstName} onChange={e=>patch('firstName',e.target.value)} required /></label>
-          <label>Last name<input value={form.lastName} onChange={e=>patch('lastName',e.target.value)} required /></label>
+      <form ref={formRef} className="resume-profile-form onboarding-missing-form" onSubmit={onSubmit} noValidate>
+        {(shown.name||editParsed)&&<div className="form-grid">
+          <label>First name<input value={form.firstName} onChange={e=>patch('firstName',e.target.value)} autoComplete="given-name" aria-invalid={bad('firstName')} />{fieldError('firstName')}</label>
+          <label>Last name<input value={form.lastName} onChange={e=>patch('lastName',e.target.value)} autoComplete="family-name" aria-invalid={bad('lastName')} />{fieldError('lastName')}</label>
         </div>}
-        {!auth.isAuthenticated&&(missing.email||editParsed)&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} required /></label>}
-        {(missing.zip||missing.state||missing.role||editParsed)&&<div className="form-grid">
-          <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);if(!form.state)patch('state',inferState(e.target.value))}} inputMode="numeric" pattern="[0-9]{5}" required /></label>
-          <label>Role<select value={form.role} onChange={e=>patch('role',e.target.value)} required><option value="">Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>DSP</option><option>Caregiver</option><option>Other</option></select></label>
+        {!auth.isAuthenticated&&(shown.email||editParsed)&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} autoComplete="email" aria-invalid={bad('email')} />{fieldError('email',form.email?'Enter a valid email':'Required')}</label>}
+        {(shown.place||editParsed)&&<div className="form-grid">
+          <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);if(!form.state)patch('state',inferState(e.target.value))}} inputMode="numeric" autoComplete="postal-code" maxLength={5} aria-invalid={bad('zip')} />{fieldError('zip',form.zip?'Enter a 5-digit ZIP':'Required')}</label>
+          <label>Role<select value={form.role} onChange={e=>patch('role',e.target.value)} aria-invalid={bad('role')}><option value="">Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>DSP</option><option>Caregiver</option><option>Other</option></select>{fieldError('role')}</label>
         </div>}
-        {(missing.state||editParsed)&&<label>State<input value={form.state} onChange={e=>patch('state',e.target.value.toUpperCase().slice(0,2))} maxLength={2} placeholder="MD" required /></label>}
+        {(shown.state||editParsed)&&<label>State<input value={form.state} onChange={e=>patch('state',e.target.value.toUpperCase().slice(0,2))} maxLength={2} placeholder="MD" aria-invalid={bad('state')} />{fieldError('state','Enter a two-letter state')}</label>}
 
         <div className="onboarding-match-fields">
           <strong>What kind of job fits?</strong>
@@ -384,7 +401,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         <label>Mobile phone (optional)<input type="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} placeholder="410-555-0123" /></label>
         <label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>
         <label className="check-row"><input type="checkbox" checked={emailAlerts} onChange={e=>setEmailAlerts(e.target.checked)}/><span>Email me a free weekly digest of relevant caregiver jobs. Optional; unsubscribe any time.</span></label>
-        <TurnstileField onToken={setTurnstileToken}/>
+        {!auth.isAuthenticated&&<TurnstileField onToken={setTurnstileToken}/>}
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
         <div className="resume-privacy">Your profile stays hidden from employers until you verify your email and confirm availability in your dashboard. Once you make it visible, your profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>
@@ -397,10 +414,9 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       <div className="resume-upload-icon">↑</div>
       <h2>{heading}</h2>
       <p>{subheading}</p>
-      <button className="btn" onClick={()=>afterResume(null)}>Continue without a resume</button>
-      <label className="btn secondary resume-file-button">{parsing?'Reading resume…':'Or upload resume'}<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={onFile} disabled={parsing}/></label>
-      <div className="onboarding-file-note">PDF, DOCX or TXT · Free</div>
-      <div className="onboarding-file-note">Uploading is optional. You can add a resume later.</div>
+      <label className="btn resume-file-button">{parsing?'Reading resume…':'Upload resume'}<input type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" onChange={onFile} disabled={parsing}/></label>
+      <div className="onboarding-file-note">PDF, DOCX or TXT. We fill in your profile from it.</div>
+      <button className="text-button onboarding-skip-resume" onClick={()=>afterResume(null)} disabled={parsing}>No resume? Continue without one</button>
       {status==='error'&&<div className="notice">{message}</div>}
     </div>
   </div>;

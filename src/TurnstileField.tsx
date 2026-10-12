@@ -7,6 +7,7 @@ declare global {
         sitekey: string;
         theme?: 'auto'|'light'|'dark';
         size?: 'normal'|'flexible'|'compact';
+        appearance?: 'always'|'execute'|'interaction-only';
         callback: (token:string)=>void;
         'expired-callback'?: ()=>void;
         'error-callback'?: ()=>void;
@@ -64,6 +65,8 @@ export function TurnstileField({onToken}:{onToken:(token:string)=>void}){
         sitekey:siteKey,
         theme:'light',
         size:'flexible',
+        // Hidden unless Cloudflare actually needs the person to click something, so forms don't carry a "Success!" box.
+        appearance:'interaction-only',
         callback:onToken,
         'expired-callback':()=>onToken(''),
         'error-callback':()=>{onToken('');setFailed(true)}

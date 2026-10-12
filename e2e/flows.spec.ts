@@ -17,14 +17,14 @@ test('@phone job search by ZIP from the homepage', async({page})=>{
   await expect(page.locator('.home-preview-results').getByRole('link',{name:/CNA - Day Shift/})).toBeVisible();
   await page.getByRole('link',{name:'Create my free profile for personalized matches'}).click();
   await expect(page).toHaveURL(/\/caregiver-resume\?zip=21201&role=CNA/);
-  await expect(page.getByRole('button',{name:'Continue without a resume'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'No resume? Continue without one'})).toBeVisible();
   clean(w);
 });
 
 test('@phone caregiver signup without a resume', async({page},info)=>{
   const w=await watch(page);
   await page.goto('/caregiver-resume?zip=21201&role=CNA');
-  await page.getByRole('button',{name:'Continue without a resume'}).click();
+  await page.getByRole('button',{name:'No resume? Continue without one'}).click();
   await page.getByLabel('First name').fill('Jordan');
   await page.getByLabel('Last name').fill('Signup');
   await page.getByRole('textbox',{name:'Email'}).fill(`e2e-signup-${info.project.name}@example.test`);
@@ -35,6 +35,25 @@ test('@phone caregiver signup without a resume', async({page},info)=>{
   // The sign-in link to come back later.
   await page.getByRole('button',{name:'Email me a sign-in link'}).click();
   await expect(page.getByText(/check your email|sent|link/i).first()).toBeVisible();
+  clean(w);
+});
+
+test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
+  const w=await watch(page);
+  await page.goto('/jobs/'+JOBS.external);
+  await page.getByRole('button',{name:'Apply',exact:true}).click();
+  await expect(page.getByText('Apply on CareJoys')).toBeVisible();
+  await expect(page.getByLabel('Email address')).toBeVisible();
+  await expect(page.getByRole('link',{name:'Set up an employer account'})).toHaveAttribute('href','/hire-caregivers');
+  await page.getByRole('button',{name:'Apply without signing in'}).click();
+  await expect(page.getByText('Upload resume')).toBeVisible();
+  await page.getByRole('button',{name:'No resume? Continue without one'}).click();
+  await page.getByRole('button',{name:'Apply',exact:true}).last().click();
+  await expect(page.getByText('Fill in the highlighted fields to continue.')).toBeVisible();
+  await expect(page.getByLabel('First name')).toHaveAttribute('aria-invalid','true');
+  // Typing a last name keeps the row on screen.
+  await page.getByLabel('Last name').fill('Applicant');
+  await expect(page.getByLabel('Last name')).toBeVisible();
   clean(w);
 });
 
