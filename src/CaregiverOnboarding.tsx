@@ -89,6 +89,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const formRef=useRef<HTMLFormElement>(null);
   const [sendProfile,setSendProfile]=useState(true);
   const [continuing,setContinuing]=useState(false);
+  // While applying, shifts/pay/transport are tucked behind a link unless they already have answers.
+  const [showPrefs,setShowPrefs]=useState(()=>!!(form.shifts||form.desiredWage||form.transportation));
 
   function patch<K extends keyof ResumeForm>(key:K,value:ResumeForm[K]){
     setForm(prev=>({...prev,[key]:value}));
@@ -125,6 +127,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         shifts:prev.shifts||text(c.shifts),desiredWage:prev.desiredWage||String(hourlyPayFloor(text(c.desiredWage))??''),
         transportation:prev.transportation||text(c.transportation),travelMiles:c.travelMiles?String(c.travelMiles):prev.travelMiles
       }));
+      if(c.shifts||c.desiredWage||c.transportation)setShowPrefs(true);
       setStage(s=>s==='upload'?(targetJobId?'profile':'known'):s);
     })().catch(()=>{if(live)setSaved(null)});
     return ()=>{live=false};
@@ -288,30 +291,44 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
 
   // Counts that are zero are left out, and the job they are applying to isn't offered back to them as a match.
   const otherJobs=(result?.topJobs||[]).filter(job=>job.id!==result?.targetJob?.id);
-  const matchParts=[
-    result?.matchedOrganizations?<strong key="o">{result.matchedOrganizations} relevant care organization{result.matchedOrganizations===1?'':'s'}</strong>:null,
-    result?.matchedOpenings?<strong key="j">{result.matchedOpenings} current job{result.matchedOpenings===1?'':'s'} near you</strong>:null
-  ].filter(Boolean);
-  const matchLine=matchParts.length?<>{matchParts[0]}{matchParts[1]?<> and {matchParts[1]}</>:null}</>:null;
+  const orgs=result?.matchedOrganizations||0;
+  const matchLine=orgs?<strong>{orgs} relevant care organization{orgs===1?'':'s'}</strong>:null;
   if(stage==='success'&&result){
+    const target=result.targetJob?.applicationUrl?result.targetJob:null;
+    const employer=target?.employerName||'the employer';
+    const photo=result.id&&result.profilePhotoToken?<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>:null;
+    const matches=<>
+      {matchLine&&<p>CareJoys found {matchLine}.</p>}
+      {!!otherJobs.length&&<strong className="onboarding-more-jobs">More jobs near you</strong>}
+      {!!otherJobs.length&&<ul className="onboarding-top-jobs">
+        {otherJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
+      </ul>}
+    </>;
     return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-success">
         <div className="success-mark">✓</div>
-        <div className="modal-kicker">{result.targetJob?'Application ready':'Profile ready'}</div>
-        <h2>{result.targetJob?'Your CareJoys profile is ready.':'You’re matched.'}</h2>
-        {matchLine&&<p>CareJoys found {matchLine}.</p>}
-        {!!otherJobs.length&&<ul className="onboarding-top-jobs">
-          {otherJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
-        </ul>}
-        {result.id&&result.profilePhotoToken&&<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
-        {result.targetJob?.applicationUrl
-          ?<div className="onboarding-final-action">
-            <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {result.targetJob.employerName||'this employer'} so they can contact me</span></label>
-            <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue application'}</button><span>You’ll finish on {result.targetJob.employerName||'the employer'}’s site.</span>
+        {target?<>
+          {/* Mid-apply, the one thing left is the employer's own form, so it comes first and the extras after. */}
+          <div className="modal-kicker">Profile saved</div>
+          <h2>Finish applying to {employer}.</h2>
+          <p>{employer} takes applications on their own site. We saved {target.title||'this job'} to your dashboard.</p>
+          <div className="onboarding-final-action">
+            <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {employer} so they can contact me</span></label>
+            <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue to '+employer+'’s application'}</button>
           </div>
-          :auth.isAuthenticated
+          {(photo||matchLine||otherJobs.length>0)&&<div className="onboarding-after-apply">
+            {photo}
+            {matches}
+          </div>}
+        </>:<>
+          <div className="modal-kicker">Profile ready</div>
+          <h2>You’re matched.</h2>
+          {matches}
+          {photo}
+          {auth.isAuthenticated
             ?<a className="btn" href="/dashboard">Open your dashboard</a>
             :<a className="btn" href={jobsHubPath(usState(form.state)||usState(inferState(form.zip))||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
+        </>}
         {!auth.isAuthenticated&&<div className="onboarding-save-login">
           <strong>Come back to your matches anytime</strong>
           {emailAlerts&&<span>To activate your weekly job emails, verify this email address using a CareJoys sign-in link.</span>}
@@ -387,8 +404,9 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         </div>}
         {(shown.state||editParsed)&&<label>State<input value={form.state} onChange={e=>patch('state',e.target.value.toUpperCase().slice(0,2))} maxLength={2} placeholder="MD" aria-invalid={bad('state')} />{fieldError('state','Enter a two-letter state')}</label>}
 
-        <div className="onboarding-match-fields">
-          <strong>What kind of job fits?</strong>
+        {targetJobId&&!showPrefs?<button type="button" className="text-button onboarding-prefs-toggle" onClick={()=>setShowPrefs(true)}>Add job preferences (optional)</button>
+        :<div className="onboarding-match-fields">
+          <strong>What kind of job fits?{targetJobId&&<span className="onboarding-optional"> Optional</span>}</strong>
           <div className="form-grid">
             <label>Preferred shifts<input value={form.shifts} onChange={e=>patch('shifts',e.target.value)} placeholder="Days, nights, weekends" /></label>
             <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
@@ -397,7 +415,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
             <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
             <label>Travel radius (miles)<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /></label>
           </div>
-        </div>
+        </div>}
 
         {editParsed&&<>
           <div className="form-grid"><label>Years of experience<input type="number" min="0" max="60" value={form.yearsExperience} onChange={e=>patch('yearsExperience',e.target.value)} /></label><label>Languages<input value={form.languages} onChange={e=>patch('languages',e.target.value)} /></label></div>

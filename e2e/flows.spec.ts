@@ -43,11 +43,17 @@ test('@phone Apply starts with sign-in, and the profile form flags what is missi
   await page.goto('/jobs/'+JOBS.external);
   await page.getByRole('button',{name:'Apply',exact:true}).click();
   await expect(page.getByText('Apply on CareJoys')).toBeVisible();
+  // The employer button stays off caregiver job pages.
+  await expect(page.locator('.nav-cta')).toHaveCount(0);
   await expect(page.getByLabel('Email address')).toBeVisible();
   await expect(page.getByRole('link',{name:'Set up an employer account'})).toHaveAttribute('href','/hire-caregivers');
   await page.getByRole('button',{name:'Apply without signing in'}).click();
   await expect(page.getByText('Upload resume')).toBeVisible();
   await page.getByRole('button',{name:'No resume? Continue without one'}).click();
+  // Job preferences are optional while applying, so they start folded away.
+  await expect(page.getByLabel('Preferred shifts')).toHaveCount(0);
+  await page.getByRole('button',{name:'Add job preferences (optional)'}).click();
+  await expect(page.getByLabel('Preferred shifts')).toBeVisible();
   await page.getByRole('button',{name:'Apply',exact:true}).last().click();
   await expect(page.getByText('Fill in the highlighted fields to continue.')).toBeVisible();
   await expect(page.getByLabel('First name')).toHaveAttribute('aria-invalid','true');
