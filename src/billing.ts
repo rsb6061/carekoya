@@ -1,4 +1,5 @@
 import { employerSession, type FeatureEnv } from './serverFeatures';
+import { inviteAllowance } from './caregiverProtection';
 
 type Row=Record<string,unknown>;
 export type BillingEnv=FeatureEnv&{
@@ -77,7 +78,8 @@ export async function billingStatus(request:Request,env:BillingEnv){
   const allowance=await contactAllowance(env,clean(employer.id,100));
   return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
     freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,
-    paymentIssue:allowance.status==='past_due'||allowance.status==='unpaid',yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY)});
+    paymentIssue:allowance.status==='past_due'||allowance.status==='unpaid',yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY),
+    inviteAllowance:env.DB?await inviteAllowance(env,clean(employer.id,100),allowance.subscribed):null});
 }
 
 async function stripe(env:BillingEnv,path:string,params:Record<string,string>,idempotencyKey?:string){

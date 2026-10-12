@@ -8,6 +8,7 @@ import { parseOpeningSchedule, scheduleFit, scheduleSummary, weeklyHours } from 
 import { fitSummary } from '../src/fitSummary';
 import { fillTemplate, mergeTemplates, templateMailto, BUILT_IN_TEMPLATES } from '../src/emailTemplateFill';
 import { parseChecklist } from '../src/checklist';
+import { heldBackNotice, lockedYesText, scrubBio } from '../src/caregiverProtectionRules';
 import { certificationsLabel, distanceLabel, profileTags, shiftsLabel, wageLabel } from '../src/profileTags';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent } from '../src/talentSearch';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
@@ -653,5 +654,21 @@ describe('sms', ()=>{
     expect(await verifyTwilioSignature('token',url,params,expected)).toBe(true);
     expect(await verifyTwilioSignature('other',url,params,expected)).toBe(false);
     expect(await verifyTwilioSignature('token',url,[...params,['Extra','1']],expected)).toBe(false);
+  });
+});
+
+describe('caregiver protection rules', ()=>{
+  it('scrubs emails, phone numbers, links and handles out of a bio and tidies what is left', ()=>{
+    expect(scrubBio('Call me at 410-555-1234 or (443) 555 9876. Kind CNA.')).toBe('Call me at or. Kind CNA.');
+    expect(scrubBio('Email maria.r@gmail.com or maria (at) yahoo (dot) com')).toBe('Email or');
+    expect(scrubBio('See www.mariacares.com or https://fb.com/maria and @maria_cna on IG')).toBe('See or and on IG');
+    expect(scrubBio('Visit mariacares.net today, +1 410.555.1234')).toBe('Visit today,');
+    expect(scrubBio('CNA since 2015, 5 yrs. Worked at St. Agnes 2016-2019.\n\n\n\nLove my clients!')).toBe('CNA since 2015, 5 yrs. Worked at St. Agnes 2016-2019.\n\nLove my clients!');
+    expect(scrubBio(null)).toBe('');
+  });
+  it('words held-back invitations and locked yeses plainly', ()=>{
+    expect(heldBackNotice({caregiverWeekly:2,pendingFromYou:0,weeklyLimit:0,freeLimit:0},15)).toBe('2 caregivers already have enough invitations this week. Try them again next week.');
+    expect(heldBackNotice({caregiverWeekly:0,pendingFromYou:0,weeklyLimit:0,freeLimit:0},15)).toBe('');
+    expect(lockedYesText(' Bright Home Care ')).toBe("Thanks! Bright Home Care will see your answer once they upgrade their CareJoys plan. We'll let you know if they reach out.");
   });
 });

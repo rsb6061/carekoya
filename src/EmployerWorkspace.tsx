@@ -265,14 +265,17 @@ export function EmployerWorkspace(){
   async function invite(rows:PipelineRow[]){
     if(!session||pendingApproval||!rows.length)return;
     setMessage('Sending invitations…','info');
-    let sent=0,failed=0;
+    let sent=0,failed=0;const notices:string[]=[];
     try{
       for(const openingId of [...new Set(rows.map(r=>r.opening_id))]){
         const ids=rows.filter(r=>r.opening_id===openingId).map(r=>r.id);
         const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds:ids})});
         sent+=Number(result.sent||0);failed+=Number(result.failed||0);
+        if(result.notice)notices.push(result.notice);
       }
-      setMessage(sent?sent+' caregiver'+(sent===1?'':'s')+' invited. Each one gets an email with this job and can say they’re interested.'+(failed?' '+failed+' failed.':''):(failed?'No invitations were delivered. '+failed+' failed.':'Those caregivers can’t be invited right now.'),sent?'ok':'info');
+      // Invitations held back by the weekly caps come with a plain reason from the server.
+      const held=notices.join(' ');
+      setMessage(sent?sent+' caregiver'+(sent===1?'':'s')+' invited. Each one gets an email with this job and can say they’re interested.'+(failed?' '+failed+' failed.':'')+(held?' '+held:''):(held||(failed?'No invitations were delivered. '+failed+' failed.':'Those caregivers can’t be invited right now.')),sent?'ok':'info');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not send invitations','error');
     }
@@ -295,7 +298,7 @@ export function EmployerWorkspace(){
         const result=await api<any>('/api/openings/'+openingId+'/contact',{method:'POST',body:JSON.stringify({pipelineIds})});
         const sent=Number(result.sent||0);
         const who=list.length===1?list[0].name:sent+' caregiver'+(sent===1?'':'s');
-        setMessage(sent?who+(sent===1&&list.length===1?' was':' were')+' invited to '+title+'. They’re in your candidates now.':'Added to your candidates, but the invitations didn’t send.',sent?'ok':'info');
+        setMessage(sent?who+(sent===1&&list.length===1?' was':' were')+' invited to '+title+'. They’re in your candidates now.'+(result.notice?' '+result.notice:''):result.notice||'Added to your candidates, but the invitations didn’t send.',sent?'ok':'info');
       }
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not invite these caregivers','error');

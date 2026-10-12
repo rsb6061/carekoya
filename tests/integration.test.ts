@@ -1905,6 +1905,8 @@ describe('opening follow-through', ()=>{
     await call('/api/openings/'+id+'/match',{method:'POST',headers});
     const rows=(await (await call('/api/pipeline?openingId='+id,{headers})).json() as any).pipeline;
     const ids=rows.filter((r:any)=>['fu-near','fu-towson'].includes(r.caregiver_id)).map((r:any)=>r.id);
+    // Each test invites the same two caregivers again: move earlier invitations out of this week's caps.
+    await DB.prepare("UPDATE candidate_pipeline SET contacted_at=datetime(contacted_at,'-8 days'),response_expires_at=datetime('now','-1 minute') WHERE caregiver_id IN ('fu-near','fu-towson') AND contacted_at IS NOT NULL").run();
     sent.length=0;
     await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:ids})});
     const token=(to:string)=>decodeURIComponent(sent.find(m=>m.to===to)!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
@@ -2295,5 +2297,194 @@ describe('test accounts sign in with a code', ()=>{
     expect((await reset.json() as any).redirect).toBe('/app');
     expect(await DB.prepare('SELECT id FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first()).toBeNull();
     expect(await DB.prepare('SELECT id FROM openings WHERE id=?').bind(id).first()).toBeNull();
+  });
+});
+
+describe('caregiver protection', ()=>{
+  // Chicago, away from every other test's caregivers.
+  const ZIP='60601';
+  const as=(cookie:string)=>({cookie:'cj_session='+cookie,'content-type':'application/json'});
+  const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID:'price_test'};
+  async function workspace(id:string,name:string){
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES (?,?,'Lee',?,?,'CNA','active',CURRENT_TIMESTAMP)").bind(id,name,id+'@guard.test',ZIP).run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES (?,?,?,?)").bind(id+'-s',id,await sha256Hex(id+'-cookie'),new Date(Date.now()+86400000).toISOString()).run();
+    return as(id+'-cookie');
+  }
+  /** A new opening, matched, and the pipeline row of each named caregiver on it. */
+  async function opening(headers:Record<string,string>,title:string,extra:Record<string,unknown>={}){
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title,role:'CNA',zip:ZIP})},extra)).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers},extra);
+    const rows=(await (await call('/api/pipeline?openingId='+id,{headers},extra)).json() as any).pipeline as any[];
+    return {id,row:(caregiverId:string)=>rows.find(r=>r.caregiver_id===caregiverId)};
+  }
+  const invite=async(headers:Record<string,string>,openingId:string,pipelineIds:string[],extra:Record<string,unknown>={})=>
+    await (await call('/api/openings/'+openingId+'/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds})},extra)).json() as any;
+  const stage=async(pipelineId:string)=>((await DB.prepare('SELECT stage FROM candidate_pipeline WHERE id=?').bind(pipelineId).first()) as any).stage;
+  const searchIds=async(headers:Record<string,string>)=>((await (await call('/api/candidates?zip='+ZIP+'&radius=all',{headers})).json() as any).candidates as any[]).map(c=>c.id);
+  async function caregiverCookie(email:string){
+    sent.length=0;
+    await post('/api/login/request',{email});
+    const token=decodeURIComponent(sent.at(-1)!.html!.match(/signin\?token=([^"&]+)/)![1]);
+    const res=await post('/api/login/verify',{token});
+    return {cookie:'__Host-cj_account='+(res.headers.get('set-cookie')||'').match(/__Host-cj_account=([^;]+)/)![1],'content-type':'application/json'};
+  }
+  let guard:Record<string,string>,other:Record<string,string>;
+  beforeAll(async()=>{
+    guard=await workspace('emp-guard','Guard Care');
+    other=await workspace('emp-guard2','Other Guard Care');
+    for(const id of ['g-unsub','g-ok','g-busy','g-pend','g-hide','g-pause','g-bio'])await addCaregiver(id,ZIP);
+  });
+
+  it('skips caregivers who unsubscribed from email', async()=>{
+    await DB.prepare("INSERT INTO email_suppressions(email,reason) VALUES ('G-Unsub@example.com','unsubscribe')").run();
+    const o=await opening(guard,'Unsub check');
+    sent.length=0;
+    const result=await invite(guard,o.id,[o.row('g-unsub').id,o.row('g-ok').id]);
+    expect(result.sent).toBe(1);
+    expect(sent.map(m=>m.to)).toEqual(['g-ok@example.com']);
+    expect(await stage(o.row('g-unsub').id)).toBe('matched');
+  });
+
+  it('holds back a caregiver who already has 3 invitations this week', async()=>{
+    for(let i=0;i<3;i++){
+      const {id}=await (await call('/api/openings',{method:'POST',headers:other,body:JSON.stringify({title:'Other '+i,role:'CNA',zip:ZIP})})).json() as any;
+      await DB.prepare("INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,contacted_at,response_value) VALUES (?,?,'g-busy','contacted',datetime('now','-1 day'),'not_interested')").bind('busy-'+i,id).run();
+    }
+    const o=await opening(guard,'Busy check');
+    const result=await invite(guard,o.id,[o.row('g-busy').id]);
+    expect(result).toMatchObject({sent:0,heldBack:1,held:{caregiverWeekly:1,pendingFromYou:0,weeklyLimit:0,freeLimit:0}});
+    expect(result.notice).toBe('1 caregiver already has enough invitations this week. Try them again next week.');
+    expect(await stage(o.row('g-busy').id)).toBe('matched');
+    // A week later they can be invited again.
+    await DB.prepare("UPDATE candidate_pipeline SET contacted_at=datetime('now','-8 days') WHERE caregiver_id='g-busy' AND id LIKE 'busy-%'").run();
+    expect((await invite(guard,o.id,[o.row('g-busy').id])).sent).toBe(1);
+  });
+
+  it('allows only one unanswered invitation from the same agency', async()=>{
+    const a=await opening(guard,'Pending A'),b=await opening(guard,'Pending B');
+    expect((await invite(guard,a.id,[a.row('g-pend').id])).sent).toBe(1);
+    const second=await invite(guard,b.id,[b.row('g-pend').id]);
+    expect(second).toMatchObject({sent:0,held:{pendingFromYou:1}});
+    expect(second.notice).toContain('already has an invitation from you waiting for an answer');
+    // Another agency can still invite them.
+    const c=await opening(other,'Pending other');
+    expect((await invite(other,c.id,[c.row('g-pend').id])).sent).toBe(1);
+  });
+
+  it('caps a workspace at 15 invitations a week, 75 on the paid plan, and shows the count', async()=>{
+    const capped=await workspace('emp-guard3','Capped Care');
+    const filler=await (await call('/api/openings',{method:'POST',headers:capped,body:JSON.stringify({title:'Filler',role:'CNA',zip:'99501'})})).json() as any;
+    for(let i=0;i<15;i++){
+      await addCaregiver('g-fill-'+i,'99501');
+      await DB.prepare("INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage,contacted_at) VALUES (?,?,?,'contacted',datetime('now','-2 days'))").bind('fill-'+i,filler.id,'g-fill-'+i).run();
+    }
+    await addCaregiver('g-cap',ZIP);
+    const o=await opening(capped,'Cap check');
+    const result=await invite(capped,o.id,[o.row('g-cap').id]);
+    expect(result).toMatchObject({sent:0,heldBack:1,held:{weeklyLimit:1},inviteAllowance:{used:15,limit:15}});
+    expect(result.notice).toBe('You can send 15 invitations a week, so 1 caregiver wasn’t invited. Try again next week.');
+    expect((await (await call('/api/workspace',{headers:capped})).json() as any).inviteAllowance).toEqual({used:15,limit:15});
+    // Billing on but unpaid is still 15; paid is 75 and the invitation goes out.
+    expect((await (await call('/api/billing',{headers:capped},stripe)).json() as any).inviteAllowance).toEqual({used:15,limit:15});
+    await DB.prepare("INSERT INTO employer_billing(employer_id,status) VALUES ('emp-guard3','active')").run();
+    expect((await (await call('/api/workspace',{headers:capped},stripe)).json() as any).inviteAllowance).toEqual({used:15,limit:75});
+    expect(await invite(capped,o.id,[o.row('g-cap').id],stripe)).toMatchObject({sent:1,heldBack:0,inviteAllowance:{used:16,limit:75}});
+  });
+
+  it('keeps an unpaid workspace to 3 unanswered invitations per free introduction left, and is honest about a locked yes', async()=>{
+    const free=await workspace('emp-guard4','Free Four Care');
+    const billing={...stripe,FREE_CONTACTS:'1'};
+    const ids=['g-free-1','g-free-2','g-free-3','g-free-4'];
+    for(const id of ids)await addCaregiver(id,ZIP);
+    const o=await opening(free,'Free check',billing);
+    sent.length=0;
+    const result=await invite(free,o.id,ids.map(id=>o.row(id).id),billing);
+    expect(result).toMatchObject({sent:3,heldBack:1,held:{freeLimit:1}});
+    expect(result.notice).toContain('Upgrade to invite more.');
+    const token=(to:string)=>decodeURIComponent(sent.find(m=>m.to===to)!.html!.match(/respond\?token=([^"&\s]+)/)![1]);
+    const yes=async(to:string)=>await (await call('/api/respond',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:token(to),choice:'interested'})},billing)).json() as any;
+    expect(await yes('g-free-1@example.com')).toEqual({ok:true,choice:'interested',locked:false});
+    const locked=await yes('g-free-2@example.com');
+    expect(locked).toMatchObject({locked:true,message:"Thanks! Free Four Care will see your answer once they upgrade their CareJoys plan. We'll let you know if they reach out."});
+    const page=await (await call('/api/respond?token='+encodeURIComponent(token('g-free-2@example.com')),{},billing)).json() as any;
+    expect(page.opportunity).toMatchObject({locked:true,slots:[]});
+    // Free introductions are used up now: no more invitations until they upgrade.
+    expect((await call('/api/openings/'+o.id+'/contact',{method:'POST',headers:free,body:'{}'},billing)).status).toBe(402);
+  });
+
+  it('hides a caregiver from an agency they picked, but not from one they applied to', async()=>{
+    const before=await opening(guard,'Hide check');
+    const me=await caregiverCookie('g-hide@example.com');
+    const found=await (await call('/api/me/agency-search?q=guard',{headers:me})).json() as any;
+    expect(found.agencies).toEqual(expect.arrayContaining([{id:'emp-guard',name:'Guard Care'},{id:'emp-guard2',name:'Other Guard Care'}]));
+    expect(JSON.stringify(found)).not.toContain('@');
+    const hid=await (await post('/api/me/hidden-agencies',{employerId:'emp-guard'},me)).json() as any;
+    expect(hid.hiddenAgencies).toEqual([{id:'emp-guard',name:'Guard Care'}]);
+    expect((await (await call('/api/me',{headers:me})).json() as any).hiddenAgencies).toEqual([{id:'emp-guard',name:'Guard Care'}]);
+
+    expect(await searchIds(guard)).not.toContain('g-hide');
+    expect(await searchIds(other)).toContain('g-hide');
+    expect((await call('/api/candidates/g-hide',{headers:guard})).status).toBe(404);
+    expect((await call('/api/candidates/g-hide',{headers:other})).status).toBe(200);
+    expect((await post('/api/openings/'+before.id+'/candidates',{caregiverId:'g-hide'},{cookie:guard.cookie})).status).toBe(404);
+    // A match made before hiding is neither shown nor invited, and new matching leaves them out.
+    expect(before.row('g-hide')).toBeDefined();
+    expect((await invite(guard,before.id,[before.row('g-hide').id])).sent).toBe(0);
+    expect(await stage(before.row('g-hide').id)).toBe('matched');
+    expect((await opening(guard,'Hide check 2')).row('g-hide')).toBeUndefined();
+    const pipeline=(await (await call('/api/pipeline?openingId='+before.id,{headers:guard})).json() as any).pipeline as any[];
+    expect(pipeline.find(r=>r.caregiver_id==='g-hide')).toBeUndefined();
+
+    // Applying to the agency makes them its applicant again.
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,claimed_employer_id) VALUES ('org-guard','org-guard','Guard Care','Chicago','IL',1,'emp-guard')").run();
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source) VALUES ('ai-guard','org-guard','g-hide','','job_apply')").run();
+    expect(await searchIds(guard)).toContain('g-hide');
+    expect((await call('/api/candidates/g-hide',{headers:guard})).status).toBe(200);
+
+    expect((await (await post('/api/me/hidden-agencies',{employerId:'emp-guard',hidden:false},me)).json() as any).hiddenAgencies).toEqual([]);
+    expect((await post('/api/me/hidden-agencies',{employerId:'no-such-agency'},me)).status).toBe(404);
+  });
+
+  it('pauses invitations for 2 weeks across every agency, and resumes them', async()=>{
+    const before=await opening(other,'Pause check');
+    const me=await caregiverCookie('g-pause@example.com');
+    const paused=await (await post('/api/me/invite-pause',{paused:true},me)).json() as any;
+    expect(Date.parse(paused.invitesPausedUntil)-Date.now()).toBeGreaterThan(13*86400000);
+    expect((await (await call('/api/me',{headers:me})).json() as any).caregiver.invitesPausedUntil).toBe(paused.invitesPausedUntil);
+    expect(await searchIds(guard)).not.toContain('g-pause');
+    expect(await searchIds(other)).not.toContain('g-pause');
+    expect((await call('/api/candidates/g-pause',{headers:other})).status).toBe(404);
+    expect((await invite(other,before.id,[before.row('g-pause').id])).sent).toBe(0);
+    expect((await opening(guard,'Pause check 2')).row('g-pause')).toBeUndefined();
+    // Saving their profile while paused doesn't match them to openings either.
+    const saved=await (await post('/api/me/preferences',{zip:ZIP,travelMiles:25},me)).json() as any;
+    expect(saved.matchedOpenings).toBe(0);
+
+    expect((await (await post('/api/me/invite-pause',{paused:false},me)).json() as any).invitesPausedUntil).toBeNull();
+    expect(await searchIds(other)).toContain('g-pause');
+    expect((await invite(other,before.id,[before.row('g-pause').id])).sent).toBe(1);
+  });
+
+  it('shows city and distance but no ZIP, and no contact details in the bio, before a yes', async()=>{
+    await DB.prepare("UPDATE caregivers SET city='Chicago',state='IL',bio=? WHERE id='g-bio'").bind('Kind CNA. Text me at 312-555-0199 or g.bio@gmail.com, or see www.gbio.com').run();
+    const profile=(await (await call('/api/candidates/g-bio?zip='+ZIP,{headers:guard})).json() as any).candidate;
+    expect(profile).toMatchObject({city:'Chicago',state:'IL',distanceMiles:0,bio:'Kind CNA. Text me at or, or see'});
+    expect(profile).not.toHaveProperty('zip');
+    const listed=((await (await call('/api/candidates?zip='+ZIP,{headers:guard})).json() as any).candidates as any[]).find(c=>c.id==='g-bio');
+    expect(listed).not.toHaveProperty('zip');
+    expect(JSON.stringify(listed)).not.toMatch(/555|@gmail|www\./);
+  });
+
+  it('limits a workspace to 100 searches and 300 profile views a day', async()=>{
+    const busy=await workspace('emp-guard5','Busy Care');
+    const today=new Date().toISOString().slice(0,10);
+    await DB.prepare("INSERT INTO rate_limits(bucket,identity,window_start,count) VALUES ('talent_search','emp-guard5',?,99),('talent_view','emp-guard5',?,300)").bind(today,today).run();
+    expect((await call('/api/candidates?zip='+ZIP,{headers:busy})).status).toBe(200);
+    const over=await call('/api/candidates?zip='+ZIP,{headers:busy});
+    expect(over.status).toBe(429);
+    expect((await over.json() as any).error).toBe("You've reached today's limit of 100 caregiver searches. Try again tomorrow.");
+    expect((await call('/api/candidates/g-ok',{headers:busy})).status).toBe(429);
+    // Other workspaces are unaffected.
+    expect((await call('/api/candidates/g-ok',{headers:guard})).status).toBe(200);
   });
 });
