@@ -66,7 +66,7 @@ export function MarylandSchoolsPage(){
   },[organizations,query,provider]);
 
   return <div>
-    <SiteHeader audience="employer"/>
+    <SiteHeader/>
     <main>
       <section className="hero school-directory-hero"><div className="wrap">
         <div className="modal-kicker">Maryland caregiver training programs</div>

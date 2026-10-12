@@ -4,21 +4,13 @@ import { AccountLink } from './AccountLink';
 
 type Links={jobsHref?:string;showTraining?:boolean};
 
-/** Phones only have room for one section link: caregiver pages keep jobs, employer pages keep employers. */
-type Audience={audience?:'caregiver'|'employer'};
-
-export function SiteHeader({jobsHref='/caregiver-jobs',audience='caregiver',cta=false}:Omit<Links,'showTraining'>&Audience&{cta?:boolean}){
-  // Homepage: caregiver jobs in the middle, the employer button on the right.
-  if(cta)return <header className="nav"><div className="wrap nav-inner nav-inner-cta">
-    <a className="brand" href="/">CareJoys</a>
-    <nav className="nav-center"><a href={jobsHref}>Find <span className="hide-sm">best-matched caregiver </span>jobs</a></nav>
-    <nav className="navlinks"><AccountLink className="nav-signin" cta/></nav>
-  </div></header>;
+/** Same links in the same order on every public page; phones get the short labels. */
+export function SiteHeader({jobsHref='/caregiver-jobs'}:Omit<Links,'showTraining'>){
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
-      <a className={audience==='caregiver'?undefined:'hide-sm'} href={jobsHref}>Caregiver jobs</a>
-      <a className={audience==='employer'?undefined:'hide-sm'} href="/pricing">For employers</a>
+      <a href={jobsHref}><span className="hide-sm">Caregiver jobs</span><span className="show-sm">Jobs</span></a>
+      <a href="/pricing"><span className="hide-sm">For employers</span><span className="show-sm">Employers</span></a>
       <AccountLink className="nav-signin"/>
     </nav>
   </div></header>;

@@ -64,6 +64,8 @@ interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB?: D1Database;
   EMAIL?: EmailBinding;
+  /** Booking page (Calendly, Cal.com…) shown after the /hire-caregivers form. Only https links are used. */
+  EMPLOYER_CALL_URL?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
   GOOGLE_CLIENT_ID?: string;
@@ -100,6 +102,12 @@ interface Env {
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_MESSAGING_SERVICE_SID?: string;
   SMS_ENABLED?: string;
+}
+
+/** The booking link for the /hire-caregivers confirmation, or "" when unset or not https. */
+function employerCallUrl(env:Env){
+  const raw=(env.EMPLOYER_CALL_URL||'').trim();
+  try{return new URL(raw).protocol==='https:'?raw:''}catch{return ''}
 }
 function sameOriginWrite(request:Request){
   const origin=request.headers.get("origin");
@@ -385,7 +393,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       title:"CNA & Caregiver Jobs Near You, Free to Apply | CareJoys",
       description:"Be first to better-paying CNA and caregiver jobs near you. CareJoys AI checks employer job pages every week and helps you apply. Free.",
       canonical:"/",
-      snapshot:'<main><h1>Match with the best CNA and caregiver jobs near you. Let AI do the legwork.</h1><p>CareJoys finds jobs from '+watched+'home-care agencies and assisted living facilities and matches you with the best ones, automatically. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/hire-caregivers">Hire caregivers</a> · <a href="/pricing">Pricing for employers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
+      snapshot:'<main><h1>Match with the best CNA and caregiver jobs near you. Let AI do the legwork.</h1><p>CareJoys finds jobs from '+watched+'home-care agencies and assisted living facilities and matches you with the best ones, automatically. Preview nearby jobs before sharing contact details or uploading a resume.</p><p>Also available in <a href="/agent">Claude and ChatGPT</a>, and as a free weekly job email.</p>'+homeMore+'<p><a href="/pricing">Hire caregivers</a> · <a href="/caregiver-jobs">Caregiver jobs by city and state</a> · <a href="/training-programs/maryland">Maryland caregiver training programs</a> · <a href="/about">About CareJoys</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
         {"@type":"WebSite","@id":SEO_ORIGIN+"/#website","url":SEO_ORIGIN+"/","name":"CareJoys","publisher":{"@id":SEO_ORIGIN+"/#organization"}},
         {"@type":"Organization","@id":SEO_ORIGIN+"/#organization","name":"CareJoys","url":SEO_ORIGIN+"/","description":"A caregiver recruiting and placement network connecting home-care and senior-care employers, caregivers, and caregiver training programs.","areaServed":{"@type":"Country","name":"United States"},"knowsAbout":["caregiver recruiting","CNA hiring","GNA hiring","HHA hiring","PCA hiring","home care staffing","caregiver training program placement"]}
@@ -768,11 +776,11 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   // Renamed from /find-caregivers; old links (and their ?role=&zip= prefill) keep working.
   if(url.pathname==="/find-caregivers")return Response.redirect(new URL("/hire-caregivers"+url.search,url).toString(),301);
   if(url.pathname==="/hire-caregivers"){
-    // The employer sign-up form is the main "Hire caregivers" destination, so it is a real landing page.
-    return seoAsset(request,env,{title:"Hire Caregivers Near You: CNA, HHA & PCA | CareJoys",
-      description:"Hire caregivers near you. Tell CareJoys who you're hiring and where, see local CNA, HHA, PCA and caregiver matches, confirm who is interested, and book interviews.",
+    // The sign-up step after /pricing: an employer tells CareJoys about their hiring.
+    return seoAsset(request,env,{title:"Hire Caregivers: Tell Us About Your Hiring | CareJoys",
+      description:"Tell CareJoys about your caregiver hiring. We take over your applicant pipeline: every applicant contacted in 30 minutes, screened, and scheduled.",
       canonical:"/hire-caregivers",ogImage:"/og/hire-caregivers.png",
-      snapshot:'<main><h1>Hire caregivers</h1><p>Tell CareJoys who you are hiring and where. CareJoys matches local CNAs, HHAs, PCAs and caregivers, confirms who is interested, and books interviews.</p><p><a href="/pricing">Pricing</a> · <a href="/caregiver-jobs">Caregiver jobs</a></p></main>'});
+      snapshot:'<main><h1>Tell us about your hiring</h1><p>We’ll take over your applicant pipeline. Every applicant contacted in 30 minutes, screened, and scheduled.</p><p><a href="/pricing">Pricing</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a> · <a href="/caregiver-jobs">Caregiver jobs</a></p></main>'});
   }
   if(url.pathname==="/login"||url.pathname==="/signup"){
     return seoAsset(request,env,{title:(url.pathname==="/login"?"Sign in":"Create your account")+" | CareJoys",description:"Sign in to CareJoys with an email link or Google.",canonical:url.pathname,robots:"noindex,follow"});
@@ -2151,7 +2159,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/agency/jobs") return agencyJobs(request,env);
     let agencyJob=url.pathname.match(/^\/api\/agency\/jobs\/([^/]+)$/);
     if(request.method==="POST"&&agencyJob){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return updateAgencyJob(request,env,decodeURIComponent(agencyJob[1])); }
-    if(request.method==="GET"&&url.pathname==="/api/public/pricing") return json({ok:true,freeContacts:freeContacts(env)},{headers:{"cache-control":"public,max-age=3600"}});
+    if(request.method==="GET"&&url.pathname==="/api/public/pricing") return json({ok:true,freeContacts:freeContacts(env),callUrl:employerCallUrl(env)},{headers:{"cache-control":"public,max-age=3600"}});
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-supply") return getCaregiverSupply(url,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env,(id)=>employerAccountCookie(env,id)); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
