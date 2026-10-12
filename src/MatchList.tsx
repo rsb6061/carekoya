@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { TalentDetails, type TalentCandidate } from './TalentCard';
 import { profileTags } from './profileTags';
 
@@ -46,9 +46,9 @@ export function statusOf(r:MatchRow):{label:string;tone:string}{
   }
 }
 
-/** "Applied from your CareJoys job page · Oct 10" or "Matched to CNA · Baltimore". */
+/** "Applied from your job page for CNA · Baltimore", "Invited to CNA · Baltimore" or, before an invitation, "Matched to …". */
 export function sourceOf(r:MatchRow){
-  return r.kind==='application'?'Applied from '+(r.source_label==='AI assistant'?'an AI assistant':'your job page')+(r.title?' for '+r.title:''):'Matched to '+r.title;
+  return r.kind==='application'?'Applied from '+(r.source_label==='AI assistant'?'an AI assistant':'your job page')+(r.title?' for '+r.title:''):(r.contacted_at?'Invited to ':'Matched to ')+r.title;
 }
 
 export type DecideStage='interview'|'hired'|'rejected';
@@ -57,8 +57,10 @@ export type DecideStage='interview'|'hired'|'rejected';
  * Candidates as selectable tiles: why each one is here, where they stand, and the next action. Invitations go out per
  * caregiver or for the selected ones; the employer's own marks are Interviewing, Hired and Not a fit.
  */
-export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,onOpen,onRestore,onReach}:{
+export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,onOpen,onRestore,onReach,inviteNote}:{
   rows:MatchRow[];showOpening:boolean;disabled?:boolean;
+  /** Shown by the Invite button, e.g. the week's invite count. */
+  inviteNote?:ReactNode;
   onInvite:(rows:MatchRow[])=>Promise<void>;onDecide:(row:MatchRow,stage:DecideStage)=>Promise<void>;
   onNotes?:(row:MatchRow,notes:string)=>Promise<void>;
   onOpen?:(row:MatchRow)=>void;onRestore?:(row:MatchRow)=>Promise<void>;onReach?:(row:MatchRow)=>void;
@@ -78,8 +80,8 @@ export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,o
 
   return <div className="match-list">
     {invitable.length>0&&<div className="match-toolbar">
-      <label className="match-select-all"><input type="checkbox" checked={allPicked} disabled={disabled||busy} onChange={()=>setSelected(allPicked?new Set():new Set(invitable.map(r=>r.id)))}/><span>{picked.length?picked.length+' selected':'Select all not yet invited ('+invitable.length+')'}</span></label>
-      <button className="button" disabled={disabled||busy||!picked.length} onClick={()=>void invite(picked)}>{busy?'Sending…':picked.length?'Invite '+picked.length+' selected':'Invite selected'}</button>
+      <label className="match-select-all"><input type="checkbox" checked={allPicked} disabled={disabled||busy} onChange={()=>setSelected(allPicked?new Set():new Set(invitable.map(r=>r.id)))}/><span>{picked.length?picked.length+' selected':'Select all ('+invitable.length+')'}</span></label>
+      <div className="invite-to-opening">{inviteNote}<button className="button" disabled={disabled||busy||!picked.length} onClick={()=>void invite(picked)}>{busy?'Sending…':picked.length?'Invite '+picked.length+' selected':'Invite selected'}</button></div>
     </div>}
     {rows.map(r=>{
       const status=statusOf(r);
