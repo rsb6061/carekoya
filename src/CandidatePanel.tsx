@@ -112,8 +112,8 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
 }
 
 /** The candidate in a right-side panel over the list, so the recruiter keeps their place. */
-export function CandidatePanel({onClose,...props}:DetailProps&{onClose:()=>void}){
-  return <Drawer label={props.row.name} pageUrl={'/app?candidate='+encodeURIComponent(props.row.id)} onClose={onClose}><CandidateDetail {...props}/></Drawer>;
+export function CandidatePanel({onClose,onOpenPage,...props}:DetailProps&{onClose:()=>void;onOpenPage?:()=>void}){
+  return <Drawer label={props.row.name} pageUrl={'/app?candidate='+encodeURIComponent(props.row.id)} onOpenPage={onOpenPage} onClose={onClose}><CandidateDetail {...props}/></Drawer>;
 }
 
 /** The same candidate as its own page at /app?candidate=…, with a link a teammate can open. */
@@ -155,8 +155,9 @@ export function ProfileBody({candidate:p,resumeUrl}:{candidate:TalentCandidate;r
   </>;
 }
 
-/** The right-side panel over a list, so the recruiter keeps their place; the full profile opens in a new tab. */
-export function Drawer({label,pageUrl,onClose,children}:{label:string;pageUrl:string;onClose:()=>void;children:ReactNode}){
+/** The right-side panel over a list, so the recruiter keeps their place; "View full profile" opens the candidate's own page
+ *  (in place when `onOpenPage` is given; a modified click still opens a new tab). */
+export function Drawer({label,pageUrl,onOpenPage,onClose,children}:{label:string;pageUrl:string;onOpenPage?:()=>void;onClose:()=>void;children:ReactNode}){
   const closeRef=useRef<HTMLButtonElement>(null);
   useEffect(()=>{
     closeRef.current?.focus();
@@ -168,7 +169,7 @@ export function Drawer({label,pageUrl,onClose,children}:{label:string;pageUrl:st
   return <div className="candidate-drawer-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
     <aside className="candidate-drawer" role="dialog" aria-modal="true" aria-label={label}>
       <div className="candidate-drawer-bar">
-        <a className="text-button" href={pageUrl} target="_blank" rel="noopener">Open in new tab ↗</a>
+        <a className="text-button" href={pageUrl} onClick={e=>{if(!onOpenPage||e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;e.preventDefault();onOpenPage()}}>View full profile</a>
         <button type="button" className="icon-button" ref={closeRef} onClick={onClose} aria-label="Close">×</button>
       </div>
       {children}

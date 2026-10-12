@@ -1506,12 +1506,24 @@ async function findTalent(db:NonNullable<Env["DB"]>,q:URLSearchParams){
   }
   return {rows,center,radiusMiles:center&&!allDistances&&!commuteOnly?radius:null};
 }
-async function searchCandidates(url: URL, env: Env) {
+/** True when the caregiver lives too far from the opening (or in another state) to take it. */
+const outOfReach=(opening:Record<string,unknown>,c:Record<string,unknown>)=>{
+  const {reasons}=scoreCandidate(opening,c);
+  return reasons.includes('outside commute radius')||reasons.includes('different state');
+};
+/** The employer's open openings with their location, to say which ones each caregiver could commute to. */
+async function openOpeningsWithGeo(env:Env,workspaceId:string){
+  const result=await env.DB!.prepare(`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.employer_id=? AND o.status='open'`).bind(workspaceId).all<Record<string,unknown>>();
+  return result.results||[];
+}
+/** Ids of the openings a caregiver can be invited to: the search ZIP doesn't decide this, the job's location does. */
+const invitableOpeningIds=(openings:Record<string,unknown>[],c:Record<string,unknown>)=>openings.filter(o=>!outOfReach(o,c)).map(o=>String(o.id));
+async function searchCandidates(url: URL, env: Env, workspaceId: string) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
-  const {rows,radiusMiles}=await findTalent(env.DB,url.searchParams);
+  const [{rows,radiusMiles},openings]=await Promise.all([findTalent(env.DB,url.searchParams),openOpeningsWithGeo(env,workspaceId)]);
   const nearby=rows.filter(withinCommute).length;
   return json({ok:true,total:rows.length,nearby,radiusMiles,
-    candidates:rows.slice(0,100).map(r=>({...talentCandidate(r.c,r.distanceMiles),withinCommute:withinCommute(r)}))});
+    candidates:rows.slice(0,100).map(r=>({...talentCandidate(r.c,r.distanceMiles),withinCommute:withinCommute(r),invitableOpeningIds:invitableOpeningIds(openings,r.c)}))});
 }
 const TALENT_ALERT_KEYS=["role","zip","radius","state","freshness","shift","hours","cert","car","payMax","language","checked"];
 const MAX_TALENT_ALERTS=5;
@@ -1587,14 +1599,15 @@ async function sendTalentAlerts(env:Env,limit=200){
   return {sent};
 }
 /** One caregiver from the network, for the profile panel and its own page. */
-async function talentProfile(id:string,url:URL,env:Env){
+async function talentProfile(id:string,url:URL,env:Env,workspaceId:string){
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
   const c=await env.DB.prepare(`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} LIMIT 1`).bind(id).first<Record<string,unknown>>();
   if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
   const zip=normalizeZip(url.searchParams.get("zip"));
   const center=zip?await lookupZip(env.DB,zip):null;
   const distanceMiles=talentDistance(center,c);
-  return json({ok:true,candidate:{...talentCandidate(c,distanceMiles),withinCommute:withinCommute({c,distanceMiles})}});
+  const openings=await openOpeningsWithGeo(env,workspaceId);
+  return json({ok:true,candidate:{...talentCandidate(c,distanceMiles),withinCommute:withinCommute({c,distanceMiles}),invitableOpeningIds:invitableOpeningIds(openings,c)}});
 }
 /** Employer-facing profiles for caregivers who applied to an agency, whether or not they show in search right now. */
 async function caregiverProfiles(env:Env,ids:string[]){
@@ -1621,7 +1634,7 @@ async function addTalentToOpening(request:Request,env:Env,workspaceId:string,ope
   if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
   const scored=scoreCandidate(opening,c);
   // A caregiver who lives beyond their own commute from the opening (and its service area) can't take the job.
-  if(scored.reasons.includes('outside commute radius')||scored.reasons.includes('different state'))
+  if(outOfReach(opening,c))
     return json({ok:false,error:`${publicName(c.first_name,c.last_name,c.display_name)} lives too far from ${clean(opening.title,200)||'this opening'} to commute.`},{status:409});
   if(await alreadyApplied(env,workspaceId,caregiverId))return json({ok:false,error:"This caregiver already applied to your agency. They’re in your candidates."},{status:409});
   // Picked by a person, so it is kept even when automatic matching would have scored it out.
@@ -2061,7 +2074,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
       const employer=await approvedEmployer(request,env);
       if(employer instanceof Response)return employer;
-      return searchCandidates(url,env);
+      return searchCandidates(url,env,String(employer.id));
     }
     let talentAlert=url.pathname.match(/^\/api\/talent-alerts(?:\/([^/]+))?$/);
     if(talentAlert&&(request.method==="GET"||request.method==="POST"||(request.method==="DELETE"&&talentAlert[1]))){
@@ -2075,7 +2088,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&talentId){
       const employer=await approvedEmployer(request,env);
       if(employer instanceof Response)return employer;
-      return talentProfile(decodeURIComponent(talentId[1]),url,env);
+      return talentProfile(decodeURIComponent(talentId[1]),url,env,String(employer.id));
     }
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);

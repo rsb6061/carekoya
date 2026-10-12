@@ -220,7 +220,7 @@ export function AgencyJobsPanel({onRecruit}:{onRecruit?:(openingId:string)=>void
   }
   if(!jobs)return null;
   return <div className="agency-jobs">
-    <div className="section-heading agency-match-head"><h2>Your published jobs</h2><p>CareJoys reads these from your careers page. To change one, update it there and CareJoys picks it up on the next scan; hide any you don’t want shown.</p></div>
+    <div className="section-heading agency-match-head"><h2>Your published jobs</h2></div>
     {jobs.length===0?<div className="empty"><strong>No jobs found on your careers page yet.</strong><div>CareJoys checks your site regularly.</div></div>:
     <div className="job-list">{jobs.map(job=><article className={'job-card '+(job.hidden?'job-card-muted':'')} key={job.id}>
       <div className="job-card-main"><h3>{job.hidden?job.title:<a href={'/jobs/'+encodeURIComponent(job.id)} target="_blank">{job.title}</a>}</h3>
