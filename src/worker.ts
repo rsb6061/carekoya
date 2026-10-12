@@ -1,5 +1,5 @@
 import { hourlyPayFloor } from './payPreferences';
-import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin } from './accountAuth';
+import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin, verifyTestCode, isTestLogin } from './accountAuth';
 import { talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
@@ -957,7 +957,11 @@ async function handleEmployer(request: Request, env: Env) {
     const session=await startEmployerSession(env,employerId);
     return json({ok:true,email,outOfArea,redirect:redirect||"/app"},{status:201,headers:{"Set-Cookie":employerSessionCookie(session)}});
   }
+  // CareJoys' own test addresses get no email: they go on to sign in with their test code.
+  const testLogin=await isTestLogin(env,email);
+  const codeSignIn=(next:string)=>json({ok:true,email,outOfArea,redirect:"/login?"+new URLSearchParams({email,next}).toString()},{status:201});
   if(existing){
+    if(testLogin) return codeSignIn("/app");
     // Anyone can type an existing employer's email, so nothing changes on that account until the emailed link is clicked.
     await sendEmployerMagicLink(env,existing.id,"/app",{kind:"employer_intake",...intake});
     return json({ok:true,checkEmail:true,email,outOfArea},{status:201});
@@ -966,6 +970,7 @@ async function handleEmployer(request: Request, env: Env) {
   await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
     .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
   const openingId=await createIntakeOpening(env,id,intake);
+  if(testLogin) return codeSignIn("/app?opening="+encodeURIComponent(openingId)+"&match=1");
   await sendEmployerMagicLink(env,id,"/app?opening="+encodeURIComponent(openingId)+"&match=1");
   return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
 }
@@ -1995,6 +2000,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/session") return hiringSession(request,env);
     if(request.method==="POST"&&url.pathname==="/api/login/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestLogin(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/login/verify"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyLogin(request,env); }
+    if(request.method==="POST"&&url.pathname==="/api/login/code"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return verifyTestCode(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/account") return accountStatus(request,env);
     if(request.method==="POST"&&url.pathname==="/api/account/last-dashboard"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveLastDashboard(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/account/close"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return closeAccountSide(request,env); }
@@ -2180,8 +2186,21 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       snapshot:'<main><h1>Page not found</h1><p><a href="/">CareJoys home</a> · <a href="/caregiver-jobs">Caregiver jobs</a> · <a href="/hire-caregivers">Hire caregivers</a></p></main>'});
 }
 
+// CareJoys' own test addresses (test_logins, migrations/0063) have no mailbox: mail to them is dropped, never sent.
+const TEST_MAILBOX=/^agency-test\d*@carejoys\.com$/i;
+function withoutTestMail(env:Env):Env{
+  const real=env.EMAIL;
+  if(!real)return env;
+  return {...env,EMAIL:{...real,send:async(message:Parameters<EmailBinding["send"]>[0])=>{
+    const list=(Array.isArray(message.to)?message.to:[message.to]).filter(to=>!TEST_MAILBOX.test(String(to).trim()));
+    if(!list.length)return {messageId:"test-account-skipped"};
+    return real.send({...message,to:Array.isArray(message.to)?list:list[0]});
+  }} as EmailBinding};
+}
+
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
+    env=withoutTestMail(env);
     try{return await handleRequest(request,env,ctx)}
     catch(error){
       // Still the runtime's own error page, but now the exception is on record and in the next alert email.
@@ -2190,6 +2209,7 @@ export default {
     }
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+    env=withoutTestMail(env);
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{
       if(event.cron==="*/5 * * * *"){

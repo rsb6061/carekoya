@@ -116,6 +116,14 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
   const orgId=clean(org.id,100);
   const orgName=clean(org.canonical_name,200);
 
+  // A CareJoys test workspace never claims a real agency or emails one; it may link the hidden test agency.
+  const testWorkspace=session?await env.DB.prepare('SELECT 1 FROM employer_leads WHERE id=? AND is_test=1 LIMIT 1').bind(clean(session.id,100)).first():null;
+  if(testWorkspace){
+    if(asNum(org.is_test)!==1)return json({ok:false,error:'Test accounts can’t claim a real agency.'},{status:403});
+    await linkAgency(env,orgId,clean(session!.id,100),'test_account');
+    return json({ok:true,claimed:true,message:orgName+' is now linked to your workspace.'});
+  }
+
   const sessionEmail=clean(session?.email,320).toLowerCase();
   if(session&&emailMatchesAgencyDomain(sessionEmail,org)){
     await linkAgency(env,orgId,clean(session.id,100),'session_domain_match');

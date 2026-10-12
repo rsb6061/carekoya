@@ -68,6 +68,9 @@ export async function requestAdminMagicLink(request:Request,env:AdminEnv){
   return json({ok:true,message:'If that email is a CareJoys admin, a sign-in link is on the way.'});
 }
 
+// CareJoys' own test workspaces (employer_leads.is_test) never count toward the funnel.
+const REAL_OPENING="employer_id NOT IN (SELECT id FROM employer_leads WHERE is_test=1)";
+const REAL_PIPELINE="opening_id NOT IN (SELECT o.id FROM openings o JOIN employer_leads e ON e.id=o.employer_id WHERE e.is_test=1)";
 const WINDOWS:Record<string,string|null>={'7':'-7 days','30':'-30 days','90':'-90 days','all':null};
 
 /** Funnel and acquisition numbers for the admin console, all from existing tables. */
@@ -76,13 +79,13 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
   const since=(col:string)=>modifier?`${col} IS NOT NULL AND datetime(${col})>=datetime('now','${modifier}')`:`${col} IS NOT NULL`;
   const db=env.DB!;
   const funnel=await db.prepare(`SELECT
-      (SELECT COUNT(*) FROM employer_leads WHERE ${since('created_at')} AND COALESCE(hiring_notes,'')!='CareJoys admin account') AS employers,
-      (SELECT COUNT(*) FROM openings WHERE ${since('created_at')}) AS openings,
-      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('created_at')}) AS matched,
-      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('contacted_at')}) AS contacted,
-      (SELECT COUNT(*) FROM candidate_pipeline WHERE response_value='interested' AND ${since('response_at')}) AS interested,
-      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('interview_booked_at')}) AS interviews,
-      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('hired_at')}) AS hired`).first<Row>();
+      (SELECT COUNT(*) FROM employer_leads WHERE ${since('created_at')} AND COALESCE(hiring_notes,'')!='CareJoys admin account' AND COALESCE(is_test,0)=0) AS employers,
+      (SELECT COUNT(*) FROM openings WHERE ${since('created_at')} AND ${REAL_OPENING}) AS openings,
+      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('created_at')} AND ${REAL_PIPELINE}) AS matched,
+      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('contacted_at')} AND ${REAL_PIPELINE}) AS contacted,
+      (SELECT COUNT(*) FROM candidate_pipeline WHERE response_value='interested' AND ${since('response_at')} AND ${REAL_PIPELINE}) AS interested,
+      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('interview_booked_at')} AND ${REAL_PIPELINE}) AS interviews,
+      (SELECT COUNT(*) FROM candidate_pipeline WHERE ${since('hired_at')} AND ${REAL_PIPELINE}) AS hired`).first<Row>();
   const caregivers=await db.prepare(`SELECT COALESCE(source,'unknown') AS source,COUNT(*) AS count FROM caregivers WHERE ${since('created_at')} AND COALESCE(work_status,'')!='merged_duplicate' GROUP BY COALESCE(source,'unknown') ORDER BY count DESC`).all<Row>();
   const activation=await db.prepare(`SELECT
       (SELECT COUNT(*) FROM caregivers WHERE source='legacy_carekoya') AS legacy_total,
@@ -162,7 +165,7 @@ export async function adminEmployers(env:AdminEnv){
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.contacted_at IS NOT NULL) AS contacted,
       (SELECT COUNT(*) FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=e.id AND cp.interview_booked_at IS NOT NULL) AS interviews,
       (SELECT canonical_name FROM agency_organizations ao WHERE ao.claimed_employer_id=e.id LIMIT 1) AS claimed_agency
-    FROM employer_leads e WHERE COALESCE(e.hiring_notes,'')!='CareJoys admin account' ORDER BY e.created_at DESC LIMIT 100`).all<Row>();
+    FROM employer_leads e WHERE COALESCE(e.hiring_notes,'')!='CareJoys admin account' AND COALESCE(e.is_test,0)=0 ORDER BY e.created_at DESC LIMIT 100`).all<Row>();
   const out=[];
   for(const row of rows.results||[])out.push({...row,approval:(await employerApproval(env,row)).reason});
   // Reviewable accounts stay visible at the top regardless of email provider.

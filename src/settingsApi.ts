@@ -214,7 +214,7 @@ export async function sendMonthlyResults(env:FeatureEnv,now=new Date(),limit=100
 /** Sends each new applicant and each caregiver who said yes to the workspace's ATS inbox, once. Locked introductions wait. */
 export async function forwardToAts(env:BillingEnv,limit=50){
   if(!env.DB||!env.EMAIL)return {sent:0};
-  const employers=await env.DB.prepare("SELECT id,company_name,ats_email,ats_email_set_at FROM employer_leads WHERE status!='disabled' AND COALESCE(ats_email,'')!='' AND ats_email_set_at IS NOT NULL").all<Row>();
+  const employers=await env.DB.prepare("SELECT id,company_name,ats_email,ats_email_set_at FROM employer_leads WHERE status!='disabled' AND COALESCE(is_test,0)=0 AND COALESCE(ats_email,'')!='' AND ats_email_set_at IS NOT NULL").all<Row>();
   let sent=0;
   for(const e of employers.results||[]){
     if(sent>=limit)break;
