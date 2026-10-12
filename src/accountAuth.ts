@@ -69,6 +69,8 @@ export async function requestLogin(request:Request,env:AccountEnv){
   if(guard)return guard;
   const email=clean(data?.email,320).toLowerCase();
   if(!emailValid(email))return json({ok:false,error:'Enter a valid email address'},{status:400});
+  // CareJoys' own test addresses get no email: the form asks for their sign-in code instead.
+  if(await isTestLogin(env,email))return json({ok:true,code:true,message:'Enter the test sign-in code.'});
   const token=crypto.randomUUID()+'-'+crypto.randomUUID();
   const expires=new Date(Date.now()+LOGIN_LINK_MINUTES*60000).toISOString();
   await env.DB.prepare("DELETE FROM login_tokens WHERE email=? AND used_at IS NULL AND datetime(expires_at)<=datetime('now')").bind(email).run();
@@ -100,6 +102,58 @@ export async function verifyLogin(request:Request,env:AccountEnv){
   if(Number(used.meta?.changes||0)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
 
   const {headers,redirect,roles}=await completeSignIn(env,record.email,safeNext(record.redirect_path),cookie(request,LAST_DASHBOARD_COOKIE));
+  headers.set('content-type','application/json; charset=utf-8');
+  return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
+}
+
+// ---- Test accounts ----
+// Only the addresses in test_logins (CareJoys' own, see migrations/0063) can sign in with a typed code. Everything
+// their workspaces do is marked is_test, so they stay out of numbers, caregiver dashboards and outreach.
+
+const normalizeCode=(v:unknown)=>clean(v,100).toUpperCase().replace(/[\s-]/g,'');
+
+export async function isTestLogin(env:AccountEnv,email:string){
+  if(!env.DB||!email)return false;
+  return !!(await env.DB.prepare('SELECT 1 FROM test_logins WHERE email=? LIMIT 1').bind(email.toLowerCase()).first());
+}
+
+/** Erases everything a test address has set up, so sign-up can be walked again from the start. */
+export async function resetTestAccount(env:AccountEnv,email:string){
+  const db=env.DB!;
+  if(!(await isTestLogin(env,email)))throw new Error('Not a test account');
+  const employers=await db.prepare('SELECT id FROM employer_leads WHERE lower(email)=?').bind(email).all<{id:string}>();
+  for(const {id} of employers.results||[]){
+    const openings=await db.prepare('SELECT id FROM openings WHERE employer_id=?').bind(id).all<{id:string}>();
+    for(const o of openings.results||[]){
+      await db.prepare('UPDATE outreach_events SET opening_id=NULL WHERE opening_id=?').bind(o.id).run();
+      await db.prepare('DELETE FROM interview_slots WHERE opening_id=?').bind(o.id).run();
+      await db.prepare('DELETE FROM candidate_pipeline WHERE opening_id=?').bind(o.id).run();
+    }
+    await db.prepare('DELETE FROM interview_slots WHERE employer_id=?').bind(id).run();
+    await db.prepare('DELETE FROM openings WHERE employer_id=?').bind(id).run();
+    await db.prepare('UPDATE agency_organizations SET claimed_employer_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE claimed_employer_id=?').bind(id).run();
+    await db.prepare('UPDATE agencies SET claimed_employer_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE claimed_employer_id=?').bind(id).run();
+    for(const table of ['employer_sessions','employer_auth_tokens','agency_teaser_tokens','employer_billing','employer_email_templates','talent_alerts','license_checks'])
+      await db.prepare(`DELETE FROM ${table} WHERE employer_id=?`).bind(id).run();
+    await db.prepare('DELETE FROM employer_leads WHERE id=?').bind(id).run();
+  }
+  for(const table of ['account_sessions','login_tokens','account_preferences'])
+    await db.prepare(`DELETE FROM ${table} WHERE email=?`).bind(email).run();
+}
+
+/** /api/login/code: a test address signs in with its code; `reset` first erases the account to repeat sign-up.
+ *  With nowhere asked for it opens /app, which offers hiring setup, so a test sign-in never builds a caregiver profile. */
+export async function verifyTestCode(request:Request,env:AccountEnv){
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
+  const guard=await publicFormGuard(request,env,'login_code',data,10,15);
+  if(guard)return guard;
+  const email=clean(data?.email,320).toLowerCase();
+  const row=emailValid(email)?await env.DB.prepare('SELECT code_hash FROM test_logins WHERE email=? LIMIT 1').bind(email).first<{code_hash:string}>():null;
+  const code=normalizeCode(data?.code);
+  if(!row||!code||await sha256Hex(code)!==row.code_hash)return json({ok:false,error:'That code isn’t right for this email.'},{status:400});
+  if(data?.reset===true)await resetTestAccount(env,email);
+  const {headers,redirect,roles}=await completeSignIn(env,email,safeNext(data?.next)||'/app',cookie(request,LAST_DASHBOARD_COOKIE));
   headers.set('content-type','application/json; charset=utf-8');
   return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
 }

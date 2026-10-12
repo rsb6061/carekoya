@@ -32,7 +32,7 @@ export async function sendHiringFollowups(env:FollowupEnv,limit=40){
   let reminders=0,nudges=0;
   const unanswered=await env.DB.prepare(`SELECT cp.id,cp.opening_id,c.id AS caregiver_id,c.first_name,c.display_name,c.email,o.title,e.company_name
     FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id JOIN openings o ON o.id=cp.opening_id JOIN employer_leads e ON e.id=o.employer_id
-    WHERE cp.stage='contacted' AND cp.response_value IS NULL AND cp.caregiver_reminded_at IS NULL AND o.status='open'
+    WHERE COALESCE(e.is_test,0)=0 AND cp.stage='contacted' AND cp.response_value IS NULL AND cp.caregiver_reminded_at IS NULL AND o.status='open'
       AND datetime(cp.contacted_at)<=datetime('now','-2 days') AND datetime(cp.contacted_at)>datetime('now','-7 days')
       AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now'))
       AND c.email IS NOT NULL AND c.email!='' AND ${NOT_SUPPRESSED}
@@ -77,7 +77,7 @@ export async function sendRoleClosedNotices(env:FollowupEnv,where:{openingId:str
   if(!env.DB||!env.EMAIL)return 0;
   const rows=await env.DB.prepare(`SELECT cp.id,cp.opening_id,c.id AS caregiver_id,c.first_name,c.display_name,c.email,o.title,e.company_name
     FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id JOIN openings o ON o.id=cp.opening_id JOIN employer_leads e ON e.id=o.employer_id
-    WHERE cp.opening_id=? ${where.pipelineId?'AND cp.id=?':"AND cp.stage IN ('interested','interview')"} AND cp.response_value='interested' AND cp.closed_notice_at IS NULL
+    WHERE COALESCE(e.is_test,0)=0 AND cp.opening_id=? ${where.pipelineId?'AND cp.id=?':"AND cp.stage IN ('interested','interview')"} AND cp.response_value='interested' AND cp.closed_notice_at IS NULL
       AND c.email IS NOT NULL AND c.email!='' AND ${NOT_SUPPRESSED} LIMIT 100`).bind(...(where.pipelineId?[where.openingId,where.pipelineId]:[where.openingId])).all();
   let sent=0;
   for(const r of rows.results||[]){

@@ -2191,3 +2191,71 @@ describe('sms', ()=>{
     expect(await consent('+14105550111')).toEqual({status:'opted_out'});
   });
 });
+
+describe('test accounts sign in with a code', ()=>{
+  const EMAIL_ADDR='agency-test@carejoys.com';
+  // The real code is never in the repository: the test gives its address a code of its own.
+  const CODE='ABCD-EFGH-JKLM-NPQR';
+  beforeAll(async()=>{await DB.prepare('UPDATE test_logins SET code_hash=? WHERE email=?').bind(await sha256Hex(CODE.replace(/-/g,'')),EMAIL_ADDR).run()});
+  const ACCOUNT=/__Host-cj_account=([^;]+)/;
+  const cookieFrom=(res:Response)=>{
+    const set=res.headers.get('set-cookie')||'';
+    const employer=set.match(/__Host-cj_session=([^;]+)/);
+    return '__Host-cj_account='+set.match(ACCOUNT)![1]+(employer&&employer[1]?'; __Host-cj_session='+employer[1]:'');
+  };
+
+  it('asks a test address for its code instead of emailing it, and no other address can use a code', async()=>{
+    sent.length=0;
+    const res=await post('/api/login/request',{email:'Agency-Test@carejoys.com'});
+    expect(await res.json()).toMatchObject({ok:true,code:true});
+    expect(sent).toHaveLength(0);
+    expect((await post('/api/login/code',{email:EMAIL_ADDR,code:'WRONG-CODE'})).status).toBe(400);
+    expect((await post('/api/login/code',{email:'pat@acme.test',code:CODE})).status).toBe(400);
+  });
+
+  it('walks agency sign-up as a test workspace that never reaches caregivers, then resets', async()=>{
+    // Not signed in: the hiring form sends the test address on to its code, with no email.
+    sent.length=0;
+    const intake=await post('/api/employers',{companyName:'Test Agency',contactName:'Rebecca',email:EMAIL_ADDR,zip:'21201',rolesNeeded:'CNA'});
+    const intakeBody=await intake.json() as any;
+    expect(intakeBody.redirect).toMatch(/^\/login\?email=agency-test%40carejoys.com&next=%2Fapp%3Fopening%3D/);
+    expect(sent).toHaveLength(0);
+    const signIn=await post('/api/login/code',{email:EMAIL_ADDR,code:CODE.toLowerCase().replace(/-/g,' '),next:new URLSearchParams(intakeBody.redirect.split('?')[1]).get('next')});
+    expect(signIn.status).toBe(200);
+    expect((await signIn.json() as any).redirect).toMatch(/^\/app\?opening=/);
+    const headers={cookie:cookieFrom(signIn),'content-type':'application/json'};
+    const lead=await DB.prepare('SELECT id,is_test,approved_by FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first() as any;
+    expect(lead).toMatchObject({is_test:1,approved_by:'test_account'});
+
+    // Inviting marks caregivers contacted for the walkthrough but emails nobody and never shows on their dashboard.
+    const {id}=await (await call('/api/openings',{method:'POST',headers,body:JSON.stringify({title:'CNA test',role:'CNA',zip:'21201'})})).json() as any;
+    await call('/api/openings/'+id+'/match',{method:'POST',headers});
+    sent.length=0;
+    const outcome=await (await call('/api/openings/'+id+'/contact',{method:'POST',headers,body:JSON.stringify({limit:2})})).json() as any;
+    expect(outcome.sent).toBeGreaterThan(0);
+    expect(sent).toHaveLength(0);
+    const contacted=await DB.prepare("SELECT cp.caregiver_id FROM candidate_pipeline cp WHERE cp.opening_id=? AND cp.stage='contacted' LIMIT 1").bind(id).first() as any;
+    const caregiverEmail=(await DB.prepare('SELECT email FROM caregivers WHERE id=?').bind(contacted.caregiver_id).first() as any).email;
+    const caregiver=await post('/api/login/request',{email:caregiverEmail});
+    expect(caregiver.status).toBe(200);
+    const token=decodeURIComponent(sent.at(-1)!.html!.match(/signin\?token=([^"&]+)/)![1]);
+    const caregiverCookie=cookieFrom(await post('/api/login/verify',{token}));
+    const me=await (await call('/api/me',{headers:{cookie:caregiverCookie}})).json() as any;
+    expect(JSON.stringify(me)).not.toContain('CNA test');
+    await DB.prepare("UPDATE candidate_pipeline SET contacted_at=datetime('now','-3 days') WHERE opening_id=?").bind(id).run();
+    sent.length=0;
+    await sendHiringFollowups(env());
+    expect(sent).toHaveLength(0);
+
+    // Admin numbers leave it out.
+    const admin=await (await call('/api/admin/overview?window=all',{headers:{authorization:'Bearer t0ken'}},{ADMIN_TOKEN:'t0ken'})).json() as any;
+    expect(JSON.stringify(admin.employers)).not.toContain(EMAIL_ADDR);
+
+    // Reset erases the workspace so sign-up starts over.
+    const reset=await post('/api/login/code',{email:EMAIL_ADDR,code:CODE,reset:true});
+    expect(reset.status).toBe(200);
+    expect((await reset.json() as any).redirect).toBe('/app');
+    expect(await DB.prepare('SELECT id FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first()).toBeNull();
+    expect(await DB.prepare('SELECT id FROM openings WHERE id=?').bind(id).first()).toBeNull();
+  });
+});

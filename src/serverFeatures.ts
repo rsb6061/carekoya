@@ -243,6 +243,8 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   AND c.email IS NOT NULL AND c.email!='' AND NOT ${APPLIED_TO_EMPLOYER_SQL}${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,workspaceId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   const pitch=await employerPitch(env,workspaceId);
+  // A CareJoys test workspace walks through inviting without emailing anyone; its invitations never reach caregivers.
+  const isTest=!!(await env.DB.prepare('SELECT 1 FROM employer_leads WHERE id=? AND is_test=1 LIMIT 1').bind(workspaceId).first());
   for(const row of rows.results||[]){
     const token=crypto.randomUUID()+'-'+crypto.randomUUID();
     const hash=await sha256Hex(token);
@@ -257,7 +259,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
       location,pay,shift:clean(opening.shift_preferences,300),link,about:pitch.about,benefits:pitch.benefits
     });
     try{
-      const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
+      const result=isTest?{messageId:'test-account-skipped'}:await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(row.email,320),subject:emailBody.subject,html:emailBody.html,text:emailBody.text});
       const responseExpiresAt=new Date(Date.now()+14*86400000).toISOString();
       await env.DB.prepare("UPDATE candidate_pipeline SET stage='contacted',contacted_at=CURRENT_TIMESTAMP,response_token_hash=?,response_sent_at=CURRENT_TIMESTAMP,response_expires_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(hash,responseExpiresAt,row.pipeline_id).run();
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?)")

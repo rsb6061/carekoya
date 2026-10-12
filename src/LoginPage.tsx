@@ -27,18 +27,22 @@ export function LoginForm({next='',kicker='',title,subtitle='Sign in or create a
   const heading=title||(signup?'Join CareJoys':'Welcome to CareJoys');
   const [email,setEmail]=useState(params.get('email')||'');
   const [turnstileToken,setTurnstileToken]=useState('');
-  const [status,setStatus]=useState<'idle'|'sending'|'sent'|'error'>('idle');
+  const [status,setStatus]=useState<'idle'|'sending'|'sent'|'code'|'error'>('idle');
   const [message,setMessage]=useState(GOOGLE_ERRORS[params.get('error')||'']||'');
 
   async function submit(e:FormEvent){
     e.preventDefault();setStatus('sending');setMessage('');
     try{
-      await post('/api/login/request',{email,next:next||params.get('next')||'',turnstileToken});
-      setStatus('sent');
+      const body=await post<{code?:boolean}>('/api/login/request',{email,next:next||params.get('next')||'',turnstileToken});
+      // CareJoys' own test addresses get no email; they type their test code instead.
+      setTurnstileToken('');
+      setStatus(body.code?'code':'sent');
     }catch(error){
       setStatus('error');setMessage(error instanceof Error?error.message:'Could not send a sign-in link.');
     }
   }
+
+  if(status==='code')return <TestCodeForm email={email} next={next||params.get('next')||''} onBack={()=>setStatus('idle')}/>;
 
   return <div className="login-card">
     {kicker&&<div className="modal-kicker">{kicker}</div>}
@@ -60,6 +64,38 @@ export function LoginForm({next='',kicker='',title,subtitle='Sign in or create a
       </form>
       <p className="login-terms">We’ll email you a secure sign-in link, no password needed. By continuing you agree to the <a href="/terms-of-service">Terms</a> and <a href="/privacy-policy">Privacy Policy</a>.</p>
     </>}
+  </div>;
+}
+
+/** Test accounts only: sign in with the test code, or erase the account first to walk sign-up again. */
+function TestCodeForm({email,next,onBack}:{email:string;next:string;onBack:()=>void}){
+  const [code,setCode]=useState('');
+  const [turnstileToken,setTurnstileToken]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  // Security-check tokens work once, so a failed try gets a fresh check.
+  const [attempt,setAttempt]=useState(0);
+  async function signIn(reset:boolean){
+    if(reset&&!window.confirm('Erase everything this test account set up and start sign-up again?'))return;
+    setBusy(true);setError('');
+    try{
+      const body=await post<{redirect?:string}>('/api/login/code',{email,code,reset,next,turnstileToken});
+      window.location.replace(body.redirect||'/app');
+    }catch(e){setBusy(false);setTurnstileToken('');setAttempt(a=>a+1);setError(e instanceof Error?e.message:'Could not sign in.')}
+  }
+  return <div className="login-card">
+    <div className="modal-kicker">Test account</div>
+    <h1>Enter your test code</h1>
+    <p className="login-sub"><strong>{email}</strong> is a CareJoys test account, so no email is sent.</p>
+    <form className="auth-form" onSubmit={e=>{e.preventDefault();void signIn(false)}}>
+      <label className="auth-label" htmlFor="login-code">Test code</label>
+      <input id="login-code" value={code} onChange={e=>setCode(e.target.value)} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} required />
+      <TurnstileField key={attempt} onToken={setTurnstileToken}/>
+      {error&&<div className="notice">{error}</div>}
+      <button className="button login-continue" disabled={busy}>{busy?'Signing in…':'Sign in'}</button>
+      <button type="button" className="text-button login-again" disabled={busy||!code} onClick={()=>void signIn(true)}>Erase this test account and start over</button>
+    </form>
+    <button className="text-button login-again" onClick={onBack}>Use a different email</button>
   </div>;
 }
 

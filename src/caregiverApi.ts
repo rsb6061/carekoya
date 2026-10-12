@@ -128,7 +128,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   const invites=await env.DB.prepare(`SELECT cp.id,cp.stage,cp.response_value,cp.contacted_at,cp.interview_at,cp.interview_booked_at,cp.opening_id,
       o.title,o.role,o.city,o.state,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,e.company_name
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN employer_leads e ON e.id=o.employer_id
-    WHERE cp.caregiver_id=? AND cp.contacted_at IS NOT NULL
+    WHERE cp.caregiver_id=? AND cp.contacted_at IS NOT NULL AND COALESCE(e.is_test,0)=0
     ORDER BY COALESCE(cp.interview_at,cp.contacted_at) DESC LIMIT 50`).bind(caregiverId).all<Row>();
   const needsSlots=(invites.results||[]).filter(r=>r.response_value==='interested'&&!r.interview_booked_at).map(r=>clean(r.opening_id,100));
   const slotsByOpening:Record<string,Row[]>={};
