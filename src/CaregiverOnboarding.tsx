@@ -6,6 +6,7 @@ import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
 import { jobsHubPath, stateForZipPrefix, usState } from './usStates';
+import { SMS_CONSENT_TEXT } from './smsConsent';
 
 type ResumeForm={
   firstName:string;lastName:string;email:string;phone:string;zip:string;state:string;role:string;
@@ -66,6 +67,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [draft]=useState(readDraft);
   const [stage,setStage]=useState<'upload'|'known'|'auth'|'profile'|'success'>(draft?'profile':'upload');
   const [emailAlerts,setEmailAlerts]=useState(false);
+  // Unticked until they tick it: text consent is optional and never assumed.
+  const [smsConsent,setSmsConsent]=useState(false);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
   const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
   const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);const initial=draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')||'',shifts:p.get('shifts')||''};return {...initial,desiredWage:String(hourlyPayFloor(initial.desiredWage)??'')};});
@@ -199,6 +202,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         travelMiles:Number(form.travelMiles||0)||null,
         payMin:form.desiredWage?Number(form.desiredWage):null,
         jobAlertsEmailOptIn:emailAlerts,
+        smsConsent:smsConsent&&!!form.phone.trim(),
         funnelVisitorId:workerVisitorId(),
         turnstileToken,
         sourceFilename:fileMeta?.name||'',
@@ -377,6 +381,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} /></label>
         </>}
         {(parsed||saved)&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide details':parsed?'Review or edit resume details':'Review or edit all details'}</button>}
+        <label>Mobile phone (optional)<input type="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} placeholder="410-555-0123" /></label>
+        <label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>
         <label className="check-row"><input type="checkbox" checked={emailAlerts} onChange={e=>setEmailAlerts(e.target.checked)}/><span>Email me a free weekly digest of relevant caregiver jobs. Optional; unsubscribe any time.</span></label>
         <TurnstileField onToken={setTurnstileToken}/>
         {status==='error'&&<div className="notice">{message}</div>}

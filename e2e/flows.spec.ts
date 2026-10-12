@@ -97,40 +97,55 @@ test('employer workspace: create an opening and view matches', async({page})=>{
   await modal.getByLabel('ZIP').fill('21201');
   await modal.getByRole('button',{name:/Create (& match|job listing)/}).click();
   await expect(page.locator('.modal-panel')).toHaveCount(0);
-  // Create & match goes straight to the matches, where the seeded Baltimore CNA should be.
-  await expect(page.getByRole('heading',{name:'Matches for E2E CNA weekends'})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'Casey T.'})).toBeVisible();
-  await page.getByRole('button',{name:'← All job listings'}).click();
-  await expect(page.locator('.job-card',{hasText:'E2E CNA weekends'}).getByRole('button',{name:'View matches'})).toBeVisible();
+  // Create & match goes straight to Find caregivers for the new job, with the seeded Baltimore CNA suggested first.
+  await expect(page).toHaveURL(/\/app\?tab=talent&job=/);
+  const picker=page.getByLabel('Job listing');
+  await expect(picker.locator('option:checked')).toHaveText('E2E CNA weekends');
+  await expect(page.getByRole('heading',{name:'Suggested for this job'})).toBeVisible();
+  await expect(page.locator('.match-tile').getByRole('heading',{name:'Casey T.'})).toBeVisible();
+  // A suggestion isn't in Candidates until they're invited.
+  await page.getByRole('button',{name:/^Candidates/}).first().click();
+  await expect(page.getByRole('heading',{name:'Casey T.'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Job Listings'}).click();
+  const card=page.locator('.job-card',{hasText:'E2E CNA weekends'});
+  await expect(card.getByText(/^[1-9]\d* suggested · 0 invited · 0 said yes$/)).toBeVisible();
+  await card.getByRole('button',{name:'Candidates'}).click();
+  await expect(page.getByRole('heading',{name:'Candidates for E2E CNA weekends'})).toBeVisible();
+  await expect(page).toHaveURL(/\/app\?tab=candidates&job=/);
+  // The link to Find caregivers for a job opens that job.
+  const url=new URL(page.url());
+  await page.goto('/app?tab=talent&job='+url.searchParams.get('job'));
+  await expect(page.getByLabel('Job listing').locator('option:checked')).toHaveText('E2E CNA weekends');
   clean(w);
 });
 
-test('employer finds caregivers: closest first, plain tags, profile panel', async({page})=>{
+test('employer finds caregivers: suggested first, then nearby, profile panel', async({page})=>{
   const w=await watch(page);
   await signIn(page,EMPLOYER,true);
   await page.goto('/app');
-  await page.getByRole('button',{name:'Find caregivers'}).click();
+  await page.locator('.dash-sidenav').getByRole('button',{name:'Find caregivers'}).click();
   await expect(page.getByRole('heading',{name:'Find caregivers'})).toBeVisible();
-  const near=page.locator('.talent-card',{hasText:'Casey T.'});
-  await expect(near.getByText('$18/hr')).toBeVisible();
-  // The search opens at commuting distance, so someone across the country isn't shown until asked for.
+  await expect(page.getByLabel('Job listing').locator('option:checked')).toHaveText('E2E CNA weekends');
+  // Casey is suggested for the job, so the search below doesn't show her twice.
+  await expect(page.locator('.match-tile',{hasText:'Casey T.'}).getByRole('button',{name:'Invite',exact:true})).toBeVisible();
+  await expect(page.locator('.talent-card',{hasText:'Casey T.'})).toHaveCount(0);
+  // The search opens on the job's commute area, so someone across the country isn't shown until asked for.
   const far=page.locator('.talent-card',{hasText:'Dana F.'});
   await expect(far).toHaveCount(0);
-  await page.getByLabel('Distance from ZIP').selectOption('all');
-  await page.getByRole('button',{name:'Search',exact:true}).click();
+  await page.getByRole('button',{name:'Show other areas'}).click();
   await expect(page.locator('.talent-divider')).toHaveText('Farther away');
   await expect(far.getByText('$50/hr')).toBeVisible();
   // They can't take a job that far away, so there's nothing to invite them to.
   await expect(far.getByText('Lives too far from your job listings')).toBeVisible();
-  await near.getByRole('button',{name:'View profile'}).click();
-  const panel=page.getByRole('dialog',{name:'Casey T.'});
+  await far.getByRole('button',{name:'View profile'}).click();
+  const panel=page.getByRole('dialog',{name:'Dana F.'});
   await expect(panel.getByRole('link',{name:'View full profile'})).toHaveAttribute('href',/\/app\?talent=/);
-  await expect(panel.getByText(/In your candidates for/)).toBeVisible();
+  await expect(panel.getByText('Lives too far from your job listings')).toBeVisible();
   // "View full profile" opens the caregiver's own page in place.
   await panel.getByRole('link',{name:'View full profile'}).click();
   await expect(page).toHaveURL(/\/app\?talent=/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('heading',{name:'Casey T.'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Dana F.'})).toBeVisible();
   // New-caregiver emails are a setting, not a button on the search.
   await page.getByRole('button',{name:'Settings'}).click();
   const alertBox=page.getByRole('checkbox',{name:/New caregivers near you/});

@@ -16,8 +16,11 @@ import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob,
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRadiusMiles, MAX_SERVICE_RADIUS_MILES } from './matching';
-import { alreadyApplied, appliedCaregiverIds } from './applications';
+import { APPLIED_TO_EMPLOYER_SQL, alreadyApplied, appliedCaregiverIds } from './applications';
+import { INVITES_PAUSED_SQL, OPEN_TO_EMPLOYER_SQL, browseLimit, inviteAllowance } from './caregiverProtection';
+import { DAILY_PROFILE_VIEWS, DAILY_TALENT_SEARCHES, scrubBio } from './caregiverProtectionRules';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
+import { loadEmployerProfile } from './employerProfile';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { approvalFor, approveEmployer, pendingApprovalResponse } from './employerApproval';
@@ -38,8 +41,8 @@ import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, save
 import { resumeDownload } from './resumeFile';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
-import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus } from './carejoysSms';
-import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
+import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus, responseLinkRedirect, runCareJoysSmsJobs, saveCaregiverSmsConsent } from './carejoysSms';
+import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, searchAgenciesToHide, updateCaregiverAvailability, updateHiddenAgency, updateInvitePause, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 // The facility pilot sends its day's batch from this hour on (13:17 UTC, 9:17 Eastern), outside the agency invite cap (Rebecca approved, 2026-10-11).
 const FACILITY_PILOT_UTC_HOUR=13;
@@ -733,6 +736,29 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       });
     }
   }
+  const employerMatch=url.pathname.match(/^\/employers\/([^/]+)$/);
+  if(employerMatch&&env.DB){
+    const profile=await loadEmployerProfile(env,decodeURIComponent(employerMatch[1]));
+    if(profile){
+      // An old link after a name change still lands on the current page.
+      if(url.pathname!==profile.path)return Response.redirect(SEO_ORIGIN+profile.path,301);
+      const where=[profile.city,profile.state].filter(Boolean).join(", ");
+      const jobsHtml=profile.jobs.length?'<h2>Open caregiver jobs</h2><ul>'+profile.jobs.map(j=>'<li>'+(j.jobPath?'<a href="'+j.jobPath+'">'+htmlEscape(j.title)+'</a>':htmlEscape(j.title))+' — '+htmlEscape([j.city,j.state].filter(Boolean).join(", "))+(j.pay?" · "+htmlEscape(j.pay):"")+"</li>").join("")+"</ul>"
+        :"<p>No open caregiver jobs right now.</p>";
+      return seoAsset(request,env,{
+        title:fitTitle(profile.name+(where?" in "+where:"")+": Caregiver Jobs"),
+        description:(profile.about||profile.name+" is hiring caregivers"+(where?" in "+where:"")+" on CareJoys.").slice(0,165),
+        canonical:profile.path,
+        // Test workspaces and pages with nothing to say stay out of search results.
+        robots:profile.isTest||(!profile.about&&!profile.jobs.length)?"noindex,follow":undefined,
+        snapshot:'<main><h1>'+htmlEscape(profile.name)+'</h1>'+(where?'<p>'+htmlEscape(where)+'</p>':'')+(profile.about?'<h2>About</h2><p>'+htmlEscape(profile.about)+'</p>':'')+
+          (profile.benefits?'<h2>Benefits</h2><p>'+htmlEscape(profile.benefits)+'</p>':'')+jobsHtml+'<p><a href="/caregiver-resume">Create a free CareJoys profile</a> to be matched with jobs like these.</p></main>',
+        jsonLd:{"@context":"https://schema.org","@type":"Organization","name":profile.name,"url":SEO_ORIGIN+profile.path,
+          ...(where?{"address":{"@type":"PostalAddress","addressLocality":profile.city,"addressRegion":profile.state,"addressCountry":"US"}}:{}),
+          ...(profile.website?{"sameAs":[profile.website]}:{})}
+      });
+    }
+  }
   if(url.pathname==="/privacy-policy"){
     return seoAsset(request,env,{title:"Privacy Policy | CareJoys",description:"CareJoys privacy policy.",canonical:"/privacy-policy",robots:"noindex,follow"});
   }
@@ -1195,6 +1221,8 @@ async function handleCaregiver(request: Request, env: Env) {
   }
 
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  // Text opt-in from the signup checkbox; unticked changes nothing here.
+  await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
@@ -1293,6 +1321,8 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   }
 
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  // Text opt-in from the signup checkbox; unticked changes nothing here.
+  await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(id).first<Record<string,unknown>>();
@@ -1411,13 +1441,15 @@ async function handlePublicJobApply(request:Request,env:Env,jobId:string){
 
 /** Scores one caregiver against open openings within reach and upserts `matched` pipeline rows. */
 async function matchCaregiverToOpenings(env:Env,caregiverId:string,source:string){
-  const caregiver=await env.DB!.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Record<string,unknown>>();
-  if(!caregiver)return 0;
+  const caregiver=await env.DB!.prepare(`SELECT c.*,${INVITES_PAUSED_SQL} AS invites_paused,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(caregiverId).first<Record<string,unknown>>();
+  // A caregiver who paused invitations isn't matched to anyone until the pause ends.
+  if(!caregiver||Number(caregiver.invites_paused)===1)return 0;
   const geo=rowGeo(caregiver);
-  // Not openings of an employer whose agency this caregiver already applied to: they're its applicant already.
+  // Not openings of an employer whose agency this caregiver already applied to (they're its applicant already), or one they hid from.
   let sql=`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.status='open'
-    AND NOT EXISTS (SELECT 1 FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id WHERE ao.claimed_employer_id=o.employer_id AND ai.caregiver_id=?)`;
-  const args:unknown[]=[caregiverId];
+    AND NOT EXISTS (SELECT 1 FROM agency_interests ai JOIN agency_organizations ao ON ao.id=ai.organization_id WHERE ao.claimed_employer_id=o.employer_id AND ai.caregiver_id=?)
+    AND NOT EXISTS (SELECT 1 FROM caregiver_hidden_employers h WHERE h.caregiver_id=? AND h.employer_id=o.employer_id)`;
+  const args:unknown[]=[caregiverId,caregiverId];
   if(geo){
     const box=boundingBox(geo,commuteRadiusMiles(caregiver)+MAX_SERVICE_RADIUS_MILES);
     sql+=" AND (zg.lat IS NULL OR (zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?))";
@@ -1467,7 +1499,7 @@ function talentFiltersFrom(q:URLSearchParams):TalentFilters{
     payMax:Math.max(0,Math.min(200,Number(q.get("payMax"))||0)),language:clean(q.get("language"),40),checked:clean(q.get("checked"),40)};
 }
 /** Talent network search for a query (a search URL's params or a saved search): eligible caregivers, ranked. */
-async function findTalent(db:NonNullable<Env["DB"]>,q:URLSearchParams){
+async function findTalent(db:NonNullable<Env["DB"]>,q:URLSearchParams,employerId:string){
   const role=clean(q.get("role"),80).toLowerCase();
   const preferredRole=clean(q.get("preferredRole"),80).toLowerCase();
   const zip=normalizeZip(q.get("zip"));
@@ -1480,8 +1512,9 @@ async function findTalent(db:NonNullable<Env["DB"]>,q:URLSearchParams){
   const commuteOnly=q.get("radius")==='commute';
   const radius=commuteOnly?MAX_SEARCH_MILES:Math.max(1,Math.min(MAX_SEARCH_MILES,Number(q.get("radius")||0)||25));
   const center=zip?await lookupZip(db,zip):null;
-  let sql=`SELECT ${TALENT_COLUMNS},c.created_at FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
-  const args:unknown[]=[];
+  // Caregivers who paused invitations or hid from this agency are left out, unless they applied to it.
+  let sql=`SELECT ${TALENT_COLUMNS},c.created_at FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER} AND (${OPEN_TO_EMPLOYER_SQL} OR ${APPLIED_TO_EMPLOYER_SQL})`;
+  const args:unknown[]=[employerId,employerId];
   if(role){ sql+=" AND lower(COALESCE(c.role,'')||' '||COALESCE(c.certifications,'')||' '||COALESCE(c.specialties,'')) LIKE ?"; args.push("%"+role+"%"); }
   if(center&&!allDistances){
     const box=boundingBox(center,radius);
@@ -1518,9 +1551,11 @@ async function openOpeningsWithGeo(env:Env,workspaceId:string){
 }
 /** Ids of the openings a caregiver can be invited to: the search ZIP doesn't decide this, the job's location does. */
 const invitableOpeningIds=(openings:Record<string,unknown>[],c:Record<string,unknown>)=>openings.filter(o=>!outOfReach(o,c)).map(o=>String(o.id));
-async function searchCandidates(url: URL, env: Env, workspaceId: string) {
+async function searchCandidates(url: URL, env: Env, employerId:string) {
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
-  const [{rows,radiusMiles},openings]=await Promise.all([findTalent(env.DB,url.searchParams),openOpeningsWithGeo(env,workspaceId)]);
+  const limited=await browseLimit(env,employerId,"talent_search",DAILY_TALENT_SEARCHES);
+  if(limited)return limited;
+  const [{rows,radiusMiles},openings]=await Promise.all([findTalent(env.DB,url.searchParams,employerId),openOpeningsWithGeo(env,employerId)]);
   const nearby=rows.filter(withinCommute).length;
   return json({ok:true,total:rows.length,nearby,radiusMiles,
     candidates:rows.slice(0,100).map(r=>({...talentCandidate(r.c,r.distanceMiles),withinCommute:withinCommute(r),invitableOpeningIds:invitableOpeningIds(openings,r.c)}))});
@@ -1575,14 +1610,14 @@ async function turnOffTalentAlert(url:URL,env:Env){
  */
 async function sendTalentAlerts(env:Env,limit=200){
   if(!env.DB||!env.EMAIL)return {sent:0};
-  const alerts=await env.DB.prepare(`SELECT a.id,a.query,a.label,a.last_checked_at,a.off_token,e.email,e.contact_name FROM talent_alerts a JOIN employer_leads e ON e.id=a.employer_id
+  const alerts=await env.DB.prepare(`SELECT a.id,a.employer_id,a.query,a.label,a.last_checked_at,a.off_token,e.email,e.contact_name FROM talent_alerts a JOIN employer_leads e ON e.id=a.employer_id
     WHERE e.approved_at IS NOT NULL AND e.email!='' ORDER BY a.last_checked_at LIMIT ?`).bind(limit).all<Record<string,unknown>>();
   let sent=0;
   for(const alert of alerts.results||[]){
     const since=clean(alert.last_checked_at,40);
     const checkedAt=new Date().toISOString().replace('T',' ').slice(0,19);
     const q=new URLSearchParams(clean(alert.query,1000));
-    const {rows,radiusMiles}=await findTalent(env.DB,q);
+    const {rows,radiusMiles}=await findTalent(env.DB,q,clean(alert.employer_id,100));
     const fresh=rows.filter(r=>clean(r.c.created_at,40)>since&&(radiusMiles!==null||withinCommute(r)));
     if(fresh.length){
       const people=fresh.slice(0,5).map(r=>{const p=talentCandidate(r.c,r.distanceMiles);return {name:String(p.name),detail:[p.role,[p.city,p.state].filter(Boolean).join(', '),distanceLabel(p.distanceMiles)].filter(Boolean).join(' · ')}});
@@ -1599,14 +1634,16 @@ async function sendTalentAlerts(env:Env,limit=200){
   return {sent};
 }
 /** One caregiver from the network, for the profile panel and its own page. */
-async function talentProfile(id:string,url:URL,env:Env,workspaceId:string){
+async function talentProfile(id:string,url:URL,env:Env,employerId:string){
   if(!env.DB) return json({ok:false,error:"Database not configured yet"},{status:503});
-  const c=await env.DB.prepare(`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} LIMIT 1`).bind(id).first<Record<string,unknown>>();
+  const limited=await browseLimit(env,employerId,"talent_view",DAILY_PROFILE_VIEWS);
+  if(limited)return limited;
+  const c=await env.DB.prepare(`SELECT ${TALENT_COLUMNS} FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} AND (${OPEN_TO_EMPLOYER_SQL} OR ${APPLIED_TO_EMPLOYER_SQL}) LIMIT 1`).bind(id,employerId,employerId).first<Record<string,unknown>>();
   if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
   const zip=normalizeZip(url.searchParams.get("zip"));
   const center=zip?await lookupZip(env.DB,zip):null;
   const distanceMiles=talentDistance(center,c);
-  const openings=await openOpeningsWithGeo(env,workspaceId);
+  const openings=await openOpeningsWithGeo(env,employerId);
   return json({ok:true,candidate:{...talentCandidate(c,distanceMiles),withinCommute:withinCommute({c,distanceMiles}),invitableOpeningIds:invitableOpeningIds(openings,c)}});
 }
 /** Employer-facing profiles for caregivers who applied to an agency, whether or not they show in search right now. */
@@ -1630,7 +1667,7 @@ async function addTalentToOpening(request:Request,env:Env,workspaceId:string,ope
   if(!caregiverId)return json({ok:false,error:"Choose a caregiver"},{status:400});
   const opening=await env.DB!.prepare(`SELECT o.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM openings o ${zipGeoJoin("o")} WHERE o.id=? AND o.employer_id=?`).bind(openingId,workspaceId).first<Record<string,unknown>>();
   if(!opening)return json({ok:false,error:"Opening not found"},{status:404});
-  const c=await env.DB!.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} LIMIT 1`).bind(caregiverId).first<Record<string,unknown>>();
+  const c=await env.DB!.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? AND ${SEARCHABLE_CAREGIVER} AND ${OPEN_TO_EMPLOYER_SQL} LIMIT 1`).bind(caregiverId,workspaceId).first<Record<string,unknown>>();
   if(!c||!inUs(c))return json({ok:false,error:"This caregiver isn’t available right now."},{status:404});
   const scored=scoreCandidate(opening,c);
   // A caregiver who lives beyond their own commute from the opening (and its service area) can't take the job.
@@ -1649,8 +1686,9 @@ function talentCandidate(c:Record<string,unknown>,distanceMiles:number|null){
   return {
     id:c.id,
     name:publicName(c.first_name,c.last_name,c.display_name),
-    city:c.city,state:c.state,zip:c.zip,role:c.role,certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),
-    careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:c.bio,employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
+    // City, state and distance only: the full ZIP and any contact details in the bio wait for the caregiver's yes.
+    city:c.city,state:c.state,role:c.role,certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),
+    careSettings:listText(c.care_settings),preferredSettings:listText(c.preferred_settings),bio:scrubBio(c.bio),employmentTypes:listText(c.employment_types),startAvailability:c.start_availability,
     licensed:!!c.license_number,licenseState:c.license_state,hasResume:Number(c.has_resume)===1,checklist:parseChecklist(c.checklist),
     yearsExperience:c.years_experience,desiredWage:c.desired_wage,rateMin:c.hourly_rate_min,rateMax:c.hourly_rate_max,
     shifts:c.shift_preferences,schedule:availabilityByDay(parseAvailability(c.availability_json)),travelMiles:c.travel_distance_miles,transportation:c.transportation,willingToDrive:!!c.willing_to_drive,
@@ -1681,7 +1719,8 @@ async function getWorkspace(id:string, env:Env) {
   const approval=await approvalFor(env,id);
   // Send a one-time admin review notification even when pending accounts no longer call match/search APIs.
   if(!approval.approved)await pendingApprovalResponse(env,id);
-  return json({ok:true,workspace,approval,openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0)});
+  // "Invites this week: X of Y" on the dashboard.
+  return json({ok:true,workspace,approval,openings:openings.results||[],pipelineCount:Number(pipelineCount?.count||0),inviteAllowance:await inviteAllowance(env,id)});
 }
 async function createOpening(id:string,request:Request,env:Env) {
   const workspace=await requireWorkspace(env,id);
@@ -1705,8 +1744,8 @@ async function matchOpening(workspaceId:string,openingId:string,env:Env,pruneSta
   if(clean(opening.status)==="closed") return json({ok:false,error:"This opening is closed. Reopen it to match caregivers."},{status:409});
   // Prefilter in SQL: within the widest allowed commute of the opening, or the same state when the opening has no known ZIP.
   const openingGeo=rowGeo(opening);
-  let candidateSql=`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER}`;
-  const candidateArgs:unknown[]=[];
+  let candidateSql=`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE ${SEARCHABLE_CAREGIVER} AND ${OPEN_TO_EMPLOYER_SQL}`;
+  const candidateArgs:unknown[]=[workspaceId];
   if(openingGeo){
     const box=boundingBox(openingGeo,MAX_SEARCH_MILES+serviceRadiusMiles(opening));
     candidateSql+=" AND (zg.lat IS NULL OR (zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?))";
@@ -1743,8 +1782,8 @@ async function getPipeline(workspaceId:string,url:URL,env:Env) {
     CASE WHEN cp.response_value='interested' THEN c.phone ELSE NULL END AS contact_phone
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN caregivers c ON c.id=cp.caregiver_id WHERE o.employer_id=?
       AND (cp.stage!='matched' OR (c.is_active=1 AND c.work_status='actively_looking'
-       AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))))`;
-  const args:unknown[]=[workspaceId];
+       AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND ${OPEN_TO_EMPLOYER_SQL}))`;
+  const args:unknown[]=[workspaceId,workspaceId];
   if(openingId){ sql+=" AND cp.opening_id=?"; args.push(openingId); }
   sql+=" ORDER BY cp.match_score DESC, cp.created_at DESC LIMIT 250";
   const rows=await env.DB!.prepare(sql).bind(...args).all<Record<string,unknown>>();
@@ -1924,6 +1963,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(childSitemap){const res=await careJoysChildSitemap(env,childSitemap[1]);if(res)return res;}
     if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
     if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
+    // Short links in texts: carejoys.com/r/<code> opens the invitation.
+    const textLink=request.method==="GET"?url.pathname.match(/^\/r\/([^/]+)$/):null;
+    if(textLink) return responseLinkRedirect(textLink[1]);
     if(url.pathname===MCP_PATH) return handleMcp(request,env);
     if(request.method==="GET"&&(url.pathname==="/.well-known/mcp/server-card.json"||url.pathname==="/.well-known/mcp.json"))
       return json(mcpServerCard(),{headers:{"cache-control":"public,max-age=3600","access-control-allow-origin":"*"}});
@@ -1960,6 +2002,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       const meApply=url.pathname.match(/^\/api\/me\/apply\/([^/]+)$/);
       if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
       if(request.method==="GET"&&url.pathname==="/api/me/employer-view") return myEmployerView(env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/invite-pause") return updateInvitePause(request,env,identity);
+      if(request.method==="POST"&&url.pathname==="/api/me/hidden-agencies") return updateHiddenAgency(request,env,identity);
+      if(request.method==="GET"&&url.pathname==="/api/me/agency-search") return searchAgenciesToHide(url,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/profile") return updateCaregiverProfile(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_profile"));
       if(request.method==="POST"&&url.pathname==="/api/me/preferences") return updateCaregiverPreferences(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_dashboard"));
       const invite=url.pathname.match(/^\/api\/me\/invites\/([^/]+)\/(respond|book)$/);
@@ -2069,6 +2114,11 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/school/dashboard") return schoolDashboard(request,env);
     if(request.method==="POST"&&url.pathname==="/api/school/cohorts"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return createSchoolCohort(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/school/logout"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return schoolLogout(request,env); }
+    let publicEmployer=url.pathname.match(/^\/api\/public\/employer\/([^/]+)$/);
+    if(request.method==="GET"&&publicEmployer){
+      const profile=await loadEmployerProfile(env,decodeURIComponent(publicEmployer[1]));
+      return profile?json({ok:true,employer:profile}):json({ok:false,error:"This employer page isn’t available."},{status:404});
+    }
     let publicProgram=url.pathname.match(/^\/api\/public\/training-program\/([^/]+)$/);
     if(request.method==="GET"&&publicProgram) return getPublicTrainingProgram(decodeURIComponent(publicProgram[1]),env);
     if(request.method==="GET"&&url.pathname==="/api/candidates"){
@@ -2243,6 +2293,8 @@ export default {
       if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
         // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
+        // Texts held overnight go out once the recipient's 8am arrives, plus interview reminders. No-op while SMS_ENABLED is off.
+        await runCareJoysSmsJobs(env).catch(error=>console.error('sms jobs failed',error));
         await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);

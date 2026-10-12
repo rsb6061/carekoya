@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 // run by the Worker) when its keys are set. Both land in the same CareJoys account session.
 type PublicConfig={googleSignIn?:boolean};
 export type AccountRoles={caregiver:boolean;employer:boolean;admin:boolean;school?:boolean};
-type Account={signedIn:boolean;email?:string;name?:string;roles?:AccountRoles};
+type Account={signedIn:boolean;email?:string;name?:string;roles?:AccountRoles;employerProfilePath?:string};
 
 type CaregiverAuthValue={
   googleAvailable:boolean;
@@ -13,6 +13,8 @@ type CaregiverAuthValue={
   email:string;
   name:string;
   roles:AccountRoles|null;
+  /** The hiring workspace's public page, once it is approved. */
+  employerProfilePath:string;
   loginGoogle:(options?:{next?:string})=>Promise<void>;
   loginEmail:(options?:{email?:string;next?:string})=>Promise<void>;
   logout:()=>void;
@@ -42,7 +44,7 @@ async function signOut(){
 function emailOnlyValue(account:Account|null,google=false):CaregiverAuthValue{
   return {
     googleAvailable:google,loading:account===null,
-    isAuthenticated:!!account?.signedIn,email:account?.email||'',name:account?.name||'',roles:account?.roles||null,
+    isAuthenticated:!!account?.signedIn,email:account?.email||'',name:account?.name||'',roles:account?.roles||null,employerProfilePath:account?.employerProfilePath||'',
     loginGoogle:google?goToGoogle:async()=>{},loginEmail:goToLogin,
     logout:()=>{void signOut().then(()=>window.location.assign('/'))}
   };
@@ -55,7 +57,8 @@ export function CaregiverAuthProvider({children}:{children:ReactNode}){
   useEffect(()=>{
     fetch('/api/config').then(r=>r.json()).then((data:any)=>setConfig({googleSignIn:data?.googleSignIn===true})).catch(()=>setConfig({}));
     fetch('/api/account').then(r=>r.json()).then((data:any)=>setAccount({
-      signedIn:data?.signedIn===true,email:data?.email||'',name:data?.name||'',roles:data?.roles||undefined
+      signedIn:data?.signedIn===true,email:data?.email||'',name:data?.name||'',roles:data?.roles||undefined,
+      employerProfilePath:typeof data?.employerProfilePath==='string'?data.employerProfilePath:undefined
     })).catch(()=>setAccount({signedIn:false}));
   },[]);
 

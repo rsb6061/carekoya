@@ -5,7 +5,7 @@ import { certificationsLabel, profileTags, shiftsLabel, withoutRole } from './pr
 // preview renders this same card, so what they see is exactly what employers see.
 
 export type TalentCandidate={
-  id:string;name:string;city?:string;state?:string;zip?:string;role?:string;
+  id:string;name:string;city?:string;state?:string;role?:string;
   certifications?:string;specialties?:string;languages?:string;careSettings?:string;preferredSettings?:string;bio?:string;
   employmentTypes?:string;startAvailability?:string;licensed?:boolean;licenseState?:string;hasResume?:boolean;checklist?:string[];
   yearsExperience?:number;desiredWage?:string;transportation?:string;

@@ -10,6 +10,10 @@ import { detectApplyProvider } from './applyAgentRules';
 import { jobMeetsPayFloor } from './payMatching';
 import { parseChecklist } from './checklist';
 import { inUs, locationMatchesZip } from './caregiverLocation';
+import { lockedIntroductions } from './billing';
+import { INVITE_PAUSE_DAYS } from './caregiverProtectionRules';
+import { CAREJOYS_SMS_BRAND, saveCaregiverSmsConsent } from './carejoysSms';
+import { smsConsentStatus, type SmsEnv } from './sms';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -126,7 +130,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   // Viewing a dashboard is not an availability confirmation.
 
   const invites=await env.DB.prepare(`SELECT cp.id,cp.stage,cp.response_value,cp.contacted_at,cp.interview_at,cp.interview_booked_at,cp.opening_id,
-      o.title,o.role,o.city,o.state,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,e.company_name
+      o.title,o.role,o.city,o.state,o.pay_min,o.pay_max,o.shift_preferences,o.requirements,e.id AS employer_id,e.company_name
     FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id JOIN employer_leads e ON e.id=o.employer_id
     WHERE cp.caregiver_id=? AND cp.contacted_at IS NOT NULL AND COALESCE(e.is_test,0)=0
     ORDER BY COALESCE(cp.interview_at,cp.contacted_at) DESC LIMIT 50`).bind(caregiverId).all<Row>();
@@ -138,6 +142,11 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   }
 
   const nearbyJobs=await nearbyJobsFor(env,c,12);
+  // A yes past the employer's free introductions waits until they upgrade; the dashboard says so plainly.
+  const locked=new Set<string>();
+  for(const employerId of new Set((invites.results||[]).filter(r=>r.response_value==='interested').map(r=>clean(r.employer_id,100))))
+    for(const id of await lockedIntroductions(env,employerId))locked.add(id);
+  const pausedUntil=clean(c.invites_paused_until,40);
 
   // One row per job: whether they applied with their CareJoys profile, and whether that employer reads CareJoys.
   const applications=await env.DB.prepare(`SELECT j.id AS job_id,j.title,j.employer_name,j.source_url,MAX(a.created_at) AS created_at,
@@ -149,22 +158,26 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id
     WHERE a.caregiver_id=? GROUP BY j.id ORDER BY MAX(a.created_at) DESC LIMIT 20`).bind(caregiverId).all<Row>();
 
+  // Ticked only with a logged opt-in for the number on file.
+  const smsConsent=Number(c.sms_consent)===1&&!!c.phone&&await smsConsentStatus(env as SmsEnv,CAREJOYS_SMS_BRAND,String(c.phone))==='opted_in';
   const resumeFile=await env.DB.prepare('SELECT file_name,byte_size,updated_at FROM caregiver_resume_files WHERE caregiver_id=? LIMIT 1').bind(caregiverId).first<Row>();
 
   return json({ok:true,resume:resumeFile?{fileName:resumeFile.file_name,byteSize:resumeFile.byte_size,updatedAt:resumeFile.updated_at}:null,caregiver:{
     id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:c.city,state:c.state,zip:c.zip,role:c.role,
-    certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,
+    certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,smsConsent,
     shifts:c.shift_preferences,desiredWage:c.desired_wage,transportation:c.transportation,travelMiles:c.travel_distance_miles,
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
     freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,
     availability:parseAvailability(c.availability_json),employmentTypes:listOf(c.employment_types),startAvailability:c.start_availability,
     careSettings:listOf(c.care_settings),preferredSettings:listOf(c.preferred_settings),workConditions:listOf(c.work_conditions),checklist:parseChecklist(c.checklist),licenseNumber:c.license_number,licenseState:c.license_state,
     // Their ZIP and typed state disagree (or the state is outside the US): employers see no mileage, or don't see them at all.
-    locationCheck:inUs(c)&&locationMatchesZip(c)?null:{zipPlace:[clean(c.geo_city,120),clean(c.geo_state,10)].filter(Boolean).join(', ')}
+    locationCheck:inUs(c)&&locationMatchesZip(c)?null:{zipPlace:[clean(c.geo_city,120),clean(c.geo_state,10)].filter(Boolean).join(', ')},
+    invitesPausedUntil:pausedUntil&&Date.parse(pausedUntil)>Date.now()?pausedUntil:null
   },
+  hiddenAgencies:await hiddenAgencyList(env,caregiverId),
   invites:(invites.results||[]).map(r=>({
     id:r.id,stage:r.stage,response:r.response_value,contactedAt:r.contacted_at,interviewAt:r.interview_at,interviewBooked:!!r.interview_booked_at,
-    company:r.company_name,title:r.title,role:r.role,city:r.city,state:r.state,payMin:r.pay_min,payMax:r.pay_max,shifts:r.shift_preferences,requirements:r.requirements,
+    company:r.company_name,title:r.title,role:r.role,city:r.city,state:r.state,payMin:r.pay_min,payMax:r.pay_max,shifts:r.shift_preferences,requirements:r.requirements,locked:locked.has(clean(r.id,100)),
     slots:(slotsByOpening[clean(r.opening_id,100)]||[]).map(s=>({id:s.id,startsAt:s.starts_at,durationMinutes:s.duration_minutes,timezone:s.timezone}))
   })),
   nearbyJobs,
@@ -287,6 +300,7 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
   const years=Math.max(0,Math.min(60,asNum(d?.yearsExperience)));
   const travel=Math.max(0,Math.min(100,asNum(d?.travelMiles)));
   const payMin=Math.max(0,Math.min(200,asNum(d?.payMin)));
+  const before=await env.DB.prepare('SELECT phone FROM caregivers WHERE id=?').bind(caregiverId).first<Row>();
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),
       role=?,certifications=?,license_number=?,license_state=?,years_experience=?,specialties=?,care_settings=?,preferred_settings=?,languages=?,bio=?,
       availability_json=?,shift_preferences=?,employment_types=?,start_availability=?,work_conditions=?,checklist=COALESCE(?,checklist),
@@ -304,6 +318,8 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),caregiverId,workStatus).run();
   }
+  // The profile shows their current text choice, so unticking it here revokes consent.
+  if(typeof d?.smsConsent==='boolean')await saveCaregiverSmsConsent(env as SmsEnv,request,{caregiverId,consent:d.smsConsent,source:'caregiver_profile',previousPhone:clean(before?.phone,40)});
   const matchedOpenings=await rematch(caregiverId);
   return json({ok:true,matchedOpenings});
 }
@@ -354,4 +370,60 @@ export async function bookInviteInterview(request:Request,env:FeatureEnv,identit
   if(!caregiverId)return unauthorized();
   const data=await request.json().catch(()=>null) as Row|null;
   return bookInterviewForCaregiver(env,caregiverId,pipelineId,data?.slotId);
+}
+
+/** "Pause invitations for 2 weeks", or resume them: no agency matches, finds or invites a paused caregiver. */
+export async function updateInvitePause(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null){
+  if(!identity)return unauthorized();
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return unauthorized();
+  const data=await request.json().catch(()=>null) as Row|null;
+  const until=data?.paused===true?new Date(Date.now()+INVITE_PAUSE_DAYS*86400000).toISOString():null;
+  await env.DB.prepare('UPDATE caregivers SET invites_paused_until=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(until,caregiverId).run();
+  return json({ok:true,invitesPausedUntil:until});
+}
+
+// Agencies a caregiver can pick: approved employer workspaces, by their own name or their claimed agency's. Names only.
+const PICKABLE_EMPLOYER_SQL=`COALESCE(e.is_test,0)=0 AND COALESCE(e.status,'')!='disabled' AND (e.approved_at IS NOT NULL
+  OR EXISTS (SELECT 1 FROM agency_organizations ao WHERE ao.claimed_employer_id=e.id)
+  OR EXISTS (SELECT 1 FROM agency_organizations ao WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_domain,'')!='' AND lower(ao.primary_domain)=lower(substr(e.email,instr(e.email,'@')+1))))`;
+
+async function hiddenAgencyList(env:FeatureEnv,caregiverId:string){
+  const rows=await env.DB!.prepare(`SELECT e.id,e.company_name FROM caregiver_hidden_employers h JOIN employer_leads e ON e.id=h.employer_id WHERE h.caregiver_id=? ORDER BY h.created_at`).bind(caregiverId).all<Row>();
+  return (rows.results||[]).map(r=>({id:clean(r.id,100),name:clean(r.company_name,200)||'An agency'}));
+}
+
+/** Agencies on CareJoys whose name matches what the caregiver typed, to hide their profile from. */
+export async function searchAgenciesToHide(url:URL,env:FeatureEnv,identity:CaregiverIdentity|null){
+  if(!identity)return unauthorized();
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  if(!await caregiverForIdentity(env,identity))return unauthorized();
+  const q=clean(url.searchParams.get('q'),80).toLowerCase().replace(/[%_]/g,'');
+  if(q.length<2)return json({ok:true,agencies:[]});
+  const like='%'+q+'%';
+  const rows=await env.DB.prepare(`SELECT e.id,e.company_name AS name FROM employer_leads e WHERE lower(COALESCE(e.company_name,'')) LIKE ? AND ${PICKABLE_EMPLOYER_SQL}
+    UNION SELECT e.id,ao.canonical_name AS name FROM agency_organizations ao JOIN employer_leads e ON e.id=ao.claimed_employer_id WHERE COALESCE(ao.is_test,0)=0 AND lower(COALESCE(ao.canonical_name,'')) LIKE ? AND ${PICKABLE_EMPLOYER_SQL}
+    LIMIT 40`).bind(like,like).all<Row>();
+  const seen=new Map<string,string>();
+  for(const r of rows.results||[]){const id=clean(r.id,100),name=clean(r.name,200);if(id&&name&&!seen.has(id))seen.set(id,name)}
+  return json({ok:true,agencies:[...seen].slice(0,10).map(([id,name])=>({id,name}))});
+}
+
+/** Hide the caregiver's profile from one agency, or show it again. They stay visible to an agency they applied to. */
+export async function updateHiddenAgency(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null){
+  if(!identity)return unauthorized();
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return unauthorized();
+  const data=await request.json().catch(()=>null) as Row|null;
+  const employerId=clean(data?.employerId,100);
+  if(!employerId)return json({ok:false,error:'Choose an agency.'},{status:400});
+  if(data?.hidden===false)await env.DB.prepare('DELETE FROM caregiver_hidden_employers WHERE caregiver_id=? AND employer_id=?').bind(caregiverId,employerId).run();
+  else{
+    const known=await env.DB.prepare(`SELECT 1 FROM employer_leads e WHERE e.id=? AND ${PICKABLE_EMPLOYER_SQL}`).bind(employerId).first();
+    if(!known)return json({ok:false,error:'Agency not found.'},{status:404});
+    await env.DB.prepare('INSERT OR IGNORE INTO caregiver_hidden_employers(caregiver_id,employer_id) VALUES (?,?)').bind(caregiverId,employerId).run();
+  }
+  return json({ok:true,hiddenAgencies:await hiddenAgencyList(env,caregiverId)});
 }

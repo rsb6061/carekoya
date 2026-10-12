@@ -61,6 +61,14 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .talent-results-head{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;margin:0 0 14px}
 .talent-results-head .text-button{margin:0}
 .talent-toolbar{margin-bottom:16px}
+/* Find caregivers starts from one job listing: "Finding caregivers for [CNA · Towson ▾]". */
+.talent-job-picker{display:flex;align-items:center;justify-content:space-between;gap:8px 18px;flex-wrap:wrap;margin:0 0 8px;font-size:18px;color:var(--ink)}
+.talent-job-picker label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0}
+.talent-job-picker select{font:inherit;font-weight:700;color:var(--ink);border:1px solid var(--lavender);border-radius:14px;background:#fff;padding:6px 10px;max-width:100%}
+.talent-job-picker .text-button{margin:0;padding:0;font-size:14px}
+.talent-section-title{margin:26px 0 12px;font-size:20px;font-weight:600;color:var(--ink)}
+.invite-counter{align-self:center;color:var(--muted);font-size:14px;white-space:nowrap}
+.opening-counts{margin:10px 0 0;color:var(--muted);font-size:14px}
 .talent-pick{margin-left:auto;display:flex;align-items:center;padding:4px}
 .talent-pick input{width:20px;height:20px;margin:0;cursor:pointer}
 .talent-card.picked{--card-border:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}

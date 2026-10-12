@@ -2,12 +2,13 @@ import { SiteHeader } from './SiteChrome';
 import { useEffect, useState, type FormEvent } from 'react';
 import './activation.css';
 import { payLabel } from './jobFormat';
+import { lockedYesText } from './caregiverProtectionRules';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
 type Opportunity={
   company:string;about?:string|null;benefits?:string|null;title:string;role:string;city?:string;state?:string;zip?:string;
   payMin?:number;payMax?:number;shift?:string;requirements?:string;
-  stage?:string;response?:string;interviewBookedAt?:string;slots:Slot[];
+  stage?:string;response?:string;interviewBookedAt?:string;locked?:boolean;slots:Slot[];
 };
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -52,13 +53,13 @@ export function CandidateResponse(){
   async function respond(choice:'interested'|'not_interested'){
     setStatus('saving');setMessage('');
     try{
-      await api('/api/respond',{method:'POST',body:JSON.stringify({token,choice})});
+      const result=await api<{locked?:boolean}>('/api/respond',{method:'POST',body:JSON.stringify({token,choice})});
       if(choice==='not_interested'){
         setOpportunity(o=>o?{...o,response:'not_interested',stage:'rejected'}:o);
         setMessage('Thanks — we marked you as not interested in this job.');
       }else{
-        setOpportunity(o=>o?{...o,response:'interested',stage:'interested'}:o);
-        setMessage('Great — your interest is confirmed. Choose an interview time below if one is available.');
+        setOpportunity(o=>o?{...o,response:'interested',stage:'interested',locked:!!result.locked,slots:result.locked?[]:o.slots}:o);
+        setMessage(result.locked?'':'Great — your interest is confirmed. Choose an interview time below if one is available.');
       }
       setStatus('ready');
     }catch(error){
@@ -120,7 +121,9 @@ export function CandidateResponse(){
 
       {declined&&<div className="activation-section-head"><h2>Response saved</h2><p>We will not move you forward for this opening.</p></div>}
 
-      {interested&&status!=='booked'&&<>
+      {interested&&opportunity.locked&&status!=='booked'&&<div className="activation-section-head"><h2>Answer saved</h2><p>{lockedYesText(opportunity.company)}</p></div>}
+
+      {interested&&!opportunity.locked&&status!=='booked'&&<>
         <div className="activation-section-head"><h2>Interest sent to employer</h2><p>The employer can contact you at your email address. Booking an interview here is optional.</p></div>
         {opportunity.slots.length===0?<div className="notice">You're all set. The employer has your interest and can follow up directly. You can return to CareJoys anytime.</div>:
         <form className="activation-form" onSubmit={book}>

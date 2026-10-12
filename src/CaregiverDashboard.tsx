@@ -8,13 +8,15 @@ import { rememberDashboard } from './dashboardHome';
 import { AccountMenu, CloseAccountSide } from './AccountLink';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
 import { TalentCard, type TalentCandidate } from './TalentCard';
+import { CaregiverInviteControls, type HiddenAgency } from './CaregiverInviteControls';
+import { lockedYesText } from './caregiverProtectionRules';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
 type Invite={
   id:string;stage:string;response?:string|null;contactedAt?:string;interviewAt?:string|null;interviewBooked:boolean;
   company?:string;title?:string;role?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;shifts?:string;requirements?:string;
-  slots:Slot[];
+  locked?:boolean;slots:Slot[];
 };
 type NearbyJob={id:string;title:string;employerName?:string;city?:string;state?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;employerOnCareJoys?:boolean;applyForMe?:boolean;distanceMiles?:number|null};
 type Application={jobId:string;title:string;employerName?:string;at:string;applicationUrl?:string;appliedOnCareJoys:boolean;openedEmployerSite:boolean;employerOnCareJoys:boolean;submittedOnEmployerSite?:boolean};
@@ -26,9 +28,9 @@ function applicationStatus(a:Application){
   return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
 }
 type Caregiver=CaregiverProfileData&{
-  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;
+  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;invitesPausedUntil?:string|null;
 };
-type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[]};
+type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[];hiddenAgencies?:HiddenAgency[]};
 
 const cardTone=(index:number)=>['job-card-sky','job-card-mint','job-card-lilac','job-card-peach'][index%4];
 const pay=(min?:number|null,max?:number|null,period='hour')=>payLabel({payMin:min,payMax:max,payPeriod:period});
@@ -68,7 +70,7 @@ export function CaregiverDashboard(){
 
   async function act(key:string,path:string,body:Record<string,unknown>,message:string){
     setBusy(key);setNotice('');
-    try{await api(path,{method:'POST',body:JSON.stringify(body)});setNotice(message);await load()}
+    try{const r=await api<{message?:string}>(path,{method:'POST',body:JSON.stringify(body)});setNotice(r.message||message);await load()}
     catch(e){setNotice(e instanceof Error?e.message:'Something went wrong')}
     finally{setBusy('')}
   }
@@ -144,6 +146,7 @@ export function CaregiverDashboard(){
     ...(invites.length?[{id:'interviews',label:'Interviews'}]:[]),
     ...((data.applications||[]).length?[{id:'applications',label:'Applications'}]:[]),
     {id:'emails',label:'Weekly email'},
+    {id:'privacy',label:'Privacy'},
     {id:'resume',label:'Resume'},
   ];
   return <div>{header}
@@ -184,7 +187,8 @@ export function CaregiverDashboard(){
               <button className="button" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'interested'},'Great! The employer has been told you’re interested.')}>I’m interested</button>
               <button className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/respond`,{choice:'not_interested'},'Thanks for letting them know.')}>Not interested</button>
             </div>}
-            {invite.response==='interested'&&!invite.interviewBooked&&(invite.slots.length?<div className="empty-actions">
+            {invite.response==='interested'&&!invite.interviewBooked&&invite.locked&&<div className="job-meta" style={{marginTop:12}}>{lockedYesText(invite.company)}</div>}
+            {invite.response==='interested'&&!invite.interviewBooked&&!invite.locked&&(invite.slots.length?<div className="empty-actions">
               {invite.slots.map(slot=><button key={slot.id} className="button secondary" disabled={!!busy} onClick={()=>void act(invite.id,`/api/me/invites/${encodeURIComponent(invite.id)}/book`,{slotId:slot.id},'Interview booked. Check your email for the calendar invite.')}>{when(slot.startsAt,slot.timezone)}</button>)}
             </div>:<div className="job-meta" style={{marginTop:12}}>The employer will add interview times soon.</div>)}
           </div>
@@ -251,6 +255,11 @@ export function CaregiverDashboard(){
         <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
         <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
         <p className="job-meta">Turn weekly job emails off here or unsubscribe from any digest.</p>
+      </section>
+
+      <section className="section-block" id="privacy">
+        <div className="section-heading"><h2>Who can invite you</h2><p>Agencies only get your contact details after you say yes.</p></div>
+        <CaregiverInviteControls pausedUntil={c.invitesPausedUntil} hidden={data.hiddenAgencies||[]} onChange={setNotice}/>
       </section>
 
       <section className="section-block" id="resume">

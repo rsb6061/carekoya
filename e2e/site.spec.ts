@@ -50,7 +50,8 @@ test('every internal link on the public pages resolves', async({page,request})=>
 
 // Every visible button is clicked once (fresh page each time). A button that throws, fails an API call, or changes
 // nothing at all on the page fails the test: that is a frozen button.
-const SKIP_BUTTON=/sign out|log out|close hiring workspace|close, role filled|delete|remove|copy url|copy link|^copy|google/i;
+// Pausing invitations would hide the shared test caregiver from every later agency test; the dashboard test covers it.
+const SKIP_BUTTON=/sign out|log out|close hiring workspace|close, role filled|delete|remove|copy url|copy link|^copy|google|pause invitations/i;
 async function clickEveryButton(page:Page,path:string){
   // Not 'networkidle': the dashboards' keepalive "last dashboard" ping never reports as finished to the browser.
   const open=async()=>{await page.goto(path);await expect(page.getByText(/^Loading/)).toHaveCount(0);await page.waitForTimeout(500)};
@@ -118,6 +119,11 @@ test('caregiver dashboard: availability, weekly emails and profile edits save', 
   await expect(page.getByRole('status')).toHaveText(wasOn?'Weekly job emails turned off.':'Weekly job emails enabled.');
   await page.reload();
   await expect(page.locator('.check-row input[type=checkbox]').first()).toBeChecked({checked:!wasOn});
+  // Pausing invitations hides them from agencies until they resume.
+  await page.getByRole('button',{name:'Pause invitations for 2 weeks'}).click();
+  await expect(page.getByText(/^Paused until/)).toBeVisible();
+  await page.getByRole('button',{name:'Resume invitations'}).click();
+  await expect(page.getByRole('button',{name:'Pause invitations for 2 weeks'})).toBeVisible();
   await page.goto('/dashboard/profile');
   await page.getByLabel('A few words for employers').fill('Patient, reliable CNA. Five years of home care.');
   await page.getByRole('button',{name:'Save my profile'}).click();
@@ -139,7 +145,7 @@ test('employer invites a caregiver, who says yes from the email and books an int
   await modal.getByLabel('Role').selectOption('CNA');
   await modal.getByLabel('ZIP').fill('21201');
   await modal.getByRole('button',{name:/Create (& match|job listing)/}).click();
-  await expect(employer.getByRole('heading',{name:'Matches for '+title})).toBeVisible();
+  await expect(employer.getByLabel('Job listing').locator('option:checked')).toHaveText(title);
   // Interview times first, so the caregiver can book one.
   await employer.getByRole('button',{name:/Add interview times|Manage interview times/}).click();
   const slotModal=employer.locator('.modal-panel');
@@ -148,12 +154,17 @@ test('employer invites a caregiver, who says yes from the email and books an int
   await slotModal.locator('input[type=datetime-local]').first().fill(local);
   await slotModal.getByRole('button',{name:'Save interview times'}).click();
   await expect(employer.locator('.modal-panel')).toHaveCount(0);
-  // Saving keeps the employer on the match list they were on.
-  await expect(employer.getByRole('heading',{name:'Casey T.'})).toBeVisible();
+  // Saving keeps the employer on the suggestions they were on.
+  const suggestion=employer.locator('.match-tile',{hasText:'Casey T.'});
+  await expect(suggestion.getByRole('heading',{name:'Casey T.'})).toBeVisible();
   const since=Date.now();
-  await employer.getByRole('button',{name:'Invite',exact:true}).first().click();
+  await suggestion.getByRole('button',{name:'Invite',exact:true}).click();
   await expect(employer.getByText(/Invited|invite sent/i).first()).toBeVisible();
-  clean(we);
+  // Once invited, she leaves Find caregivers and waits in Candidates.
+  await expect(suggestion).toHaveCount(0);
+  await employer.locator('.dash-sidenav').getByRole('button',{name:/^Candidates/}).click();
+  await employer.getByRole('button',{name:/^Invited · waiting/}).click();
+  await expect(employer.locator('.match-tile',{hasText:'Casey T.'})).toContainText('Invited to '+title);
 
   const caregiver=await browser.newPage();
   const wc=await watch(caregiver);
@@ -161,6 +172,11 @@ test('employer invites a caregiver, who says yes from the email and books an int
   await expect(caregiver.getByRole('heading',{name:title})).toBeVisible();
   await caregiver.getByRole('button',{name:'I’m interested'}).click();
   await expect(caregiver.getByRole('heading',{name:'Interest sent to employer'})).toBeVisible();
+  // With someone waiting on a reply, the dashboard opens on them.
+  await employer.goto('/app');
+  await expect(employer.getByRole('button',{name:/^Needs your reply/})).toHaveAttribute('aria-pressed','true');
+  await expect(employer.locator('.match-tile',{hasText:'Casey T.'})).toBeVisible();
+  clean(we);
   await caregiver.locator('button.status-choice').first().click();
   await caregiver.getByRole('button',{name:/Book|Confirm/}).click();
   await expect(caregiver.getByRole('heading',{name:'You’re on the calendar.'})).toBeVisible();
