@@ -41,7 +41,7 @@ import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, save
 import { resumeDownload } from './resumeFile';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
-import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus } from './carejoysSms';
+import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus, responseLinkRedirect, runCareJoysSmsJobs, saveCaregiverSmsConsent } from './carejoysSms';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, searchAgenciesToHide, updateCaregiverAvailability, updateHiddenAgency, updateInvitePause, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 // The facility pilot sends its day's batch from this hour on (13:17 UTC, 9:17 Eastern), outside the agency invite cap (Rebecca approved, 2026-10-11).
@@ -1221,6 +1221,8 @@ async function handleCaregiver(request: Request, env: Env) {
   }
 
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  // Text opt-in from the signup checkbox; unticked changes nothing here.
+  await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
@@ -1319,6 +1321,8 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   }
 
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
+  // Text opt-in from the signup checkbox; unticked changes nothing here.
+  await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(id).first<Record<string,unknown>>();
@@ -1959,6 +1963,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(childSitemap){const res=await careJoysChildSitemap(env,childSitemap[1]);if(res)return res;}
     if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
     if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
+    // Short links in texts: carejoys.com/r/<code> opens the invitation.
+    const textLink=request.method==="GET"?url.pathname.match(/^\/r\/([^/]+)$/):null;
+    if(textLink) return responseLinkRedirect(textLink[1]);
     if(url.pathname===MCP_PATH) return handleMcp(request,env);
     if(request.method==="GET"&&(url.pathname==="/.well-known/mcp/server-card.json"||url.pathname==="/.well-known/mcp.json"))
       return json(mcpServerCard(),{headers:{"cache-control":"public,max-age=3600","access-control-allow-origin":"*"}});
@@ -2286,6 +2293,8 @@ export default {
       if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
         // CareJoys' own summary for each live job; the page shows nothing from the posting until one exists.
         // A run gets cut off after a few dozen jobs, so summaries run every five minutes.
+        // Texts held overnight go out once the recipient's 8am arrives, plus interview reminders. No-op while SMS_ENABLED is off.
+        await runCareJoysSmsJobs(env).catch(error=>console.error('sms jobs failed',error));
         await recordedSummaryRun(env,event.cron);
         // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
         if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);

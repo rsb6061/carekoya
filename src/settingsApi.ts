@@ -1,6 +1,8 @@
 import { employerSession, type FeatureEnv } from './serverFeatures';
 import { lockedIntroductions, type BillingEnv } from './billing';
 import { atsForwardEmail, dailyDigestEmail, monthlyResultsEmail, type DigestPerson } from './email';
+import { saveAgencySmsAlerts } from './carejoysSms';
+import type { SmsEnv } from './sms';
 
 // What an agency sets up once in its workspace: the morning digest and monthly results, forwarding to its
 // ATS, its own words for caregivers, and the candidate export. Also the scheduled emails those settings drive.
@@ -28,8 +30,9 @@ async function signedIn(request:Request,env:FeatureEnv){
 export async function getWorkspaceSettings(request:Request,env:FeatureEnv){
   const e=await signedIn(request,env);
   if(!e)return json({ok:false,error:'Sign in required'},{status:401});
-  const row=await env.DB!.prepare('SELECT digest_enabled,ats_email,company_about,company_benefits FROM employer_leads WHERE id=?').bind(e.id).first<Row>();
-  return json({ok:true,settings:{digest:Number(row?.digest_enabled??1)===1,atsEmail:clean(row?.ats_email,320),about:clean(row?.company_about,1000),benefits:clean(row?.company_benefits,600)}});
+  const row=await env.DB!.prepare('SELECT digest_enabled,ats_email,company_about,company_benefits,sms_alerts_enabled,sms_alert_phone FROM employer_leads WHERE id=?').bind(e.id).first<Row>();
+  return json({ok:true,settings:{digest:Number(row?.digest_enabled??1)===1,atsEmail:clean(row?.ats_email,320),about:clean(row?.company_about,1000),benefits:clean(row?.company_benefits,600),
+    smsAlerts:Number(row?.sms_alerts_enabled)===1,smsAlertPhone:clean(row?.sms_alert_phone,20)}});
 }
 
 export async function saveWorkspaceSettings(request:Request,env:FeatureEnv){
@@ -37,6 +40,12 @@ export async function saveWorkspaceSettings(request:Request,env:FeatureEnv){
   if(!e)return json({ok:false,error:'Sign in required'},{status:401});
   const data=await request.json().catch(()=>null) as Row|null;
   if(!data)return json({ok:false,error:'Nothing to save'},{status:400});
+  // "Text me when a caregiver says yes": its own opt-in, logged with the wording like a caregiver's.
+  if(data.smsAlerts!==undefined){
+    const error=await saveAgencySmsAlerts(env as SmsEnv,request,e.id,{enabled:data.smsAlerts,phone:data.smsAlertPhone});
+    if(error)return json({ok:false,error},{status:400});
+    if(Object.keys(data).every(k=>k==='smsAlerts'||k==='smsAlertPhone'))return getWorkspaceSettings(request,env);
+  }
   const sets:string[]=[];const args:unknown[]=[];
   if(data.digest!==undefined){sets.push('digest_enabled=?');args.push(data.digest?1:0)}
   if(data.atsEmail!==undefined){

@@ -6,6 +6,8 @@ import { isSuppressed, unsubscribeLink } from './emailPreferences';
 import { withUnsubscribe } from './email';
 import { lockedIntroductions, type BillingEnv } from './billing';
 import { resumeDownload } from './resumeFile';
+import { saveCaregiverSmsConsent } from './carejoysSms';
+import type { SmsEnv } from './sms';
 
 // The Agency Inbox: every caregiver who asked to be sent to an agency, in five stages.
 //
@@ -393,13 +395,13 @@ export async function getInterestConfirmation(url:URL,env:FeatureEnv){
   const sent=clean(row.status,40)==='sent';
   if(!sent&&Date.parse(clean(row.email_expires_at,40))<Date.now())return json({ok:false,error:'This link expired after 48 hours. Nothing was sent.'},{status:410});
   let firstName=payload.profile?.firstName||'';
-  if(!firstName&&row.caregiver_id){
-    const c=await env.DB!.prepare('SELECT first_name FROM caregivers WHERE id=?').bind(clean(row.caregiver_id,120)).first<Row>();
-    firstName=clean(c?.first_name,80);
-  }
+  const c=row.caregiver_id?await env.DB!.prepare('SELECT first_name,phone FROM caregivers WHERE id=?').bind(clean(row.caregiver_id,120)).first<Row>():null;
+  if(!firstName)firstName=clean(c?.first_name,80);
   return json({ok:true,status:sent?'sent':'ready',firstName,email:maskEmail(clean(row.email,320)),viaAssistant:clean(row.source,40)==='mcp',
     profile:payload.profile?{role:payload.profile.role,zip:payload.profile.zip,certifications:payload.profile.certifications,phone:payload.profile.phone}:null,
-    targets:payload.targets.map(targetPreview),note:payload.note||null});
+    targets:payload.targets.map(targetPreview),note:payload.note||null,
+    // A mobile number is on file, so the page offers the text opt-in box.
+    canText:!!(clean(payload.profile?.phone,40)||clean(c?.phone,40))});
 }
 
 // The caregiver pressed Send. POST only, so link scanners that open emails can't send anything.
@@ -415,6 +417,7 @@ export async function confirmInterestRequest(request:Request,env:FeatureEnv){
     if(!payload.profile)return json({ok:false,error:'This request is missing its profile.'},{status:400});
     caregiverId=await upsertCaregiverFromProfile(env,payload.profile);
   }
+  if(data.smsConsent===true)await saveCaregiverSmsConsent(env as SmsEnv,request,{caregiverId,consent:true,source:'send_my_profile',phone:clean(payload.profile?.phone,40)||undefined});
   let targets:ResolvedTarget[];
   try{targets=await resolveTargets(env,{jobIds:payload.targets.filter(t=>t.jobId).map(t=>t.jobId),agencyIds:payload.targets.filter(t=>!t.jobId).map(t=>t.organizationId)})}
   catch(error){

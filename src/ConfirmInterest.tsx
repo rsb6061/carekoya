@@ -1,11 +1,13 @@
 import { SiteHeader } from './SiteChrome';
 import { useEffect, useState } from 'react';
 import './activation.css';
+import { SMS_CONSENT_TEXT } from './smsConsent';
 
 type Preview={label:string;detail:string};
 type Confirmation={
   status:'ready'|'sent';firstName:string;email:string;viaAssistant:boolean;note:string|null;targets:Preview[];
   profile:{role:string;zip:string;certifications:string;phone:string}|null;
+  canText?:boolean;
 };
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -21,6 +23,7 @@ export function ConfirmInterest(){
   const [data,setData]=useState<Confirmation|null>(null);
   const [status,setStatus]=useState<'loading'|'ready'|'sending'|'sent'|'error'>('loading');
   const [message,setMessage]=useState('');
+  const [smsConsent,setSmsConsent]=useState(false);
 
   useEffect(()=>{
     if(!token){setStatus('error');setMessage('This link is missing its code.');return;}
@@ -32,7 +35,7 @@ export function ConfirmInterest(){
   async function send(){
     setStatus('sending');setMessage('');
     try{
-      await api('/api/interest-confirm',{method:'POST',body:JSON.stringify({token})});
+      await api('/api/interest-confirm',{method:'POST',body:JSON.stringify({token,smsConsent})});
       setStatus('sent');
     }catch(error){
       setStatus('ready');setMessage(error instanceof Error?error.message:'Could not send your profile.');
@@ -61,6 +64,7 @@ export function ConfirmInterest(){
         </div>
         {data.profile&&<div className="agency-source-note"><strong>Your profile</strong><span>{[data.profile.role,data.profile.certifications,'ZIP '+data.profile.zip,data.email].filter(Boolean).join(' · ')}</span></div>}
         {data.note&&<p className="activation-intro">Your note: “{data.note}”</p>}
+        {data.canText&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>}
         {message&&<div className="notice">{message}</div>}
         <button className="btn activation-submit" onClick={send} disabled={status==='sending'}>{status==='sending'?'Sending…':'Send my profile'}</button>
         <p className="activation-intro">Didn’t ask for this? Close this page and nothing will be sent.</p>

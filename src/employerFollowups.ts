@@ -1,5 +1,7 @@
 import { caregiverInviteReminderEmail, employerInterestNudgeEmail, caregiverRoleClosedEmail } from './email';
 import { lockedIntroductions } from './billing';
+import { textInviteReminder } from './carejoysSms';
+import type { SmsEnv } from './sms';
 
 import type { FeatureEnv } from './serverFeatures';
 
@@ -16,14 +18,14 @@ function publicName(first:unknown,last:unknown,display:unknown){
 }
 const NOT_SUPPRESSED=`NOT EXISTS (SELECT 1 FROM email_suppressions s WHERE lower(s.email)=lower(c.email))`;
 
-async function log(env:FollowupEnv,caregiverId:unknown,openingId:unknown,eventType:string,pipelineId:unknown,messageId?:string){
-  await env.DB!.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound',?,?,?)")
-    .bind(crypto.randomUUID(),caregiverId,openingId,eventType,messageId||null,JSON.stringify({pipelineId})).run().catch(()=>null);
+async function log(env:FollowupEnv,caregiverId:unknown,openingId:unknown,eventType:string,pipelineId:unknown,messageId?:string,channel='email'){
+  await env.DB!.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,?,'outbound',?,?,?)")
+    .bind(crypto.randomUUID(),caregiverId,openingId,channel,eventType,messageId||null,JSON.stringify({pipelineId})).run().catch(()=>null);
 }
 
 /**
  * Hourly. Each row gets at most one of each, claimed before sending so overlapping runs never double up:
- * - a reminder to a caregiver who hasn't answered an invitation after 2 days (still open, link still valid);
+ * - a reminder to a caregiver who hasn't answered an invitation after 2 days (still open, link still valid), by text when they opted in;
  * - a nudge to an employer whose caregiver said yes 2 days ago and is still waiting.
  * The 7-day ceiling keeps a backlog from older invitations from all going out at once.
  */
@@ -41,6 +43,8 @@ export async function sendHiringFollowups(env:FollowupEnv,limit=40){
     if(!emailValid(clean(r.email,320)))continue;
     const claimed=await env.DB.prepare("UPDATE candidate_pipeline SET caregiver_reminded_at=CURRENT_TIMESTAMP WHERE id=? AND caregiver_reminded_at IS NULL").bind(r.id).run();
     if(Number(claimed.meta?.changes||0)!==1)continue;
+    // A caregiver who opted in to texts gets this reminder by text instead of a second email.
+    if(await textInviteReminder(env as SmsEnv,clean(r.id,100)).catch(()=>false)){await log(env,r.caregiver_id,r.opening_id,'invite_reminder',r.id,undefined,'sms');reminders++;continue}
     // The invitation link's token is stored hashed, so the reminder sends them to their dashboard, where the same invitation can be answered.
     const mail=caregiverInviteReminderEmail({firstName:firstName(r.first_name,r.display_name),company:clean(r.company_name,200),title:clean(r.title,200),link:'https://carejoys.com/dashboard'});
     try{const sent=await env.EMAIL.send({from:FROM,to:clean(r.email,320),subject:mail.subject,html:mail.html,text:mail.text});await log(env,r.caregiver_id,r.opening_id,'invite_reminder',r.id,sent.messageId);reminders++}

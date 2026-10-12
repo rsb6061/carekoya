@@ -5,6 +5,8 @@ import { employerPitch } from './employerPitch';
 import { APPLIED_TO_EMPLOYER_SQL } from './applications';
 import { OPEN_TO_EMPLOYER_SQL, SUPPRESSED_SQL, caregiverInviteBlock, inviteAllowance, pendingInvites } from './caregiverProtection';
 import { PENDING_PER_FREE_INTRO, heldBackNotice, lockedYesText, type HeldBack } from './caregiverProtectionRules';
+import { textAgencyYes, textJobInvite } from './carejoysSms';
+import type { SmsEnv } from './sms';
 
 type D1Result<T=unknown>={results?:T[];success?:boolean;meta?:Record<string,unknown>};
 type Statement={
@@ -279,6 +281,8 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,provider_message_id,payload) VALUES (?,?,?,'email','outbound','job_interest_request',?,?)")
         .bind(crypto.randomUUID(),row.caregiver_id,openingId,result.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
       sent++;room--;freeLeft--;
+      // The same invitation by text, only for a caregiver who opted in and only once SMS is switched on.
+      if(!isTest)await textJobInvite(env as SmsEnv,String(row.pipeline_id)).catch(()=>null);
     }catch(error){
       failed++;
       await env.DB.prepare("INSERT INTO outreach_events(id,caregiver_id,opening_id,channel,direction,event_type,payload) VALUES (?,?,?,'email','outbound','job_interest_failed',?)")
@@ -339,7 +343,8 @@ const RESPONSE_RECORD_SELECT=`SELECT cp.id AS pipeline_id,cp.stage,cp.response_v
 async function responseRecord(env:FeatureEnv,token:string){
   if(!env.DB||!token)return null;
   const hash=await sha256Hex(token);
-  return env.DB.prepare(RESPONSE_RECORD_SELECT+` WHERE cp.response_token_hash=? AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now')) LIMIT 1`).bind(hash).first<Record<string,unknown>>();
+  // A text's short carejoys.com/r/<code> link works like the emailed token.
+  return env.DB.prepare(RESPONSE_RECORD_SELECT+` WHERE (cp.response_token_hash=? OR cp.id=(SELECT pipeline_id FROM sms_response_links WHERE code_hash=?)) AND (cp.response_expires_at IS NULL OR datetime(cp.response_expires_at)>datetime('now')) LIMIT 1`).bind(hash,hash).first<Record<string,unknown>>();
 }
 /** Same record as a response link, looked up for a signed-in caregiver; only invitations an employer actually sent. */
 async function caregiverInviteRecord(env:FeatureEnv,pipelineId:string,caregiverId:string){
@@ -373,16 +378,16 @@ export async function submitCandidateResponse(request:Request,env:FeatureEnv){
   return applyCandidateResponse(env,row,choice,'web');
 }
 
-export async function respondToInviteForCaregiver(env:FeatureEnv,caregiverId:string,pipelineId:string,choiceValue:unknown){
+export async function respondToInviteForCaregiver(env:FeatureEnv,caregiverId:string,pipelineId:string,choiceValue:unknown,channel:'dashboard'|'sms'='dashboard'){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const choice=clean(choiceValue,40);
   if(!['interested','not_interested'].includes(choice))return json({ok:false,error:'Choose interested or not interested.'},{status:400});
   const row=await caregiverInviteRecord(env,pipelineId,caregiverId);
   if(!row)return json({ok:false,error:'Invitation not found.'},{status:404});
-  return applyCandidateResponse(env,row,choice,'dashboard');
+  return applyCandidateResponse(env,row,choice,channel);
 }
 
-async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,choice:string,channel:'web'|'dashboard'){
+async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,choice:string,channel:'web'|'dashboard'|'sms'){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   let locked=false;
   if(choice==='interested'){
@@ -416,6 +421,8 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
           .bind(crypto.randomUUID(),row.caregiver_id,row.opening_id,sent.messageId||null,JSON.stringify({pipelineId:row.pipeline_id})).run();
       }catch{}
     }
+    // Agencies that opted in from Settings also get a text; never for a locked yes.
+    await textAgencyYes(env as SmsEnv,clean(row.pipeline_id,100)).catch(()=>null);
   }else{
     await env.DB.prepare("UPDATE candidate_pipeline SET stage='rejected',response_value='not_interested',response_at=CURRENT_TIMESTAMP,responded_at=CURRENT_TIMESTAMP,rejected_reason='caregiver_not_interested',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.pipeline_id).run();
   }

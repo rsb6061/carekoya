@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
+import { AGENCY_SMS_CONSENT_TEXT } from './smsConsent';
 
-type Settings={digest:boolean;atsEmail:string;about:string;benefits:string};
+type Settings={digest:boolean;atsEmail:string;about:string;benefits:string;smsAlerts:boolean;smsAlertPhone:string};
 type TalentAlert={id:string;label:string;query:string};
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -61,6 +62,12 @@ export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agenc
     const ats=String(new FormData(e.currentTarget).get('atsEmail')||'').trim();
     await save({atsEmail:ats},ats?'New candidates will be forwarded to '+ats+'.':'Forwarding is off.');
   }
+  async function saveTexts(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    const form=new FormData(e.currentTarget);
+    const on=form.get('smsAlerts')==='on';
+    await save({smsAlerts:on,smsAlertPhone:String(form.get('smsAlertPhone')||'').trim()},on?'We’ll text you when a caregiver says yes.':'Texts are off. You’ll still get the email.');
+  }
   if(!settings)return <section className="section-block"><div className="section-heading"><h2>Settings</h2></div>{notice?<div className="alert-status alert-error">{notice.text}</div>:<p className="job-meta">Loading…</p>}</section>;
   return <section className="section-block workspace-settings">
     <div className="section-heading"><h2>Settings</h2></div>
@@ -83,6 +90,15 @@ export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agenc
       {alerts&&homeAlertQuery&&<label className="check-row"><input type="checkbox" checked={!!homeAlert} disabled={busy} onChange={e=>void toggleHomeAlert(e.target.checked)}/>
         <span><strong>New caregivers near you</strong></span></label>}
       {otherAlerts.length>0&&<div className="talent-alerts"><span>Saved searches:</span>{otherAlerts.map(a=><span className="badge" key={a.id}>{a.label}<button type="button" className="badge-remove" aria-label={'Turn off alert '+a.label} onClick={()=>void removeAlert(a.id)}>×</button></span>)}</div>}
+    </div>
+
+    <div className="settings-card">
+      <h3>Text alerts</h3>
+      <form className="intake-form" onSubmit={saveTexts} key={String(settings.smsAlerts)+settings.smsAlertPhone}>
+        <label className="check-row"><input type="checkbox" name="smsAlerts" defaultChecked={settings.smsAlerts}/><span><strong>Text me when a caregiver says yes.</strong> {AGENCY_SMS_CONSENT_TEXT}</span></label>
+        <label>Your mobile number<input type="tel" name="smsAlertPhone" autoComplete="tel" defaultValue={settings.smsAlertPhone} placeholder="410-555-0123"/></label>
+        <button className="button secondary" disabled={busy}>Save</button>
+      </form>
     </div>
 
     <div className="settings-card">

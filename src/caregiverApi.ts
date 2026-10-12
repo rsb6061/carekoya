@@ -12,6 +12,8 @@ import { parseChecklist } from './checklist';
 import { inUs, locationMatchesZip } from './caregiverLocation';
 import { lockedIntroductions } from './billing';
 import { INVITE_PAUSE_DAYS } from './caregiverProtectionRules';
+import { CAREJOYS_SMS_BRAND, saveCaregiverSmsConsent } from './carejoysSms';
+import { smsConsentStatus, type SmsEnv } from './sms';
 
 type Row=Record<string,unknown>;
 export type CaregiverIdentity={sub:string;email:string;emailVerified:boolean;name:string};
@@ -156,11 +158,13 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id
     WHERE a.caregiver_id=? GROUP BY j.id ORDER BY MAX(a.created_at) DESC LIMIT 20`).bind(caregiverId).all<Row>();
 
+  // Ticked only with a logged opt-in for the number on file.
+  const smsConsent=Number(c.sms_consent)===1&&!!c.phone&&await smsConsentStatus(env as SmsEnv,CAREJOYS_SMS_BRAND,String(c.phone))==='opted_in';
   const resumeFile=await env.DB.prepare('SELECT file_name,byte_size,updated_at FROM caregiver_resume_files WHERE caregiver_id=? LIMIT 1').bind(caregiverId).first<Row>();
 
   return json({ok:true,resume:resumeFile?{fileName:resumeFile.file_name,byteSize:resumeFile.byte_size,updatedAt:resumeFile.updated_at}:null,caregiver:{
     id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:c.city,state:c.state,zip:c.zip,role:c.role,
-    certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,
+    certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,smsConsent,
     shifts:c.shift_preferences,desiredWage:c.desired_wage,transportation:c.transportation,travelMiles:c.travel_distance_miles,
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,
     freshness:freshnessLabel(c.work_status,c.last_confirmed_at),bio:c.bio,
@@ -296,6 +300,7 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
   const years=Math.max(0,Math.min(60,asNum(d?.yearsExperience)));
   const travel=Math.max(0,Math.min(100,asNum(d?.travelMiles)));
   const payMin=Math.max(0,Math.min(200,asNum(d?.payMin)));
+  const before=await env.DB.prepare('SELECT phone FROM caregivers WHERE id=?').bind(caregiverId).first<Row>();
   await env.DB.prepare(`UPDATE caregivers SET first_name=?,last_name=?,display_name=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,city=COALESCE(NULLIF(?,''),city),state=COALESCE(NULLIF(?,''),state),
       role=?,certifications=?,license_number=?,license_state=?,years_experience=?,specialties=?,care_settings=?,preferred_settings=?,languages=?,bio=?,
       availability_json=?,shift_preferences=?,employment_types=?,start_availability=?,work_conditions=?,checklist=COALESCE(?,checklist),
@@ -313,6 +318,8 @@ export async function updateCaregiverProfile(request:Request,env:FeatureEnv,iden
     await env.DB.prepare("INSERT INTO availability_events(id,caregiver_id,status,source,confirmed_at) VALUES (?,?,?,'caregiver_profile',CURRENT_TIMESTAMP)")
       .bind(crypto.randomUUID(),caregiverId,workStatus).run();
   }
+  // The profile shows their current text choice, so unticking it here revokes consent.
+  if(typeof d?.smsConsent==='boolean')await saveCaregiverSmsConsent(env as SmsEnv,request,{caregiverId,consent:d.smsConsent,source:'caregiver_profile',previousPhone:clean(before?.phone,40)});
   const matchedOpenings=await rematch(caregiverId);
   return json({ok:true,matchedOpenings});
 }

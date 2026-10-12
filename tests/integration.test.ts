@@ -8,7 +8,8 @@ import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
-import { sendCareJoysSms } from '../src/carejoysSms';
+import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
+import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
 
@@ -2121,6 +2122,8 @@ describe('sms', ()=>{
   const TWILIO={TWILIO_ACCOUNT_SID:'ACtest',TWILIO_AUTH_TOKEN:'twilio-token',TWILIO_MESSAGING_SERVICE_SID:'MGtest'};
   const ON={...TWILIO,SMS_ENABLED:'true'};
   const PHONE='+14105550199';
+  // Midday Eastern today, inside the 8am-9pm texting window whenever the tests run.
+  const NOON=new Date(new Date().toISOString().slice(0,10)+'T16:00:00Z');
   const twilioCalls:Array<{url:string;body:URLSearchParams}>=[];
   let nextSid=0;
   const realFetch=globalThis.fetch;
@@ -2158,7 +2161,7 @@ describe('sms', ()=>{
   });
 
   it('sends through the Messaging Service with a status callback and logs the message', async()=>{
-    const result=await sendCareJoysSms(env(ON),{to:PHONE,body:'Still interested in the CNA job? Reply YES',template:'screen_v1',relatedType:'candidate_pipeline',relatedId:'cp1'});
+    const result=await sendCareJoysSms(env(ON),{to:PHONE,body:'Still interested in the CNA job? Reply YES',template:'screen_v1',relatedType:'candidate_pipeline',relatedId:'cp1',now:NOON});
     expect(result).toMatchObject({ok:true,sid:'SM1',status:'queued'});
     expect(twilioCalls[0].url).toBe('https://api.twilio.com/2010-04-01/Accounts/ACtest/Messages.json');
     expect(Object.fromEntries(twilioCalls[0].body)).toMatchObject({To:PHONE,MessagingServiceSid:'MGtest',StatusCallback:'https://carejoys.com/api/sms/status'});
@@ -2177,7 +2180,7 @@ describe('sms', ()=>{
 
   it('keeps "not delivered" apart from "no reply", with the carrier reason', async()=>{
     await recordSmsConsent(env(),{brand:'carejoys',phone:'+14105550122',event:'opt_in',source:'application'});
-    const r=await sendCareJoysSms(env(ON),{to:'+14105550122',body:'Hi',template:'screen_v1'}) as any;
+    const r=await sendCareJoysSms(env(ON),{to:'+14105550122',body:'Hi',template:'screen_v1',now:NOON}) as any;
     await webhook('/api/sms/status',{MessageSid:r.sid,MessageStatus:'undelivered',ErrorCode:'30007'});
     expect(await bySid(r.sid)).toMatchObject({status:'undelivered',error_code:'30007'});
     expect((await bySid(r.sid)).error_message).toMatch(/Filtered by the carrier/);
@@ -2187,7 +2190,7 @@ describe('sms', ()=>{
     const res=await webhook('/api/sms/inbound',{MessageSid:'SMin1',From:PHONE,To:'+18885550100',Body:'Yes!'});
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/xml/);
-    expect(await res.text()).toContain('<Response></Response>');
+    expect(await res.text()).toContain('no open job invitations');
     const reply=await bySid('SMin1');
     expect(reply).toMatchObject({direction:'inbound',intent:'yes',related_type:'candidate_pipeline',related_id:'cp1',template:'screen_v1'});
     expect(reply.in_reply_to).toBe((await bySid('SM1')).id);
@@ -2212,7 +2215,7 @@ describe('sms', ()=>{
 
   it('records Twilio’s own opt-out refusal (21610) as an opt-out', async()=>{
     await recordSmsConsent(env(),{brand:'carejoys',phone:'+14105550111',event:'opt_in',source:'application'});
-    expect(await sendCareJoysSms(env(ON),{to:'+14105550111',body:'hi'})).toMatchObject({ok:false,reason:'opted_out'});
+    expect(await sendCareJoysSms(env(ON),{to:'+14105550111',body:'hi',now:NOON})).toMatchObject({ok:false,reason:'opted_out'});
     expect(await consent('+14105550111')).toEqual({status:'opted_out'});
   });
 
@@ -2229,6 +2232,218 @@ describe('sms', ()=>{
     // A number that texted STOP is not opted back in by an admin test.
     expect((await call('/api/admin/sms/test',{method:'POST',headers:admin,body:JSON.stringify({to:'+14105550111'})},{...ON,ADMIN_TOKEN:'t0ken'})).status).toBe(409);
     expect(await consent('+14105550111')).toEqual({status:'opted_out'});
+  });
+
+  // ---------- Consent capture and the CareJoys flows (all no-ops until SMS_ENABLED) ----------
+
+  const consentEvents=(phone:string)=>DB.prepare("SELECT event,source,consent_text,ip,user_agent FROM sms_consent_events WHERE phone=? ORDER BY created_at,rowid").bind(phone).all().then((r:any)=>r.results);
+  const smsTo=(phone:string)=>DB.prepare("SELECT * FROM sms_messages WHERE phone=? AND direction='outbound' ORDER BY rowid").bind(phone).all().then((r:any)=>r.results);
+  const nyHour=(iso:string)=>Number(new Date(iso).toLocaleString('en-US',{timeZone:'America/New_York',hour:'numeric',hourCycle:'h23'}));
+
+  it('records a caregiver’s opt-in with the exact wording, IP and browser, and unticking on the profile revokes it', async()=>{
+    const headers={'user-agent':'vitest-browser','cf-connecting-ip':'203.0.113.9'};
+    const base={lastName:'Text',zip:'21204',role:'CNA'};
+    expect((await post('/api/caregiver-resume',{...base,firstName:'Optin',email:'sms-optin@example.test',phone:'410-555-0144',smsConsent:true},headers)).ok).toBe(true);
+    expect((await post('/api/caregiver-resume',{...base,firstName:'Nobox',email:'sms-nobox@example.test',phone:'410-555-0145'},headers)).ok).toBe(true);
+    const flag=(email:string)=>DB.prepare('SELECT sms_consent FROM caregivers WHERE email=?').bind(email).first().then((r:any)=>r.sms_consent);
+    expect(await flag('sms-optin@example.test')).toBe(1);
+    expect(await flag('sms-nobox@example.test')).toBe(0);
+    expect(await consentEvents('+14105550145')).toEqual([]);
+    expect(await consentEvents('+14105550144')).toEqual([{event:'opt_in',source:'caregiver_signup',consent_text:SMS_CONSENT_TEXT,ip:'203.0.113.9',user_agent:'vitest-browser'}]);
+    expect(SMS_CONSENT_TEXT).toBe("Text me job invitations and interview reminders from CareJoys. Msg & data rates may apply. Up to 4 msgs/week. Reply STOP to opt out, HELP for help. Consent isn't required to use CareJoys.");
+
+    // The profile shows the choice and unticking it revokes; ticking again opts back in.
+    await DB.prepare('INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES (?,?,?,?)').bind('sms-acct','sms-optin@example.test',await sha256Hex('sms-account'),new Date(Date.now()+86400000).toISOString()).run();
+    const me={cookie:'__Host-cj_account=sms-account'};
+    const profile=async()=>((await (await call('/api/me',{headers:me})).json()) as any).caregiver;
+    expect((await profile()).smsConsent).toBe(true);
+    const save=(smsConsent:boolean)=>post('/api/me/profile',{firstName:'Optin',lastName:'Text',zip:'21204',phone:'410-555-0144',smsConsent},{...me,...headers});
+    expect((await save(true)).ok).toBe(true);
+    expect(await consentEvents('+14105550144')).toHaveLength(1);
+    expect((await save(false)).ok).toBe(true);
+    expect(await flag('sms-optin@example.test')).toBe(0);
+    expect(await consent('+14105550144')).toEqual({status:'opted_out'});
+    expect((await profile()).smsConsent).toBe(false);
+    expect((await consentEvents('+14105550144')).map((e:any)=>[e.event,e.source])).toEqual([['opt_in','caregiver_signup'],['opt_out','caregiver_profile']]);
+    await save(true);
+    expect(await consent('+14105550144')).toEqual({status:'opted_in'});
+    expect((await profile()).smsConsent).toBe(true);
+  });
+
+  it('holds a text that lands outside 8am-9pm local time and sends it from the cron when the window opens', async()=>{
+    const P='+14105550155';
+    await recordSmsConsent(env(),{brand:'carejoys',phone:P,event:'opt_in',source:'test'});
+    const day=new Date().toISOString().slice(0,10);
+    const calls=twilioCalls.length;
+    // 9am Eastern goes now; the same moment is before 8am in Los Angeles, so that text waits.
+    const morning=new Date(day+'T13:30:00Z');
+    expect(await sendCareJoysSms(env(ON),{to:P,body:'East',now:morning})).toMatchObject({ok:true,status:'queued'});
+    const held=await sendCareJoysSms(env(ON),{to:P,body:'West',timeZone:'America/Los_Angeles',now:morning}) as any;
+    expect(held).toMatchObject({ok:true,queued:true});
+    expect(Number(new Date(held.sendAfter).toLocaleString('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',hourCycle:'h23'}))).toBe(8);
+    // 11pm Eastern waits for the next 8am Eastern.
+    const night=await sendCareJoysSms(env(ON),{to:P,body:'Night',now:new Date(day+'T03:30:00Z')}) as any;
+    expect(night.queued).toBe(true);
+    expect(nyHour(night.sendAfter)).toBe(8);
+    // A reminder that would still be waiting when its interview starts is dropped instead.
+    expect(await sendCareJoysSms(env(ON),{to:P,body:'Late',now:new Date(day+'T03:30:00Z'),expiresAt:new Date(day+'T05:00:00Z').toISOString()})).toMatchObject({ok:false,reason:'expired'});
+    expect(twilioCalls.length).toBe(calls+1);
+    expect((await smsTo(P)).map((m:any)=>[m.body,m.status])).toEqual([['East','queued'],['West','scheduled'],['Night','scheduled'],['Late','expired']]);
+
+    // Before the window nothing moves; once it opens the cron sends each held text once.
+    const first=Math.min(Date.parse(held.sendAfter),Date.parse(night.sendAfter)),last=Math.max(Date.parse(held.sendAfter),Date.parse(night.sendAfter));
+    expect((await runCareJoysSmsJobs(env(ON),new Date(first-60000)))!.queued.sent).toBe(0);
+    expect((await runCareJoysSmsJobs(env(ON),new Date(last+60000)))!.queued.sent).toBe(2);
+    expect((await runCareJoysSmsJobs(env(ON),new Date(last+120000)))!.queued.sent).toBe(0);
+    expect(twilioCalls.length).toBe(calls+3);
+    expect((await smsTo(P)).filter((m:any)=>m.status==='queued'&&m.twilio_sid)).toHaveLength(3);
+  });
+
+  it('caps each number at 4 texts in 7 days and logs the rest as dropped', async()=>{
+    const P='+14105550166';
+    await recordSmsConsent(env(),{brand:'carejoys',phone:P,event:'opt_in',source:'test'});
+    const calls=twilioCalls.length;
+    for(let i=0;i<4;i++)expect((await sendCareJoysSms(env(ON),{to:P,body:'Text '+i,now:NOON})).ok).toBe(true);
+    expect(await sendCareJoysSms(env(ON),{to:P,body:'Fifth',now:NOON})).toMatchObject({ok:false,reason:'weekly_cap'});
+    expect(twilioCalls.length).toBe(calls+4);
+    expect((await smsTo(P)).at(-1)).toMatchObject({body:'Fifth',status:'capped'});
+    // Eight days later the week has rolled over.
+    expect((await sendCareJoysSms(env(ON),{to:P,body:'Next week',now:new Date(NOON.getTime()+8*86400000)})).ok).toBe(true);
+  });
+
+  it('works out the recipient’s time zone from ZIP and state', ()=>{
+    expect(timeZoneFor('MD','21204')).toBe('America/New_York');
+    expect(timeZoneFor('','90001')).toBe('America/Los_Angeles');
+    expect(timeZoneFor('FL','32501')).toBe('America/Chicago');
+    expect(timeZoneFor('TX','79901')).toBe('America/Denver');
+    expect(timeZoneFor('','')).toBe('America/New_York');
+  });
+
+  describe('invitations by text', ()=>{
+    const YES='+14105550181',NO='+14105550183',REM='+14105550184',LEGACY='+14105550182',AGENCY='+14105550190';
+    const headers={cookie:'cj_session=sms-session','content-type':'application/json'};
+    const pipe=(id:string)=>DB.prepare('SELECT * FROM candidate_pipeline WHERE id=?').bind(id).first();
+    beforeAll(async()=>{
+      await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('smsemp','SMS Home Care','Lee','lee@smshome.test','21204','CNA','active',CURRENT_TIMESTAMP)").run();
+      await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('sms-s','smsemp',?,?)").bind(await sha256Hex('sms-session'),new Date(Date.now()+86400000).toISOString()).run();
+      for(const [id,phone,consented,extra] of [['smsyes',YES,true,{}],['smsno',NO,true,{}],['smsrem',REM,true,{}],
+        // A legacy import with a number and an old CareKoya flag, but no CareJoys opt-in on record.
+        ['smslegacy',LEGACY,false,{source:'legacy_carekoya',activation_completed_at:recent,sms_consent:1}]] as const){
+        await addCaregiver(id,'21204',{phone,state:'MD',...extra});
+        if(consented)await saveCaregiverSmsConsent(env(),new Request('https://carejoys.com/'),{caregiverId:id,consent:true,source:'test'});
+      }
+      for(const opening of ['sms-off','sms-on']){
+        await DB.prepare("INSERT INTO openings(id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,status) VALUES (?,'smsemp','CNA Towson','CNA','Towson','MD','21204',19,22,'Weekday days','open')").bind(opening).run();
+        for(const c of ['smsyes','smsno','smsrem','smslegacy'])await DB.prepare("INSERT INTO candidate_pipeline(id,opening_id,caregiver_id,stage) VALUES (?,?,?,'matched')").bind(opening+'-'+c,opening,c).run();
+      }
+    });
+
+    it('sends nothing at all while SMS is switched off', async()=>{
+      const calls=twilioCalls.length,rows=(await DB.prepare("SELECT COUNT(*) AS n FROM sms_messages").first()).n;
+      sent.length=0;
+      const ids=['smsyes','smsno','smsrem','smslegacy'].map(c=>'sms-off-'+c);
+      // Twilio credentials set but SMS_ENABLED not "true": the emails go, no texts.
+      expect(await (await call('/api/openings/sms-off/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:ids})},TWILIO)).json()).toMatchObject({sent:4});
+      expect(sent).toHaveLength(4);
+      expect(await textJobInvite(env(TWILIO),'sms-off-smsyes')).toBeNull();
+      expect(await runCareJoysSmsJobs(env(TWILIO))).toBeNull();
+      await DB.prepare("UPDATE candidate_pipeline SET contacted_at=datetime('now','-3 days') WHERE id='sms-off-smsrem'").run();
+      sent.length=0;
+      await sendHiringFollowups(env(TWILIO));
+      expect(sent.some(m=>m.to==='smsrem@example.com')).toBe(true);
+      expect(twilioCalls.length).toBe(calls);
+      expect((await DB.prepare("SELECT COUNT(*) AS n FROM sms_messages").first()).n).toBe(rows);
+      expect((await pipe('sms-off-smsyes')).sms_invited_at).toBeNull();
+      // Close the off-run invitations so replies below answer the texted ones.
+      await DB.prepare("UPDATE candidate_pipeline SET stage='rejected',response_value='not_interested' WHERE opening_id='sms-off'").run();
+    });
+
+    it('texts the invitation next to the email, only to caregivers who opted in', async()=>{
+      sent.length=0;
+      const ids=['smsyes','smsno','smsrem','smslegacy'].map(c=>'sms-on-'+c);
+      expect(await (await call('/api/openings/sms-on/contact',{method:'POST',headers,body:JSON.stringify({pipelineIds:ids})},ON)).json()).toMatchObject({sent:4});
+      expect(sent).toHaveLength(4);
+      expect(await smsTo(LEGACY)).toEqual([]);
+      const [text]=await smsTo(YES);
+      expect(text).toMatchObject({template:'job_invite_v1',related_type:'candidate_pipeline',related_id:'sms-on-smsyes'});
+      // Sent straight away in the daytime, held for 8am at night.
+      expect(['queued','scheduled']).toContain(text.status);
+      expect(text.body).toMatch(/^CareJoys: SMS Home Care has a CNA job in Towson, \$19–22\/hr, Weekday days\. Interested\? Reply YES or NO\. Details: carejoys\.com\/r\/[A-Za-z0-9]{10}\. Reply STOP to opt out\.$/);
+      expect(text.body.length).toBeLessThanOrEqual(300);
+      expect((await pipe('sms-on-smsyes')).sms_invited_at).toBeTruthy();
+      // The short link opens the same invitation as the email's link.
+      const code=text.body.match(/\/r\/([A-Za-z0-9]+)/)[1];
+      const hop=await call('/r/'+code);
+      expect(hop.status).toBe(302);
+      expect(hop.headers.get('location')).toBe('/respond?token='+code);
+      expect((await (await call('/api/respond?token='+code)).json() as any).opportunity).toMatchObject({company:'SMS Home Care',title:'CNA Towson'});
+      expect((await call('/api/respond?token=NotARealCode1')).status).toBe(404);
+    });
+
+    it('keeps long invitations under 300 characters', ()=>{
+      const text=inviteText({company:'A Very Long Agency Name That Goes On And On Home Health Services LLC',role:'HHA',city:'Towson',pay:'$19–22/hr',shift:'Weekday days, some weekends, rotating holidays, live-in available for the right person, flexible hours',link:'carejoys.com/r/abcdefghij'});
+      expect(text.length).toBeLessThanOrEqual(300);
+      expect(text).toMatch(/has an HHA job in Towson/);
+      expect(text).toMatch(/Reply STOP to opt out\.$/);
+    });
+
+    it('a YES reply says yes to the invitation like the email button, and tells an agency that opted in to texts', async()=>{
+      // Agencies are on email unless they opt in from Settings.
+      const settings=await call('/api/workspace/settings',{method:'POST',headers:{...headers,'user-agent':'agency-browser'},body:JSON.stringify({smsAlerts:true,smsAlertPhone:'410-555-0190'})});
+      expect((await settings.json() as any).settings).toMatchObject({smsAlerts:true,smsAlertPhone:AGENCY});
+      expect(await consentEvents(AGENCY)).toEqual([{event:'opt_in',source:'agency_settings',consent_text:AGENCY_SMS_CONSENT_TEXT,ip:null,user_agent:'agency-browser'}]);
+      expect((await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({smsAlerts:true,smsAlertPhone:'12'})})).status).toBe(400);
+
+      const unclear=await (await webhook('/api/sms/inbound',{MessageSid:'SMflow1',From:YES,Body:'what time is it'},{extra:ON})).text();
+      expect(unclear).toMatch(/CareJoys: Reply YES or NO, or tap the link: carejoys\.com\/r\/[A-Za-z0-9]{10}/);
+      expect((await pipe('sms-on-smsyes')).response_value).toBeNull();
+
+      sent.length=0;
+      const yes=await (await webhook('/api/sms/inbound',{MessageSid:'SMflow2',From:YES,Body:'Yes'},{extra:ON})).text();
+      expect(yes).toContain('We told SMS Home Care you’re interested');
+      expect(await pipe('sms-on-smsyes')).toMatchObject({stage:'interested',response_value:'interested'});
+      expect(await DB.prepare("SELECT channel FROM outreach_events WHERE caregiver_id='smsyes' AND event_type='job_interest_response'").first()).toEqual({channel:'sms'});
+      expect(sent.find(m=>m.subject.startsWith('Interested candidate:'))?.to).toBe('lee@smshome.test');
+      const [alert]=await smsTo(AGENCY);
+      expect(alert).toMatchObject({template:'agency_yes_v1',body:'CareJoys: smsyes said yes to CNA Towson. Call them now: (410) 555-0181. Reply STOP to opt out.'});
+      expect((await pipe('sms-on-smsyes')).agency_texted_at).toBeTruthy();
+
+      // Nothing left open for this number.
+      expect(await (await webhook('/api/sms/inbound',{MessageSid:'SMflow3',From:YES,Body:'yes'},{extra:ON})).text()).toContain('no open job invitations');
+      expect(await smsTo(AGENCY)).toHaveLength(1);
+      // Turning alerts off logs the opt-out.
+      await call('/api/workspace/settings',{method:'POST',headers,body:JSON.stringify({smsAlerts:false})});
+      expect(await consent(AGENCY)).toEqual({status:'opted_out'});
+    });
+
+    it('a NO reply turns the invitation down', async()=>{
+      const no=await (await webhook('/api/sms/inbound',{MessageSid:'SMflow4',From:NO,Body:'No thanks'},{extra:ON})).text();
+      expect(no).toContain('We told SMS Home Care you’re not interested');
+      expect(await pipe('sms-on-smsno')).toMatchObject({stage:'rejected',response_value:'not_interested'});
+    });
+
+    it('sends the 2-day reminder by text instead of a second email when the caregiver opted in', async()=>{
+      await DB.prepare("UPDATE candidate_pipeline SET contacted_at=datetime('now','-3 days') WHERE id='sms-on-smsrem'").run();
+      sent.length=0;
+      await sendHiringFollowups(env(ON));
+      expect(sent.some(m=>m.to==='smsrem@example.com')).toBe(false);
+      const reminder=(await smsTo(REM)).find((m:any)=>m.template==='invite_reminder_v1');
+      expect(reminder.body).toMatch(/^CareJoys: Still interested in the CNA Towson with SMS Home Care\? Reply YES or NO\. Details: carejoys\.com\/r\/[A-Za-z0-9]{10}\. Reply STOP to opt out\.$/);
+      expect(await DB.prepare("SELECT channel FROM outreach_events WHERE caregiver_id='smsrem' AND event_type='invite_reminder' ORDER BY occurred_at DESC LIMIT 1").first()).toEqual({channel:'sms'});
+    });
+
+    it('texts interview reminders the day before and 2 hours before, once each', async()=>{
+      const at=new Date(NOON.getTime()+22*3600000);
+      await DB.prepare("UPDATE candidate_pipeline SET stage='interview',interview_at=? WHERE id='sms-on-smsyes'").bind(at.toISOString()).run();
+      expect(await sendInterviewReminders(env(ON),NOON)).toBe(1);
+      expect(await sendInterviewReminders(env(ON),new Date(NOON.getTime()+3600000))).toBe(0);
+      expect(await sendInterviewReminders(env(ON),new Date(at.getTime()-90*60000))).toBe(1);
+      expect(await sendInterviewReminders(env(ON),new Date(at.getTime()-60*60000))).toBe(0);
+      const texts=(await smsTo(YES)).filter((m:any)=>m.template?.startsWith('interview_'));
+      expect(texts.map((m:any)=>m.template)).toEqual(['interview_day_v1','interview_soon_v1']);
+      expect(texts[0].body).toMatch(/^CareJoys reminder: your interview with SMS Home Care for CNA Towson is \w{3}, \w{3} \d+, \d+:00 [AP]M E[DS]T\. Reply STOP to opt out\.$/);
+      expect(texts[1].body).toContain('in about 2 hours');
+    });
   });
 });
 

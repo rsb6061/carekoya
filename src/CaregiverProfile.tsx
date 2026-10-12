@@ -3,6 +3,7 @@ import { ProfilePhotoSection } from './ProfilePhotoSection';
 import { IntroVideoSection } from './IntroVideoSection';
 import { cleanList } from './listField';
 import { CHECKLIST } from './checklist';
+import { SMS_CONSENT_TEXT } from './smsConsent';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
@@ -17,7 +18,7 @@ const LANGUAGES=['English','Spanish','French','Haitian Creole','Amharic','Tagalo
 
 export type Availability={days:Record<string,string[]>;liveIn:boolean};
 export type CaregiverProfileData={
-  firstName?:string;lastName?:string;phone?:string;zip?:string;city?:string;state?:string;role?:string;
+  firstName?:string;lastName?:string;phone?:string;smsConsent?:boolean;zip?:string;city?:string;state?:string;role?:string;
   certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];preferredSettings?:string[];languages?:string;bio?:string;
   availability?:Availability;employmentTypes?:string[];startAvailability?:string;workConditions?:string[];checklist?:string[];
   desiredWage?:string;transportation?:string;travelMiles?:number|null;workStatus?:string;profilePhotoUrl?:string|null;
@@ -81,7 +82,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
     const text=(k:string)=>String(fd.get(k)||'');
     try{
       await save({
-        firstName:text('firstName'),lastName:text('lastName'),phone:text('phone'),zip:text('zip'),role:text('role'),
+        firstName:text('firstName'),lastName:text('lastName'),phone:text('phone'),smsConsent:fd.get('smsConsent')==='on',zip:text('zip'),role:text('role'),
         certifications:certs,licenseNumber:text('licenseNumber'),licenseState:text('licenseState'),yearsExperience:Number(text('yearsExperience')||0),
         specialties:skills,careSettings:settings,preferredSettings:preferred,languages,bio:text('bio'),
         availability:{days,liveIn},employmentTypes:hours,startAvailability:text('startAvailability'),workConditions:conditions,checklist,
@@ -153,6 +154,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
         <label>Last name<input name="lastName" defaultValue={c.lastName||''} required/></label>
       </div>
       <label>Mobile phone<input name="phone" type="tel" autoComplete="tel" defaultValue={c.phone||''}/></label>
+      <label className="check-row sms-consent"><input type="checkbox" name="smsConsent" defaultChecked={!!c.smsConsent}/><span>{SMS_CONSENT_TEXT} See our <a href="/privacy-policy#sms">Privacy Policy</a> and <a href="/terms-of-service#sms">Terms</a>.</span></label>
       <label>A few words for employers<textarea name="bio" rows={3} maxLength={1200} defaultValue={c.bio||''} placeholder="What you love about caregiving, the clients you work best with…"/></label>
     </Section>
 
