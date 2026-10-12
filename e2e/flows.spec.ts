@@ -121,7 +121,7 @@ test('employer finds caregivers: closest first, plain tags, profile panel', asyn
   await expect(page.locator('.talent-divider')).toHaveText('Farther away');
   await expect(far.getByText('$50/hr')).toBeVisible();
   // They can't take a job that far away, so there's nothing to invite them to.
-  await expect(far.getByText(/Lives beyond their commute/)).toBeVisible();
+  await expect(far.getByText('Lives too far from your job listings')).toBeVisible();
   await near.getByRole('button',{name:'View profile'}).click();
   const panel=page.getByRole('dialog',{name:'Casey T.'});
   await expect(panel.getByRole('link',{name:'View full profile'})).toHaveAttribute('href',/\/app\?talent=/);

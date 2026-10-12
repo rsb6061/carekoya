@@ -10,6 +10,8 @@ export type TalentCandidate={
   employmentTypes?:string;startAvailability?:string;licensed?:boolean;licenseState?:string;hasResume?:boolean;checklist?:string[];
   yearsExperience?:number;desiredWage?:string;transportation?:string;
   shifts?:string;schedule?:string;travelMiles?:number;freshness?:string;workStatus?:string;profilePhotoUrl?:string;introVideoUrl?:string;distanceMiles?:number|null;withinCommute?:boolean;
+  /** The employer's open job listings this caregiver lives close enough to take; set on Find caregivers results. */
+  invitableOpeningIds?:string[];
 };
 
 const START:Record<string,string>={now:'Can start now','2_weeks':'Can start within 2 weeks','1_month':'Can start within a month',later:'Starting later'};

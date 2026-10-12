@@ -15,18 +15,23 @@ export type TalentActions={
 
 const talentPageUrl=(id:string)=>'/app?talent='+encodeURIComponent(id);
 
+/** The job listings a caregiver lives close enough to take, judged from each job's location, not the searched ZIP. */
+export const reachableOpenings=(c:TalentCandidate,openings:TalentOpening[])=>
+  c.invitableOpeningIds?openings.filter(o=>c.invitableOpeningIds!.includes(o.id)):openings;
+
 /** "Invite to …": picks one of the employer's open openings, or invites straight away when there is only one. */
 function InviteToOpening({candidate,actions}:{candidate:TalentCandidate;actions:TalentActions}){
   const spots=actions.pipelineFor(candidate.id);
   const placed=new Set(spots.map(s=>s.title));
-  const options=actions.openings.filter(o=>!placed.has(o.title));
+  const reachable=reachableOpenings(candidate,actions.openings);
+  const options=reachable.filter(o=>!placed.has(o.title));
   const [openingId,setOpeningId]=useState(options[0]?.id||'');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{if(!options.some(o=>o.id===openingId))setOpeningId(options[0]?.id||'')},[options.map(o=>o.id).join()]);
   // Already applied to the agency, or lives beyond their own commute: nothing to invite them to.
   if(spots.some(s=>s.applied))return null;
-  if(candidate.distanceMiles!=null&&candidate.withinCommute===false)return <span className="job-meta">Lives beyond their commute from you</span>;
   if(!actions.openings.length)return <a className="button secondary" href="/app?tab=openings">Add a job listing to invite</a>;
+  if(!reachable.length)return <span className="job-meta">Lives too far from your job listings</span>;
   if(!options.length)return null;
   const go=async()=>{setBusy(true);try{await actions.onInvite(candidate,openingId)}finally{setBusy(false)}};
   return <div className="invite-to-opening">

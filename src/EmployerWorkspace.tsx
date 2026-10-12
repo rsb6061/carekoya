@@ -11,7 +11,7 @@ import { ScheduleEditor } from './ScheduleEditor';
 import { MatchList, STAGE_LABELS, needsReply, type DecideStage, type MatchRow } from './MatchList';
 import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, type InboxItem } from './candidates';
 import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
-import { TalentPage, TalentPanel, type TalentActions } from './TalentPanel';
+import { TalentPage, TalentPanel, reachableOpenings, type TalentActions } from './TalentPanel';
 import { shiftsLabel } from './profileTags';
 import { CHECKLIST } from './checklist';
 import { EmailTemplatesModal } from './EmailTemplatesModal';
@@ -638,9 +638,12 @@ function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onO
   const [openingId,setOpeningId]=useState(actions.openings[0]?.id||'');
   const [busy,setBusy]=useState(false);
   useEffect(()=>{if(!actions.openings.some(o=>o.id===openingId))setOpeningId(actions.openings[0]?.id||'')},[actions.openings.map(o=>o.id).join()]);
-  // Someone who lives beyond their own commute from the searched ZIP can't take the job, so they can't be invited.
   const tooFar=(c:Candidate)=>c.distanceMiles!=null&&!c.withinCommute;
-  const canPick=(c:Candidate)=>actions.openings.length>0&&!actions.pipelineFor(c.id).length&&!tooFar(c);
+  // Whether someone can be invited depends on where each job is: a caregiver near the searched ZIP may still live
+  // too far from every job listing.
+  const reachable=(c:Candidate)=>reachableOpenings(c,actions.openings);
+  const tooFarFromJobs=(c:Candidate)=>actions.openings.length>0&&!reachable(c).length;
+  const canPick=(c:Candidate)=>!actions.pipelineFor(c.id).length&&reachable(c).some(o=>o.id===openingId);
   const pickable=near.filter(canPick);
   const chosen=candidates.filter(c=>picked.has(c.id)&&canPick(c));
   const allPicked=pickable.length>0&&pickable.every(c=>picked.has(c.id));
@@ -652,9 +655,11 @@ function TalentResults({candidates,total,nearby,zip,sortedByDistance,actions,onO
   const tile=(c:Candidate,i:number)=>{
     const spots=actions.pipelineFor(c.id);
     const quickInvite=canPick(c)&&actions.openings.length===1&&!chosen.length;
+    const note=spots.length?'In your candidates for '+spots.map(s=>s.title).join(', ')
+      :tooFarFromJobs(c)?'Lives too far from your job listings':tooFar(c)?'Lives beyond their commute from '+zip:undefined;
     return <TalentCard candidate={c} tone={cardTone(i)} key={c.id} onOpen={()=>onOpen(c)}
       selected={canPick(c)?picked.has(c.id):undefined} onSelect={canPick(c)?()=>toggle(c.id):undefined}
-      note={spots.length?'In your candidates for '+spots.map(s=>s.title).join(', '):tooFar(c)?'Lives beyond their commute from '+zip:undefined}
+      note={note}
       action={quickInvite?<button type="button" className="button compact" disabled={actions.disabled} onClick={()=>void actions.onInvite(c,actions.openings[0].id)}>Invite</button>:undefined}/>;
   };
   return <>

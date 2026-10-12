@@ -190,6 +190,11 @@ describe('distance matching', ()=>{
     const far=await add('la');
     expect(far.status).toBe(409);
     expect((await far.json() as any).error).toMatch(/too far/);
+    // Searching the caregiver's own area shows them as close, but the Baltimore job is still out of their reach.
+    const la=await (await call('/api/candidates/la?zip=90001',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
+    expect(la.candidate.withinCommute).toBe(true);
+    expect(la.candidate.invitableOpeningIds).not.toContain(id);
+    expect((await (await call('/api/candidates/towson?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any).candidate.invitableOpeningIds).toContain(id);
     const first=await (await add()).json() as any;
     expect(first.stage).toBe('matched');
     const again=await (await add()).json() as any;
