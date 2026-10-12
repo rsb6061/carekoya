@@ -41,8 +41,8 @@ import { handleEmailTemplates } from './emailTemplates';
 import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus } from './carejoysSms';
 import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, updateCaregiverAvailability, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
-// The facility pilot sends its day's batch from this hour on (15:17 UTC, 11:17 Eastern), outside the agency invite cap (Rebecca approved, 2026-10-11).
-const FACILITY_PILOT_UTC_HOUR=15;
+// The facility pilot sends its day's batch from this hour on (13:17 UTC, 9:17 Eastern), outside the agency invite cap (Rebecca approved, 2026-10-11).
+const FACILITY_PILOT_UTC_HOUR=13;
 const FACILITY_PILOT_DAILY_BATCH=50;
 
 interface D1Result<T = unknown> {
