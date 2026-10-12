@@ -103,7 +103,7 @@ export function AboutCareJoysPage(){
   </div>;
 }
 
-const PRICE='$79',YEARLY='$790';
+const PRICE='$99';
 
 type Supply={found:boolean;city?:string;state?:string;miles?:number;jobs?:number;caregivers?:number|null;caregiversBelow?:number|null};
 
@@ -137,35 +137,31 @@ function LocalSupplyCheck(){
   </div>;
 }
 
-/** /pricing: where "Hire caregivers" lands. One plan, the free start, and a local supply check. Checkout isn't live yet, so the button starts employer sign-up. */
+/** /pricing: where "Faster AI Hiring" lands. The operated service, the price, and a local supply check. The button starts the intake form. */
 export function PricingPage(){
-  const [freeContacts,setFreeContacts]=useState<number|null>(null);
-  useEffect(()=>{fetch('/api/public/pricing').then(r=>r.json()).then((d:any)=>setFreeContacts(typeof d?.freeContacts==='number'?d.freeContacts:null)).catch(()=>{})},[]);
-  const free=freeContacts??5;
   return <div>
     <SiteHeader/>
     <main>
       <section className="hero pricing-hero"><div className="wrap pricing-grid">
         <div>
           <div className="modal-kicker">For home-care agencies and senior living</div>
-          <h1>Caregivers find their best matches with AI. Make sure they find yours.</h1>
-          <p>Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.{free>0?' Your first '+free+' introductions are free.':''}</p>
+          <h1>Faster AI hiring for home care.</h1>
+          <p>Tell us your openings. We take over your applicant pipeline: every applicant contacted within 30 minutes, screened against your requirements, and scheduled onto your calendar.</p>
         </div>
         <div className="pricing-offer">
           <article className="plan-card">
             <div className="plan-head">
-              <div><h2>Hiring</h2><span className="plan-note">Per location</span></div>
+              <div><h2>Operated hiring</h2><span className="plan-note">Per location</span></div>
               <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
-            <a className="btn plan-cta" href="/hire-caregivers">{free>0?'Start free':'Start hiring'} →</a>
-            <div className="plan-terms">{free>0?'First '+free+' introductions free. ':''}Month-to-month. Cancel anytime.</div>
-            <div className="plan-terms">Or {YEARLY}/year, two months free.</div>
+            <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
+            <div className="plan-terms">Month-to-month. Cancel anytime. No placement fees or per-hire charges.</div>
             <ul className="plan-list">
-              <li>Matches for every opening by distance, shift and pay.</li>
-              <li>We reach out and introduce only caregivers who say yes.</li>
-              <li>Every introduction lands in your inbox and email.</li>
-              <li>Book interviews if you want.</li>
-              <li>No placement fees or per-hire charges.</li>
+              <li>Every applicant from Indeed, your website and CareJoys contacted within 30 minutes, 8am to 9pm.</li>
+              <li>Screened by text against your checklist: certification, transportation, shifts and pay.</li>
+              <li>Qualified candidates booked straight onto your interview calendar.</li>
+              <li>A person runs it, with AI doing the legwork. You see every conversation.</li>
+              <li>Weekly numbers: time to first contact, screened, scheduled, hired.</li>
             </ul>
           </article>
         </div>
@@ -173,22 +169,22 @@ export function PricingPage(){
 
       <section className="section"><div className="wrap">
         <div className="modal-kicker">How it works</div>
-        <h2>From opening to interview</h2>
+        <h2>From applicant to interview, without the phone tag</h2>
         <div className="steps">
           <div className="step">
-            <div className="modal-kicker">1 · Post</div>
-            <h3>Post an opening</h3>
-            <p className="meta">Role, ZIP, shifts and pay. Already listed on CareJoys? <a className="text-link" href="/hire-caregivers#claim-agency">Claim your agency free</a>.</p>
+            <div className="modal-kicker">1 · Tell us</div>
+            <h3>Tell us your openings</h3>
+            <p className="meta">Role, ZIP, shifts and pay, plus your must-haves. Already listed on CareJoys? <a className="text-link" href="/hire-caregivers#claim-agency">Claim your agency free</a>.</p>
           </div>
           <div className="step">
-            <div className="modal-kicker">2 · Match</div>
-            <h3>We find caregivers who fit</h3>
-            <p className="meta">Matched by distance, shift and pay, and each one confirms they're interested.</p>
+            <div className="modal-kicker">2 · We work it</div>
+            <h3>We work every applicant</h3>
+            <p className="meta">Each one is texted within 30 minutes, screened against your checklist, and kept warm so nobody goes cold waiting on a callback.</p>
           </div>
           <div className="step">
-            <div className="modal-kicker">3 · Hire</div>
-            <h3>You get their contact</h3>
-            <p className="meta">Call or email them directly. Interview booking is there if you want it.</p>
+            <div className="modal-kicker">3 · You interview</div>
+            <h3>You interview and hire</h3>
+            <p className="meta">Qualified candidates land on your calendar with reminders sent. You meet them and make the call.</p>
           </div>
         </div>
       </div></section>

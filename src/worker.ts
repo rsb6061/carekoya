@@ -444,10 +444,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   if(url.pathname==="/pricing"){
     return seoAsset(request,env,{
-      title:freeContacts(env)?"Hire Caregivers: First "+freeContacts(env)+" Introductions Free | CareJoys":"Hire Caregivers for $79/Month Per Location | CareJoys",
-      description:"Meet local caregivers who verified their email and want the work. For home-care agencies and assisted living: $79/month per location, no placement fees.",
+      title:"Faster AI Hiring for Home Care: $99/Month Per Location | CareJoys",
+      description:"CareJoys runs your caregiver applicant pipeline: every applicant contacted within 30 minutes, screened, and scheduled onto your calendar. $99/month per location, no placement fees.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Caregivers find their best matches with AI. Make sure they find yours.</h1><p>For home-care agencies and senior living. Caregivers are matching with their best jobs in ChatGPT, Claude and Google. Get better matches, schedule interviews and close jobs quicker.</p><h2>How it works</h2><ol><li>Post an opening, or claim your agency if it is already listed.</li><li>CareJoys matches caregivers by distance, shift and pay, and each one confirms interest.</li><li>You get their contact and hire directly. Interview booking is optional.</li></ol><h2>Hiring: $79/month per location</h2><p>Or $790/year. Month-to-month. Cancel anytime.'+(freeContacts(env)?' Your first '+freeContacts(env)+' caregiver introductions are free.':'')+' No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Start free</a> · <a href="/hire-caregivers/maryland#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Faster AI hiring for home care.</h1><p>Tell us your openings. We take over your applicant pipeline: every applicant contacted within 30 minutes, screened against your requirements, and scheduled onto your calendar.</p><h2>How it works</h2><ol><li>Tell us your openings, or claim your agency if it is already listed.</li><li>We text every applicant within 30 minutes, screen them against your checklist, and keep them warm.</li><li>Qualified candidates land on your interview calendar. You hire.</li></ol><h2>Operated hiring: $99/month per location</h2><p>Month-to-month. Cancel anytime. No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Get started</a> · <a href="/hire-caregivers#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
