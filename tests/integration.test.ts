@@ -2513,6 +2513,40 @@ describe('test accounts sign in with a code', ()=>{
     expect(await DB.prepare('SELECT id FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first()).toBeNull();
     expect(await DB.prepare('SELECT id FROM openings WHERE id=?').bind(id).first()).toBeNull();
   });
+
+  it('walks the caregiver side as a test profile that never reaches a real agency, then resets', async()=>{
+    const CAREGIVER='caregiver-test@carejoys.com';
+    await DB.prepare('UPDATE test_logins SET code_hash=? WHERE email=?').bind(await sha256Hex(CODE.replace(/-/g,'')),CAREGIVER).run();
+    // A real agency on CareJoys with an open job and an opening nearby.
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-real-t','Real Care','Lee','lee@realcare.test','21230','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO openings(id,employer_id,title,role,zip,status) VALUES ('op-real-t','emp-real-t','CNA Days','CNA','21230','open')").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-real-t','org-real-t','Real Care','realcare.test','jobs@realcare.test','Baltimore','MD','21230',1,'emp-real-t')").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-real-t','org-real-t','job-real-t','test','https://realcare.test/apply','CNA Days','CNA','Real Care','Baltimore','MD','21230','current',1)").run();
+
+    const signIn=await post('/api/login/code',{email:CAREGIVER,code:CODE});
+    expect((await signIn.json() as any).redirect).toBe('/dashboard');
+    const cookie=cookieFrom(signIn);
+    // A signed-in profile save needs no security check.
+    const saved=await post('/api/caregiver-resume',{firstName:'Test',lastName:'Caregiver',email:CAREGIVER,zip:'21230',role:'CNA',targetJobId:'job-real-t'},{cookie},{TURNSTILE_SECRET_KEY:'secret'});
+    expect(saved.status).toBe(201);
+    const profile=await DB.prepare('SELECT id,is_test FROM caregivers WHERE email=?').bind(CAREGIVER).first() as any;
+    expect(profile.is_test).toBe(1);
+    await DB.prepare("UPDATE caregivers SET work_status='actively_looking',auth0_email_verified=1 WHERE id=?").bind(profile.id).run();
+
+    // Applying looks the same to them, but no agency inbox, email or match ever sees the test profile.
+    sent.length=0;
+    expect(await (await post('/api/me/apply/job-real-t',{},{cookie})).json()).toMatchObject({status:'applied',employerOnCareJoys:true});
+    expect(await DB.prepare('SELECT id FROM agency_interests WHERE caregiver_id=?').bind(profile.id).first()).toBeNull();
+    expect(sent.every(m=>m.to===CAREGIVER)).toBe(true);
+    expect(await DB.prepare('SELECT id FROM candidate_pipeline WHERE caregiver_id=?').bind(profile.id).first()).toBeNull();
+    expect((await post('/api/me/apply-agent/job-real-t',{},{cookie})).status).toBe(403);
+
+    // Erase and start over: the old profile is retired and sign-up starts fresh.
+    const reset=await post('/api/login/code',{email:CAREGIVER,code:CODE,reset:true});
+    expect((await reset.json() as any).redirect).toBe('/dashboard');
+    expect(await DB.prepare('SELECT id FROM caregivers WHERE email=?').bind(CAREGIVER).first()).toBeNull();
+    expect(await DB.prepare('SELECT work_status,is_active FROM caregivers WHERE id=?').bind(profile.id).first()).toEqual({work_status:'merged_duplicate',is_active:0});
+  });
 });
 
 describe('caregiver protection', ()=>{

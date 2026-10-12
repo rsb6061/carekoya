@@ -286,15 +286,22 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const fieldError=(key:keyof typeof missing,text='Required')=>bad(key)?<span className="field-error">{text}</span>:null;
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
 
+  // Counts that are zero are left out, and the job they are applying to isn't offered back to them as a match.
+  const otherJobs=(result?.topJobs||[]).filter(job=>job.id!==result?.targetJob?.id);
+  const matchParts=[
+    result?.matchedOrganizations?<strong key="o">{result.matchedOrganizations} relevant care organization{result.matchedOrganizations===1?'':'s'}</strong>:null,
+    result?.matchedOpenings?<strong key="j">{result.matchedOpenings} current job{result.matchedOpenings===1?'':'s'} near you</strong>:null
+  ].filter(Boolean);
+  const matchLine=matchParts.length?<>{matchParts[0]}{matchParts[1]?<> and {matchParts[1]}</>:null}</>:null;
   if(stage==='success'&&result){
     return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-success">
         <div className="success-mark">✓</div>
         <div className="modal-kicker">{result.targetJob?'Application ready':'Profile ready'}</div>
         <h2>{result.targetJob?'Your CareJoys profile is ready.':'You’re matched.'}</h2>
-        <p>CareJoys found <strong>{result.matchedOrganizations||0} relevant care organizations</strong>{typeof result.matchedOpenings==='number'?<> and <strong>{result.matchedOpenings} current job{result.matchedOpenings===1?'':'s'} near you</strong></>:null}.</p>
-        {!!result.topJobs?.length&&<ul className="onboarding-top-jobs">
-          {result.topJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
+        {matchLine&&<p>CareJoys found {matchLine}.</p>}
+        {!!otherJobs.length&&<ul className="onboarding-top-jobs">
+          {otherJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
         </ul>}
         {result.id&&result.profilePhotoToken&&<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
         {result.targetJob?.applicationUrl

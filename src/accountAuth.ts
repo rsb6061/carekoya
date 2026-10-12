@@ -138,23 +138,27 @@ export async function resetTestAccount(env:AccountEnv,email:string){
       await db.prepare(`DELETE FROM ${table} WHERE employer_id=?`).bind(id).run();
     await db.prepare('DELETE FROM employer_leads WHERE id=?').bind(id).run();
   }
+  // A test caregiver profile is retired rather than deleted (applications and matches point at it), and its email
+  // freed, so the next sign-up builds a fresh profile.
+  await db.prepare(`UPDATE caregivers SET email='erased+'||id||'@test.carejoys.com',work_status='merged_duplicate',is_active=0,auth0_sub=NULL,updated_at=CURRENT_TIMESTAMP
+    WHERE lower(trim(email))=? AND is_test=1`).bind(email).run();
   for(const table of ['account_sessions','login_tokens','account_preferences'])
     await db.prepare(`DELETE FROM ${table} WHERE email=?`).bind(email).run();
 }
 
 /** /api/login/code: a test address signs in with its code; `reset` first erases the account to repeat sign-up.
- *  With nowhere asked for it opens /app, which offers hiring setup, so a test sign-in never builds a caregiver profile. */
+ *  With nowhere asked for, an agency test address opens /app (hiring setup) and a caregiver one opens /dashboard. */
 export async function verifyTestCode(request:Request,env:AccountEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
   const guard=await publicFormGuard(request,env,'login_code',data,10,15);
   if(guard)return guard;
   const email=clean(data?.email,320).toLowerCase();
-  const row=emailValid(email)?await env.DB.prepare('SELECT code_hash FROM test_logins WHERE email=? LIMIT 1').bind(email).first<{code_hash:string}>():null;
+  const row=emailValid(email)?await env.DB.prepare('SELECT code_hash,side FROM test_logins WHERE email=? LIMIT 1').bind(email).first<{code_hash:string;side?:string}>():null;
   const code=normalizeCode(data?.code);
   if(!row||!code||await sha256Hex(code)!==row.code_hash)return json({ok:false,error:'That code isn’t right for this email.'},{status:400});
   if(data?.reset===true)await resetTestAccount(env,email);
-  const {headers,redirect,roles}=await completeSignIn(env,email,safeNext(data?.next)||'/app',cookie(request,LAST_DASHBOARD_COOKIE));
+  const {headers,redirect,roles}=await completeSignIn(env,email,safeNext(data?.next)||(row.side==='caregiver'?'/dashboard':'/app'),cookie(request,LAST_DASHBOARD_COOKIE));
   headers.set('content-type','application/json; charset=utf-8');
   return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
 }

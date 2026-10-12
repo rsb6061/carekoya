@@ -245,7 +245,7 @@ export async function contactMatches(request:Request,env:FeatureEnv,workspaceId:
   const chosen=Array.isArray(body.pipelineIds)?[...new Set(body.pipelineIds.map(v=>clean(v,100)).filter(Boolean))].slice(0,50):[];
   const limit=chosen.length?chosen.length:Math.max(1,Math.min(20,asNumber(body.limit)||5));
   const rows=await env.DB.prepare(`SELECT cp.id AS pipeline_id,cp.match_score,c.id AS caregiver_id,c.first_name,c.last_name,c.display_name,c.email FROM candidate_pipeline cp JOIN caregivers c ON c.id=cp.caregiver_id WHERE cp.opening_id=? AND cp.stage='matched' AND c.is_active=1 AND c.work_status='actively_looking'
-  AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
+  AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND COALESCE(c.is_test,0)=0
   AND c.email IS NOT NULL AND c.email!='' AND NOT ${SUPPRESSED_SQL} AND ${OPEN_TO_EMPLOYER_SQL} AND NOT ${APPLIED_TO_EMPLOYER_SQL}${chosen.length?` AND cp.id IN (${chosen.map(()=>'?').join(',')})`:''} ORDER BY cp.match_score DESC,cp.created_at ASC LIMIT ?`).bind(openingId,workspaceId,workspaceId,...chosen,limit).all<Record<string,unknown>>();
   let sent=0,failed=0;
   // Caps protect caregivers: a weekly limit per workspace, and, while unpaid with billing on, no more unanswered

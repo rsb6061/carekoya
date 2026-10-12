@@ -494,7 +494,7 @@ export async function localCaregiverSupply(env:FeatureEnv,center:{lat:number;lng
   const [caregivers,jobs]=await Promise.all([
     env.DB.prepare(`SELECT zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')}
       WHERE c.is_active=1 AND c.work_status='actively_looking'
-        AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL))
+        AND (c.auth0_email_verified=1 OR (c.source='legacy_carekoya' AND c.activation_completed_at IS NOT NULL)) AND COALESCE(c.is_test,0)=0
         AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ? LIMIT 5000`).bind(box.minLat,box.maxLat,box.minLng,box.maxLng).all<Row>(),
     env.DB.prepare(`SELECT zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregiver_jobs j ${zipGeoJoin('j')}
       WHERE j.is_published=1 AND j.status='current' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ? LIMIT 5000`).bind(box.minLat,box.maxLat,box.minLng,box.maxLng).all<Row>()
