@@ -163,7 +163,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
   const resumeFile=await env.DB.prepare('SELECT file_name,byte_size,updated_at FROM caregiver_resume_files WHERE caregiver_id=? LIMIT 1').bind(caregiverId).first<Row>();
 
   return json({ok:true,resume:resumeFile?{fileName:resumeFile.file_name,byteSize:resumeFile.byte_size,updatedAt:resumeFile.updated_at}:null,caregiver:{
-    id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:c.city,state:c.state,zip:c.zip,role:c.role,
+    id:c.id,firstName:c.first_name,lastName:c.last_name,email:c.email,city:clean(c.city,120)||(await lookupZip(env.DB,c.zip))?.city||null,state:c.state,zip:c.zip,role:c.role,
     certifications:listText(c.certifications),specialties:listText(c.specialties),languages:listText(c.languages),yearsExperience:c.years_experience,phone:c.phone,smsConsent,
     shifts:c.shift_preferences,desiredWage:c.desired_wage,transportation:c.transportation,travelMiles:c.travel_distance_miles,
     profilePhotoUrl:c.profile_photo_url,workStatus:c.work_status,lastConfirmedAt:c.last_confirmed_at,

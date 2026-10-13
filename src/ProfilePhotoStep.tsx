@@ -4,6 +4,8 @@ type Props={
   caregiverId:string;
   token:string;
   existingPhotoUrl?:string|null;
+  /** Inside onboarding's own photo step: no heading of its own, and the photo saves as soon as it is chosen. */
+  bare?:boolean;
 };
 
 async function canvasBlob(canvas:HTMLCanvasElement,type:string,quality:number){
@@ -42,7 +44,7 @@ export async function preparePhoto(file:File){
   }
 }
 
-export function ProfilePhotoStep({caregiverId,token,existingPhotoUrl}:Props){
+export function ProfilePhotoStep({caregiverId,token,existingPhotoUrl,bare}:Props){
   const [file,setFile]=useState<File|null>(null);
   const [preview,setPreview]=useState('');
   const [status,setStatus]=useState<'idle'|'saving'|'saved'|'error'>(existingPhotoUrl?'saved':'idle');
@@ -54,13 +56,14 @@ export function ProfilePhotoStep({caregiverId,token,existingPhotoUrl}:Props){
     const next=e.target.files?.[0]||null;
     if(preview)URL.revokeObjectURL(preview);
     setFile(next);setPreview(next?URL.createObjectURL(next):'');setStatus('idle');setMessage('');
+    if(next&&bare)void save(next);
   }
 
-  async function save(){
-    if(!file)return;
+  async function save(picked=file){
+    if(!picked)return;
     setStatus('saving');setMessage('');
     try{
-      const blob=await preparePhoto(file);
+      const blob=await preparePhoto(picked);
       const res=await fetch('/api/caregivers/'+encodeURIComponent(caregiverId)+'/photo',{
         method:'POST',
         headers:{'content-type':blob.type,'x-carejoys-profile-token':token},
@@ -75,16 +78,16 @@ export function ProfilePhotoStep({caregiverId,token,existingPhotoUrl}:Props){
   }
 
   return <div className="profile-photo-step">
-    <div className="profile-photo-copy">
+    {!bare&&<div className="profile-photo-copy">
       <strong>Add a profile photo <span>optional</span></strong>
       <p>A clear head-and-shoulders photo can help employers recognize your profile. It is shown only to signed-in participating employers reviewing matches.</p>
-    </div>
+    </div>}
     <div className="profile-photo-actions">
       <div className="profile-photo-preview">
         {preview?<img src={preview} alt="Profile preview" />:<div className="profile-photo-placeholder">{status==='saved'?'✓':'+'}</div>}
       </div>
       <label className="btn secondary profile-photo-picker">{file?'Choose another':'Choose photo'}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={choose}/></label>
-      {file&&status!=='saved'&&<button type="button" className="btn" onClick={save} disabled={status==='saving'}>{status==='saving'?'Saving…':'Save photo'}</button>}
+      {file&&!bare&&status!=='saved'&&<button type="button" className="btn" onClick={()=>void save()} disabled={status==='saving'}>{status==='saving'?'Saving…':'Save photo'}</button>}
     </div>
     {message&&<div className={status==='error'?'notice':'profile-photo-status'}>{message}</div>}
   </div>;

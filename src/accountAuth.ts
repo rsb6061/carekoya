@@ -72,15 +72,21 @@ export async function requestLogin(request:Request,env:AccountEnv){
   if(!emailValid(email))return json({ok:false,error:'Enter a valid email address'},{status:400});
   // CareJoys' own test addresses get no email: the form asks for their sign-in code instead.
   if(await isTestLogin(env,email))return json({ok:true,code:true,message:'Enter the test sign-in code.'});
+  await sendLoginLink(env,email,safeNext(data?.next));
+  // The same answer for every address, so the form never reveals who has an account.
+  return json({ok:true,message:'Check your email for a secure sign-in link.'});
+}
+
+/** Emails a one-time sign-in link that opens `next`. Also sent right after a caregiver signs up, to open their dashboard. */
+export async function sendLoginLink(env:AccountEnv,email:string,next?:string|null){
+  if(!env.DB||!env.EMAIL)return;
   const token=crypto.randomUUID()+'-'+crypto.randomUUID();
   const expires=new Date(Date.now()+LOGIN_LINK_MINUTES*60000).toISOString();
   await env.DB.prepare("DELETE FROM login_tokens WHERE email=? AND used_at IS NULL AND datetime(expires_at)<=datetime('now')").bind(email).run();
   await env.DB.prepare('INSERT INTO login_tokens(id,email,token_hash,redirect_path,expires_at) VALUES (?,?,?,?,?)')
-    .bind(crypto.randomUUID(),email,await sha256Hex(token),safeNext(data?.next)||null,expires).run();
+    .bind(crypto.randomUUID(),email,await sha256Hex(token),next||null,expires).run();
   const body=loginLinkEmail('https://carejoys.com/signin?token='+encodeURIComponent(token));
   await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:body.subject,html:body.html,text:body.text});
-  // The same answer for every address, so the form never reveals who has an account.
-  return json({ok:true,message:'Check your email for a secure sign-in link.'});
 }
 
 export async function startAccountSession(env:AccountEnv,email:string){

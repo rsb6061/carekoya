@@ -64,7 +64,7 @@ function DashboardPreview({stats}:{stats:Stats|null}){
     <div className="dash-layout-mock">
     <div className="dash-side" aria-hidden="true">
       <div className="dash-side-label">Dashboard</div>
-      <span className="active">My matches</span><span>Applications</span><span>Weekly email</span><span>Resume</span><span>Profile</span>
+      <span className="active">My job matches</span><span>Applications</span><span>Weekly email</span><span>Resume</span><span>Profile</span>
     </div>
     <div className="dash-body">
       <div className="dash-head">

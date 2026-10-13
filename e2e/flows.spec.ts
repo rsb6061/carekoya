@@ -28,12 +28,13 @@ test('@phone caregiver signup without a resume', async({page},info)=>{
   await page.getByLabel('First name').fill('Jordan');
   await page.getByLabel('Last name').fill('Signup');
   await page.getByRole('textbox',{name:'Email'}).fill(`e2e-signup-${info.project.name}@example.test`);
-  await page.getByLabel('Preferred shifts').fill('Days');
-  await page.getByRole('button',{name:'Find jobs'}).click();
-  await expect(page.getByRole('heading',{name:'You’re matched.'})).toBeVisible();
-  await expect(page.locator('.onboarding-top-jobs').getByRole('link',{name:/CNA - Day Shift/})).toBeVisible();
-  // The sign-in link to come back later.
-  await page.getByRole('button',{name:'Email me a sign-in link'}).click();
+  await page.getByRole('button',{name:/^Mornings/}).click();
+  await page.getByRole('button',{name:'Save and continue'}).click();
+  // An optional photo, then the sign-in link that opens their dashboard is already on its way.
+  await expect(page.getByRole('heading',{name:'Add a profile photo.'})).toBeVisible();
+  await page.getByRole('button',{name:'Continue'}).click();
+  await expect(page.getByRole('heading',{name:'Check your email.'})).toBeVisible();
+  await page.getByRole('button',{name:/Send the link again|Email me a sign-in link/}).click();
   await expect(page.getByText(/check your email|sent|link/i).first()).toBeVisible();
   clean(w);
 });
@@ -52,9 +53,19 @@ test('@phone caregiver signup with a resume: check what was found, then preferen
   await expect(page.getByLabel('Years of experience')).toHaveValue('14');
   await page.getByRole('button',{name:'Continue'}).click();
   await expect(page.getByRole('heading',{name:'What kind of job fits?'})).toBeVisible();
-  await page.getByLabel('Preferred shifts').fill('Days');
-  await page.getByRole('button',{name:'Find jobs'}).click();
-  await expect(page.getByRole('heading',{name:'You’re matched.'})).toBeVisible();
+  await page.getByRole('button',{name:'Mon Mornings'}).click();
+  await expect(page.getByRole('button',{name:'Mon Mornings'})).toHaveAttribute('aria-pressed','true');
+  // Any step can be revisited, back to the upload itself.
+  await page.getByRole('button',{name:'Check details'}).click();
+  await expect(page.getByLabel('First name')).toHaveValue('Yolanda');
+  await page.getByRole('button',{name:'Upload',exact:true}).click();
+  await expect(page.getByText('Upload resume')).toBeVisible();
+  await page.getByRole('button',{name:'No resume? Continue without one'}).click();
+  await expect(page.getByLabel('First name')).toHaveValue('Yolanda');
+  await page.getByRole('button',{name:'Continue'}).click();
+  await page.getByRole('button',{name:'Save and continue'}).click();
+  await expect(page.getByRole('heading',{name:'Add a profile photo.'})).toBeVisible();
+  await expect(page.getByText('Step 4 of 4')).toBeVisible();
   clean(w);
 });
 
@@ -71,9 +82,9 @@ test('@phone Apply starts with sign-in, and the profile form flags what is missi
   await expect(page.getByText('Upload resume')).toBeVisible();
   await page.getByRole('button',{name:'No resume? Continue without one'}).click();
   // Job preferences are optional while applying, so they start folded away.
-  await expect(page.getByLabel('Preferred shifts')).toHaveCount(0);
+  await expect(page.getByRole('group',{name:'Weekly availability'})).toHaveCount(0);
   await page.getByRole('button',{name:'Add job preferences (optional)'}).click();
-  await expect(page.getByLabel('Preferred shifts')).toBeVisible();
+  await expect(page.getByRole('group',{name:'Weekly availability'})).toBeVisible();
   await page.getByRole('button',{name:'Apply',exact:true}).last().click();
   await expect(page.getByText('Fill in the highlighted fields to continue.')).toBeVisible();
   await expect(page.getByLabel('First name')).toHaveAttribute('aria-invalid','true');
