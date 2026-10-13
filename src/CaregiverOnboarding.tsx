@@ -155,7 +155,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         role:found.role||prev.role,
         certifications:found.certifications.join(', '),
         specialties:found.specialties.join(', '),
-        languages:found.languages.join(', ')
+        languages:found.languages.join(', '),
+        yearsExperience:found.yearsExperience?String(found.yearsExperience):prev.yearsExperience
       }));
     }
     // Sign-in is optional now: everyone goes straight to the profile, and only an existing profile asks for it.
