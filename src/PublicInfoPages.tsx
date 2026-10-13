@@ -85,7 +85,7 @@ export function AboutCareJoysPage(){
         <div className="jobs">
           <div className="job"><div><h3>For caregivers</h3><div className="meta">Always free. Preview nearby jobs without a resume, create one profile, and choose which employers see it.</div></div><a className="text-link" href="/caregiver-jobs">Find jobs →</a></div>
           <div className="job"><div><h3>For caregiver training programs</h3><div className="meta">Free. Give graduates a CareJoys link and see how many create profiles, get matched and get hired.</div></div><a className="text-link" href="/training-programs/maryland">Maryland training programs →</a></div>
-          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $79 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
+          <div className="job"><div><h3>For care employers</h3><div className="meta">Get introduced to local caregivers who fit the role and confirmed they're interested. First introductions free, then $99 a month per location.</div></div><a className="text-link" href="/pricing">See pricing →</a></div>
         </div>
       </div></section>
 
@@ -155,6 +155,7 @@ export function PricingPage(){
               <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
+            <div className="plan-terms">One location, up to about 75 applicants a month. More than that, we’ll talk.</div>
             <div className="plan-terms">Month-to-month. Cancel anytime. No placement fees or per-hire charges.</div>
             <ul className="plan-list">
               <li>Every applicant from Indeed, your website and CareJoys contacted within 30 minutes, 8am to 9pm.</li>
