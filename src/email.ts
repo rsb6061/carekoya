@@ -465,3 +465,23 @@ export function atsForwardEmail(input:{company:string;title:string;source:string
     text:`${shown.map(([k,v])=>k+': '+v).join('\n')}\n\nOn CareJoys: ${input.link}\n\nForwarded by CareJoys for ${input.company}.`
   };
 }
+
+/**
+ * Dead-pile reactivation, sent by CareJoys for an agency to someone who applied there before: "still looking?"
+ * It speaks as the agency's named person, says CareJoys sends it for them, and offers a one-tap yes or no.
+ */
+export function agencyReactivationEmail(input:{firstName:string;senderName:string;agencyName:string;position:string;payText:string;yesLink:string;noLink:string}) {
+  const role=input.position||'caregiver';
+  const pay=input.payText?` paying ${input.payText}`:'';
+  const twoButtons=`<p style="margin:26px 0"><a href="${esc(input.yesLink)}" style="display:inline-block;background:#4255ff;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700;margin:0 8px 8px 0">Yes, I'm still looking</a><a href="${esc(input.noLink)}" style="display:inline-block;background:#fff;color:#4255ff;border:1px solid #4255ff;text-decoration:none;border-radius:999px;padding:13px 21px;font-weight:700">No, not right now</a></p>`;
+  return {
+    subject:`Still looking for caregiver work? ${input.agencyName} has open shifts`,
+    html:shell('Still looking for caregiver work?',
+      p(`Hi ${esc(input.firstName||'there')},`)+
+      p(`This is ${esc(input.senderName)} with <strong>${esc(input.agencyName)}</strong>. You applied with us for a ${esc(role)} position a while back, and we have open shifts now${esc(pay)}.`)+
+      p('Are you still looking for caregiver work? One tap tells us, and either answer is fine.')+
+      twoButtons+
+      `<p style="font-size:13px;line-height:1.6;color:#8a849b">${esc(input.agencyName)} works with CareJoys to get back to applicants. You're getting this because you applied to ${esc(input.agencyName)}.</p>`),
+    text:`Hi ${input.firstName||'there'},\n\nThis is ${input.senderName} with ${input.agencyName}. You applied with us for a ${role} position a while back, and we have open shifts now${pay}.\n\nAre you still looking for caregiver work?\n\nYes, I'm still looking: ${input.yesLink}\nNo, not right now: ${input.noLink}\n\n${input.agencyName} works with CareJoys to get back to applicants. You're getting this because you applied to ${input.agencyName}.`
+  };
+}

@@ -18,6 +18,7 @@ import { EmailTemplatesModal } from './EmailTemplatesModal';
 import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import { parseOpeningSchedule } from './schedule';
 import { WorkspaceSettings } from './WorkspaceSettings';
+import { ApplicantIntake } from './ApplicantIntake';
 import './workspace.css';
 
 type Opening={
@@ -109,7 +110,9 @@ export function EmployerWorkspace(){
   const [firstLoadDone,setFirstLoadDone]=useState(false);
   const [inviteAllowance,setInviteAllowance]=useState<InviteAllowance|null>(null);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
-  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':'openings'});
+  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'|'applicants'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':t==='applicants'?'applicants':'openings'});
+  // The agency's own applicants (operated service). The tab shows once CareJoys or the agency has uploaded some.
+  const [hasApplicants,setHasApplicants]=useState(false);
   const [applications,setApplications]=useState<InboxItem[]>([]);
   const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
   const [loading,setLoading]=useState(false);
@@ -190,6 +193,10 @@ export function EmployerWorkspace(){
     if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='jobs')setTab('jobs');
   },[agencyNetwork.agency]);
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
+  useEffect(()=>{
+    if(!session)return;
+    fetch('/api/workspace/applicants',{credentials:'include'}).then(r=>r.ok?r.json():null).then((d:{applicants?:unknown[]}|null)=>setHasApplicants(!!d?.applicants?.length)).catch(()=>{});
+  },[session?.id]);
 
   useEffect(()=>{
     if(!session||!approvalKnown||pendingApproval||intakeHandled.current||openings.length===0)return;
@@ -282,7 +289,7 @@ export function EmployerWorkspace(){
     setCandidateJobId(jobId);setCandidateView('active');setStageFilter(chip);setTab('pipeline');
     showUrl({tab:'candidates',job:jobId});
   }
-  function openTab(next:'openings'|'jobs'|'plan'|'settings'){leavePage();setTab(next);showUrl({tab:next})}
+  function openTab(next:'openings'|'jobs'|'plan'|'settings'|'applicants'){leavePage();setTab(next);showUrl({tab:next})}
 
   /** Refreshes the suggestions for a job listing, then opens Find caregivers for it. */
   async function runMatch(openingId:string){
@@ -529,6 +536,7 @@ export function EmployerWorkspace(){
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>openCandidates()}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>openFind()} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
       {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>openTab('jobs')}>Jobs</button>}
+      {(hasApplicants||tab==='applicants')&&<button className={'dash-sidenav-item '+(tab==='applicants'?'active':'')} onClick={()=>openTab('applicants')}>Applicants</button>}
       {billing?.enabled&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>openTab('plan')}>Plan</button>}
       <button className={'dash-sidenav-item '+(tab==='settings'?'active':'')} onClick={()=>openTab('settings')}>Settings</button>
      </nav>
@@ -637,6 +645,8 @@ export function EmployerWorkspace(){
       </section>}
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+
+      {shownTab==='applicants'&&<ApplicantIntake base="/api/workspace/applicants"/>}
 
       {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
 

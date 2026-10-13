@@ -539,3 +539,9 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .inline-form input:focus{outline:none;border-color:#b8adf2;box-shadow:0 0 0 3px rgba(216,210,255,.45)}
 .license-check{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
 .badge.warn{background:#fff4e0;color:#8a5300;border-color:#f3dfb8}
+
+/* Agency applicants (ApplicantIntake.tsx): whole words and phone numbers, a scroll on narrow screens instead of mid-word breaks. */
+.applicant-intake .admin-data-table{min-width:980px}
+.applicant-intake .admin-data-table td{overflow-wrap:normal}
+.applicant-intake .admin-data-table td a[href^="tel:"]{white-space:nowrap}
+.applicant-intake .admin-data-table .pipeline-select{min-width:130px}

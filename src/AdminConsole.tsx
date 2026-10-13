@@ -4,6 +4,7 @@ import { Shell } from './LoginPage';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu } from './AccountLink';
 import { AdminVideoReview } from './AdminVideoReview';
+import { ApplicantIntake } from './ApplicantIntake';
 import './workspace.css';
 
 type Count={count:number};
@@ -89,8 +90,10 @@ type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
-  type AdminSection='overview'|'employers'|'caregivers'|'jobs'|'outreach'|'advanced';
-  const allowedSections:AdminSection[]=['overview','employers','caregivers','jobs','outreach','advanced'];
+  type AdminSection='overview'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
+  const allowedSections:AdminSection[]=['overview','employers','applicants','caregivers','jobs','outreach','advanced'];
+  // Whose applicant list the Applicants section is working (the operated service).
+  const [applicantEmployer,setApplicantEmployer]=useState('');
   const [section,setSection]=useState<AdminSection>(()=>{
     const hash=window.location.hash.slice(1) as AdminSection;
     return allowedSections.includes(hash)?hash:'overview';
@@ -176,11 +179,11 @@ export function AdminConsole(){
     <header className="app-header admin-app-header"><div className="app-wrap header-inner admin-header-inner">
       <a className="brand" href="/">CareJoys <span className="admin-brand-tag">Admin</span></a>
       <nav className="app-nav admin-section-nav" aria-label="Admin sections">
-        {(['overview','employers','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
+        {(['overview','employers','applicants','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
           className={'nav-button '+(section===tab?'active':'')}
           aria-current={section===tab?'page':undefined}
           onClick={()=>goToSection(tab)}>
-          {{overview:'Overview',employers:'Employers',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
+          {{overview:'Overview',employers:'Employers',applicants:'Applicants',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
           {tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
         </button>)}
       </nav>
@@ -189,12 +192,13 @@ export function AdminConsole(){
     <main className="app-wrap app-content admin-main">
       <div className="admin-page-heading">
         <div><div className="modal-kicker">CareJoys operations</div><h1>{{
-          overview:'Your business at a glance',employers:'Employer approvals & accounts',
+          overview:'Your business at a glance',employers:'Employer approvals & accounts',applicants:'Agency applicants',
           caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
         <p>{{
           overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
           employers:'Review new employers before giving them access to candidate profiles.',
+          applicants:'Upload and work each agency’s own applicants. They stay that agency’s and never join caregiver matching.',
           caregivers:'Track worker profiles, recruiting campaigns and application activity.',
           jobs:'Check how much job inventory the application agent can work with.',
           outreach:'See which campaigns are running, review school prospects and measure real responses.',
@@ -264,6 +268,16 @@ export function AdminConsole(){
   </div>
 </section>
 }
+      {section==='applicants'&&<>
+        <section className="section-block" style={{marginBottom:0}}>
+          <select className="pipeline-select" value={applicantEmployer} onChange={e=>setApplicantEmployer(e.target.value)} aria-label="Agency account">
+            <option value="">Choose an employer account</option>
+            {[...data.employers].sort((a,b)=>String(a.company_name||'').localeCompare(String(b.company_name||''))).map(e=><option key={e.id} value={e.id}>{e.company_name||'Unnamed'} · {e.email}</option>)}
+          </select>
+        </section>
+        {applicantEmployer&&<ApplicantIntake base="/api/admin/applicants" employerId={applicantEmployer} title={(data.employers.find(e=>e.id===applicantEmployer)?.company_name||'Agency')+' applicants'}
+          reactivation={{url:'/api/admin/applicant-reactivation?employer='+encodeURIComponent(applicantEmployer),agencyName:data.employers.find(e=>e.id===applicantEmployer)?.company_name||'the agency',testTo:data.admin.email}}/>}
+      </>}
       {section==='caregivers'&&<>
         <AdminVideoReview/>
         <section className="section-block admin-worker-funnel">
