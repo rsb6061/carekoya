@@ -69,6 +69,35 @@ test('@phone caregiver signup with a resume: check what was found, then preferen
   clean(w);
 });
 
+test('@phone a job opens in a side panel over the list, with Apply inside it', async({page})=>{
+  const w=await watch(page);
+  await page.goto('/caregiver-jobs/maryland');
+  await page.getByRole('link',{name:'CNA - Day Shift'}).first().click();
+  const panel=page.getByRole('dialog',{name:'Job details'});
+  await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
+  await expect(page).toHaveURL(/\/caregiver-jobs\/maryland\?job=/);
+  await panel.getByRole('button',{name:'Apply',exact:true}).click();
+  await expect(page.getByText('Apply on CareJoys')).toBeVisible();
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  // Back closes the panel and leaves the list where it was.
+  await page.goBack();
+  await expect(panel).toHaveCount(0);
+  await expect(page).toHaveURL(/\/caregiver-jobs\/maryland$/);
+  clean(w);
+});
+
+test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
+  const w=await watch(page);
+  await signIn(page,CAREGIVER);
+  await page.goto('/caregiver-jobs/maryland');
+  await page.getByRole('link',{name:/Find (caregiver )?jobs/}).first().click();
+  await expect(page).toHaveURL(/\/dashboard\/jobs$/);
+  await expect(page.getByRole('navigation',{name:'Dashboard sections'}).getByRole('link',{name:'All jobs'})).toHaveAttribute('aria-current','page');
+  await page.getByRole('link',{name:'Home Health Aide'}).first().click();
+  await expect(page.getByRole('dialog',{name:'Job details'}).getByRole('heading',{name:'Home Health Aide',level:1})).toBeVisible();
+  clean(w);
+});
+
 test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
   const w=await watch(page);
   await page.goto('/jobs/'+JOBS.external);

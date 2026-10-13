@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, type ComponentType } from 'react';
+import { JobDrawer } from './JobDrawer';
 import { HomeHero, HomeMatchesSection } from './HomeHero';
 import { isNationalJobsPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
@@ -89,10 +90,12 @@ function routePage(path:string){
 export function App() {
   const path=window.location.pathname;
   const page=routePage(path);
-  if (page) return <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{page}</Suspense>;
+  // Caregiver pages that list jobs open each one in a side panel (JobDrawer); work tools and the job page itself don't.
+  const drawer=!/^\/(jobs|admin|app|agency|auth|school-dashboard)(\/|$)/.test(path)&&<JobDrawer/>;
+  if (page) return <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{page}{drawer}</Suspense>;
   // The Worker answers unknown paths with a 404 status; match it instead of showing the homepage.
   if (path !== '/' && path !== '/index.html') return <NotFound />;
-  return <Home />;
+  return <><Home />{drawer}</>;
 }
 
 function NotFound(){
