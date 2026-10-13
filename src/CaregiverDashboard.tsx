@@ -29,7 +29,7 @@ function applicationStatus(a:Application){
   return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
 }
 type Caregiver=CaregiverProfileData&{
-  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;invitesPausedUntil?:string|null;
+  id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;invitesPausedUntil?:string|null;autoApply?:boolean;
 };
 type Dashboard={resume?:{fileName:string;updatedAt?:string}|null;caregiver:Caregiver|null;invites?:Invite[];nearbyJobs?:NearbyJob[];applications?:Application[];hiddenAgencies?:HiddenAgency[]};
 
@@ -55,6 +55,7 @@ export function CaregiverDashboard(){
   // The hide-profile box shows the new choice while it saves, instead of springing back until the reload.
   const [hideChoice,setHideChoice]=useState<boolean|null>(null);
   const [notice,setNotice]=useState('');
+  const [autoChoice,setAutoChoice]=useState<boolean|null>(null);
   const [alerts,setAlerts]=useState<boolean|null>(null);
   useEffect(()=>{if(!auth.isAuthenticated)return;fetch('/api/me/job-alerts').then(r=>r.json()).then((r:{emailEnabled?:boolean})=>setAlerts(!!r.emailEnabled)).catch(()=>setAlerts(null))},[auth.isAuthenticated]);
   async function updateAlerts(enabled:boolean){setBusy('alerts');try{await api('/api/me/job-alerts',{method:'POST',body:JSON.stringify({emailEnabled:enabled})});setAlerts(enabled);setNotice(enabled?'Weekly job emails enabled.':'Weekly job emails turned off.')}catch(e){setNotice(e instanceof Error?e.message:'Could not update alerts.')}finally{setBusy('')}}
@@ -164,6 +165,11 @@ export function CaregiverDashboard(){
         <section className="section-block" id="visibility">
           <div className="section-heading"><h2>Profile visibility</h2><p>{hiddenProfile?'Employers can’t find you or invite you right now.':'Employers can find you and invite you to jobs.'}</p></div>
           <label className="check-row"><input type="checkbox" checked={hiddenProfile} disabled={!!busy} onChange={e=>{const hide=e.target.checked;setHideChoice(hide);void act('avail','/api/me/availability',{workStatus:hide?'not_looking':'actively_looking'},hide?'Your profile is hidden from employers.':'You’re shown to employers again.').finally(()=>setHideChoice(null))}} /><span>Hide my profile from employers</span></label>
+        </section>
+        <section className="section-block" id="auto-apply">
+          <div className="section-heading"><h2>Auto-apply</h2><p>CareJoys applies to your best new matches for you. If an application needs something only you can answer, it waits on your dashboard and we email you.</p></div>
+          <label className="check-row"><input type="checkbox" checked={autoChoice??!!c.autoApply} disabled={!!busy||!data.resume} onChange={e=>{const on=e.target.checked;setAutoChoice(on);void act('auto','/api/me/auto-apply',{enabled:on},on?'Auto-apply is on. We’ll apply to up to 3 of your best new matches a day.':'Auto-apply is off.').finally(()=>setAutoChoice(null))}} /><span>Apply to my best new matches for me (up to 3 a day)</span></label>
+          {!data.resume&&<p className="muted">Add your resume on <a className="text-link" href="/dashboard/profile">your profile</a> to turn this on.</p>}
         </section>
         <section className="section-block" id="emails">
           <div className="section-heading"><h2>Weekly job email</h2><p>New jobs that match you, once a week.</p></div>
