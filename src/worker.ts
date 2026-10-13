@@ -767,6 +767,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       });
     }
   }
+  if(url.pathname==="/privacy"||url.pathname==="/terms"){
+    return Response.redirect(url.origin+(url.pathname==="/privacy"?"/privacy-policy":"/terms-of-service"),301);
+  }
   if(url.pathname==="/privacy-policy"){
     return seoAsset(request,env,{title:"Privacy Policy | CareJoys",description:"CareJoys privacy policy.",canonical:"/privacy-policy",robots:"noindex,follow"});
   }
