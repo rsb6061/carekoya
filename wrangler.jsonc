@@ -59,7 +59,7 @@
   ],
   "vars": {
     // Booking page (Calendly, Cal.com…) for the "Book a call" button after the /hire-caregivers form. Empty hides the button.
-    "EMPLOYER_CALL_URL": "",
+    "EMPLOYER_CALL_URL": "https://calendly.com/myersrebeccal/30min",
     // Outreach crons send nothing until this is "true". Caps are emails per UTC day.
     "OUTREACH_ENABLED": "false",
     "REACTIVATION_DAILY_CAP": "50",

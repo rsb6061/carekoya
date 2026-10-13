@@ -84,7 +84,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     <div className="success-mark">✓</div>
     <h1 style={{marginTop:18}}>{kind === 'employer' ? 'You’re in. Let’s pick a time.' : 'Thanks, we have it.'}</h1>
     <p className="login-sub">{kind === 'employer'
-      ? (callUrl ? 'Book a 15-minute call and we’ll walk through your openings and how we’ll take over your applicant pipeline. '+message : message+' Reply to that email and we’ll set up a 15-minute call about your openings.')
+      ? (callUrl ? 'Book a 30-minute call and we’ll walk through your openings and how we’ll take over your applicant pipeline. '+message : message+' Reply to that email and we’ll set up a 30-minute call about your openings.')
       : 'CareJoys will review your program for the Maryland directory and reply by email.'}</p>
     <div className="empty-actions">
       {kind === 'employer' && callUrl && <a className="button" href={callUrl} target="_blank" rel="noopener noreferrer">Book a call</a>}
