@@ -144,7 +144,7 @@ test('Apply for me takes a resume and answers the click', async({page})=>{
   await page.getByRole('button',{name:'Apply',exact:true}).click();
   await page.locator('.apply-agent-start input[type=file]').setInputFiles({name:'resume.txt',mimeType:'text/plain',
     buffer:Buffer.from('Casey Tester\nCertified Nursing Assistant\nBaltimore, MD 21201\n5 years of home care experience.')});
-  const start=page.getByRole('button',{name:'Apply for me on Harbor Home Care’s site'});
+  const start=page.getByRole('button',{name:'Apply now'});
   await expect(start).toBeVisible();
   await start.click();
   await expect(page.locator('.apply-agent-start .notice, .apply-agent-questions, .apply-agent-status:not(:has(.apply-agent-spinner)), .onboarding-success')).toBeVisible({timeout:20000});

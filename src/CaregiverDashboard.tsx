@@ -250,17 +250,18 @@ export function CaregiverDashboard(){
           const applied=(data.applications||[]).find(a=>a.jobId===job.id&&(a.appliedOnCareJoys||a.submittedOnEmployerSite));
           const href='/jobs/'+encodeURIComponent(job.id);
           return <article className={'job-card job-card-apply '+cardTone(i)} key={job.id}>
-            <a className="job-card-main job-card-link" href={href}>
-              <h3>{job.title}</h3>
+            <div className="job-card-main">
+              <h3><a className="job-title-link" href={href}>{job.title}</a></h3>
               <div className="job-meta">{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</div>
               {pay(job.payMin,job.payMax,job.payPeriod)&&<div className="job-badges"><span className="badge">{pay(job.payMin,job.payMax,job.payPeriod)}</span></div>}
-            </a>
+            </div>
             <div className="job-card-actions">
               {!applied?(job.employerOnCareJoys
                 ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
-                :<a className="button" href={href+'#apply'}>{job.applyForMe?'Apply for me':'Apply'}</a>)
+                :<a className="button" href={href+'#apply'}>Apply</a>)
               :applied.employerOnCareJoys||applied.submittedOnEmployerSite?<span className="status applied">Applied</span>
               :<><span className="status applied">Saved</span><a className="button secondary" href={href+'#apply'}>Finish applying</a></>}
+              <a className="text-link job-view-link" href={href}>View job</a>
             </div>
           </article>})}</div>}
       </section>

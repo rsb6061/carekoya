@@ -214,11 +214,11 @@ function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicati
   return <div className="caregiver-onboarding compact apply-with-profile">
     <div className="modal-kicker">Apply with your CareJoys profile</div>
     <h2>{job.title}</h2>
-    <p className="apply-with-profile-sub">{job.employerOnCareJoys?<>{employer} will see this profile. You don’t need to upload your resume again.</>:agent?<>{employer} takes applications on their own site. CareJoys can fill it in for you with this profile, or you can save the job and apply yourself.</>:<>{employer} takes applications on their own site. We’ll save this job to your dashboard, then you finish on their site.</>}</p>
+    <p className="apply-with-profile-sub">{employer}</p>
+    <div className="apply-profile-head"><strong>Applying as</strong><a className="text-link" href="/dashboard/profile">Edit</a></div>
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-    <a className="text-link" href="/dashboard/profile">Update your profile first</a>
     {error&&<div className="notice">{error}</div>}
     {agent}
-    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Saving…':job.employerOnCareJoys?(agent?'Just send my CareJoys profile instead':'Send my application'):(agent?'Just save it to my dashboard instead':'Save to my dashboard')}</button>
+    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Saving…':job.employerOnCareJoys?(agent?'Just send my CareJoys profile instead':'Send my application'):(agent?'Save for later':'Save to my dashboard')}</button>
   </div>;
 }

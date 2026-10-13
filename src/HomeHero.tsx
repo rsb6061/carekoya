@@ -77,7 +77,7 @@ function DashboardPreview({stats}:{stats:Stats|null}){
           <strong>{j.title}</strong>
           <span className="dash-card-meta">{j.employerName} · {j.city}, {j.state}</span>
           {pay(j)&&<span className="dash-badge">{pay(j)}</span>}
-          <span className="dash-apply">{j.applyForMe?'Apply for me':'Apply'}</span>
+          <span className="dash-apply">Apply</span>
         </a>):[0,1,2,3].map(i=><div key={i} className={'dash-card skeleton dash-'+TONES[i]} aria-hidden="true"/>)}
       </div>
     </div>
