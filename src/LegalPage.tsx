@@ -3,7 +3,7 @@ import './styles.css';
 
 type Kind='privacy'|'terms';
 
-const updated='October 12, 2026';
+const updated='October 13, 2026';
 
 export function LegalPage({kind}:{kind:Kind}){
   const privacy=kind==='privacy';
@@ -21,7 +21,7 @@ export function LegalPage({kind}:{kind:Kind}){
 
 function Privacy(){
   return <div className="legal-content">
-    <section><h2>1. What CareJoys is</h2><p>CareJoys is a recruiting and workforce-matching platform for caregivers and care employers. We help caregivers create work profiles, help employers identify potential candidates, and support recruiting steps such as interest confirmation and interview scheduling.</p></section>
+    <section><h2>1. What CareJoys is</h2><p>CareJoys is a recruiting and workforce-matching platform for caregivers and care employers. We help caregivers create work profiles, help employers identify potential candidates, and support recruiting steps such as interest confirmation and interview scheduling. CareJoys is operated by NourishNode, which is responsible for the information described in this policy.</p></section>
     <section><h2>2. Information we collect</h2><p>We collect information you provide to us, including name, contact information, location, work role, credentials or specialties, experience, shift and pay preferences, transportation or commute information, employer hiring needs, interview availability, and communications or responses made through CareJoys. We also collect basic technical information needed to operate and secure the service, such as IP-derived security signals, timestamps, session information, and request logs. When you use the public job-preview feature, your browser may store a random, pseudonymous visitor ID for up to 30 days in local storage. We use it to measure whether people who preview jobs later register, verify their email, and return to view jobs. The event records do not contain your name, email, phone, IP address, or ZIP code, though a signup may link the identifier to your account. This acquisition tracking is separate from advertising.</p></section>
     <section><h2>3. Caregiver profile visibility</h2><p>Caregiver work-profile information may be shown to participating care employers for recruiting purposes. This can include your public name, general location, role, experience, credentials, specialties, work preferences, commute information, and availability status. We do not treat an older profile as proof that you are currently job seeking; when availability has not been recently confirmed, CareJoys labels it as unconfirmed. If you tell us you are not looking, we remove your profile from employer search and matching.</p></section>
     <section><h2>4. How we use information</h2><p>We use information to operate CareJoys, match caregivers with hiring needs, rank and surface relevant candidates, send recruiting or account communications, confirm interest and availability, schedule interviews, prevent fraud and abuse, improve the service, and comply with legal obligations.</p></section>
@@ -38,7 +38,7 @@ function Privacy(){
 
 function Terms(){
   return <div className="legal-content">
-    <section><h2>1. Acceptance</h2><p>By using CareJoys, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service.</p></section>
+    <section><h2>1. Acceptance</h2><p>By using CareJoys, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service. CareJoys is operated by NourishNode, and “CareJoys”, “we” and “us” in these Terms mean NourishNode.</p></section>
     <section><h2>2. Platform role</h2><p>CareJoys provides recruiting, matching, communication, and interview-scheduling tools. CareJoys is not the employer of caregivers introduced through the platform and does not make hiring decisions for care employers. Employers are responsible for their own hiring decisions, employment terms, credential checks, background checks, licensing requirements, workplace obligations, and compliance with applicable law.</p></section>
     <section><h2>3. User responsibilities</h2><p>You must provide accurate information and use CareJoys only for lawful recruiting or job-seeking purposes. Employers may not misuse caregiver data, scrape the service, discriminate unlawfully, send abusive communications, or use CareJoys for unrelated solicitation. Caregivers should keep work-profile and availability information reasonably current.</p></section>
     <section><h2>4. Profiles, matching, and availability</h2><p>CareJoys may rank or match profiles using information such as role, location, credentials, preferences, commute, responsiveness, and recency of availability confirmation. A match score or profile does not guarantee suitability, availability, employment, performance, credentials, or hiring outcome. Profiles with older availability may remain discoverable while clearly labeled as unconfirmed.</p></section>
