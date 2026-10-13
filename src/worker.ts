@@ -39,7 +39,7 @@ import { billingStatus, createCheckout, createPortal, freeContacts, handleStripe
 import { sendHiringFollowups, sendRoleClosedNotices } from './employerFollowups';
 import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
-import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, saveResumeFile, startApplyAgent } from './applyAgent';
+import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, runAutoApply, saveResumeFile, startApplyAgent, updateAutoApply } from './applyAgent';
 import { resumeDownload } from './resumeFile';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
@@ -104,6 +104,8 @@ interface Env {
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_MESSAGING_SERVICE_SID?: string;
   SMS_ENABLED?: string;
+  // Applies to opted-in caregivers' best new matches (src/applyAgent.ts runAutoApply). Off until Rebecca approves.
+  AUTO_APPLY_ENABLED?: string;
 }
 
 /** The booking link for the /hire-caregivers confirmation, or "" when unset or not https. */
@@ -2028,6 +2030,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
         if(!caregiverId)return json({ok:false,error:"No caregiver profile yet"},{status:404});
         return handleMyVideo(request,env,caregiverId,meVideo[1]||"");
       }
+      if(request.method==="POST"&&url.pathname==="/api/me/auto-apply") return updateAutoApply(request,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/apply-agent/continue") return continueApplyAgent(request,env,identity);
       const meAgent=url.pathname.match(/^\/api\/me\/apply-agent\/([^/]+)$/);
       if(request.method==="POST"&&meAgent) return startApplyAgent(env,identity,decodeURIComponent(meAgent[1]));
@@ -2351,6 +2354,8 @@ export default {
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // Candidates to agencies' ATS inboxes, then the morning digest and (on the 1st) last month's results.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
+        // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
+        await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
         const hour=new Date(event.scheduledTime??Date.now());
         if(hour.getUTCHours()===DIGEST_UTC_HOUR){
           await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));

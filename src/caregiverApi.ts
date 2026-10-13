@@ -172,7 +172,8 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
     careSettings:listOf(c.care_settings),preferredSettings:listOf(c.preferred_settings),workConditions:listOf(c.work_conditions),checklist:parseChecklist(c.checklist),licenseNumber:c.license_number,licenseState:c.license_state,
     // Their ZIP and typed state disagree (or the state is outside the US): employers see no mileage, or don't see them at all.
     locationCheck:inUs(c)&&locationMatchesZip(c)?null:{zipPlace:[clean(c.geo_city,120),clean(c.geo_state,10)].filter(Boolean).join(', ')},
-    invitesPausedUntil:pausedUntil&&Date.parse(pausedUntil)>Date.now()?pausedUntil:null
+    invitesPausedUntil:pausedUntil&&Date.parse(pausedUntil)>Date.now()?pausedUntil:null,
+    autoApply:Number(c.auto_apply)===1
   },
   hiddenAgencies:await hiddenAgencyList(env,caregiverId),
   invites:(invites.results||[]).map(r=>({

@@ -2,7 +2,8 @@
 // the button, using their profile and resume file. The browser engine lives in applyAgentBrowser.ts and is
 // imported lazily, so the rest of the Worker (and the tests) never load Playwright.
 import type { FeatureEnv } from './serverFeatures';
-import { caregiverForIdentity, recordCareJoysApplication, type CaregiverIdentity } from './caregiverApi';
+import { caregiverForIdentity, nearbyJobsFor, recordCareJoysApplication, type CaregiverIdentity } from './caregiverApi';
+import { zipGeoJoin } from './geo';
 import {
   REMEMBERABLE_KEYS, applyProfileFromCaregiver, applyStartUrl, detectApplyProvider, jobSiteName,
   type ApplyAnswerKey, type ApplyProfile, type ApplyProvider
@@ -11,7 +12,7 @@ import type { ApplicationAgentRunResult, ObservedQuestion, PendingQuestion } fro
 import { loadResume, resumeDownload } from './resumeFile';
 
 type Row=Record<string,unknown>;
-export type ApplyEnv=FeatureEnv&{BROWSER?:unknown};
+export type ApplyEnv=FeatureEnv&{BROWSER?:unknown;AUTO_APPLY_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
@@ -129,9 +130,16 @@ export async function startApplyAgent(env:ApplyEnv,identity:CaregiverIdentity|nu
   // Never fill in a real employer's application for a CareJoys test account.
   if(await env.DB.prepare('SELECT 1 FROM caregivers WHERE id=? AND is_test=1 LIMIT 1').bind(caregiverId).first())
     return json({ok:false,error:'Apply for me is off for test accounts, so no employer gets a test application.',fallbackUrl:job.sourceUrl},{status:403});
+  return runForCaregiver(env,caregiverId,job,'caregiver');
+}
+
+/** One Apply for me run for a caregiver and job: their click on "Apply now", or the daily auto-apply. */
+async function runForCaregiver(env:ApplyEnv,caregiverId:string,job:AgentJob,source:'caregiver'|'auto'){
+  const jobId=job.id;
   const provider=detectApplyProvider(job.sourceUrl);
   if(!provider)return json({ok:false,error:'CareJoys can’t fill in this employer’s application yet.',fallbackUrl:job.sourceUrl},{status:422});
   if(!env.BROWSER)return json({ok:false,error:'Apply for me isn’t switched on yet.',fallbackUrl:job.sourceUrl},{status:503});
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const done=await env.DB.prepare("SELECT 1 AS hit FROM apply_agent_sessions WHERE caregiver_id=? AND caregiver_job_id=? AND status='submitted' LIMIT 1").bind(caregiverId,jobId).first();
   if(done)return json({ok:true,status:'already_applied'});
   const profile=await profileFor(env,caregiverId);
@@ -142,8 +150,8 @@ export async function startApplyAgent(env:ApplyEnv,identity:CaregiverIdentity|nu
 
   const startUrl=applyStartUrl(provider,job.sourceUrl);
   const sessionId=crypto.randomUUID();
-  await env.DB.prepare("INSERT INTO apply_agent_sessions(id,caregiver_id,caregiver_job_id,provider,status,application_url) VALUES (?,?,?,?,'running',?)")
-    .bind(sessionId,caregiverId,jobId,provider,startUrl).run();
+  await env.DB.prepare("INSERT INTO apply_agent_sessions(id,caregiver_id,caregiver_job_id,provider,status,application_url,source) VALUES (?,?,?,?,'running',?,?)")
+    .bind(sessionId,caregiverId,jobId,provider,startUrl,source).run();
   const {runApplicationAgent}=await browserModule();
   const result=await runApplicationAgent(env.BROWSER as any,{provider,applicationUrl:startUrl,profile,resume});
   return handleResult(env,{result,sessionId,caregiverId,job,provider});
@@ -229,4 +237,77 @@ export async function adminApplyTest(request:Request,env:ApplyEnv){
   const result=await testFillApplication(env.BROWSER as any,{provider,applicationUrl:applyStartUrl(provider,job.sourceUrl),profile:TEST_PROFILE,
     resume:{name:'test.pdf',mimeType:'application/pdf',bytes:new Uint8Array()},skipFileUpload:true});
   return json({...result,provider,job:{id:job.id,title:job.title,employerName:job.employerName}});
+}
+
+/** Auto-apply: a caregiver's own switch (Settings, or signup) for "apply to my best new matches for me". */
+export async function updateAutoApply(request:Request,env:ApplyEnv,identity:CaregiverIdentity|null){
+  if(!identity)return json({ok:false,error:'Sign in required'},{status:401});
+  if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
+  const caregiverId=await caregiverForIdentity(env,identity);
+  if(!caregiverId)return json({ok:false,error:'Add your resume on CareJoys first.',needsProfile:true},{status:404});
+  const body=await request.json().catch(()=>({})) as Row;
+  const enabled=body.enabled===true;
+  await env.DB.prepare('UPDATE caregivers SET auto_apply=?,auto_apply_updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(enabled?1:0,caregiverId).run();
+  return json({ok:true,autoApply:enabled});
+}
+
+/** Applications auto-apply sends a caregiver per UTC day, at most. */
+export const AUTO_APPLY_PER_DAY=3;
+
+/**
+ * The daily auto-apply, run from the hourly cron. For each caregiver who switched it on (verified email, looking,
+ * not a test account) it applies to their best matches CareJoys can actually apply to: an employer on CareJoys gets
+ * their profile, and a job site Apply for me supports gets the form filled in and sent. A run that stops on a question
+ * or a signature leaves the job on their dashboard to finish, and they get the usual email. Each job is tried once.
+ * Nothing runs until AUTO_APPLY_ENABLED is "true". `maxBrowserRuns` keeps one cron invocation inside its time limit.
+ */
+export async function runAutoApply(env:ApplyEnv,maxBrowserRuns=3){
+  if(String(env.AUTO_APPLY_ENABLED||'').toLowerCase()!=='true'||!env.DB)return {caregivers:0,applied:0};
+  const db=env.DB;
+  const people=await db.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin('c')}
+    WHERE c.auto_apply=1 AND c.is_active=1 AND COALESCE(c.is_test,0)=0 AND c.work_status='actively_looking' AND c.auth0_email_verified=1
+      AND (SELECT COUNT(*) FROM caregiver_job_apply_events e WHERE e.caregiver_id=c.id AND e.event_type='auto_applied' AND date(e.created_at)=date('now'))<?
+    ORDER BY (SELECT MAX(e.created_at) FROM caregiver_job_apply_events e WHERE e.caregiver_id=c.id AND e.event_type='auto_applied') ASC
+    LIMIT 25`).bind(AUTO_APPLY_PER_DAY).all<Row>();
+  let browserRuns=0,applied=0;
+  for(const c of people.results||[]){
+    const caregiverId=clean(c.id,120);
+    const today=await db.prepare("SELECT COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_id=? AND event_type='auto_applied' AND date(created_at)=date('now')").bind(caregiverId).first<{n:number}>();
+    let left=AUTO_APPLY_PER_DAY-Number(today?.n||0);
+    const hasResume=!!(await db.prepare('SELECT 1 AS hit FROM caregiver_resume_files WHERE caregiver_id=? LIMIT 1').bind(caregiverId).first());
+    // Switching it on needs a resume, and a resume removed later pauses it.
+    if(!hasResume)continue;
+    for(const match of await nearbyJobsFor(env,c,40)){
+      if(left<=0)break;
+      const jobId=clean(match.id,120);
+      if(!match.employerOnCareJoys&&!(match.applyForMe&&env.BROWSER))continue;
+      if(!match.employerOnCareJoys&&browserRuns>=maxBrowserRuns)continue;
+      // Each job once: never one they applied to, saved, or that auto-apply already tried.
+      const seen=await db.prepare(`SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=?
+        UNION SELECT 1 FROM apply_agent_sessions WHERE caregiver_id=? AND caregiver_job_id=? LIMIT 1`).bind(caregiverId,jobId,caregiverId,jobId).first();
+      if(seen)continue;
+      // Never an agency they hid their profile from.
+      const hidden=await db.prepare(`SELECT 1 AS hit FROM caregiver_jobs j JOIN agency_organizations o ON o.id=j.agency_organization_id
+        JOIN caregiver_hidden_employers h ON h.employer_id=o.claimed_employer_id AND h.caregiver_id=? WHERE j.id=? LIMIT 1`).bind(caregiverId,jobId).first();
+      if(hidden)continue;
+      const job=await agentJob(env,jobId);
+      if(!job)continue;
+      await db.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES (?,?,?,'auto_applied','auto_apply')")
+        .bind(crypto.randomUUID(),jobId,caregiverId).run();
+      left--;
+      if(match.employerOnCareJoys){
+        // The employer is on CareJoys: the application is their profile, sent straight to the employer.
+        await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
+        applied++;
+        continue;
+      }
+      browserRuns++;
+      const res=await runForCaregiver(env,caregiverId,job,'auto').catch(()=>null);
+      const body=res?await res.clone().json().catch(()=>({})) as Row:{};
+      if(body.status==='submitted'||body.status==='already_applied'){applied++;continue}
+      // Stopped on a question, a signature or an error: the job waits on their dashboard with "Finish applying", and they get an email.
+      await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
+    }
+  }
+  return {caregivers:(people.results||[]).length,applied};
 }

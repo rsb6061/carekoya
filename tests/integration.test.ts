@@ -12,6 +12,7 @@ import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSm
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
+import { runAutoApply } from '../src/applyAgent';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -1382,6 +1383,51 @@ describe('shared sign-in', ()=>{
     expect(new Uint8Array(await download.arrayBuffer())).toEqual(pdf);
   });
 
+  it('auto-apply sends up to 3 a day to employers on CareJoys, once per job, only when switched on', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,city,state,zip,is_active,claimed_employer_id) VALUES ('org-auto','org-auto','Auto Care','auto.test','Baltimore','MD','21201',1,'emp1')").run();
+    await DB.prepare("INSERT OR REPLACE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-hidden','Hidden Care','Hal','hal@hidden.test','21201','CNA','active')").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,city,state,zip,is_active,claimed_employer_id) VALUES ('org-hidden','org-hidden','Hidden Care','hidden.test','Baltimore','MD','21201',1,'emp-hidden')").run();
+    for(const [id,org] of [['auto-1','org-auto'],['auto-2','org-auto'],['auto-3','org-auto'],['auto-4','org-auto'],['auto-5','org-auto'],['auto-hidden','org-hidden']]){
+      await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,?,?,'test',?,'CNA Days','CNA','Auto Care','Baltimore','MD','21201','current',1)")
+        .bind(id,org,id,'https://'+org+'.test/apply/'+id).run();
+    }
+    await addCaregiver('auto','21201',{auto_apply:1});
+    await addCaregiver('auto-test','21201',{auto_apply:1,is_test:1});
+    await addCaregiver('auto-off','21201');
+    for(const id of ['auto','auto-test','auto-off'])await DB.prepare("INSERT INTO caregiver_resume_files(caregiver_id,file_name,content_type,byte_size,file_blob) VALUES (?,'r.pdf','application/pdf',4,?)").bind(id,new Uint8Array([37,80,68,70])).run();
+    await DB.prepare("INSERT INTO caregiver_hidden_employers(caregiver_id,employer_id) VALUES ('auto','emp-hidden')").run();
+    // Already applied to this one by hand: never sent again.
+    await DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES ('ev-hand','auto-1','auto','carejoys_applied','carejoys_profile')").run();
+    const autoJobs=async(id:string)=>((await DB.prepare("SELECT caregiver_job_id AS job FROM caregiver_job_apply_events WHERE caregiver_id=? AND event_type='auto_applied'").bind(id).all()).results||[]).map((r:any)=>r.job).sort();
+    // Off site-wide: nothing happens.
+    expect(await runAutoApply(env())).toEqual({caregivers:0,applied:0});
+    expect(await autoJobs('auto')).toEqual([]);
+    const on=env({AUTO_APPLY_ENABLED:'true'});
+    const first=await runAutoApply(on);
+    expect(first.applied).toBe(3);
+    const done=await autoJobs('auto');
+    expect(done).toHaveLength(3);
+    expect(done).not.toContain('auto-1');
+    expect(done).not.toContain('auto-hidden');
+    // Each one is a real application the caregiver sees on the dashboard.
+    for(const job of done)expect(await DB.prepare("SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id='auto' AND caregiver_job_id=? AND event_type='carejoys_applied'").bind(job).first()).toBeTruthy();
+    // Test accounts and caregivers who didn't switch it on are left alone, and the daily cap holds.
+    expect(await autoJobs('auto-test')).toEqual([]);
+    expect(await autoJobs('auto-off')).toEqual([]);
+    await runAutoApply(on);
+    expect(await autoJobs('auto')).toEqual(done);
+    await DB.prepare("UPDATE caregiver_jobs SET is_published=0 WHERE id LIKE 'auto-%'").run();
+  });
+
+  it('caregivers switch auto-apply on and off from Settings', async()=>{
+    const {cookie}=await signIn('dc@example.com');
+    expect((await post('/api/me/auto-apply',{enabled:true})).status).toBe(401);
+    expect(await (await post('/api/me/auto-apply',{enabled:true},{cookie})).json()).toMatchObject({ok:true,autoApply:true});
+    expect(((await (await call('/api/me',{headers:{cookie}})).json()) as any).caregiver.autoApply).toBe(true);
+    await post('/api/me/auto-apply',{enabled:false},{cookie});
+    expect(((await (await call('/api/me',{headers:{cookie}})).json()) as any).caregiver.autoApply).toBe(false);
+  });
+
   it('a new caregiver’s resume file is stored with the one-time token from saving the profile', async()=>{
     const saved=await post('/api/caregiver-resume',{firstName:'Rae',lastName:'New',email:'rae.new@example.com',phone:'4105550111',zip:'21201',role:'CNA'});
     const body=await saved.json() as any;
@@ -2724,7 +2770,8 @@ describe('caregiver protection', ()=>{
     expect(profile).not.toHaveProperty('zip');
     const listed=((await (await call('/api/candidates?zip='+ZIP,{headers:guard})).json() as any).candidates as any[]).find(c=>c.id==='g-bio');
     expect(listed).not.toHaveProperty('zip');
-    expect(JSON.stringify(listed)).not.toMatch(/555|@gmail|www\./);
+    // Opening ids are random UUIDs and can contain 555 themselves.
+    expect(JSON.stringify({...listed,invitableOpeningIds:undefined})).not.toMatch(/555|@gmail|www\./);
   });
 
   it('limits a workspace to 100 searches and 300 profile views a day', async()=>{
