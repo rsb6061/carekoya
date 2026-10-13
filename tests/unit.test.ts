@@ -1,6 +1,7 @@
 import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
+import { applicantsFromCsv, mapColumns, parseCsv, splitLocation } from '../src/applicants';
 import { classifySmsReply, normalizePhone, twilioSignature, verifyTwilioSignature } from '../src/sms';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -670,5 +671,38 @@ describe('caregiver protection rules', ()=>{
     expect(heldBackNotice({caregiverWeekly:2,pendingFromYou:0,weeklyLimit:0,freeLimit:0},15)).toBe('2 caregivers already have enough invitations this week. Try them again next week.');
     expect(heldBackNotice({caregiverWeekly:0,pendingFromYou:0,weeklyLimit:0,freeLimit:0},15)).toBe('');
     expect(lockedYesText(' Bright Home Care ')).toBe("Thanks! Bright Home Care will see your answer once they upgrade their CareJoys plan. We'll let you know if they reach out.");
+  });
+});
+
+describe('agency applicant CSV import',()=>{
+  it('parses quoted fields, embedded commas and newlines, CRLF and a BOM',()=>{
+    expect(parseCsv('\uFEFFName,Note\r\n"Moyer, Sam","said ""hi""\nthen left"\r\n\r\n')).toEqual([['Name','Note'],['Moyer, Sam','said "hi"\nthen left']]);
+  });
+  it('finds columns by the names Indeed, CareerPlug and spreadsheets use',()=>{
+    const cols=mapColumns(['Candidate Name','Email Address','Phone Number','Candidate Location','Job Title','Date Applied']);
+    expect(cols).toMatchObject({name:0,email:1,phone:2,location:3,position:4,appliedAt:5,firstName:-1});
+    expect(mapColumns(['First Name','Last Name','Mobile','Zip Code'])).toMatchObject({firstName:0,lastName:1,phone:2,zip:3});
+  });
+  it('splits a location into city, state and ZIP',()=>{
+    expect(splitLocation('Baltimore, MD 21201')).toEqual({city:'Baltimore',state:'MD',zip:'21201'});
+    expect(splitLocation('Towson, MD, US')).toEqual({city:'Towson',state:'MD',zip:''});
+    expect(splitLocation('21204')).toEqual({city:'',state:'',zip:'21204'});
+  });
+  it('keeps rows with a phone or email, normalizes them, and drops repeats',()=>{
+    const csv=['Name,Email,Phone,Location,Job Title,Date Applied',
+      'Ana Lopez,ANA@Example.com,(410) 555-0101,"Baltimore, MD 21201",Caregiver,2026-09-14',
+      'Ana L.,ana2@example.com,410-555-0101,,Caregiver,',
+      'No Contact,,,,,',
+      'Bo Kim,bo@example.com,,,GNA,not a date'].join('\n');
+    const r=applicantsFromCsv(csv);
+    expect(r.total).toBe(4);
+    expect(r.skipped).toBe(2);
+    expect(r.applicants[0]).toMatchObject({firstName:'Ana',lastName:'Lopez',email:'ana@example.com',phone:'+14105550101',city:'Baltimore',state:'MD',zip:'21201',position:'Caregiver',dedupeKey:'+14105550101'});
+    expect(r.applicants[0].appliedAt?.slice(0,10)).toBe('2026-09-14');
+    expect(r.applicants[1]).toMatchObject({firstName:'Bo',lastName:'Kim',phone:'',dedupeKey:'bo@example.com',appliedAt:null});
+  });
+  it('explains a file it cannot use',()=>{
+    expect(applicantsFromCsv('Name\nAna').error).toMatch(/phone or email/);
+    expect(applicantsFromCsv('Name,Phone').error).toMatch(/header row/);
   });
 });
