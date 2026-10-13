@@ -10,6 +10,7 @@ import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfi
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { CaregiverInviteControls, type HiddenAgency } from './CaregiverInviteControls';
 import { lockedYesText } from './caregiverProtectionRules';
+import { JobList, type PublicCaregiverJob } from './CaregiverJobsHub';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -98,7 +99,7 @@ export function CaregiverDashboard(){
   const header=<header className="app-header"><div className="app-wrap header-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="app-nav">
-      <a className="nav-link" href={jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Find jobs</a>
+      <a className="nav-link" href={data?.caregiver?'/dashboard/jobs':jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Find jobs</a>
       <AccountMenu/>
     </nav>
   </div></header>;
@@ -129,6 +130,7 @@ export function CaregiverDashboard(){
   const editing=window.location.pathname==='/dashboard/profile';
   const previewing=window.location.pathname==='/dashboard/profile/preview';
   const settings=window.location.pathname==='/dashboard/settings';
+  const allJobs=window.location.pathname==='/dashboard/jobs';
 
   const sections=[
     {id:'matches',label:'My job matches'},
@@ -142,6 +144,13 @@ export function CaregiverDashboard(){
       <div className="dash-main-col profile-page">
         <EmployerViewPreview gaps={gaps} pctComplete={pctComplete}/>
       </div>
+    </main>
+  </div>;
+
+  if(allJobs)return <div>{header}
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections} page="jobs"/>
+      <div className="dash-main-col"><AllJobs zip={c.zip||''} state={c.state||''} miles={c.travelMiles||25}/></div>
     </main>
   </div>;
 
@@ -295,7 +304,7 @@ export function CaregiverDashboard(){
 }
 
 /** Left side nav on desktop, a scrolling tab row on phones. Links jump to sections; the one in view is highlighted. */
-function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[];page?:'dashboard'|'profile'|'settings'}){
+function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[];page?:'dashboard'|'profile'|'settings'|'jobs'}){
   const [active,setActive]=useState(page!=='dashboard'?'':sections[0]?.id||'');
   useEffect(()=>{
     if(page!=='dashboard')return;
@@ -311,6 +320,7 @@ function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[
   return <nav className="dash-sidenav" aria-label="Dashboard sections">
     <div className="dash-sidenav-label">Dashboard</div>
     {sections.map(s=><a key={s.id} href={(page==='dashboard'?'':'/dashboard')+'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
+    <a href="/dashboard/jobs" className={page==='jobs'?'active':undefined} aria-current={page==='jobs'?'page':undefined}>All jobs</a>
     <a href="/dashboard/profile" className={page==='profile'?'active':undefined} aria-current={page==='profile'?'page':undefined}>Profile</a>
     <a href="/dashboard/settings" className={page==='settings'?'active':undefined} aria-current={page==='settings'?'page':undefined}>Settings</a>
   </nav>;
@@ -348,5 +358,39 @@ function EmployerViewPreview({gaps,pctComplete}:{gaps:{key:string;label:string}[
       </section>
     </>}
     <div className="profile-save-bar profile-preview-actions"><a className="button" href="/dashboard/profile">Edit my profile</a><a className="text-link" href="/dashboard">Back to dashboard</a></div>
+  </>;
+}
+
+const JOB_ROLES=['CNA','GNA','HHA','PCA','DSP','Caregiver'];
+const JOB_MILES=[10,25,50,100];
+
+/** Every current job near the caregiver, nearest first; each one opens in the side panel (JobDrawer). */
+function AllJobs({zip:homeZip,state,miles:homeMiles}:{zip:string;state:string;miles:number}){
+  const [zip,setZip]=useState(homeZip);
+  const [miles,setMiles]=useState(JOB_MILES.includes(homeMiles)?homeMiles:25);
+  const [role,setRole]=useState('');
+  const [jobs,setJobs]=useState<PublicCaregiverJob[]|null>(null);
+  useEffect(()=>{
+    if(!/^\d{5}$/.test(zip))return;
+    setJobs(null);
+    const p=new URLSearchParams({zip,radius:String(miles),limit:'100',state:state||'ALL'});
+    if(role)p.set('role',role);
+    fetch('/api/public/caregiver-jobs?'+p.toString()).then(r=>r.json())
+      .then((d:any)=>setJobs((Array.isArray(d?.jobs)?d.jobs as PublicCaregiverJob[]:[]).sort((a,b)=>(a.distanceMiles??999)-(b.distanceMiles??999))))
+      .catch(()=>setJobs([]));
+  },[zip,miles,role]);
+  return <>
+    <div className="page-head"><h1>All jobs</h1><p>Every current caregiver job near you, nearest first. Open one to read it and apply without leaving this list.</p></div>
+    <div className="all-jobs-filters">
+      <label>ZIP<input value={zip} onChange={e=>setZip(e.target.value.replace(/\D/g,'').slice(0,5))} inputMode="numeric" maxLength={5}/></label>
+      <label>Distance<select value={miles} onChange={e=>setMiles(Number(e.target.value))}>{JOB_MILES.map(m=><option key={m} value={m}>Within {m} miles</option>)}</select></label>
+    </div>
+    <div className="hub-filters" role="group" aria-label="Filter by role">
+      {['',...JOB_ROLES].map(r=><button key={r||'all'} className={'hub-filter '+(role===r?'active':'')} onClick={()=>setRole(r)}>{r||'All roles'}</button>)}
+    </div>
+    {!/^\d{5}$/.test(zip)?<div className="empty"><strong>Enter a 5-digit ZIP.</strong></div>
+      :jobs===null?<div className="empty"><strong>Loading jobs…</strong></div>
+      :jobs.length===0?<div className="empty"><strong>No current {role||'caregiver'} jobs within {miles} miles of {zip}.</strong><div>Try a wider distance.</div></div>
+      :<><p className="job-meta">{jobs.length}{jobs.length===100?'+':''} job{jobs.length===1?'':'s'} within {miles} miles of {zip}</p><JobList jobs={jobs}/></>}
   </>;
 }

@@ -46,7 +46,7 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
           </div>
         </div>
         <div className="public-job-actions">
-          <a className="btn job-apply-primary" href={href}>Apply</a>
+          <a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>
         </div>
       </article>;
     })}

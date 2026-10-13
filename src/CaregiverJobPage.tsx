@@ -33,9 +33,17 @@ function employmentPills(value?:string){
 
 export function CaregiverJobPage(){
   const id=decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1]||'');
+  return <JobDetail id={id} startApply={window.location.hash==='#apply'}/>;
+}
+
+/**
+ * One job: the /jobs/:id page, or (embedded) the side panel that job lists open it in (JobDrawer.tsx),
+ * so a caregiver can read and apply without leaving the list.
+ */
+export function JobDetail({id,startApply=false,embedded=false}:{id:string;startApply?:boolean;embedded?:boolean}){
   const [job,setJob]=useState<Job|null>(null);
   const [loading,setLoading]=useState(true);
-  const [applyOpen,setApplyOpen]=useState(()=>window.location.hash==='#apply');
+  const [applyOpen,setApplyOpen]=useState(startApply);
   const [context,setContext]=useState<JobContext|null>(null);
   const [leaving,setLeaving]=useState(false);
   const auth=useCaregiverAuth();
@@ -97,7 +105,7 @@ export function CaregiverJobPage(){
   }
 
   if(loading)return <main className="job-detail-shell"><div className="wrap"><div className="empty">Loading job…</div></div></main>;
-  if(!job)return <main className="job-detail-shell"><div className="wrap"><a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a><div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
+  if(!job)return <main className="job-detail-shell"><div className="wrap">{!embedded&&<a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a>}<div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
 
   const location=[job.city,job.state,job.zip].filter(Boolean).join(', ');
   const payText=payLabel(job);
@@ -107,10 +115,10 @@ export function CaregiverJobPage(){
 
   return <div>
     {/* A caregiver mid-apply doesn't need the employer button as the loudest thing on the page. */}
-    <SiteHeader jobsHref={hubHref} hireButton={false}/>
+    {!embedded&&<SiteHeader jobsHref={hubHref} hireButton={false}/>}
     <main className="job-detail-shell">
       <div className="wrap job-detail-wrap">
-        <a className="text-link job-back-link" href={hubHref}>← All {state?state.name:''} caregiver jobs</a>
+        {!embedded&&<a className="text-link job-back-link" href={hubHref}>← All {state?state.name:''} caregiver jobs</a>}
         <section className="job-detail-card">
           <div className="modal-kicker">{pillLabel(job.role)}{state?' · '+state.name:''}</div>
           <h1>{job.title}</h1>
@@ -149,7 +157,7 @@ export function CaregiverJobPage(){
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
         {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
-        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} next={window.location.pathname+'#apply'} onGuest={()=>setGuest(true)}/>
+        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} next={'/jobs/'+encodeURIComponent(job.id)+'#apply'} onGuest={()=>setGuest(true)}/>
         :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} result={applied} alreadyApplied={alreadyApplied} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
         :<CaregiverOnboarding
           compact
@@ -162,7 +170,7 @@ export function CaregiverJobPage(){
       </div>
     </div>}
 
-    <SiteFooter/>
+    {!embedded&&<SiteFooter/>}
   </div>;
 }
 

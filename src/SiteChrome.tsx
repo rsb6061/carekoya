@@ -1,4 +1,5 @@
 import { AccountLink } from './AccountLink';
+import { useCaregiverAuth } from './caregiverAuth';
 
 // The one header and footer for every public page, so the nav doesn't change from page to page.
 
@@ -6,6 +7,9 @@ type Links={jobsHref?:string;showTraining?:boolean};
 
 /** Same links in the same order on every public page; phones get the short labels. The employer button sits top right. */
 export function SiteHeader({jobsHref='/caregiver-jobs',hireButton=true}:Omit<Links,'showTraining'>&{hireButton?:boolean}){
+  // A signed-in caregiver's jobs live in their dashboard, next to their matches and applications.
+  const auth=useCaregiverAuth();
+  if(auth.isAuthenticated&&auth.roles?.caregiver)jobsHref='/dashboard/jobs';
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
