@@ -3,6 +3,7 @@ import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { applicantsFromCsv, mapColumns, parseCsv, splitLocation } from '../src/applicants';
+import { cleanAnswers, cleanQuestions, DEFAULT_SCREENING_QUESTIONS, knockoutsFor, parseQuestions } from '../src/applicantScreening';
 import { classifySmsReply, normalizePhone, twilioSignature, verifyTwilioSignature } from '../src/sms';
 import { boundingBox, fallbackStateForZip, haversineMiles, normalizeZip } from '../src/geo';
 import { commuteRadiusMiles, freshnessLabel, scoreCandidate } from '../src/matching';
@@ -727,5 +728,23 @@ describe('resume parser', ()=>{
   });
   it('keeps a name written in mixed case as it is', ()=>{
     expect(structure('Mary McDonald-Smith\nmary@example.com').lastName).toBe('McDonald-Smith');
+  });
+});
+
+describe('applicant screening questions',()=>{
+  it('keeps labelled questions, gives each a unique id, and allows knockouts only on yes/no',()=>{
+    const qs=cleanQuestions([{label:'  Do you   drive? ',type:'yes_no',knockout:'no'},{label:'',type:'text'},{label:'Do you drive?',type:'text',knockout:'no'},{id:'x',label:'Pay',type:'weird'}])!;
+    expect(qs).toEqual([{id:'do_you_drive',label:'Do you drive?',type:'yes_no',knockout:'no'},{id:'do_you_drive_2',label:'Do you drive?',type:'text'},{id:'x',label:'Pay',type:'text'}]);
+    expect(cleanQuestions('nope')).toBeNull();
+    expect(cleanQuestions(Array.from({length:30},(_,i)=>({label:'Q'+i})))).toHaveLength(20);
+  });
+  it('keeps only answers to the agency’s questions and flags the ones that rule someone out',()=>{
+    const answers=cleanAnswers(DEFAULT_SCREENING_QUESTIONS,{car:'no',background:'maybe',pay:' $18 ',other:'x'});
+    expect(answers).toEqual({car:'no',pay:'$18'});
+    expect(knockoutsFor(DEFAULT_SCREENING_QUESTIONS,answers)).toEqual(['Do you have a reliable car to get to clients?']);
+    expect(knockoutsFor(DEFAULT_SCREENING_QUESTIONS,{car:'yes',background:'yes'})).toEqual([]);
+  });
+  it('falls back to the default list when stored JSON is unreadable',()=>{
+    expect(parseQuestions('{bad')).toBe(DEFAULT_SCREENING_QUESTIONS);
   });
 });

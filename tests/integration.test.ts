@@ -2868,3 +2868,67 @@ describe('dead-pile reactivation',()=>{
     expect(await preview.text()).toContain('This is a test email.');
   });
 });
+
+describe('applicant screening and show-up',()=>{
+  const agency={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+  const url='/api/workspace/applicant-screening';
+  const post=(id:string,body:object,headers:Record<string,string>=agency)=>call('/api/workspace/applicants/'+id,{method:'POST',headers,body:JSON.stringify(body)});
+  let id='';
+
+  it('starts an agency on the caregiver default list and saves its own',async()=>{
+    expect((await call(url)).status).toBe(401);
+    const first=await (await call(url,{headers:agency})).json() as any;
+    expect(first).toMatchObject({ok:true,isDefault:true});
+    expect(first.questions.find((q:any)=>q.id==='car')).toMatchObject({type:'yes_no',knockout:'no'});
+    expect((await call(url,{method:'POST',headers:agency,body:JSON.stringify({questions:[]})})).status).toBe(400);
+    const saved=await (await call(url,{method:'POST',headers:agency,body:JSON.stringify({questions:[...first.questions,{label:'Are you OK with pets?',type:'yes_no',knockout:'no'}]})})).json() as any;
+    const email=(await DB.prepare("SELECT email FROM employer_leads WHERE id='emp1'").first() as any).email;
+    expect(saved).toMatchObject({ok:true,isDefault:false,updatedBy:email});
+    expect(saved.questions.at(-1)).toEqual({id:'are_you_ok_with_pets',label:'Are you OK with pets?',type:'yes_no',knockout:'no'});
+    expect(((await (await call(url,{headers:agency})).json()) as any).questions).toHaveLength(first.questions.length+1);
+  });
+
+  it('saves a screen, flags knockouts, and moves a new applicant to Screened',async()=>{
+    await call('/api/workspace/applicants',{method:'POST',headers:agency,body:JSON.stringify({csv:'Name,Phone\nDee Screen,4105550177\n',source:'csv'})});
+    const list=await (await call('/api/workspace/applicants',{headers:agency})).json() as any;
+    id=list.applicants.find((a:any)=>a.phone==='+14105550177').id;
+    const r=await (await post(id,{screeningAnswers:{car:'yes',are_you_ok_with_pets:'no',pay:'$18',unknown:'x'}})).json() as any;
+    expect(r.applicant.stage).toBe('screened');
+    expect(r.applicant.screenedAt).not.toBe('');
+    expect(r.applicant.firstContactAt).not.toBe('');
+    expect(r.applicant.screening).toEqual({answers:{car:'yes',are_you_ok_with_pets:'no',pay:'$18'},knockouts:['Are you OK with pets?'],screenedBy:(await DB.prepare("SELECT email FROM employer_leads WHERE id='emp1'").first() as any).email});
+  });
+
+  it('moves to Interview with a time and Hired with a start date, never backward',async()=>{
+    expect((await post(id,{interviewAt:'next tuesday'})).status).toBe(400);
+    expect((await post(id,{interviewOutcome:'late'})).status).toBe(400);
+    expect((await post(id,{startDate:'10/20/2026'})).status).toBe(400);
+    expect((await post(id,{day30:'maybe'})).status).toBe(400);
+    const interview=await (await post(id,{interviewAt:'2026-10-15T14:00',interviewOutcome:'showed'})).json() as any;
+    expect(interview.applicant).toMatchObject({stage:'interview',showUp:{interviewAt:'2026-10-15T14:00',interviewOutcome:'showed'}});
+    const hired=await (await post(id,{startDate:'2026-10-20',day30:'working'})).json() as any;
+    expect(hired.applicant).toMatchObject({stage:'hired',showUp:{startDate:'2026-10-20',day30:'working',day90:''}});
+    // A later screen or interview change doesn't pull a hire back.
+    const again=await (await post(id,{screeningAnswers:{car:'yes'},interviewAt:'2026-10-16T09:00'})).json() as any;
+    expect(again.applicant.stage).toBe('hired');
+    expect(again.applicant.screening.knockouts).toEqual([]);
+    // An explicit stage in the same request wins.
+    const notFit=await (await post(id,{day90:'left',stage:'not_fit'})).json() as any;
+    expect(notFit.applicant).toMatchObject({stage:'not_fit',showUp:{day90:'left'}});
+  });
+
+  it('keeps each agency’s questions and applicants to itself',async()=>{
+    await DB.prepare("INSERT OR IGNORE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-other','Other Care','Lee','lee@other.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT OR IGNORE INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-other','emp-other',?,?)").bind(await sha256Hex('other-session'),new Date(Date.now()+86400000).toISOString()).run();
+    const other={cookie:'cj_session=other-session','content-type':'application/json',origin:'https://carejoys.com'};
+    expect(((await (await call(url,{headers:other})).json()) as any).isDefault).toBe(true);
+    expect((await post(id,{startDate:'2026-11-01'},other)).status).toBe(404);
+  });
+
+  it('lets a CareJoys admin edit an agency’s questions',async()=>{
+    const admin={authorization:'Bearer ops','content-type':'application/json',origin:'https://carejoys.com'};
+    const r=await (await call('/api/admin/applicant-screening?employer=emp-other',{method:'POST',headers:admin,body:JSON.stringify({questions:[{label:'CNA?',type:'yes_no'}]})},{ADMIN_TOKEN:'ops'})).json() as any;
+    expect(r).toMatchObject({ok:true,isDefault:false,questions:[{id:'cna',label:'CNA?',type:'yes_no'}]});
+    expect((await call('/api/admin/applicant-screening',{headers:admin},{ADMIN_TOKEN:'ops'})).status).toBe(400);
+  });
+});

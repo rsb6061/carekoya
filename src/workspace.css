@@ -538,3 +538,25 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .applicant-intake .admin-data-table td{overflow-wrap:normal}
 .applicant-intake .admin-data-table td a[href^="tel:"]{white-space:nowrap}
 .applicant-intake .admin-data-table .pipeline-select{min-width:130px}
+.applicant-intake .applicant-toggle{background:none;border:0;padding:0;font:inherit;cursor:pointer;text-align:left;color:inherit}
+.applicant-intake .applicant-toggle strong{text-decoration:underline;text-underline-offset:3px}
+.applicant-intake small.applicant-knockout,.applicant-detail .applicant-knockout{color:#b42318;font-weight:600}
+.applicant-intake tr.is-open td{border-bottom:0}
+.applicant-intake .applicant-detail-row td{background:#f8faf9}
+.applicant-detail h4{margin:0 0 8px}
+.screening-answers{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px 18px;margin-bottom:14px}
+.screening-field{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:600;min-width:0}
+.screening-field small{font-weight:400;color:#667085}
+.screening-field input,.screening-field select,.screening-question-list input{width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--lavender);border-radius:12px;padding:9px 11px;background:rgba(255,255,255,.85);color:var(--ink);font:inherit;font-weight:400}
+.screening-answers .yes-no{display:flex;gap:8px}
+.screening-answers .yes-no .button{min-width:64px;padding:6px 14px}
+.screening-answers .yes-no .button.selected{background:#1f5f4a;border-color:#1f5f4a;color:#fff}
+.screening-question-list{display:grid;gap:10px;padding-left:22px;margin:12px 0}
+.screening-question-list li{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.screening-question-list li input{flex:1 1 260px;width:auto}
+.applicant-detail{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;padding:6px 2px 10px;white-space:normal}
+@media (max-width:760px){.applicant-detail{grid-template-columns:1fr}}
+/* The detail panel sits in a wide, side-scrolling table: pin it to the visible width. */
+.applicant-intake .admin-table-scroll{container-type:inline-size}
+.applicant-intake .applicant-detail{position:sticky;left:0;max-width:calc(100cqw - 24px);box-sizing:border-box}
+@container (max-width:720px){.applicant-intake .applicant-detail{grid-template-columns:1fr}}

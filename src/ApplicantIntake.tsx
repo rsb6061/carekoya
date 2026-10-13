@@ -1,5 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { ReactivationCard } from './ReactivationCard';
+import { ApplicantDetail, ScreeningQuestionsCard, showUpText } from './ScreeningPanel';
+import type { ScreeningQuestion } from './applicantScreening';
 import { APPLICANT_SOURCE_LABELS, APPLICANT_SOURCES, type ApplicantSource, type ApplicantStage, type ApplicantView } from './applicants';
 
 type ImportRun={id:string;source:string;filename:string;total:number;added:number;duplicate:number;skipped:number;importedBy:string;createdAt:string};
@@ -50,6 +52,9 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
   const [replyFilter,setReplyFilter]=useState('');
   // Bumped on every reload, so the email card recounts who's ready after an upload.
   const [version,setVersion]=useState(0);
+  const [screening,setScreening]=useState<{questions:ScreeningQuestion[];isDefault:boolean;updatedBy:string;updatedAt:string}|null>(null);
+  const [openId,setOpenId]=useState('');
+  const screeningUrl=base.replace(/applicants$/,'applicant-screening')+query;
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const res=await fetch(base+path+query,{credentials:'include',...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
@@ -61,7 +66,10 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
     try{const d=await api<{applicants:ApplicantView[];imports:ImportRun[]}>('');setApplicants(d.applicants);setImports(d.imports);setVersion(v=>v+1)}
     catch(e){setNotice({text:(e as Error).message,tone:'error'})}
   }
-  useEffect(()=>{setApplicants(null);void load()},[base,employerId]);
+  useEffect(()=>{
+    setApplicants(null);setScreening(null);setOpenId('');void load();
+    fetch(screeningUrl,{credentials:'include'}).then(r=>r.ok?r.json():null).then(d=>{if(d)setScreening(d)}).catch(()=>{});
+  },[base,employerId]);
 
   async function upload(e:FormEvent<HTMLFormElement>){
     e.preventDefault();
@@ -78,11 +86,12 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
     }catch(err){setNotice({text:(err as Error).message,tone:'error'})}
     finally{setBusy(false)}
   }
-  async function update(id:string,patch:{stage?:ApplicantStage;notes?:string}){
+  async function update(id:string,patch:Record<string,unknown>){
     try{
       const d=await api<{applicant:ApplicantView}>('/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify(patch)});
       setApplicants(list=>(list||[]).map(a=>a.id===id?d.applicant:a));
-    }catch(err){setNotice({text:(err as Error).message,tone:'error'})}
+      return true;
+    }catch(err){setNotice({text:(err as Error).message,tone:'error'});return false}
   }
 
   const list=applicants||[];
@@ -113,6 +122,8 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
       {imports.length>0&&<p className="job-meta">Last upload: {imports[0].filename||'CSV'}, {APPLICANT_SOURCE_LABELS[imports[0].source as ApplicantSource]||imports[0].source}, {day(imports[0].createdAt)}. {imports[0].added} added of {imports[0].total} rows.</p>}
     </div>
 
+    <ScreeningQuestionsCard url={screeningUrl} questions={screening} onSaved={setScreening}/>
+
     {reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
 
     {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">Upload a CSV to start the list.</p></div>:<>
@@ -130,21 +141,27 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
           <option value="">All replies</option><option value="yes">Said yes</option><option value="no">Said no</option><option value="waiting">Emailed, no answer</option>
         </select>}
       </div>
+      <p className="job-meta">Open an applicant’s name to fill in the screening call, the interview, and whether they started and stayed.</p>
       <div className="settings-card admin-table-scroll">
         <table className="admin-data-table">
           <thead><tr><th>Applicant</th><th>Contact</th><th>Job</th><th>Source</th><th>Applied</th><th>Stage</th><th>Notes</th></tr></thead>
-          <tbody>{shown.map(a=><tr key={a.id}>
-            <td><strong>{a.name}</strong><small>{[a.city,a.state,a.zip].filter(Boolean).join(', ')}</small></td>
+          <tbody>{shown.map(a=><Fragment key={a.id}><tr className={openId===a.id?'is-open':''}>
+            <td><button type="button" className="text-link applicant-toggle" aria-expanded={openId===a.id} onClick={()=>setOpenId(o=>o===a.id?'':a.id)}><strong>{a.name}</strong></button>
+              <small>{[a.city,a.state,a.zip].filter(Boolean).join(', ')}</small>
+              {a.screening.knockouts.length>0&&<small className="applicant-knockout">Ruled out: {a.screening.knockouts.join('; ')}</small>}</td>
             <td>{a.phone&&<a className="text-link" href={'tel:'+a.phone}>{phoneText(a.phone)}</a>}{a.email&&<small><a className="text-link" href={'mailto:'+a.email}>{a.email}</a></small>}</td>
             <td>{a.position||'—'}</td>
             <td>{APPLICANT_SOURCE_LABELS[a.source]||a.source}{a.sourceDetail&&<small>{a.sourceDetail}</small>}</td>
             <td>{day(a.appliedAt)||'—'}<small>Received {day(a.receivedAt)}</small></td>
             <td><select className="pipeline-select" value={a.stage} onChange={e=>void update(a.id,{stage:e.target.value as ApplicantStage})} aria-label={'Stage for '+a.name}>
               {(Object.keys(STAGE_LABELS) as ApplicantStage[]).map(s=><option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
-            </select>{replyText(a)&&<small>{replyText(a)}</small>}</td>
+            </select>{replyText(a)&&<small>{replyText(a)}</small>}{showUpText(a)&&<small>{showUpText(a)}</small>}</td>
             <td><input className="pipeline-select" defaultValue={a.notes} maxLength={2000} aria-label={'Notes for '+a.name} placeholder="Add a note"
               onBlur={e=>{if(e.target.value!==a.notes)void update(a.id,{notes:e.target.value})}}/></td>
-          </tr>)}</tbody>
+          </tr>
+          {openId===a.id&&<tr className="applicant-detail-row"><td colSpan={7}>
+            <ApplicantDetail applicant={a} questions={screening?.questions||[]} save={patch=>update(a.id,patch)}/></td></tr>}
+          </Fragment>)}</tbody>
         </table>
       </div>
     </>}
