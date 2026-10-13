@@ -155,6 +155,7 @@ export function PricingPage(){
               <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
+            <div className="plan-terms">One location, up to about 75 applicants a month. More than that, we’ll talk.</div>
             <div className="plan-terms">Month-to-month. Cancel anytime. No placement fees or per-hire charges.</div>
             <ul className="plan-list">
               <li>Every applicant from Indeed, your website and CareJoys contacted within 30 minutes, 8am to 9pm.</li>
