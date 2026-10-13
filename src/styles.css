@@ -227,6 +227,14 @@ a{color:inherit;text-decoration:none}
 .onboarding-match-fields{display:grid;gap:12px;padding:16px;border:1px solid var(--lavender);border-radius:18px;background:#faf8ff}
 .onboarding-match-fields>strong{font-size:14px}
 .onboarding-edit{margin:0;text-align:left}
+.resume-hero-started .resume-hero-grid{grid-template-columns:minmax(0,640px);justify-content:center}
+.onboarding-steps{display:flex;gap:6px;list-style:none;padding:0;margin:0 0 18px;counter-reset:step}
+.onboarding-steps li{flex:1;counter-increment:step;font-size:12px;color:var(--muted);padding-top:8px;border-top:3px solid var(--line)}
+.onboarding-steps li::before{content:counter(step) ". "}
+.onboarding-steps li.done{border-color:var(--lavender)}
+.onboarding-steps li.current{border-color:var(--ink);color:var(--ink);font-weight:600}
+.onboarding-lede{color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 14px;overflow-wrap:anywhere}
+.onboarding-back{display:block;margin:10px auto 0}
 .onboarding-success{text-align:center}
 .onboarding-final-action{display:grid;justify-items:center;gap:8px;margin-top:18px}
 .onboarding-final-action span{font-size:12px;color:var(--muted)}
