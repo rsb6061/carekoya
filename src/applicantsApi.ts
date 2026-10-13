@@ -1,5 +1,6 @@
 import { employerSession, type FeatureEnv } from './serverFeatures';
 import { importApplicants, listApplicants, updateApplicant, type ApplicantDb } from './applicants';
+import { saveScreeningQuestions, screeningQuestions } from './applicantScreening';
 import { reactivationStatus, sendReactivationBatch, sendReactivationTest } from './applicantReactivation';
 
 // The applicant list over HTTP: an agency works its own list from its workspace, and a CareJoys admin works any
@@ -17,7 +18,7 @@ async function respond(env:FeatureEnv,employerId:string,request:Request,id:strin
   if(request.method==='GET')return json({ok:true,...await listApplicants(store,employerId)});
   const data=await request.json().catch(()=>null) as Row|null;
   if(!data)return json({ok:false,error:'Nothing to save.'},{status:400});
-  const result=id?await updateApplicant(store,employerId,id,data):await importApplicants(store,employerId,{csv:data.csv,source:data.source,filename:data.filename,sourceDetail:data.sourceDetail},actor);
+  const result=id?await updateApplicant(store,employerId,id,data,actor):await importApplicants(store,employerId,{csv:data.csv,source:data.source,filename:data.filename,sourceDetail:data.sourceDetail},actor);
   return json(result,{status:result.ok?200:(result.error==='Applicant not found.'?404:400)});
 }
 
@@ -57,4 +58,27 @@ export async function adminApplicantReactivation(request:Request,env:FeatureEnv&
     ?await sendReactivationTest(renv,found.employerId,{senderName:data.senderName,payText:data.payText,to:data.testTo})
     :await sendReactivationBatch(renv,found.employerId,{senderName:data.senderName,payText:data.payText},adminEmail||'admin');
   return json(result,{status:result.ok?200:400});
+}
+
+/** The agency's screening question list: GET reads it (the caregiver default until saved), POST {questions} replaces it. */
+async function screening(request:Request,env:FeatureEnv,employerId:string,actor:string){
+  const store=db(env);
+  if(request.method==='GET')return json({ok:true,...await screeningQuestions(store,employerId)});
+  const data=await request.json().catch(()=>null) as Row|null;
+  const result=await saveScreeningQuestions(store,employerId,data?.questions,actor);
+  return json(result,{status:result.ok?200:400});
+}
+
+/** /api/workspace/applicant-screening for the signed-in agency. */
+export async function workspaceScreening(request:Request,env:FeatureEnv){
+  const employer=await employerSession(request,env);
+  if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
+  return screening(request,env,clean(employer.id,100),clean(employer.email,320));
+}
+
+/** /api/admin/applicant-screening?employer=<id> for a CareJoys operator. */
+export async function adminScreening(request:Request,env:FeatureEnv,adminEmail:string){
+  const found=await adminEmployer(request,env);
+  if(found.error)return found.error;
+  return screening(request,env,found.employerId,adminEmail||'admin');
 }

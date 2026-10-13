@@ -19,7 +19,7 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRad
 import { APPLIED_TO_EMPLOYER_SQL, alreadyApplied, appliedCaregiverIds } from './applications';
 import { INVITES_PAUSED_SQL, OPEN_TO_EMPLOYER_SQL, browseLimit, inviteAllowance } from './caregiverProtection';
 import { DAILY_PROFILE_VIEWS, DAILY_TALENT_SEARCHES, scrubBio } from './caregiverProtectionRules';
-import { adminApplicantReactivation, adminApplicants, workspaceApplicants } from './applicantsApi';
+import { adminApplicantReactivation, adminApplicants, adminScreening, workspaceApplicants, workspaceScreening } from './applicantsApi';
 import { handleStillLooking } from './applicantReactivation';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { loadEmployerProfile } from './employerProfile';
@@ -2080,6 +2080,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="GET"&&url.pathname==="/api/admin/sms") return adminSmsReport(env);
       if(request.method==="POST"&&url.pathname==="/api/admin/sms/test") return adminSmsTest(request,env,admin.email);
       // An agency's own applicants, worked by CareJoys for the operated service (src/applicants.ts).
+      if(url.pathname==="/api/admin/applicant-screening"&&(request.method==="GET"||request.method==="POST")) return adminScreening(request,env,admin.email);
       if(url.pathname==="/api/admin/applicant-reactivation"&&(request.method==="GET"||request.method==="POST")) return adminApplicantReactivation(request,env,admin.email);
       const adminApplicant=url.pathname.match(/^\/api\/admin\/applicants(?:\/([^/]+))?$/);
       if(adminApplicant&&(request.method==="GET"&&!adminApplicant[1]||request.method==="POST")) return adminApplicants(request,env,admin.email,decodeURIComponent(adminApplicant[1]||""));
@@ -2202,6 +2203,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(url.pathname==="/api/workspace/settings"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return saveWorkspaceSettings(request,env); }
     if(url.pathname==="/api/workspace/candidates.csv"&&request.method==="GET") return exportCandidatesCsv(request,env);
     // The agency's own applicants (Indeed, CareerPlug, past applicants): POST to the list imports a CSV, POST to one updates it.
+    if(url.pathname==="/api/workspace/applicant-screening"&&request.method==="GET") return workspaceScreening(request,env);
+    if(url.pathname==="/api/workspace/applicant-screening"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceScreening(request,env); }
     const workspaceApplicant=url.pathname.match(/^\/api\/workspace\/applicants(?:\/([^/]+))?$/);
     if(workspaceApplicant&&request.method==="GET"&&!workspaceApplicant[1]) return workspaceApplicants(request,env);
     if(workspaceApplicant&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceApplicants(request,env,decodeURIComponent(workspaceApplicant[1]||"")); }
