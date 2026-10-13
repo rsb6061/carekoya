@@ -3,20 +3,19 @@ import { ProfilePhotoSection } from './ProfilePhotoSection';
 import { IntroVideoSection } from './IntroVideoSection';
 import { cleanList } from './listField';
 import { CHECKLIST } from './checklist';
-import { SMS_CONSENT_TEXT } from './smsConsent';
+import { SMS_FINE_PRINT, SMS_LABEL } from './smsConsent';
+import { AvailabilityGrid, emptyDays, type Availability } from './AvailabilityGrid';
 
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
 
-export const DAYS=[['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']] as const;
-export const BLOCKS=[['morning','Mornings','7am–3pm'],['afternoon','Afternoons','11am–7pm'],['evening','Evenings','3pm–11pm'],['overnight','Overnights','11pm–7am']] as const;
 const CERTIFICATIONS=['CNA','GNA','HHA','CMT / Med Tech','PCA','DSP','LPN','RN','CPR / First Aid','BLS'];
 const SKILLS=['Dementia / Alzheimer’s','Bathing & personal care','Transfers & mobility','Hoyer lift','Medication reminders','Meal prep','Light housekeeping','Companionship','Hospice / end of life','Diabetes care','Catheter / ostomy care','Developmental disabilities','Pediatric care'];
 const SETTINGS=['Home care','Assisted living','Nursing home','Hospital','Hospice','Group home'];
 const PREFERRED=['Private home care','Assisted living','Nursing home','Hospital','Hospice','Group home','Open to any'];
 const LANGUAGES=['English','Spanish','French','Haitian Creole','Amharic','Tagalog','Yoruba','Igbo','Twi','Vietnamese','Korean','Chinese','Russian','Arabic'];
 
-export type Availability={days:Record<string,string[]>;liveIn:boolean};
+export type { Availability };
 export type CaregiverProfileData={
   firstName?:string;lastName?:string;phone?:string;smsConsent?:boolean;zip?:string;city?:string;state?:string;role?:string;
   certifications?:string;licenseNumber?:string;licenseState?:string;yearsExperience?:number|null;specialties?:string;careSettings?:string[];preferredSettings?:string[];languages?:string;bio?:string;
@@ -59,7 +58,7 @@ function Section({title,hint,children}:{title:string;hint?:string;children:React
 
 export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProfileData;save:(body:Record<string,unknown>)=>Promise<void>}){
   const c=caregiver;
-  const [days,setDays]=useState<Record<string,string[]>>(()=>Object.fromEntries(DAYS.map(([d])=>[d,c.availability?.days?.[d]||[]])));
+  const [days,setDays]=useState<Record<string,string[]>>(()=>emptyDays(c.availability?.days));
   const [liveIn,setLiveIn]=useState(!!c.availability?.liveIn);
   const [certs,setCerts]=useState(list(c.certifications));
   const [skills,setSkills]=useState(list(c.specialties));
@@ -69,12 +68,11 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
   const [hours,setHours]=useState(list(c.employmentTypes));
   const [conditions,setConditions]=useState(list(c.workConditions));
   const [checklist,setChecklist]=useState<string[]>(c.checklist||[]);
-  const [looking,setLooking]=useState(c.workStatus!=='not_looking'&&c.workStatus!=='maybe_later');
+  // Visibility is switched in Settings; saving the profile keeps whatever it is now.
+  const looking=c.workStatus!=='not_looking'&&c.workStatus!=='maybe_later';
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
 
-  const toggle=(day:string,block:string)=>setDays(prev=>({...prev,[day]:prev[day].includes(block)?prev[day].filter(b=>b!==block):[...prev[day],block]}));
-  const toggleRow=(block:string)=>{const all=DAYS.every(([d])=>days[d].includes(block));setDays(prev=>Object.fromEntries(DAYS.map(([d])=>[d,all?prev[d].filter(b=>b!==block):[...new Set([...prev[d],block])]])))};
 
   async function submit(e:FormEvent<HTMLFormElement>){
     e.preventDefault();setSaving(true);setError('');
@@ -98,14 +96,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
     <IntroVideoSection/>
 
     <Section title="When you can work" hint="Tap the shifts you can usually work. Employers match you to openings on these.">
-      <div className="availability-grid" role="group" aria-label="Weekly availability">
-        <span/>
-        {DAYS.map(([d,label])=><span key={d} className="availability-day">{label}</span>)}
-        {BLOCKS.map(([b,label,time])=><div className="availability-row" key={b} style={{display:'contents'}}>
-          <button type="button" className="availability-block" onClick={()=>toggleRow(b)} title="Select the whole row"><strong>{label}</strong><small>{time}</small></button>
-          {DAYS.map(([d,dayLabel])=>{const on=days[d].includes(b);return <button type="button" key={d} className={'availability-cell'+(on?' on':'')} aria-pressed={on} aria-label={dayLabel+' '+label} onClick={()=>toggle(d,b)}>{on?'✓':''}</button>})}
-        </div>)}
-      </div>
+      <AvailabilityGrid days={days} setDays={setDays}/>
       <label className="check-row"><input type="checkbox" checked={liveIn} onChange={e=>setLiveIn(e.target.checked)}/><span>I’m open to live-in jobs</span></label>
       <div className="form-grid">
         <div className="chip-field"><span>Hours I want</span><Chips options={['Full-time','Part-time','Per diem']} value={hours.map(h=>({full_time:'Full-time',part_time:'Part-time',per_diem:'Per diem'} as Record<string,string>)[h]||h)} onChange={v=>setHours(v.map(x=>({'Full-time':'full_time','Part-time':'part_time','Per diem':'per_diem'} as Record<string,string>)[x]))}/></div>
@@ -113,7 +104,6 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
           <option value="">Select</option><option value="now">Right away</option><option value="2_weeks">Within 2 weeks</option><option value="1_month">Within a month</option><option value="later">Later than a month</option>
         </select></label>
       </div>
-      <label className="check-row"><input type="checkbox" checked={looking} onChange={e=>setLooking(e.target.checked)}/><span>Show me to employers as looking for work</span></label>
     </Section>
 
     <Section title="Credentials and experience">
@@ -154,7 +144,7 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
         <label>Last name<input name="lastName" defaultValue={c.lastName||''} required/></label>
       </div>
       <label>Mobile phone<input name="phone" type="tel" autoComplete="tel" defaultValue={c.phone||''}/></label>
-      <label className="check-row sms-consent"><input type="checkbox" name="smsConsent" defaultChecked={!!c.smsConsent}/><span>{SMS_CONSENT_TEXT} See our <a href="/privacy-policy#sms">Privacy Policy</a> and <a href="/terms-of-service#sms">Terms</a>.</span></label>
+      <label className="check-row sms-consent"><input type="checkbox" name="smsConsent" defaultChecked={!!c.smsConsent}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT} See our <a href="/privacy-policy#sms">Privacy Policy</a> and <a href="/terms-of-service#sms">Terms</a>.</small></span></label>
       <label>A few words for employers<textarea name="bio" rows={3} maxLength={1200} defaultValue={c.bio||''} placeholder="What you love about caregiving, the clients you work best with…"/></label>
     </Section>
 

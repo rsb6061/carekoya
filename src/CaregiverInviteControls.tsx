@@ -54,7 +54,7 @@ export function CaregiverInviteControls({pausedUntil,hidden,onChange}:{pausedUnt
     <h3>Hide my profile from specific agencies</h3>
     <p className="job-meta">For example, your current employer. They won’t see you in search or invite you. Agencies you apply to still see your application.</p>
     {list.length>0&&<ul className="hidden-agencies">{list.map(a=><li key={a.id}><span>{a.name}</span> <button type="button" className="text-button" disabled={busy} onClick={()=>void hide(a,false)}>Show again</button></li>)}</ul>}
-    <label>Find an agency<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Agency name" aria-label="Agency name"/></label>
+    <label className="agency-search">Find an agency<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Agency name" aria-label="Agency name"/></label>
     {(results||[]).filter(r=>!list.some(a=>a.id===r.id)).map(r=><div key={r.id} className="job-meta"><span>{r.name}</span> <button type="button" className="text-button" disabled={busy} onClick={()=>void hide(r,true)}>Hide from them</button></div>)}
     {query.trim().length>=2&&results?.length===0&&<p className="job-meta">No agency on CareJoys matches that name.</p>}
     {error&&<div className="notice">{error}</div>}

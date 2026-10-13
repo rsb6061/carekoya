@@ -34,10 +34,11 @@ export async function previewPublicJobs(url:URL,env:FeatureEnv,request?:Request)
 }
 
 /** Resume signup checkbox: never opt anyone in unless they explicitly checked it. */
+/** Signup turns the weekly job email on by default; a choice already on record, such as an unsubscribe, is kept. */
 export async function setInitialJobAlertOptIn(env:FeatureEnv,caregiverId:string,consented:unknown){
   if(!env.DB||consented!==true)return;
   await env.DB.prepare(`INSERT INTO caregiver_job_alert_preferences(caregiver_id,email_enabled) VALUES (?,1)
-    ON CONFLICT(caregiver_id) DO UPDATE SET email_enabled=1,updated_at=CURRENT_TIMESTAMP`).bind(caregiverId).run();
+    ON CONFLICT(caregiver_id) DO NOTHING`).bind(caregiverId).run();
 }
 
 export async function caregiverAlertSettings(request:Request,env:FeatureEnv,identity:CaregiverIdentity|null){

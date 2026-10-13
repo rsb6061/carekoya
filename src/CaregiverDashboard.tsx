@@ -51,6 +51,8 @@ export function CaregiverDashboard(){
   const [data,setData]=useState<Dashboard|null>(null);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState('');
+  // The hide-profile box shows the new choice while it saves, instead of springing back until the reload.
+  const [hideChoice,setHideChoice]=useState<boolean|null>(null);
   const [notice,setNotice]=useState('');
   const [alerts,setAlerts]=useState<boolean|null>(null);
   useEffect(()=>{if(!auth.isAuthenticated)return;fetch('/api/me/job-alerts').then(r=>r.json()).then((r:{emailEnabled?:boolean})=>setAlerts(!!r.emailEnabled)).catch(()=>setAlerts(null))},[auth.isAuthenticated]);
@@ -96,7 +98,7 @@ export function CaregiverDashboard(){
   const header=<header className="app-header"><div className="app-wrap header-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="app-nav">
-      <a className="nav-link" href={jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Jobs</a>
+      <a className="nav-link" href={jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Find jobs</a>
       <AccountMenu/>
     </nav>
   </div></header>;
@@ -126,29 +128,65 @@ export function CaregiverDashboard(){
   const pctComplete=Math.round(100*(PROFILE_ITEMS-gaps.length)/PROFILE_ITEMS);
   const editing=window.location.pathname==='/dashboard/profile';
   const previewing=window.location.pathname==='/dashboard/profile/preview';
+  const settings=window.location.pathname==='/dashboard/settings';
 
+  const sections=[
+    {id:'matches',label:'My job matches'},
+    ...(invites.length?[{id:'interviews',label:'Interviews'}]:[]),
+    ...((data.applications||[]).length?[{id:'applications',label:'Applications'}]:[]),
+  ];
+  // The profile pages keep the same side nav; its section links lead back to the dashboard.
   if(previewing)return <div>{header}
-    <main className="app-wrap app-content profile-page">
-      <EmployerViewPreview gaps={gaps} pctComplete={pctComplete}/>
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections} page="profile"/>
+      <div className="dash-main-col profile-page">
+        <EmployerViewPreview gaps={gaps} pctComplete={pctComplete}/>
+      </div>
+    </main>
+  </div>;
+
+  const hiddenProfile=hideChoice??(c.workStatus==='not_looking'||c.workStatus==='maybe_later');
+  if(settings)return <div>{header}
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections} page="settings"/>
+      <div className="dash-main-col">
+        <div className="page-head"><h1>Settings</h1></div>
+        {notice&&<div className="notice" role="status">{notice}</div>}
+        <section className="section-block" id="visibility">
+          <div className="section-heading"><h2>Profile visibility</h2><p>{hiddenProfile?'Employers can’t find you or invite you right now.':'Employers can find you and invite you to jobs.'}</p></div>
+          <label className="check-row"><input type="checkbox" checked={hiddenProfile} disabled={!!busy} onChange={e=>{const hide=e.target.checked;setHideChoice(hide);void act('avail','/api/me/availability',{workStatus:hide?'not_looking':'actively_looking'},hide?'Your profile is hidden from employers.':'You’re shown to employers again.').finally(()=>setHideChoice(null))}} /><span>Hide my profile from employers</span></label>
+        </section>
+        <section className="section-block" id="emails">
+          <div className="section-heading"><h2>Weekly job email</h2><p>New jobs that match you, once a week.</p></div>
+          <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>Email me weekly job matches</span></label>
+        </section>
+        <section className="section-block" id="privacy">
+          <div className="section-heading"><h2>Who can invite you</h2><p>Agencies only get your contact details after you say yes.</p></div>
+          <CaregiverInviteControls pausedUntil={c.invitesPausedUntil} hidden={data.hiddenAgencies||[]} onChange={setNotice}/>
+        </section>
+      </div>
     </main>
   </div>;
 
   if(editing)return <div>{header}
-    <main className="app-wrap app-content profile-page">
-      <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
-      <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
-      <CloseAccountSide side="caregiver"/>
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections} page="profile"/>
+      <div className="dash-main-col profile-page">
+        <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
+        <section className="section-block" id="resume" style={{marginTop:0}}>
+          <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
+          <div className="settings-card resume-card">
+            {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
+            <ResumeFileInput label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
+          </div>
+          {notice&&<div className="notice" role="status">{notice}</div>}
+        </section>
+        <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
+        <CloseAccountSide side="caregiver"/>
+      </div>
     </main>
   </div>;
 
-  const sections=[
-    {id:'matches',label:'My matches'},
-    ...(invites.length?[{id:'interviews',label:'Interviews'}]:[]),
-    ...((data.applications||[]).length?[{id:'applications',label:'Applications'}]:[]),
-    {id:'emails',label:'Weekly email'},
-    {id:'privacy',label:'Privacy'},
-    {id:'resume',label:'Resume'},
-  ];
   return <div>{header}
     <main className="app-wrap app-content dash-layout">
       <DashNav sections={sections}/>
@@ -251,34 +289,16 @@ export function CaregiverDashboard(){
         </div>)}</div>
       </section>}
 
-      <section className="section-block" id="emails">
-        <div className="section-heading"><h2>Weekly job emails</h2><p>Get a free digest of suitable nearby openings. Only sent when you opt in and there are new matches.</p></div>
-        <label className="check-row"><input type="checkbox" checked={alerts===true} disabled={alerts===null||!!busy} onChange={e=>void updateAlerts(e.target.checked)} /><span>{alerts===true?'Weekly matches enabled':'Email me weekly job matches'}</span></label>
-        <p className="job-meta">Turn weekly job emails off here or unsubscribe from any digest.</p>
-      </section>
-
-      <section className="section-block" id="privacy">
-        <div className="section-heading"><h2>Who can invite you</h2><p>Agencies only get your contact details after you say yes.</p></div>
-        <CaregiverInviteControls pausedUntil={c.invitesPausedUntil} hidden={data.hiddenAgencies||[]} onChange={setNotice}/>
-      </section>
-
-      <section className="section-block" id="resume">
-        <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
-        <div className="settings-card resume-card">
-          {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
-          <ResumeFileInput label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
-        </div>
-      </section>
-
       </div>
     </main>
   </div>;
 }
 
 /** Left side nav on desktop, a scrolling tab row on phones. Links jump to sections; the one in view is highlighted. */
-function DashNav({sections}:{sections:{id:string;label:string}[]}){
-  const [active,setActive]=useState(sections[0]?.id||'');
+function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[];page?:'dashboard'|'profile'|'settings'}){
+  const [active,setActive]=useState(page!=='dashboard'?'':sections[0]?.id||'');
   useEffect(()=>{
+    if(page!=='dashboard')return;
     const els=sections.map(s=>document.getElementById(s.id)).filter((e):e is HTMLElement=>!!e);
     if(!els.length||typeof IntersectionObserver==='undefined')return;
     const io=new IntersectionObserver(entries=>{
@@ -290,8 +310,9 @@ function DashNav({sections}:{sections:{id:string;label:string}[]}){
   },[sections.map(s=>s.id).join()]);
   return <nav className="dash-sidenav" aria-label="Dashboard sections">
     <div className="dash-sidenav-label">Dashboard</div>
-    {sections.map(s=><a key={s.id} href={'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
-    <a href="/dashboard/profile">Profile</a>
+    {sections.map(s=><a key={s.id} href={(page==='dashboard'?'':'/dashboard')+'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
+    <a href="/dashboard/profile" className={page==='profile'?'active':undefined} aria-current={page==='profile'?'page':undefined}>Profile</a>
+    <a href="/dashboard/settings" className={page==='settings'?'active':undefined} aria-current={page==='settings'?'page':undefined}>Settings</a>
   </nav>;
 }
 

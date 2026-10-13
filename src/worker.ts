@@ -1,5 +1,5 @@
 import { hourlyPayFloor } from './payPreferences';
-import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, startGoogleSignIn, verifyLogin, verifyTestCode, isTestLogin } from './accountAuth';
+import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, sendLoginLink, startGoogleSignIn, verifyLogin, verifyTestCode, isTestLogin } from './accountAuth';
 import { talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
@@ -42,7 +42,7 @@ import { resumeDownload } from './resumeFile';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
 import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus, responseLinkRedirect, runCareJoysSmsJobs, saveCaregiverSmsConsent } from './carejoysSms';
-import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, searchAgenciesToHide, updateCaregiverAvailability, updateHiddenAgency, updateInvitePause, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
+import { EMAIL_SUB_PREFIX, applyWithProfile, parseAvailability, availabilitySummary, auth0SubOf, availabilityByDay, bookInviteInterview, caregiverForIdentity, getCaregiverDashboard, nearbyJobsFor, respondToInvite, searchAgenciesToHide, updateCaregiverAvailability, updateHiddenAgency, updateInvitePause, updateCaregiverPreferences, updateCaregiverProfile } from './caregiverApi';
 import { listPublicTrainingPrograms, publicSchoolProgram, publicTrainingOrganization, requestSchoolAccess, verifySchoolMagic, schoolDashboard, createSchoolCohort, schoolLogout } from './schoolFeatures';
 // The facility pilot sends its day's batch from this hour on (13:17 UTC, 9:17 Eastern), outside the agency invite cap (Rebecca approved, 2026-10-11).
 const FACILITY_PILOT_UTC_HOUR=13;
@@ -1270,6 +1270,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const state=(clean(data!.state,2).toUpperCase()||await stateForZip(env.DB,zip)||"").slice(0,2);
   if(!/^[A-Z]{2}$/.test(state))return json({ok:false,error:"Enter a valid two-letter state"},{status:400});
 
+  const zipCity=(await lookupZip(env.DB,zip))?.city||null;
   const auth0Sub=auth0SubOf(authIdentity);
   const authExisting=auth0Sub
     ?await env.DB.prepare("SELECT id FROM caregivers WHERE auth0_sub=? LIMIT 1").bind(auth0Sub).first<{id:string}>()
@@ -1291,7 +1292,10 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const specialties=clean(data!.specialties,2000);
   const languages=clean(data!.languages,1000);
   const years=Math.max(0,Math.min(60,Number(data!.yearsExperience||0)||0));
-  const shifts=clean(data!.shifts,500);
+  // The weekly grid from signup, when filled in, is the availability; its plain-words summary replaces typed shifts.
+  const availability=data!.availability?parseAvailability(JSON.stringify(data!.availability)):null;
+  const availabilityText=availability?availabilitySummary(availability):'';
+  const shifts=availabilityText||clean(data!.shifts,500);
   const floor=hourlyPayFloor(data!.payMin??data!.desiredWage);
   if((data!.payMin!==undefined&&data!.payMin!==null&&data!.payMin!==''||!!clean(data!.desiredWage))&&floor===null)return json({ok:false,error:"Enter a minimum hourly pay between $0 and $200"},{status:400});
   const desiredWage=floor?'$'+floor+'+/hr':'';
@@ -1299,7 +1303,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const travel=Math.max(0,Math.min(100,Number(data!.travelMiles||0)||0));
 
   if(!initiallyExisting){
-    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,hourly_rate_min,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','unknown',NULL,?,?)")
+    await env.DB.prepare("INSERT OR IGNORE INTO caregivers (id,first_name,last_name,display_name,email,phone,zip,state,role,certifications,specialties,languages,years_experience,shift_preferences,desired_wage,hourly_rate_min,transportation,travel_distance_miles,source,source_detail,work_status,last_confirmed_at,auth0_sub,auth0_email_verified) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'resume_upload','caregiver_resume','actively_looking',CURRENT_TIMESTAMP,?,?)")
       .bind(proposedId,first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
         shifts,desiredWage,floor||null,transportation,travel||null,auth0Sub,authIdentity?.emailVerified?1:0).run();
   }
@@ -1311,7 +1315,7 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const id=canonical?.id||proposedId;
   const existedBefore=!!initiallyExisting||id!==proposedId;
 
-  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,work_status=CASE WHEN work_status='closed' THEN 'unknown' ELSE work_status END,last_confirmed_at=CASE WHEN work_status='closed' THEN NULL ELSE last_confirmed_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+  await env.DB.prepare("UPDATE caregivers SET first_name=?,last_name=?,display_name=?,email=?,phone=COALESCE(NULLIF(?,''),phone),zip=?,state=?,role=?,certifications=?,specialties=?,languages=?,years_experience=?,shift_preferences=?,desired_wage=?,hourly_rate_min=?,transportation=?,travel_distance_miles=?,work_status=CASE WHEN work_status IN ('closed','unknown') THEN 'actively_looking' ELSE work_status END,last_confirmed_at=CASE WHEN work_status IN ('closed','unknown') THEN CURRENT_TIMESTAMP ELSE last_confirmed_at END,source_detail='caregiver_resume',auth0_sub=COALESCE(?,auth0_sub),auth0_email_verified=CASE WHEN ?=1 THEN 1 ELSE auth0_email_verified END,is_active=1,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(first,last,(first+" "+last).trim(),email,clean(data!.phone,40),zip,state,role,certifications,specialties,languages,years||null,
       shifts,desiredWage,floor||null,transportation,travel||null,linkSub,linkSub&&authIdentity?.emailVerified?1:0,id).run();
 
@@ -1331,6 +1335,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
     }
   }
 
+  // The ZIP's own town, so the dashboard and employers see "Baltimore, MD" rather than just the state.
+  await env.DB.prepare("UPDATE caregivers SET city=? WHERE id=?").bind(zipCity,id).run();
+  if(availabilityText)await env.DB.prepare("UPDATE caregivers SET availability_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify(availability),id).run();
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
   // Text opt-in from the signup checkbox; unticked changes nothing here.
   await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
@@ -1361,11 +1368,15 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   const marylandMatching=state==="MD";
   const profilePhotoToken=await issueCaregiverProfilePhotoToken(env,id);
   const resumeUploadToken=await issueCaregiverProfilePhotoToken(env,id,'resume_upload');
+  // A new caregiver who isn't signed in gets their sign-in link straight away; it verifies the email and opens the dashboard.
+  const loginLinkSent=!authIdentity&&!existedBefore
+    ?await sendLoginLink(env,email,'/dashboard').then(()=>!!env.EMAIL,()=>false)
+    :false;
 
   return json({
     ok:true,id,matchedOrganizations:Number(relevant?.count||agencyResult.scored||0),matchedOpenings:nearbyJobs.length,topJobs:nearbyJobs.slice(0,3),
     marylandMatching,existing:existedBefore,profilePhotoToken,resumeUploadToken,profilePhotoUrl:clean(caregiver?.profile_photo_url,500)||null,
-    authenticated:!!authIdentity,
+    authenticated:!!authIdentity,loginLinkSent,
     targetJob:targetJob?{id:targetJob.id,title:targetJob.title,employerName:targetJob.employer_name,applicationUrl:targetJob.source_url}:null
   },{status:existedBefore?200:201});
 }

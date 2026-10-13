@@ -701,14 +701,18 @@ describe('worker acquisition: optional phone and linked 24-hour retention',()=>{
 });
 
 describe('pay preferences and verified caregiver availability',()=>{
-  it('keeps unsigned profiles hidden, stores an hourly floor and requires explicit availability',async()=>{
+  it('keeps unsigned profiles hidden until the email is verified, then shows them with no extra step, and stores an hourly floor',async()=>{
     const email='pay-floor-worker@realcare.test';
-    const req={firstName:'Pay',lastName:'Floor',email,zip:'21201',role:'CNA',desiredWage:'$24–30/hr'};
+    const req={firstName:'Pay',lastName:'Floor',email,zip:'21201',role:'CNA',desiredWage:'$24–30/hr',
+      availability:{days:{mon:['morning'],sat:['overnight']},liveIn:false}};
     const created=await post('/api/caregiver-resume',req);
     expect(created.status).toBe(201);
     const {id}=await created.json() as any;
-    expect(await DB.prepare('SELECT phone,hourly_rate_min,desired_wage,work_status,last_confirmed_at FROM caregivers WHERE id=?').bind(id).first())
-      .toEqual({phone:'',hourly_rate_min:24,desired_wage:'$24+/hr',work_status:'unknown',last_confirmed_at:null});
+    // Signing up means looking for work, so the profile is ready to show; the shift grid becomes the shifts summary.
+    expect(await DB.prepare('SELECT phone,hourly_rate_min,desired_wage,work_status,last_confirmed_at IS NOT NULL AS confirmed,shift_preferences,availability_json FROM caregivers WHERE id=?').bind(id).first())
+      .toEqual({phone:'',hourly_rate_min:24,desired_wage:'$24+/hr',work_status:'actively_looking',confirmed:1,shift_preferences:'Mornings, Overnights, Weekends',
+        availability_json:JSON.stringify({days:{mon:['morning'],tue:[],wed:[],thu:[],fri:[],sat:['overnight'],sun:[]},liveIn:false})});
+    // An unverified email could be anyone's, so the profile stays out of search until it is verified.
     const search=await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(search.candidates.some((c:any)=>c.id===id)).toBe(false);
     const invalid=await post('/api/caregiver-resume',{firstName:'Bad',lastName:'Pay',email:'invalid-pay-worker@realcare.test',zip:'21201',role:'CNA',desiredWage:'50000/year'});
@@ -719,11 +723,7 @@ describe('pay preferences and verified caregiver availability',()=>{
     const token=decodeURIComponent(sent.find(x=>x.to===email)!.html!.match(/signin\?token=([^"&]+)/)![1]);
     const proof=await post('/api/login/verify',{token});
     expect(proof.status).toBe(200);
-    expect((await DB.prepare('SELECT auth0_email_verified,work_status FROM caregivers WHERE id=?').bind(id).first())).toEqual({auth0_email_verified:1,work_status:'unknown'});
-    const cookie=proof.headers.get('set-cookie')?.match(/__Host-cj_account=([^;]+)/)?.[1];
-    expect(cookie).toBeTruthy();
-    const confirm=await post('/api/me/availability',{workStatus:'actively_looking'},{cookie:'__Host-cj_account='+cookie});
-    expect(confirm.status).toBe(200);
+    expect((await DB.prepare('SELECT auth0_email_verified,work_status FROM caregivers WHERE id=?').bind(id).first())).toEqual({auth0_email_verified:1,work_status:'actively_looking'});
     const after=await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
     expect(after.candidates.some((c:any)=>c.id===id)).toBe(true);
   });

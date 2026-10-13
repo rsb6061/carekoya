@@ -9,7 +9,7 @@ export function SiteHeader({jobsHref='/caregiver-jobs',hireButton=true}:Omit<Lin
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
-      <a href={jobsHref}><span className="hide-sm">Caregiver jobs</span><span className="show-sm">Jobs</span></a>
+      <a href={jobsHref}><span className="hide-sm">Find caregiver jobs</span><span className="show-sm">Find jobs</span></a>
       <AccountLink hireButton={hireButton}/>
     </nav>
   </div></header>;

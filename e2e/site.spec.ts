@@ -81,7 +81,7 @@ async function clickEveryButton(page:Page,path:string){
 }
 const BUTTON_PAGES:{label:string;as?:{session:string};employer?:boolean;pages:string[]}[]=[
   {label:'signed out',pages:['/','/caregiver-jobs/maryland','/gna-jobs/maryland','/hire-caregivers','/pricing','/caregiver-resume','/login','/agent','/add-training-program','/jobs/'+JOBS.external]},
-  {label:'caregiver',as:CAREGIVER,pages:['/dashboard','/dashboard/profile','/dashboard/profile/preview','/jobs/'+JOBS.external]},
+  {label:'caregiver',as:CAREGIVER,pages:['/dashboard','/dashboard/profile','/dashboard/profile/preview','/dashboard/settings','/jobs/'+JOBS.external]},
   {label:'employer',as:EMPLOYER,employer:true,pages:['/app']},
   {label:'admin',as:ADMIN,pages:['/admin']},
 ];
@@ -112,19 +112,27 @@ test('caregiver dashboard: availability, weekly emails and profile edits save', 
   const w=await watch(page);
   await signIn(page,CAREGIVER);
   await page.goto('/dashboard');
-  const weekly=page.locator('.check-row input[type=checkbox]').first();
+  // Settings keeps the side nav: weekly email, hiding the profile, and who can invite.
+  await page.getByRole('navigation',{name:'Dashboard sections'}).getByRole('link',{name:'Settings'}).click();
+  await expect(page).toHaveURL(/\/dashboard\/settings$/);
+  const weekly=page.getByLabel('Email me weekly job matches');
   await expect(weekly).toBeEnabled();
   const wasOn=await weekly.isChecked();
   await weekly.click();
   await expect(page.getByRole('status')).toHaveText(wasOn?'Weekly job emails turned off.':'Weekly job emails enabled.');
   await page.reload();
-  await expect(page.locator('.check-row input[type=checkbox]').first()).toBeChecked({checked:!wasOn});
+  await expect(page.getByLabel('Email me weekly job matches')).toBeChecked({checked:!wasOn});
+  await page.getByLabel('Hide my profile from employers').check();
+  await expect(page.getByRole('status')).toHaveText('Your profile is hidden from employers.');
+  await page.getByLabel('Hide my profile from employers').uncheck();
+  await expect(page.getByRole('status')).toHaveText('You’re shown to employers again.');
   // Pausing invitations hides them from agencies until they resume.
   await page.getByRole('button',{name:'Pause invitations for 2 weeks'}).click();
   await expect(page.getByText(/^Paused until/)).toBeVisible();
   await page.getByRole('button',{name:'Resume invitations'}).click();
   await expect(page.getByRole('button',{name:'Pause invitations for 2 weeks'})).toBeVisible();
   await page.goto('/dashboard/profile');
+  await expect(page.getByRole('navigation',{name:'Dashboard sections'}).getByRole('link',{name:'Profile'})).toHaveAttribute('aria-current','page');
   await page.getByLabel('A few words for employers').fill('Patient, reliable CNA. Five years of home care.');
   await page.getByRole('button',{name:'Save my profile'}).click();
   await expect(page.getByRole('status')).toHaveText('Profile saved. Your matches were refreshed.');

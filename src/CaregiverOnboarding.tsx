@@ -5,8 +5,9 @@ import { hourlyPayFloor } from './payPreferences';
 import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
-import { jobsHubPath, stateForZipPrefix, usState } from './usStates';
-import { SMS_CONSENT_TEXT } from './smsConsent';
+import { stateForZipPrefix } from './usStates';
+import { SMS_FINE_PRINT, SMS_LABEL } from './smsConsent';
+import { AvailabilityGrid, emptyDays, hasAvailability } from './AvailabilityGrid';
 
 type ResumeForm={
   firstName:string;lastName:string;email:string;phone:string;zip:string;state:string;role:string;
@@ -15,7 +16,7 @@ type ResumeForm={
 };
 type MatchResult={
   ok?:boolean;id?:string;matchedOrganizations?:number;matchedOpenings?:number;marylandMatching?:boolean;
-  existing?:boolean;profilePhotoToken?:string;resumeUploadToken?:string;profilePhotoUrl?:string|null;error?:string;needsVerifiedSignIn?:boolean;authenticated?:boolean;
+  existing?:boolean;profilePhotoToken?:string;resumeUploadToken?:string;profilePhotoUrl?:string|null;error?:string;needsVerifiedSignIn?:boolean;authenticated?:boolean;loginLinkSent?:boolean;
   topJobs?:{id:string;title:string;employerName?:string;city?:string;state?:string;distanceMiles?:number|null}[];
   targetJob?:{id:string;title?:string;employerName?:string;applicationUrl?:string}|null;
 };
@@ -68,7 +69,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const auth=useCaregiverAuth();
   const [draft]=useState(readDraft);
   const [stage,setStage]=useState<'upload'|'known'|'auth'|'profile'|'success'>(draft?'profile':'upload');
-  const [emailAlerts,setEmailAlerts]=useState(false);
+  // The weekly job email is on for a new profile (every email has an unsubscribe link); texts need their own tick.
+  const [emailAlerts]=useState(true);
   // Unticked until they tick it: text consent is optional and never assumed.
   const [smsConsent,setSmsConsent]=useState(false);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
@@ -90,11 +92,16 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [showErrors,setShowErrors]=useState(false);
   const formRef=useRef<HTMLFormElement>(null);
   const [sendProfile,setSendProfile]=useState(true);
+  // After a new profile is saved: an optional photo, then the dashboard (or, signed out, the emailed sign-in link).
+  const [photoDone,setPhotoDone]=useState(false);
   const [continuing,setContinuing]=useState(false);
   // While applying, shifts/pay/transport are tucked behind a link unless they already have answers.
   const [showPrefs,setShowPrefs]=useState(()=>!!(form.shifts||form.desiredWage||form.transportation));
   // With a resume (and not mid-apply), the profile is two steps: check what was found, then say what job fits.
   const [step,setStep]=useState<'details'|'prefs'>('details');
+  // Which shifts of which days they can work; the server turns it into the shifts summary employers read.
+  const [days,setDays]=useState<Record<string,string[]>>(()=>emptyDays());
+  const [liveIn,setLiveIn]=useState(false);
   const rootRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{onStarted?.(stage!=='upload')},[stage]);
   // Each new step starts at its top, so on a phone the next question isn't left below the fold.
@@ -232,6 +239,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         travelMiles:Number(form.travelMiles||0)||null,
         payMin:form.desiredWage?Number(form.desiredWage):null,
         jobAlertsEmailOptIn:emailAlerts,
+        availability:hasAvailability({days,liveIn})?{days,liveIn}:undefined,
         smsConsent:smsConsent&&!!form.phone.trim(),
         funnelVisitorId:workerVisitorId(),
         turnstileToken,
@@ -308,56 +316,59 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const twoStep=!!parsed&&!targetJobId;
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
 
-  // Counts that are zero are left out, and the job they are applying to isn't offered back to them as a match.
-  const otherJobs=(result?.topJobs||[]).filter(job=>job.id!==result?.targetJob?.id);
-  const orgs=result?.matchedOrganizations||0;
-  const matchLine=orgs?<strong>{orgs} relevant care organization{orgs===1?'':'s'}</strong>:null;
   if(stage==='success'&&result){
     const target=result.targetJob?.applicationUrl?result.targetJob:null;
     const employer=target?.employerName||'the employer';
     const photo=result.id&&result.profilePhotoToken?<ProfilePhotoStep caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>:null;
-    const matches=<>
-      {matchLine&&<p>CareJoys found {matchLine}.</p>}
-      {!!otherJobs.length&&<strong className="onboarding-more-jobs">More jobs near you</strong>}
-      {!!otherJobs.length&&<ul className="onboarding-top-jobs">
-        {otherJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
-      </ul>}
-    </>;
-    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
+    const email=auth.email||form.email;
+    const signInLink=<div className="auth-choice">
+      <button className="btn secondary" onClick={()=>void login('email')}>{result.loginLinkSent?'Send the link again':'Email me a sign-in link'}</button>
+      {auth.googleAvailable&&<button className="text-button auth-google" onClick={async()=>{if(await login('google'))window.location.href='/dashboard'}}>Continue with Google</button>}
+    </div>;
+    if(target)return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-success">
         <div className="success-mark">✓</div>
-        {target?<>
-          {/* Mid-apply, the one thing left is the employer's own form, so it comes first and the extras after. */}
-          <div className="modal-kicker">Profile saved</div>
-          <h2>Finish applying to {employer}.</h2>
-          <p>{employer} takes applications on their own site. We saved {target.title||'this job'} to your dashboard.</p>
-          <div className="onboarding-final-action">
-            <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {employer} so they can contact me</span></label>
-            <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue to '+employer+'’s application'}</button>
-          </div>
-          {(photo||matchLine||otherJobs.length>0)&&<div className="onboarding-after-apply">
-            {photo}
-            {matches}
-          </div>}
-        </>:<>
-          <div className="modal-kicker">Profile ready</div>
-          <h2>You’re matched.</h2>
-          {matches}
-          {photo}
-          {auth.isAuthenticated
-            ?<a className="btn" href="/dashboard">Open your dashboard</a>
-            :<a className="btn" href={jobsHubPath(usState(form.state)||usState(inferState(form.zip))||usState('MD')!)+'#current-jobs'}>See more jobs</a>}
-        </>}
+        {/* Mid-apply, the one thing left is the employer's own form, so it comes first and the extras after. */}
+        <div className="modal-kicker">Profile saved</div>
+        <h2>Finish applying to {employer}.</h2>
+        <p>{employer} takes applications on their own site. We saved {target.title||'this job'} to your dashboard.</p>
+        <div className="onboarding-final-action">
+          <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {employer} so they can contact me</span></label>
+          <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue to '+employer+'’s application'}</button>
+        </div>
+        {photo&&<div className="onboarding-after-apply">{photo}</div>}
         {!auth.isAuthenticated&&<div className="onboarding-save-login">
-          <strong>Come back to your matches anytime</strong>
-          {emailAlerts&&<span>To activate your weekly job emails, verify this email address using a CareJoys sign-in link.</span>}
-          <span>Sign in once to see employer invites, update availability and track applications.</span>
-          <div className="auth-choice">
-            <button className="btn secondary" onClick={()=>void login('email')}>Email me a sign-in link</button>
-            {auth.googleAvailable&&<button className="text-button auth-google" onClick={async()=>{if(await login('google'))window.location.href='/dashboard'}}>Continue with Google</button>}
-          </div>
+          <strong>Your dashboard</strong>
+          <span>{result.loginLinkSent?'We emailed a sign-in link to '+email+'. Open it to track this application and see your job matches.':'Sign in once to track applications and see your job matches.'}</span>
+          {signInLink}
         </div>}
       </div>
+    </div>;
+    // No job in hand: the profile is the point, so an optional photo and then straight to the dashboard.
+    const stepBar=twoStep&&!compact&&<ol className="onboarding-steps" aria-label="Steps">
+      <li className="done"><span>Upload</span></li><li className="done"><span>Check details</span></li><li className="done"><span>Job preferences</span></li>
+      <li className={photoDone?'done':'current'}><span aria-current={photoDone?undefined:'step'}>Photo</span></li>
+    </ol>;
+    function finish(){
+      if(auth.isAuthenticated)window.location.assign('/dashboard');
+      else setPhotoDone(true);
+    }
+    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
+      {stepBar}
+      {photo&&!photoDone?<div className="onboarding-photo">
+        <div className="modal-kicker">{twoStep?'Step 4 of 4':'Profile saved'}</div>
+        <h2>Add a profile photo.</h2>
+        <p className="onboarding-lede">Optional. A clear head-and-shoulders photo helps employers recognize you. Only signed-in employers see it, and you can change it later.</p>
+        {result.id&&result.profilePhotoToken&&<ProfilePhotoStep bare caregiverId={result.id} token={result.profilePhotoToken} existingPhotoUrl={result.profilePhotoUrl}/>}
+        <button className="btn onboarding-photo-next" onClick={finish}>{auth.isAuthenticated?'Go to my dashboard':'Continue'}</button>
+      </div>:auth.isAuthenticated?<FinishToDashboard/>:<div className="onboarding-success">
+        <div className="success-mark">✓</div>
+        <div className="modal-kicker">Profile saved</div>
+        <h2>Check your email.</h2>
+        <p>{result.loginLinkSent?<>We sent a sign-in link to <strong>{email}</strong>. Open it to see your dashboard, job matches and employer invites.</>:<>Sign in with <strong>{email}</strong> to open your dashboard, job matches and employer invites.</>}</p>
+        <p className="onboarding-lede">Employers can find your profile once you’ve opened the link.</p>
+        {signInLink}
+      </div>}
     </div>;
   }
 
@@ -405,14 +416,16 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     const prefs=!twoStep||step==='prefs';
     // A resume's details are all shown, filled in and editable, so a missed field is plain to see and fix.
     const allDetails=twoStep||editParsed;
+    // Every step is a button: back to the upload for another resume, or between details and preferences.
     const steps=twoStep&&!compact&&<ol className="onboarding-steps" aria-label="Steps">
-      <li className="done">Upload</li>
-      <li className={step==='details'?'current':'done'}>Check details</li>
-      <li className={step==='prefs'?'current':''}>Job preferences</li>
+      <li className="done"><button type="button" onClick={()=>{setStage('upload');setMessage('');setStatus('idle')}}>Upload</button></li>
+      <li className={step==='details'?'current':'done'}><button type="button" aria-current={step==='details'?'step':undefined} onClick={()=>setStep('details')}>Check details</button></li>
+      <li className={step==='prefs'?'current':''}><button type="button" aria-current={step==='prefs'?'step':undefined} onClick={()=>{if(step==='details')formRef.current?.requestSubmit()}}>Job preferences</button></li>
+      <li><span>Photo</span></li>
     </ol>;
     return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       {steps}
-      <div className="modal-kicker">{twoStep?(step==='details'?'Step 2 of 3':'Step 3 of 3'):parsed?'Resume parsed':saved?'Your CareJoys profile':'CareJoys profile'}</div>
+      <div className="modal-kicker">{twoStep?(step==='details'?'Step 2 of 4':'Step 3 of 4'):parsed?'Resume parsed':saved?'Your CareJoys profile':'CareJoys profile'}</div>
       <h2>{twoStep?(step==='details'?'Check what we found.':'What kind of job fits?'):parsed?'Just a few things left.':saved?(targetJobId?'Apply with your saved profile.':'Update your profile.'):'Tell us what fits.'}</h2>
       {twoStep&&step==='details'&&<p className="onboarding-lede">{fileMeta?fileMeta.name+': ':''}we filled in {foundCount} detail{foundCount===1?'':'s'} from your resume. Fix anything that’s wrong or missing.</p>}
       {auth.isAuthenticated&&details&&<div className="auth-signed-in">Signed in as <strong>{auth.email}</strong></div>}
@@ -447,23 +460,24 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         {targetJobId&&!showPrefs?<button type="button" className="text-button onboarding-prefs-toggle" onClick={()=>setShowPrefs(true)}>Add job preferences (optional)</button>
         :<div className="onboarding-match-fields">
           {!twoStep&&<strong>What kind of job fits?{targetJobId&&<span className="onboarding-optional"> Optional</span>}</strong>}
-          <div className="form-grid">
-            <label>Preferred shifts<input value={form.shifts} onChange={e=>patch('shifts',e.target.value)} placeholder="Days, nights, weekends" /></label>
-            <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
+          <div className="onboarding-availability">
+            <span className="onboarding-field-label">When can you work? <small>Tap the shifts, or a row for every day.</small></span>
+            <AvailabilityGrid days={days} setDays={setDays}/>
+            <label className="check-row"><input type="checkbox" checked={liveIn} onChange={e=>setLiveIn(e.target.checked)}/><span>I’m open to live-in jobs</span></label>
           </div>
           <div className="form-grid">
-            <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
+            <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
             <label>Travel radius (miles)<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /></label>
           </div>
+          <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
         </div>}
-        {form.phone.trim()&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>}
-        <label className="check-row"><input type="checkbox" checked={emailAlerts} onChange={e=>setEmailAlerts(e.target.checked)}/><span>Email me a free weekly digest of relevant caregiver jobs. Optional; unsubscribe any time.</span></label>
+        {form.phone.trim()&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT}</small></span></label>}
         {!auth.isAuthenticated&&<TurnstileField onToken={setTurnstileToken}/>}
         </>}
         {status==='error'&&<div className="notice">{message}</div>}
-        <button className="btn submit-button" disabled={status==='saving'}>{twoStep&&step==='details'?'Continue':status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
-        {twoStep&&step==='prefs'&&<button type="button" className="text-button onboarding-back" onClick={()=>setStep('details')}>Back to your details</button>}
-        {prefs&&<div className="resume-privacy">Your profile stays hidden from employers until you verify your email and confirm availability in your dashboard. Once you make it visible, your profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>}
+        <button className="btn submit-button" disabled={status==='saving'}>{twoStep&&step==='details'?'Continue':status==='saving'?'Saving…':targetJobId?'Apply':'Save and continue'}</button>
+        {twoStep&&<button type="button" className="text-button onboarding-back" onClick={()=>{if(step==='prefs')setStep('details');else{setStage('upload');setMessage('');setStatus('idle')}}}>{step==='prefs'?'Back to your details':'Upload a different resume'}</button>}
+        {prefs&&<div className="resume-privacy">We’ll email you matching jobs weekly. Unsubscribe anytime.</div>}
       </form>
     </div>;
   }
@@ -479,4 +493,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       {status==='error'&&<div className="notice">{message}</div>}
     </div>
   </div>;
+}
+
+/** Signed in with nothing left to ask: open the dashboard. */
+function FinishToDashboard(){
+  useEffect(()=>{window.location.assign('/dashboard')},[]);
+  return <div className="onboarding-file-note">Opening your dashboard…</div>;
 }
