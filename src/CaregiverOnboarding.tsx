@@ -29,6 +29,8 @@ type Props={
   compact?:boolean;
   heading?:string;
   subheading?:string;
+  /** Told when the caregiver moves past the upload card, so a page can make room for the steps. */
+  onStarted?:(started:boolean)=>void;
 };
 
 const empty:ResumeForm={
@@ -62,7 +64,7 @@ function summaryValue(label:string,value:string){
   return value?<span className="onboarding-summary-item"><strong>{label}</strong>{value}</span>:null;
 }
 
-export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=false,heading='Upload your resume',subheading='We’ll build your CareJoys profile and ask only for anything missing.'}:Props){
+export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=false,heading='Upload your resume',subheading='We’ll build your CareJoys profile and ask only for anything missing.',onStarted}:Props){
   const auth=useCaregiverAuth();
   const [draft]=useState(readDraft);
   const [stage,setStage]=useState<'upload'|'known'|'auth'|'profile'|'success'>(draft?'profile':'upload');
@@ -91,6 +93,17 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [continuing,setContinuing]=useState(false);
   // While applying, shifts/pay/transport are tucked behind a link unless they already have answers.
   const [showPrefs,setShowPrefs]=useState(()=>!!(form.shifts||form.desiredWage||form.transportation));
+  // With a resume (and not mid-apply), the profile is two steps: check what was found, then say what job fits.
+  const [step,setStep]=useState<'details'|'prefs'>('details');
+  const rootRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{onStarted?.(stage!=='upload')},[stage]);
+  // Each new step starts at its top, so on a phone the next question isn't left below the fold.
+  const firstRender=useRef(true);
+  useEffect(()=>{
+    if(firstRender.current){firstRender.current=false;return;}
+    const top=rootRef.current?.getBoundingClientRect().top;
+    if(top!=null&&(top<0||top>window.innerHeight*0.6))rootRef.current?.scrollIntoView({behavior:'smooth',block:'start'});
+  },[stage,step]);
 
   function patch<K extends keyof ResumeForm>(key:K,value:ResumeForm[K]){
     setForm(prev=>({...prev,[key]:value}));
@@ -160,6 +173,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
       }));
     }
     // Sign-in is optional now: everyone goes straight to the profile, and only an existing profile asks for it.
+    setStep('details');
     setStage('profile');
   }
 
@@ -196,12 +210,15 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     e.preventDefault();
     const invalid=Object.entries(missing).filter(([,v])=>v).map(([k])=>k);
     if(invalid.length){
+      // Everything required is on the details step, so a gap found later sends them back to it.
+      if(twoStep)setStep('details');
       setShowErrors(true);setStatus('error');
       setMessage('Fill in the '+(invalid.length===1?'highlighted field':'highlighted fields')+' to continue.');
       setTimeout(()=>(formRef.current?.querySelector('[aria-invalid="true"]') as HTMLElement|null)?.focus(),0);
       return;
     }
     setShowErrors(false);
+    if(twoStep&&step==='details'){setStep('prefs');setStatus('idle');setMessage('');return;}
     await save();
   }
 
@@ -288,6 +305,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   if(missing.state)shown.state=true;
   const bad=(key:keyof typeof missing)=>showErrors&&missing[key];
   const fieldError=(key:keyof typeof missing,text='Required')=>bad(key)?<span className="field-error">{text}</span>:null;
+  const twoStep=!!parsed&&!targetJobId;
   const foundCount=[form.firstName,form.lastName,form.email||auth.email,form.phone,form.zip,form.role,form.certifications,form.specialties].filter(Boolean).length;
 
   // Counts that are zero are left out, and the job they are applying to isn't offered back to them as a match.
@@ -305,7 +323,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         {otherJobs.map(job=><li key={job.id}><a href={'/jobs/'+encodeURIComponent(job.id)}><strong>{job.title}</strong></a><span>{[job.employerName,[job.city,job.state].filter(Boolean).join(', '),job.distanceMiles!=null?job.distanceMiles+' mi':''].filter(Boolean).join(' · ')}</span></li>)}
       </ul>}
     </>;
-    return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
+    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-success">
         <div className="success-mark">✓</div>
         {target?<>
@@ -343,10 +361,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
     </div>;
   }
 
-  if(auth.loading||saved===undefined)return <div className={'caregiver-onboarding '+(compact?'compact':'')}><div className="onboarding-file-note">Loading your profile…</div></div>;
+  if(auth.loading||saved===undefined)return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}><div className="onboarding-file-note">Loading your profile…</div></div>;
 
   if(stage==='known'){
-    return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
+    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-auth">
         <div className="modal-kicker">Signed in as {auth.email}</div>
         <h2>Welcome back{form.firstName?', '+form.firstName:''}.</h2>
@@ -366,7 +384,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   }
 
   if(stage==='auth'){
-    return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
+    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-auth">
         <div className="modal-kicker">Welcome back</div>
         <h2>You already have a CareJoys profile.</h2>
@@ -383,31 +401,52 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   }
 
   if(stage==='profile'){
-    return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
-      <div className="modal-kicker">{parsed?'Resume parsed':saved?'Your CareJoys profile':'CareJoys profile'}</div>
-      <h2>{parsed?'Just a few things left.':saved?(targetJobId?'Apply with your saved profile.':'Update your profile.'):'Tell us what fits.'}</h2>
-      {auth.isAuthenticated&&<div className="auth-signed-in">Signed in as <strong>{auth.email}</strong></div>}
-      {(parsed||saved)&&<div className="onboarding-summary">
+    const details=!twoStep||step==='details';
+    const prefs=!twoStep||step==='prefs';
+    // A resume's details are all shown, filled in and editable, so a missed field is plain to see and fix.
+    const allDetails=twoStep||editParsed;
+    const steps=twoStep&&!compact&&<ol className="onboarding-steps" aria-label="Steps">
+      <li className="done">Upload</li>
+      <li className={step==='details'?'current':'done'}>Check details</li>
+      <li className={step==='prefs'?'current':''}>Job preferences</li>
+    </ol>;
+    return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
+      {steps}
+      <div className="modal-kicker">{twoStep?(step==='details'?'Step 2 of 3':'Step 3 of 3'):parsed?'Resume parsed':saved?'Your CareJoys profile':'CareJoys profile'}</div>
+      <h2>{twoStep?(step==='details'?'Check what we found.':'What kind of job fits?'):parsed?'Just a few things left.':saved?(targetJobId?'Apply with your saved profile.':'Update your profile.'):'Tell us what fits.'}</h2>
+      {twoStep&&step==='details'&&<p className="onboarding-lede">{fileMeta?fileMeta.name+': ':''}we filled in {foundCount} detail{foundCount===1?'':'s'} from your resume. Fix anything that’s wrong or missing.</p>}
+      {auth.isAuthenticated&&details&&<div className="auth-signed-in">Signed in as <strong>{auth.email}</strong></div>}
+      {!twoStep&&(parsed||saved)&&<div className="onboarding-summary">
         {summaryValue('Role',form.role)}
         {summaryValue('ZIP',form.zip)}
         {summaryValue('Credentials',form.certifications)}
         {summaryValue('Skills',form.specialties)}
       </div>}
       <form ref={formRef} className="resume-profile-form onboarding-missing-form" onSubmit={onSubmit} noValidate>
-        {(shown.name||editParsed)&&<div className="form-grid">
+        {details&&<>
+        {(shown.name||allDetails)&&<div className="form-grid">
           <label>First name<input value={form.firstName} onChange={e=>patch('firstName',e.target.value)} autoComplete="given-name" aria-invalid={bad('firstName')} />{fieldError('firstName')}</label>
           <label>Last name<input value={form.lastName} onChange={e=>patch('lastName',e.target.value)} autoComplete="family-name" aria-invalid={bad('lastName')} />{fieldError('lastName')}</label>
         </div>}
-        {!auth.isAuthenticated&&(shown.email||editParsed)&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} autoComplete="email" aria-invalid={bad('email')} />{fieldError('email',form.email?'Enter a valid email':'Required')}</label>}
-        {(shown.place||editParsed)&&<div className="form-grid">
-          <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);if(!form.state)patch('state',inferState(e.target.value))}} inputMode="numeric" autoComplete="postal-code" maxLength={5} aria-invalid={bad('zip')} />{fieldError('zip',form.zip?'Enter a 5-digit ZIP':'Required')}</label>
+        {!auth.isAuthenticated&&(shown.email||allDetails)&&<label>Email<input type="email" value={form.email} onChange={e=>patch('email',e.target.value)} autoComplete="email" aria-invalid={bad('email')} />{fieldError('email',form.email?'Enter a valid email':'Required')}</label>}
+        {(shown.place||allDetails)&&<div className="form-grid">
+          <label>ZIP code<input value={form.zip} onChange={e=>{patch('zip',e.target.value);patch('state',inferState(e.target.value))}} inputMode="numeric" autoComplete="postal-code" maxLength={5} aria-invalid={bad('zip')} />{fieldError('zip',form.zip?'Enter a 5-digit ZIP':'Required')}</label>
           <label>Role<select value={form.role} onChange={e=>patch('role',e.target.value)} aria-invalid={bad('role')}><option value="">Select</option><option>CNA</option><option>GNA</option><option>HHA</option><option>PCA</option><option>DSP</option><option>Caregiver</option><option>Other</option></select>{fieldError('role')}</label>
         </div>}
         {(shown.state||editParsed)&&<label>State<input value={form.state} onChange={e=>patch('state',e.target.value.toUpperCase().slice(0,2))} maxLength={2} placeholder="MD" aria-invalid={bad('state')} />{fieldError('state','Enter a two-letter state')}</label>}
+        {allDetails&&<>
+          <div className="form-grid"><label>Years of experience<input type="number" min="0" max="60" value={form.yearsExperience} onChange={e=>patch('yearsExperience',e.target.value)} /></label><label>Languages<input value={form.languages} onChange={e=>patch('languages',e.target.value)} placeholder="English, Spanish" /></label></div>
+          <label>Certifications<input value={form.certifications} onChange={e=>patch('certifications',e.target.value)} placeholder="CNA, CPR" /></label>
+          <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} placeholder="Dementia care, transfers" /></label>
+        </>}
+        {!twoStep&&(parsed||saved)&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide details':parsed?'Review or edit resume details':'Review or edit all details'}</button>}
+        <label>Mobile phone (optional)<input type="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} placeholder="410-555-0123" /></label>
+        </>}
 
+        {prefs&&<>
         {targetJobId&&!showPrefs?<button type="button" className="text-button onboarding-prefs-toggle" onClick={()=>setShowPrefs(true)}>Add job preferences (optional)</button>
         :<div className="onboarding-match-fields">
-          <strong>What kind of job fits?{targetJobId&&<span className="onboarding-optional"> Optional</span>}</strong>
+          {!twoStep&&<strong>What kind of job fits?{targetJobId&&<span className="onboarding-optional"> Optional</span>}</strong>}
           <div className="form-grid">
             <label>Preferred shifts<input value={form.shifts} onChange={e=>patch('shifts',e.target.value)} placeholder="Days, nights, weekends" /></label>
             <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
@@ -417,25 +456,19 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
             <label>Travel radius (miles)<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /></label>
           </div>
         </div>}
-
-        {editParsed&&<>
-          <div className="form-grid"><label>Years of experience<input type="number" min="0" max="60" value={form.yearsExperience} onChange={e=>patch('yearsExperience',e.target.value)} /></label><label>Languages<input value={form.languages} onChange={e=>patch('languages',e.target.value)} /></label></div>
-          <label>Certifications<input value={form.certifications} onChange={e=>patch('certifications',e.target.value)} /></label>
-          <label>Caregiving skills<input value={form.specialties} onChange={e=>patch('specialties',e.target.value)} /></label>
-        </>}
-        {(parsed||saved)&&<button type="button" className="text-button onboarding-edit" onClick={()=>setEditParsed(v=>!v)}>{editParsed?'Hide details':parsed?'Review or edit resume details':'Review or edit all details'}</button>}
-        <label>Mobile phone (optional)<input type="tel" autoComplete="tel" value={form.phone} onChange={e=>patch('phone',e.target.value)} placeholder="410-555-0123" /></label>
-        <label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>
+        {form.phone.trim()&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span>{SMS_CONSENT_TEXT}</span></label>}
         <label className="check-row"><input type="checkbox" checked={emailAlerts} onChange={e=>setEmailAlerts(e.target.checked)}/><span>Email me a free weekly digest of relevant caregiver jobs. Optional; unsubscribe any time.</span></label>
         {!auth.isAuthenticated&&<TurnstileField onToken={setTurnstileToken}/>}
+        </>}
         {status==='error'&&<div className="notice">{message}</div>}
-        <button className="btn submit-button" disabled={status==='saving'}>{status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
-        <div className="resume-privacy">Your profile stays hidden from employers until you verify your email and confirm availability in your dashboard. Once you make it visible, your profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>
+        <button className="btn submit-button" disabled={status==='saving'}>{twoStep&&step==='details'?'Continue':status==='saving'?'Finding matches…':targetJobId?'Apply':'Find jobs'}</button>
+        {twoStep&&step==='prefs'&&<button type="button" className="text-button onboarding-back" onClick={()=>setStep('details')}>Back to your details</button>}
+        {prefs&&<div className="resume-privacy">Your profile stays hidden from employers until you verify your email and confirm availability in your dashboard. Once you make it visible, your profile may be shown to participating care employers for recruiting. See our <a href="/privacy-policy">Privacy Policy</a> and <a href="/terms-of-service">Terms</a>.</div>}
       </form>
     </div>;
   }
 
-  return <div className={'caregiver-onboarding '+(compact?'compact':'')}>
+  return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
     <div className="resume-upload-card onboarding-upload-card">
       <div className="resume-upload-icon">↑</div>
       <h2>{heading}</h2>

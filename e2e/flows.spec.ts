@@ -38,6 +38,26 @@ test('@phone caregiver signup without a resume', async({page},info)=>{
   clean(w);
 });
 
+test('@phone caregiver signup with a resume: check what was found, then preferences', async({page},info)=>{
+  const w=await watch(page);
+  await page.goto('/caregiver-resume');
+  await page.locator('input[type=file]').setInputFiles({name:'resume.txt',mimeType:'text/plain',buffer:Buffer.from(
+    `YOLANDA BRIGHTWATER\nCaregiver\n(410) 555-0167 | e2e-resume-${info.project.name}@example.test | Baltimore, MD 21201\n\nLead caregiver with 14 years in memory care. CNA, CPR.`)});
+  await expect(page.getByRole('heading',{name:'Check what we found.'})).toBeVisible();
+  // The pitch beside the form steps aside once they start.
+  await expect(page.getByRole('heading',{name:/add yours, get matched/})).toHaveCount(0);
+  await expect(page.getByLabel('First name')).toHaveValue('Yolanda');
+  await expect(page.getByLabel('Last name')).toHaveValue('Brightwater');
+  await expect(page.getByLabel('ZIP code')).toHaveValue('21201');
+  await expect(page.getByLabel('Years of experience')).toHaveValue('14');
+  await page.getByRole('button',{name:'Continue'}).click();
+  await expect(page.getByRole('heading',{name:'What kind of job fits?'})).toBeVisible();
+  await page.getByLabel('Preferred shifts').fill('Days');
+  await page.getByRole('button',{name:'Find jobs'}).click();
+  await expect(page.getByRole('heading',{name:'You’re matched.'})).toBeVisible();
+  clean(w);
+});
+
 test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
   const w=await watch(page);
   await page.goto('/jobs/'+JOBS.external);
