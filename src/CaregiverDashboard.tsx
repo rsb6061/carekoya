@@ -258,7 +258,7 @@ export function CaregiverDashboard(){
             <div className="job-card-actions">
               {!applied?(job.employerOnCareJoys
                 ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
-                :<a className="button" href={href+'#apply'}>{job.applyForMe?'Apply for me':'Apply'}</a>)
+                :<a className="button" href={href+'#apply'}>Apply</a>)
               :applied.employerOnCareJoys||applied.submittedOnEmployerSite?<span className="status applied">Applied</span>
               :<><span className="status applied">Saved</span><a className="button secondary" href={href+'#apply'}>Finish applying</a></>}
               <a className="text-link job-view-link" href={href}>View job</a>

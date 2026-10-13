@@ -114,7 +114,7 @@ export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
     {!resumeName
       ?<><p className="apply-with-profile-sub">Add your resume file and CareJoys can fill in {employerName}’s application for you.</p>
         <ResumeFileInput onSaved={setResumeName}/></>
-      :<button className="btn submit-button" onClick={()=>void start()}>Apply for me on {employerName}’s site</button>}
-    <p className="apply-agent-note">CareJoys fills in {employerName}’s application with your profile and resume and asks you about anything it doesn’t know. It never answers background-check, demographic or signature questions for you.</p>
+      :<button className="btn submit-button" onClick={()=>void start()}>Apply now</button>}
+    {resumeName&&<p className="apply-agent-note">We fill in {employerName}’s application for you and ask if anything’s missing.</p>}
   </div>;
 }
