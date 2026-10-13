@@ -562,3 +562,7 @@ a{color:inherit;text-decoration:none}
 .job-view-link{font-size:15px;font-weight:600;white-space:nowrap}
 .public-job-actions{display:flex;flex-direction:column;align-items:center;gap:10px}
 .apply-profile-head{display:flex;justify-content:space-between;align-items:baseline;margin:14px 0 6px;font-size:14px}
+.onboarding-checklist{border:0;padding:0;margin:0;display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+.onboarding-checklist legend{grid-column:1/-1;margin-bottom:6px}
+.onboarding-checklist legend small{display:block;font-weight:400;color:var(--muted)}
+@media (max-width:560px){.onboarding-checklist{grid-template-columns:1fr}}

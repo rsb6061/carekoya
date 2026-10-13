@@ -6,6 +6,7 @@ import { TurnstileField } from './TurnstileField';
 import { ProfilePhotoStep } from './ProfilePhotoStep';
 import { useCaregiverAuth } from './caregiverAuth';
 import { stateForZipPrefix } from './usStates';
+import { CHECKLIST } from './checklist';
 import { SMS_FINE_PRINT, SMS_LABEL } from './smsConsent';
 import { AvailabilityGrid, emptyDays, hasAvailability } from './AvailabilityGrid';
 
@@ -73,6 +74,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [emailAlerts]=useState(true);
   // Unticked until they tick it: text consent is optional and never assumed.
   const [smsConsent,setSmsConsent]=useState(false);
+  // What employers check first, ticked once here so applications can reuse it (src/checklist.ts).
+  const [checklist,setChecklist]=useState<string[]>([]);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
   const [saved,setSaved]=useState<SavedProfile|null|undefined>(draft?null:undefined);
   const [form,setForm]=useState<ResumeForm>(()=>{const p=new URLSearchParams(window.location.search);const initial=draft?.form||{...empty,zip:p.get('zip')||'',role:p.get('role')||'',desiredWage:p.get('payMin')||'',shifts:p.get('shifts')||''};return {...initial,desiredWage:String(hourlyPayFloor(initial.desiredWage)??'')};});
@@ -241,6 +244,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         jobAlertsEmailOptIn:emailAlerts,
         availability:hasAvailability({days,liveIn})?{days,liveIn}:undefined,
         smsConsent:smsConsent&&!!form.phone.trim(),
+        checklist,
         funnelVisitorId:workerVisitorId(),
         turnstileToken,
         sourceFilename:fileMeta?.name||'',
@@ -469,6 +473,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
             <label>Minimum hourly pay ($)<input type="number" inputMode="decimal" min="0" max="200" step="0.5" value={form.desiredWage} onChange={e=>patch('desiredWage',e.target.value)} placeholder="e.g. 20" /></label>
             <label>Travel radius (miles)<input type="number" min="1" max="100" value={form.travelMiles} onChange={e=>patch('travelMiles',e.target.value)} /></label>
           </div>
+          <fieldset className="onboarding-checklist">
+            <legend className="onboarding-field-label">What employers ask first <small>Tick what’s true. We use it on your applications.</small></legend>
+            {CHECKLIST.map(([key,label])=><label className="check-row" key={key}><input type="checkbox" checked={checklist.includes(key)} onChange={e=>setChecklist(prev=>e.target.checked?[...prev,key]:prev.filter(k=>k!==key))}/><span>{label}</span></label>)}
+          </fieldset>
           <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
         </div>}
         {form.phone.trim()&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT}</small></span></label>}

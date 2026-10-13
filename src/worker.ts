@@ -1339,6 +1339,9 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
 
   // The ZIP's own town, so the dashboard and employers see "Baltimore, MD" rather than just the state.
   await env.DB.prepare("UPDATE caregivers SET city=? WHERE id=?").bind(zipCity,id).run();
+  // The yes answers ticked at signup; nothing ticked leaves an existing profile's answers alone.
+  const checklist=parseChecklist(data!.checklist);
+  if(checklist.length)await env.DB.prepare("UPDATE caregivers SET checklist=? WHERE id=?").bind(checklist.join(','),id).run();
   if(availabilityText)await env.DB.prepare("UPDATE caregivers SET availability_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(JSON.stringify(availability),id).run();
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
   // Text opt-in from the signup checkbox; unticked changes nothing here.

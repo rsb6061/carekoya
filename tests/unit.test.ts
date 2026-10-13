@@ -396,6 +396,11 @@ describe('apply for me rules', ()=>{
     expect(p).toMatchObject({firstName:'Ana',cnaCertified:true,cprCertified:true,reliableTransportation:true,workAuthorizationUs:true,streetAddress:'1 Main St',yearsExperience:4});
     expect(applyProfileFromCaregiver({certifications:''},{}).cnaCertified).toBeNull();
   });
+  it('uses the profile checklist as yes answers, and leaves unticked items to be asked', ()=>{
+    const p=applyProfileFromCaregiver({checklist:'over18,work_authorized,drivers_license'},{});
+    expect(p).toMatchObject({over18:true,workAuthorizationUs:true,driversLicense:true});
+    expect(applyProfileFromCaregiver({checklist:''},{}).over18).toBeUndefined();
+  });
 });
 
 import { normalizePay, payLabel, tidyTitle } from '../src/jobFormat';
