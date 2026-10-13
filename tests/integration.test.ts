@@ -531,6 +531,9 @@ describe('billing checkout', ()=>{
     const headers={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
     try{
       // Double click: both checkout requests carry the same idempotency key, so Stripe returns one session.
+      // The key is per minute, so don't start the pair in a minute's last seconds.
+      const msLeft=60000-Date.now()%60000;
+      if(msLeft<5000)await new Promise(r=>setTimeout(r,msLeft+50));
       await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},stripe);
       await call('/api/billing/checkout',{method:'POST',headers,body:'{}'},stripe);
       expect(calls[0].key).toBeTruthy();
