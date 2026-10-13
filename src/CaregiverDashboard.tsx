@@ -71,6 +71,8 @@ export function CaregiverDashboard(){
     catch(e){setError(e instanceof Error?e.message:'Could not load your dashboard')}
   }
   useEffect(()=>{if(auth.isAuthenticated)void load()},[auth.isAuthenticated]);
+  // Applications moved from a dashboard section to their own page; old links still land there.
+  useEffect(()=>{if(window.location.pathname==='/dashboard'&&window.location.hash==='#applications')window.location.replace('/dashboard/applications')},[]);
 
   async function act(key:string,path:string,body:Record<string,unknown>,message:string){
     setBusy(key);setNotice('');
@@ -132,11 +134,11 @@ export function CaregiverDashboard(){
   const previewing=window.location.pathname==='/dashboard/profile/preview';
   const settings=window.location.pathname==='/dashboard/settings';
   const allJobs=window.location.pathname==='/dashboard/jobs';
+  const applicationsPage=window.location.pathname==='/dashboard/applications';
 
   const sections=[
     {id:'matches',label:'My job matches'},
     ...(invites.length?[{id:'interviews',label:'Interviews'}]:[]),
-    ...((data.applications||[]).length?[{id:'applications',label:'Applications'}]:[]),
   ];
   // The profile pages keep the same side nav; its section links lead back to the dashboard.
   if(previewing)return <div>{header}
@@ -144,6 +146,21 @@ export function CaregiverDashboard(){
       <DashNav sections={sections} page="profile"/>
       <div className="dash-main-col profile-page">
         <EmployerViewPreview gaps={gaps} pctComplete={pctComplete}/>
+      </div>
+    </main>
+  </div>;
+
+  if(applicationsPage)return <div>{header}
+    <main className="app-wrap app-content dash-layout">
+      <DashNav sections={sections} page="applications"/>
+      <div className="dash-main-col">
+        <div className="page-head"><h1>Applications</h1></div>
+        {(data.applications||[]).length===0
+          ?<div className="empty"><strong>No applications yet.</strong><div>Jobs you apply to or save show up here. <a className="text-link" href="/dashboard/jobs">Find jobs</a></div></div>
+          :<div className="settings-card">{(data.applications||[]).map(a=><div key={a.jobId+a.at} className="job-meta">
+            <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {applicationStatus(a)} · {when(a.at)}
+            {!a.employerOnCareJoys&&!a.submittedOnEmployerSite&&a.applicationUrl&&<> · <a className="text-link" href={a.applicationUrl} target="_blank" rel="noreferrer nofollow">Finish on {a.employerName||'the employer'}’s site ↗</a></>}
+          </div>)}</div>}
       </div>
     </main>
   </div>;
@@ -297,13 +314,6 @@ export function CaregiverDashboard(){
         </div></section>}
 
 
-      {(data.applications||[]).length>0&&<section className="section-block" id="applications">
-        <div className="section-heading"><h2>Jobs you applied to</h2></div>
-        <div className="settings-card">{(data.applications||[]).map(a=><div key={a.jobId+a.at} className="job-meta">
-          <a className="text-link" href={'/jobs/'+encodeURIComponent(a.jobId)}>{a.title}</a>{a.employerName?' · '+a.employerName:''} · {applicationStatus(a)} · {when(a.at)}
-          {!a.employerOnCareJoys&&!a.submittedOnEmployerSite&&a.applicationUrl&&<> · <a className="text-link" href={a.applicationUrl} target="_blank" rel="noreferrer nofollow">Finish on {a.employerName||'the employer'}’s site ↗</a></>}
-        </div>)}</div>
-      </section>}
 
       </div>
     </main>
@@ -311,7 +321,7 @@ export function CaregiverDashboard(){
 }
 
 /** Left side nav on desktop, a scrolling tab row on phones. Links jump to sections; the one in view is highlighted. */
-function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[];page?:'dashboard'|'profile'|'settings'|'jobs'}){
+function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[];page?:'dashboard'|'profile'|'settings'|'jobs'|'applications'}){
   const [active,setActive]=useState(page!=='dashboard'?'':sections[0]?.id||'');
   useEffect(()=>{
     if(page!=='dashboard')return;
@@ -327,6 +337,7 @@ function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[
   return <nav className="dash-sidenav" aria-label="Dashboard sections">
     <div className="dash-sidenav-label">Dashboard</div>
     {sections.map(s=><a key={s.id} href={(page==='dashboard'?'':'/dashboard')+'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
+    <a href="/dashboard/applications" className={page==='applications'?'active':undefined} aria-current={page==='applications'?'page':undefined}>Applications</a>
     <a href="/dashboard/jobs" className={page==='jobs'?'active':undefined} aria-current={page==='jobs'?'page':undefined}>All jobs</a>
     <a href="/dashboard/profile" className={page==='profile'?'active':undefined} aria-current={page==='profile'?'page':undefined}>Profile</a>
     <a href="/dashboard/settings" className={page==='settings'?'active':undefined} aria-current={page==='settings'?'page':undefined}>Settings</a>
