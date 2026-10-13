@@ -193,6 +193,11 @@ export function applyProfileFromCaregiver(c:Record<string,unknown>,remembered:Re
     cprCertified:/\b(cpr|bls)\b/i.test(certs)?true:null,
     reliableTransportation:/car|vehicle|own|drive/i.test(String(c.transportation||""))?true:null,
   };
+  // "What employers check first" yes answers from the profile; an unticked item is asked, never taken as a no.
+  const checked=new Set(String(c.checklist||"").split(",").map(x=>x.trim()));
+  if(checked.has("over18"))profile.over18=true;
+  if(checked.has("work_authorized"))profile.workAuthorizationUs=true;
+  if(checked.has("drivers_license"))profile.driversLicense=true;
   for(const key of REMEMBERABLE_KEYS){
     const raw=remembered[key];
     if(raw===undefined||profile[key]!=null)continue;

@@ -707,13 +707,13 @@ describe('pay preferences and verified caregiver availability',()=>{
   it('keeps unsigned profiles hidden until the email is verified, then shows them with no extra step, and stores an hourly floor',async()=>{
     const email='pay-floor-worker@realcare.test';
     const req={firstName:'Pay',lastName:'Floor',email,zip:'21201',role:'CNA',desiredWage:'$24–30/hr',
-      availability:{days:{mon:['morning'],sat:['overnight']},liveIn:false}};
+      availability:{days:{mon:['morning'],sat:['overnight']},liveIn:false},checklist:['over18','work_authorized','not_a_key']};
     const created=await post('/api/caregiver-resume',req);
     expect(created.status).toBe(201);
     const {id}=await created.json() as any;
     // Signing up means looking for work, so the profile is ready to show; the shift grid becomes the shifts summary.
-    expect(await DB.prepare('SELECT phone,hourly_rate_min,desired_wage,work_status,last_confirmed_at IS NOT NULL AS confirmed,shift_preferences,availability_json FROM caregivers WHERE id=?').bind(id).first())
-      .toEqual({phone:'',hourly_rate_min:24,desired_wage:'$24+/hr',work_status:'actively_looking',confirmed:1,shift_preferences:'Mornings, Overnights, Weekends',
+    expect(await DB.prepare('SELECT phone,hourly_rate_min,desired_wage,work_status,last_confirmed_at IS NOT NULL AS confirmed,shift_preferences,availability_json,checklist FROM caregivers WHERE id=?').bind(id).first())
+      .toEqual({checklist:'over18,work_authorized',phone:'',hourly_rate_min:24,desired_wage:'$24+/hr',work_status:'actively_looking',confirmed:1,shift_preferences:'Mornings, Overnights, Weekends',
         availability_json:JSON.stringify({days:{mon:['morning'],tue:[],wed:[],thu:[],fri:[],sat:['overnight'],sun:[]},liveIn:false})});
     // An unverified email could be anyone's, so the profile stays out of search until it is verified.
     const search=await (await call('/api/candidates?zip=21201',{headers:{cookie:'cj_session='+SESSION}})).json() as any;
