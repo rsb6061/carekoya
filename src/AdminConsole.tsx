@@ -384,6 +384,7 @@ export function AdminConsole(){
         </div>
         {data.outreach.recentRuns.length>0&&<div className="settings-card" style={{marginTop:12}}>{data.outreach.recentRuns.map(r=><div className="job-meta" key={r.created_at+r.kind}>{day(r.created_at)} · {KIND_LABELS[r.kind]||r.kind} · {r.trigger} · sent {r.sent}{r.failed?`, failed ${r.failed}`:''}</div>)}</div>}
       </section>
+      <SmsTest/>
       </>}
       {section==='advanced'&&<><section className="section-block">
         <div className="section-heading"><h2>Traffic</h2><p>{f.traffic.pageViews} page views. Cookie-less, path only.</p></div>
@@ -396,6 +397,28 @@ export function AdminConsole(){
     </main>
   </div>;
 
+}
+
+/** Texts the admin's own phone through Twilio to check the CareJoys SMS setup end to end. */
+function SmsTest(){
+  const [to,setTo]=useState('');
+  const [sending,setSending]=useState(false);
+  const [result,setResult]=useState('');
+  async function send(e:FormEvent){
+    e.preventDefault();setSending(true);setResult('');
+    const res=await fetch('/api/admin/sms/test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({to})}).catch(()=>null);
+    const body=res?await res.json().catch(()=>({})) as {ok?:boolean;error?:string;reason?:string}:{};
+    setResult(body.ok?'Sent. Check your phone.':body.reason==='disabled'?'Texting is switched off (SMS_ENABLED).':body.reason==='not_configured'?'The Twilio secrets are missing in Cloudflare.':body.error||body.reason||'Could not send');
+    setSending(false);
+  }
+  return <section className="section-block">
+    <div className="section-heading"><h2>Text messages</h2><p>Send a test text from the CareJoys number to your own phone. Reply YES to it to check replies too.</p></div>
+    <form className="settings-card empty-actions" onSubmit={e=>void send(e)}>
+      <input className="pipeline-select" type="tel" value={to} onChange={e=>setTo(e.target.value)} placeholder="Your mobile, e.g. 410 555 0123" required />
+      <button className="button secondary" disabled={sending}>{sending?'Sending…':'Send test text'}</button>
+      {result&&<div className="job-meta">{result}</div>}
+    </form>
+  </section>;
 }
 
 type JobSite={site:string;jobs:number;supported:boolean;sampleJobId:string};
