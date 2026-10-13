@@ -17,7 +17,7 @@ export function SiteHeader({jobsHref='/caregiver-jobs',hireButton=true}:Omit<Lin
 
 export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links){
   return <footer className="footer"><div className="wrap footer-inner">
-    <div className="footer-brand"><strong>CareJoys</strong><span>Free caregiver career matches and job alerts.</span></div>
+    <div className="footer-brand"><strong>CareJoys</strong><span>Free caregiver career matches and job alerts.</span><span className="footer-operator">CareJoys is operated by NourishNode.</span></div>
     <nav className="footer-links">
       <a href={jobsHref}>Caregiver jobs</a>
       {showTraining&&<a href="/training-programs/maryland">Maryland training programs</a>}

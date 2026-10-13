@@ -1,3 +1,4 @@
+import { pdfItemsText, structure } from '../src/resumeParser';
 import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
@@ -704,5 +705,27 @@ describe('agency applicant CSV import',()=>{
   it('explains a file it cannot use',()=>{
     expect(applicantsFromCsv('Name\nAna').error).toMatch(/phone or email/);
     expect(applicantsFromCsv('Name,Phone').error).toMatch(/header row/);
+  });
+});
+
+describe('resume parser', ()=>{
+  it('keeps PDF lines apart so the name at the top is found', ()=>{
+    const text=pdfItemsText([
+      {str:'YOLANDA BRIGHTWATER',hasEOL:false,transform:[0,0,0,0,0,734]},
+      {str:'',hasEOL:true,transform:[0,0,0,0,0,718]},
+      {str:'Caregiver',hasEOL:true,transform:[0,0,0,0,0,718]},
+      {str:'(509) 555-0167 | yolanda@example.com | Spokane, WA 99201',hasEOL:false,transform:[0,0,0,0,0,702]},
+      {str:'',hasEOL:true,transform:[0,0,0,0,0,667]},
+      {str:'Lead caregiver with 14 years across private duty and memory care. CNA, CPR.',hasEOL:true,transform:[0,0,0,0,0,650]},
+    ]);
+    expect(text.split('\n')[0]).toBe('YOLANDA BRIGHTWATER');
+    const r=structure(text);
+    expect([r.firstName,r.lastName]).toEqual(['Yolanda','Brightwater']);
+    expect(r.zip).toBe('99201');
+    expect(r.phone).toBe('(509) 555-0167');
+    expect(r.yearsExperience).toBe(14);
+  });
+  it('keeps a name written in mixed case as it is', ()=>{
+    expect(structure('Mary McDonald-Smith\nmary@example.com').lastName).toBe('McDonald-Smith');
   });
 });

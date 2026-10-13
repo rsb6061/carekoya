@@ -11,6 +11,7 @@ export type ParsedResume = {
   certifications:string[];
   specialties:string[];
   languages:string[];
+  yearsExperience:number|null;
 };
 
 const clean=(v:string)=>v.replace(/\s+/g,' ').trim();
@@ -23,20 +24,28 @@ function findPhone(text:string){
   const match=text.match(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}/);
   return match?.[0]?.replace(/\s+/g,' ').trim()||'';
 }
-function findZip(text:string){
-  return text.match(/\b(?:20[6-9]|21[0-9])\d{2}\b/)?.[0]||text.match(/\b\d{5}(?:-\d{4})?\b/)?.[0]||'';
-}
+// A name typed in capitals (YOLANDA BRIGHTWATER) is stored the way people write it (Yolanda Brightwater).
+const nameCase=(w:string)=>w===w.toUpperCase()||w===w.toLowerCase()?w.toLowerCase().replace(/(^|[-'])([a-z])/g,(_,a,b)=>a+b.toUpperCase()):w;
 function findName(text:string,email:string,phone:string){
   const lines=text.split(/\r?\n/).map(clean).filter(Boolean).slice(0,12);
   for(const line of lines){
-    if(line===email||line.includes('@')||line.includes(phone)||/resume|curriculum|objective|summary|profile|professional/i.test(line))continue;
+    if(line===email||line.includes('@')||(phone&&line.includes(phone))||/resume|curriculum|objective|summary|profile|professional|experience|education|skills/i.test(line))continue;
     if(/\d{3}/.test(line)||line.length>60)continue;
     const words=line.replace(/[^A-Za-z' -]/g,'').trim().split(/\s+/).filter(Boolean);
     if(words.length>=2&&words.length<=4&&words.every(w=>w.length>1)){
-      return {firstName:words[0],lastName:words[words.length-1]};
+      return {firstName:nameCase(words[0]),lastName:nameCase(words[words.length-1])};
     }
   }
   return {firstName:'',lastName:''};
+}
+/** "Spokane, WA 12345": the ZIP that follows a state, before any other 5-digit number. */
+function findZip(text:string){
+  return text.match(/\b[A-Z]{2}\.?,?\s+(\d{5})(?:-\d{4})?\b/)?.[1]||text.match(/\b(?:20[6-9]|21[0-9])\d{2}\b/)?.[0]||text.match(/\b\d{5}(?:-\d{4})?\b/)?.[0]||'';
+}
+/** "14 years of experience", "14 years across…": the largest such number, capped at 60. */
+function findYears(text:string){
+  const years=[...text.matchAll(/\b(\d{1,2})\+?\s*(?:years?|yrs?)\b/gi)].map(m=>Number(m[1])).filter(n=>n>0&&n<=60);
+  return years.length?Math.max(...years):null;
 }
 function detectRole(text:string){
   const t=text.toLowerCase();
@@ -91,7 +100,7 @@ function detectLanguages(text:string){
   const names=['English','Spanish','French','Arabic','Amharic','Haitian Creole','Mandarin','Cantonese','Korean','Vietnamese','Tagalog','Russian'];
   return names.filter(x=>new RegExp('\\b'+x.replace(' ','\\s+')+'\\b','i').test(text));
 }
-function structure(text:string):ParsedResume{
+export function structure(text:string):ParsedResume{
   const email=findEmail(text);
   const phone=findPhone(text);
   const name=findName(text,email,phone);
@@ -105,8 +114,25 @@ function structure(text:string):ParsedResume{
     role:detectRole(text),
     certifications:detectCertifications(text),
     specialties:detectSpecialties(text),
-    languages:detectLanguages(text)
+    languages:detectLanguages(text),
+    yearsExperience:findYears(text)
   };
+}
+
+type PdfItem={str?:string;hasEOL?:boolean;transform?:number[]};
+/** Rebuilds a PDF page's lines: a new line wherever the PDF ends one or the text moves down the page.
+ *  Joining everything with spaces made the whole page one line, so the name at the top was never found. */
+export function pdfItemsText(items:PdfItem[]){
+  let out='',lastY:number|null=null;
+  for(const item of items){
+    const y=item.transform?.[5]??null;
+    if(lastY!=null&&y!=null&&Math.abs(y-lastY)>2&&!out.endsWith('\n'))out+='\n';
+    else if(out&&!out.endsWith('\n')&&!out.endsWith(' ')&&item.str)out+=' ';
+    out+=item.str||'';
+    if(item.hasEOL)out+='\n';
+    if(y!=null)lastY=y;
+  }
+  return out;
 }
 
 async function pdfText(file:File){
@@ -119,7 +145,7 @@ async function pdfText(file:File){
   for(let i=1;i<=Math.min(pdf.numPages,12);i++){
     const page=await pdf.getPage(i);
     const content=await page.getTextContent();
-    pages.push(content.items.map((item:any)=>typeof item.str==='string'?item.str:'').join(' '));
+    pages.push(pdfItemsText(content.items as PdfItem[]));
   }
   return pages.join('\n');
 }

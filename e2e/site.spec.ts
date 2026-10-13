@@ -226,15 +226,6 @@ test('@phone job hub filters and ZIP search', async({page})=>{
   clean(w);
 });
 
-test('@phone pricing ZIP check shows nearby caregivers', async({page})=>{
-  const w=await watch(page);
-  await page.goto('/pricing');
-  await page.getByRole('textbox').first().fill('21201');
-  await page.getByRole('button',{name:'See caregivers near you'}).click();
-  await expect(page.getByText(/caregiver|job/i).filter({hasText:/near|within|21201|Baltimore/}).first()).toBeVisible();
-  clean(w);
-});
-
 test('training program asks to be added', async({page})=>{
   const w=await watch(page);
   await page.goto('/add-training-program');
