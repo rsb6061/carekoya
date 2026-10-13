@@ -106,7 +106,8 @@ export function CaregiverJobPage(){
   const hubHref=state?jobsHubPath(state):'/caregiver-jobs';
 
   return <div>
-    <SiteHeader jobsHref={hubHref}/>
+    {/* A caregiver mid-apply doesn't need the employer button as the loudest thing on the page. */}
+    <SiteHeader jobsHref={hubHref} hireButton={false}/>
     <main className="job-detail-shell">
       <div className="wrap job-detail-wrap">
         <a className="text-link job-back-link" href={hubHref}>← All {state?state.name:''} caregiver jobs</a>

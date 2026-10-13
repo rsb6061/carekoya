@@ -5,12 +5,12 @@ import { AccountLink } from './AccountLink';
 type Links={jobsHref?:string;showTraining?:boolean};
 
 /** Same links in the same order on every public page; phones get the short labels. The employer button sits top right. */
-export function SiteHeader({jobsHref='/caregiver-jobs'}:Omit<Links,'showTraining'>){
+export function SiteHeader({jobsHref='/caregiver-jobs',hireButton=true}:Omit<Links,'showTraining'>&{hireButton?:boolean}){
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
       <a href={jobsHref}><span className="hide-sm">Caregiver jobs</span><span className="show-sm">Jobs</span></a>
-      <AccountLink hireButton/>
+      <AccountLink hireButton={hireButton}/>
     </nav>
   </div></header>;
 }
