@@ -444,10 +444,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   }
   if(url.pathname==="/pricing"){
     return seoAsset(request,env,{
-      title:"Faster AI Hiring for Home Care: $99/Month Per Location | CareJoys",
-      description:"CareJoys runs your caregiver applicant pipeline: every applicant contacted within 30 minutes, screened, and scheduled onto your calendar. $99/month per location, no placement fees.",
+      title:"Caregiver Applicant Follow-Up: $99/Month Per Location | CareJoys",
+      description:"CareJoys works the caregiver applicants you already get: each one texted within 30 minutes, screened with your questions, and booked onto your calendar. $99/month per location, founding pilot.",
       canonical:"/pricing",
-      snapshot:'<main><h1>Faster AI hiring for home care.</h1><p>Tell us your openings. We take over your applicant pipeline: every applicant contacted within 30 minutes, screened against your requirements, and scheduled onto your calendar.</p><h2>How it works</h2><ol><li>Tell us your openings, or claim your agency if it is already listed.</li><li>We text every applicant within 30 minutes, screen them against your checklist, and keep them warm.</li><li>Qualified candidates land on your interview calendar. You hire.</li></ol><h2>Operated hiring: $99/month per location</h2><p>One location, up to about 75 applicants a month; more than that, we’ll talk. Month-to-month. Cancel anytime. No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Get started</a> · <a href="/hire-caregivers#claim-agency">Claim your agency free</a></p></main>'
+      snapshot:'<main><h1>Turn caregiver applicants into interviews.</h1><p>We work the applicants you already get from Indeed, your website and CareJoys: each one texted, screened against your questions, and booked onto your calendar. Your job ads stay yours; we don’t sell leads.</p><h2>How it works</h2><ol><li>Tell us your openings and point your applicant emails at us, or claim your agency if it is already listed.</li><li>We text every applicant from a connected source within 30 minutes, 8am to 9pm, ask your screening questions, and keep them warm.</li><li>Candidates who pass and want an interview land on your calendar. You hire.</li></ol><h2>Applicant follow-up: $99/month per location</h2><p>Founding pilot. One location, up to 75 applicants a month; those are applicants we work, not leads we supply. Month-to-month. Cancel anytime. No placement fees and no per-hire charges.</p><p><a href="/hire-caregivers">Get started</a> · <a href="/hire-caregivers#claim-agency">Claim your agency free</a></p></main>'
     });
   }
   if(url.pathname==="/about"){
