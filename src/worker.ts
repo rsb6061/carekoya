@@ -19,7 +19,8 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRad
 import { APPLIED_TO_EMPLOYER_SQL, alreadyApplied, appliedCaregiverIds } from './applications';
 import { INVITES_PAUSED_SQL, OPEN_TO_EMPLOYER_SQL, browseLimit, inviteAllowance } from './caregiverProtection';
 import { DAILY_PROFILE_VIEWS, DAILY_TALENT_SEARCHES, scrubBio } from './caregiverProtectionRules';
-import { adminApplicants, workspaceApplicants } from './applicantsApi';
+import { adminApplicantReactivation, adminApplicants, workspaceApplicants } from './applicantsApi';
+import { handleStillLooking } from './applicantReactivation';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { loadEmployerProfile } from './employerProfile';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
@@ -1987,6 +1988,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
+    // An agency's past applicant answering the "still looking?" email (src/applicantReactivation.ts).
+    if(url.pathname==="/still-looking"&&request.method==="GET") return handleStillLooking(request,env);
+    if(url.pathname==="/still-looking"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleStillLooking(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/client-errors"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordClientError(request,env); }
 
@@ -2059,6 +2063,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="GET"&&url.pathname==="/api/admin/sms") return adminSmsReport(env);
       if(request.method==="POST"&&url.pathname==="/api/admin/sms/test") return adminSmsTest(request,env,admin.email);
       // An agency's own applicants, worked by CareJoys for the operated service (src/applicants.ts).
+      if(url.pathname==="/api/admin/applicant-reactivation"&&(request.method==="GET"||request.method==="POST")) return adminApplicantReactivation(request,env,admin.email);
       const adminApplicant=url.pathname.match(/^\/api\/admin\/applicants(?:\/([^/]+))?$/);
       if(adminApplicant&&(request.method==="GET"&&!adminApplicant[1]||request.method==="POST")) return adminApplicants(request,env,admin.email,decodeURIComponent(adminApplicant[1]||""));
       const videoReview=url.pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(approve|reject)$/);

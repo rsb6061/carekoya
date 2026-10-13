@@ -275,7 +275,8 @@ export function AdminConsole(){
             {[...data.employers].sort((a,b)=>String(a.company_name||'').localeCompare(String(b.company_name||''))).map(e=><option key={e.id} value={e.id}>{e.company_name||'Unnamed'} · {e.email}</option>)}
           </select>
         </section>
-        {applicantEmployer&&<ApplicantIntake base="/api/admin/applicants" employerId={applicantEmployer} title={(data.employers.find(e=>e.id===applicantEmployer)?.company_name||'Agency')+' applicants'}/>}
+        {applicantEmployer&&<ApplicantIntake base="/api/admin/applicants" employerId={applicantEmployer} title={(data.employers.find(e=>e.id===applicantEmployer)?.company_name||'Agency')+' applicants'}
+          reactivation={{url:'/api/admin/applicant-reactivation?employer='+encodeURIComponent(applicantEmployer),agencyName:data.employers.find(e=>e.id===applicantEmployer)?.company_name||'the agency',testTo:data.admin.email}}/>}
       </>}
       {section==='caregivers'&&<>
         <AdminVideoReview/>

@@ -4,7 +4,7 @@
 import { normalizePhone } from './sms';
 
 type Row=Record<string,unknown>;
-type RunResult={meta?:Record<string,unknown>};
+type RunResult={success:boolean;meta?:Record<string,unknown>};
 type Statement={bind(...values:unknown[]):Statement;run():Promise<RunResult>;all<T=Row>():Promise<{results?:T[]}>;first<T=Row>():Promise<T|null>};
 export type ApplicantDb={prepare(query:string):Statement;batch?(statements:Statement[]):Promise<RunResult[]>};
 type Db=ApplicantDb;
@@ -160,14 +160,17 @@ export async function importApplicants(db:Db,employerId:string,input:ImportInput
 }
 
 export type ApplicantView={id:string;name:string;firstName:string;lastName:string;email:string;phone:string;city:string;state:string;zip:string;position:string;
-  source:ApplicantSource;sourceDetail:string;stage:ApplicantStage;notes:string;appliedAt:string;receivedAt:string;firstContactAt:string;screenedAt:string;poolOptIn:boolean};
+  source:ApplicantSource;sourceDetail:string;stage:ApplicantStage;notes:string;appliedAt:string;receivedAt:string;firstContactAt:string;screenedAt:string;poolOptIn:boolean;
+  /** The dead-pile "still looking?" email: when it went, and the applicant's yes or no. */
+  reactivation:{sentAt:string;status:string;response:string;respondedAt:string;replyPhone:string}};
 
 function view(r:Row):ApplicantView{
   const firstName=clean(r.first_name,80),lastName=clean(r.last_name,80);
   return {id:clean(r.id,100),name:[firstName,lastName].filter(Boolean).join(' ')||clean(r.email,320)||clean(r.phone,20),firstName,lastName,
     email:clean(r.email,320),phone:clean(r.phone,20),city:clean(r.city,120),state:clean(r.state,20),zip:clean(r.zip,10),position:clean(r.position,200),
     source:clean(r.source,40) as ApplicantSource,sourceDetail:clean(r.source_detail,200),stage:clean(r.stage,20) as ApplicantStage,notes:clean(r.notes,2000),
-    appliedAt:clean(r.applied_at,40),receivedAt:clean(r.received_at,40),firstContactAt:clean(r.first_contact_at,40),screenedAt:clean(r.screened_at,40),poolOptIn:Number(r.pool_opt_in)===1};
+    appliedAt:clean(r.applied_at,40),receivedAt:clean(r.received_at,40),firstContactAt:clean(r.first_contact_at,40),screenedAt:clean(r.screened_at,40),poolOptIn:Number(r.pool_opt_in)===1,
+    reactivation:{sentAt:clean(r.reactivation_sent_at,40),status:clean(r.reactivation_status,20),response:clean(r.reactivation_response,10),respondedAt:clean(r.reactivation_responded_at,40),replyPhone:clean(r.reply_phone,20)}};
 }
 
 export async function listApplicants(db:Db,employerId:string){

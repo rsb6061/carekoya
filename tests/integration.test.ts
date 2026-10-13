@@ -2796,3 +2796,75 @@ describe('agency applicants',()=>{
     expect(list.applicants.find((a:any)=>a.phone==='+14105550199')).toMatchObject({name:'Cy Doe',source:'referral',sourceDetail:'Ana Lopez'});
   });
 });
+
+describe('dead-pile reactivation',()=>{
+  const admin={authorization:'Bearer ops','content-type':'application/json',origin:'https://carejoys.com'};
+  const ops={ADMIN_TOKEN:'ops'};
+  const url='/api/admin/applicant-reactivation?employer=emp1';
+  const csv='Name,Email,Job Title\nDee Past,dee@example.com,Caregiver\nEd Past,ed@example.com,GNA\nFay Gone,fay@example.com,Caregiver\nNo Email,,\n';
+
+  it('is admin only and needs a sender name',async()=>{
+    expect((await call(url,{},ops)).status).toBe(401);
+    expect((await call(url,{method:'POST',headers:admin,body:JSON.stringify({senderName:' '})},ops)).status).toBe(400);
+  });
+
+  it('sends a test, then emails each past applicant once, skipping unsubscribed addresses',async()=>{
+    await call('/api/admin/applicants?employer=emp1',{method:'POST',headers:admin,body:JSON.stringify({csv,source:'dead-pile'})},ops);
+    await DB.prepare("INSERT INTO email_suppressions(email,reason,source) VALUES ('fay@example.com','unsubscribe','test') ON CONFLICT(email) DO NOTHING").run();
+    const before=await (await call(url,{headers:admin},ops)).json() as any;
+    expect(before).toMatchObject({ok:true,ready:2,sent:0,yes:0});
+
+    const at=sent.length;
+    const test=await call(url,{method:'POST',headers:admin,body:JSON.stringify({senderName:'Sam',payText:'$17–$20/hr',testTo:'boss@carejoys.com'})},ops);
+    expect(test.status).toBe(200);
+    expect(sent.slice(at)).toHaveLength(1);
+    expect(sent[at]).toMatchObject({to:'boss@carejoys.com'});
+    expect(sent[at].subject).toMatch(/^\[Test\]/);
+    expect(((await (await call(url,{headers:admin},ops)).json()) as any).sent).toBe(0);
+
+    const r=await (await call(url,{method:'POST',headers:admin,body:JSON.stringify({senderName:'Sam',payText:'$17–$20/hr'})},ops)).json() as any;
+    expect(r.batch).toEqual({attempted:2,sent:2,failed:0});
+    expect(r.status).toMatchObject({ready:0,sent:2});
+    const mails=sent.slice(at+1);
+    expect(mails.map(m=>m.to).sort()).toEqual(['dee@example.com','ed@example.com']);
+    const company=(await DB.prepare("SELECT company_name c FROM employer_leads WHERE id='emp1'").first()).c;
+    expect((mails[0] as any).from).toBe(company+' via CareJoys <hello@carejoys.com>');
+    expect(mails[0].html).toContain(`This is Sam with <strong>${company}</strong>`);
+    expect(mails[0].html).toContain('paying $17–$20/hr');
+    expect(mails[0].headers?.['List-Unsubscribe']).toMatch(/unsubscribe/);
+
+    const again=await (await call(url,{method:'POST',headers:admin,body:JSON.stringify({senderName:'Sam'})},ops)).json() as any;
+    expect(again.batch.attempted).toBe(0);
+  });
+
+  it('records a yes with a better phone and the separate CareJoys opt-in, and a no',async()=>{
+    const linkFor=(to:string)=>{const m=sent.filter(x=>x.to===to).pop() as any;return (m.text as string).match(/https:\/\/carejoys\.com\/still-looking\?token=[^&\s]+/)![0].replace('https://carejoys.com','')};
+    const dee=linkFor('dee@example.com');
+    const page=await call(dee+'&answer=yes');
+    expect(page.status).toBe(200);
+    const company=(await DB.prepare("SELECT company_name c FROM employer_leads WHERE id='emp1'").first()).c;
+    expect(await page.text()).toContain(`Tell ${company} you’re still looking`);
+    // Opening the link alone (a mail scanner) records nothing.
+    expect((await DB.prepare("SELECT reactivation_response r FROM agency_applicants WHERE email='dee@example.com'").first()).r).toBeNull();
+    const yes=await call(dee,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',origin:'https://carejoys.com'},body:'answer=yes&phone=410-555-0177&pool=1'});
+    expect(yes.status).toBe(200);
+    const row=await DB.prepare("SELECT * FROM agency_applicants WHERE email='dee@example.com'").first();
+    expect(row).toMatchObject({reactivation_response:'yes',stage:'contacted',reply_phone:'+14105550177',pool_opt_in:1});
+    expect(row.first_contact_at).toBeTruthy();
+    expect(await DB.prepare("SELECT COUNT(*) n FROM caregivers WHERE email='dee@example.com'").first()).toMatchObject({n:0});
+
+    await call(linkFor('ed@example.com'),{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded',origin:'https://carejoys.com'},body:'answer=no'});
+    expect(await DB.prepare("SELECT reactivation_response r,stage,pool_opt_in p FROM agency_applicants WHERE email='ed@example.com'").first()).toMatchObject({r:'no',stage:'new',p:0});
+
+    const list=await (await call('/api/admin/applicants?employer=emp1',{headers:admin},ops)).json() as any;
+    expect(list.applicants.find((a:any)=>a.email==='dee@example.com').reactivation).toMatchObject({response:'yes',replyPhone:'+14105550177',status:'sent'});
+    expect(((await (await call(url,{headers:admin},ops)).json()) as any)).toMatchObject({yes:1,no:1});
+  });
+
+  it('turns away unknown links and explains test links',async()=>{
+    expect((await call('/still-looking?token=nope&answer=yes')).status).toBe(404);
+    const preview=await call('/still-looking?token=preview&answer=yes');
+    expect(preview.status).toBe(200);
+    expect(await preview.text()).toContain('This is a test email.');
+  });
+});
