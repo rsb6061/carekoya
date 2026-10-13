@@ -8,18 +8,6 @@ import './styles.css';
 const path=window.location.pathname;
 installErrorReporter();
 
-// A page's own JS/CSS file failed to load: a dropped connection, or an old tab asking for a file a deploy replaced.
-// Reload once to get a fresh copy instead of a blank page; if it fails again within a minute, let the crash be reported.
-window.addEventListener('vite:preloadError',event=>{
-  try{
-    const last=Number(sessionStorage.getItem('cj_preload_reload')||0);
-    if(Date.now()-last<60000)return;
-    sessionStorage.setItem('cj_preload_reload',String(Date.now()));
-  }catch{return}
-  event.preventDefault();
-  window.location.reload();
-});
-
 function trackPageView(){
   try{
     const params=new URLSearchParams(window.location.search);
