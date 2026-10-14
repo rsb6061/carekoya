@@ -184,7 +184,7 @@ export function CaregiverDashboard(){
           <label className="check-row"><input type="checkbox" checked={hiddenProfile} disabled={!!busy} onChange={e=>{const hide=e.target.checked;setHideChoice(hide);void act('avail','/api/me/availability',{workStatus:hide?'not_looking':'actively_looking'},hide?'Your profile is hidden from employers.':'You’re shown to employers again.').finally(()=>setHideChoice(null))}} /><span>Hide my profile from employers</span></label>
         </section>
         <section className="section-block" id="auto-apply">
-          <div className="section-heading"><h2>Auto-apply</h2><p>CareJoys applies to your best new matches for you. If an application needs something only you can answer, it waits on your dashboard and we email you.</p></div>
+          <div className="section-heading"><h2>Auto-apply</h2><p>CareJoys applies to your best new matches for you. If an employer’s form asks something only you can answer, we skip that job.</p></div>
           <label className="check-row"><input type="checkbox" checked={autoChoice??!!c.autoApply} disabled={!!busy||!data.resume} onChange={e=>{const on=e.target.checked;setAutoChoice(on);void act('auto','/api/me/auto-apply',{enabled:on},on?'Auto-apply is on. We’ll apply to up to 3 of your best new matches a day.':'Auto-apply is off.').finally(()=>setAutoChoice(null))}} /><span>Apply to my best new matches for me (up to 3 a day)</span></label>
           {!data.resume&&<p className="muted">Add your resume on <a className="text-link" href="/dashboard/profile">your profile</a> to turn this on.</p>}
         </section>

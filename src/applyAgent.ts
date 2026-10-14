@@ -258,7 +258,7 @@ export const AUTO_APPLY_PER_DAY=3;
  * The daily auto-apply, run from the hourly cron. For each caregiver who switched it on (verified email, looking,
  * not a test account) it applies to their best matches CareJoys can actually apply to: an employer on CareJoys gets
  * their profile, and a job site Apply for me supports gets the form filled in and sent. A run that stops on a question
- * or a signature leaves the job on their dashboard to finish, and they get the usual email. Each job is tried once.
+ * or a signature sends nothing and doesn't count toward the day. Each job is tried once.
  * Nothing runs until AUTO_APPLY_ENABLED is "true". `maxBrowserRuns` keeps one cron invocation inside its time limit.
  */
 export async function runAutoApply(env:ApplyEnv,maxBrowserRuns=3){
@@ -292,21 +292,23 @@ export async function runAutoApply(env:ApplyEnv,maxBrowserRuns=3){
       if(hidden)continue;
       const job=await agentJob(env,jobId);
       if(!job)continue;
-      await db.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES (?,?,?,'auto_applied','auto_apply')")
+      const counted=()=>db.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES (?,?,?,'auto_applied','auto_apply')")
         .bind(crypto.randomUUID(),jobId,caregiverId).run();
-      left--;
       if(match.employerOnCareJoys){
         // The employer is on CareJoys: the application is their profile, sent straight to the employer.
+        await counted();
         await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
-        applied++;
+        left--;applied++;
         continue;
       }
       browserRuns++;
       const res=await runForCaregiver(env,caregiverId,job,'auto').catch(()=>null);
       const body=res?await res.clone().json().catch(()=>({})) as Row:{};
-      if(body.status==='submitted'||body.status==='already_applied'){applied++;continue}
-      // Stopped on a question, a signature or an error: the job waits on their dashboard with "Finish applying", and they get an email.
-      await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
+      if(body.status==='submitted'||body.status==='already_applied'){await counted();left--;applied++;continue}
+      // Their profile can't fill any form yet (no name, phone or resume): try again once they add it.
+      if(body.profileRequired||body.resumeRequired)break;
+      // We either apply or we don't: a run that stopped on a question or a signature sent nothing, so it isn't
+      // counted against the day. Its session row keeps the job from being tried again.
     }
   }
   return {caregivers:(people.results||[]).length,applied};
