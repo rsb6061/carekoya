@@ -367,9 +367,11 @@ a{color:inherit;text-decoration:none}
 @media (max-width:640px){.account-name{display:none}.account-menu-button{padding:4px!important}.account-caret{display:none}}
 
 /* One header on every page: same width, height and pill on public pages, sign-in pages and dashboards */
-.nav .nav-inner,.app-header .header-inner{width:min(1180px,calc(100% - 48px));max-width:none;margin:0 auto;min-height:58px;padding:8px 10px 8px 18px!important}
-.app-nav .account-menu-button,.navlinks .account-menu-button{min-height:38px}
-@media(max-width:760px){.nav .nav-inner,.app-header .header-inner{width:calc(100% - 24px);padding:8px 8px 8px 14px!important;border-radius:24px}}
+body .nav,body .app-header{padding:12px 0}
+.nav .nav-inner,.app-header .header-inner{width:min(1180px,calc(100% - 48px));max-width:none;margin:0 auto;min-height:46px;padding:4px 6px 4px 18px!important}
+.navlinks a,.navlinks button,.app-nav .nav-link,.app-nav .nav-button,.app-header .admin-section-nav .nav-button{padding-top:7px;padding-bottom:7px}
+.app-header .account-menu-button,.nav .account-menu-button{min-height:34px;padding-top:2px!important;padding-bottom:2px!important}
+@media(max-width:760px){body .nav,body .app-header{padding:10px 0}.nav .nav-inner,.app-header .header-inner{width:calc(100% - 24px);padding:4px 5px 4px 14px!important;border-radius:23px}}
 
 /* Pricing: copy on the left, plan card on the right (JobPlots layout) */
 .pricing-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(390px,480px);gap:56px;align-items:start}
