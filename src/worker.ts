@@ -5,7 +5,8 @@ import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
+import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
+import { adminInbox, adminInboxUpdate, handleInboundEmail, type InboundEmailMessage } from './inboundEmail';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
@@ -106,6 +107,8 @@ interface Env {
   SMS_ENABLED?: string;
   // Applies to opted-in caregivers' best new matches (src/applyAgent.ts runAutoApply). Off until Rebecca approves.
   AUTO_APPLY_ENABLED?: string;
+  // Where mail to hello@ is forwarded once the Worker has recorded it (src/inboundEmail.ts). Unset: the first ADMIN_EMAILS address.
+  INBOUND_FORWARD_TO?: string;
 }
 
 /** The booking link for the /hire-caregivers confirmation, or "" when unset or not https. */
@@ -994,6 +997,7 @@ async function handleEmployer(request: Request, env: Env) {
       await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
         .bind(employerId,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
       redirect="/app?opening="+encodeURIComponent(await createIntakeOpening(env,employerId,intake))+"&match=1";
+      await alertNewEmployerLead(env,email,intake);
     }
     const session=await startEmployerSession(env,employerId);
     return json({ok:true,email,outOfArea,redirect:redirect||"/app"},{status:201,headers:{"Set-Cookie":employerSessionCookie(session)}});
@@ -1012,8 +1016,24 @@ async function handleEmployer(request: Request, env: Env) {
     .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
   const openingId=await createIntakeOpening(env,id,intake);
   if(testLogin) return codeSignIn("/app?opening="+encodeURIComponent(openingId)+"&match=1");
+  await alertNewEmployerLead(env,email,intake);
   await sendEmployerMagicLink(env,id,"/app?opening="+encodeURIComponent(openingId)+"&match=1");
   return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
+}
+
+/** The hire form is the hottest lead CareJoys gets: tell the admins right away. Reply goes straight to the lead. */
+async function alertNewEmployerLead(env:Env,email:string,intake:EmployerIntake){
+  if(!env.EMAIL)return;
+  const admins=(await adminRecipients(env).catch(()=>[] as string[])).filter(a=>a!==email);
+  if(!admins.length)return;
+  const pay=intake.payMin||intake.payMax?`$${intake.payMin||'?'}–$${intake.payMax||'?'}/hr`:'';
+  const lines=[["Company",intake.companyName],["Contact",intake.contactName],["Email",email],["Phone",intake.phone],["ZIP",intake.zip],["Type",(intake.employerType||'').replace(/_/g,' ')],
+    ["Roles",intake.rolesNeeded],["Shifts",intake.shifts],["Pay",pay],["Car needed",intake.transportationRequired?'yes':''],["Notes",intake.hiringNotes]].filter(([,v])=>v);
+  const esc=(v:string)=>v.replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!));
+  await env.EMAIL.send({from:"CareJoys <hello@carejoys.com>",to:admins,replyTo:email,subject:"New hire form: "+intake.companyName,
+    text:`${lines.map(([k,v])=>k+": "+v).join("\n")}\n\nReply to this email to answer them. Their account: https://carejoys.com/admin#employers`,
+    html:`<p><strong>New /hire-caregivers form.</strong> Reply to this email to answer them.</p><table>${lines.map(([k,v])=>`<tr><td style="padding:2px 12px 2px 0;color:#5f5972">${k}</td><td>${esc(v)}</td></tr>`).join("")}</table><p><a href="https://carejoys.com/admin#employers">Open in admin</a></p>`
+  }).catch(error=>console.error("new lead alert failed",error));
 }
 
 type EmployerIntake={companyName:string;contactName:string;phone:string;zip:string;rolesNeeded:string;hiringNotes:string;shifts:string;schedule:string;payMin:number|null;payMax:number|null;transportationRequired:boolean;employerType?:string};
@@ -2081,6 +2101,10 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="GET"&&url.pathname==="/api/admin/agencies") return adminAgencySearch(env,url.searchParams.get("q")||"");
       if(request.method==="GET"&&url.pathname==="/api/admin/videos") return adminIntroVideos(env);
       if(request.method==="GET"&&url.pathname==="/api/admin/sms") return adminSmsReport(env);
+      // Replies to hello@ recorded by the email() handler below (src/inboundEmail.ts).
+      if(request.method==="GET"&&url.pathname==="/api/admin/inbox") return adminInbox(env,url);
+      const inboxItem=url.pathname.match(/^\/api\/admin\/inbox\/([^/]+)$/);
+      if(request.method==="POST"&&inboxItem) return adminInboxUpdate(request,env,decodeURIComponent(inboxItem[1]));
       if(request.method==="POST"&&url.pathname==="/api/admin/sms/test") return adminSmsTest(request,env,admin.email);
       // An agency's own applicants, worked by CareJoys for the operated service (src/applicants.ts).
       if(url.pathname==="/api/admin/applicant-screening"&&(request.method==="GET"||request.method==="POST")) return adminScreening(request,env,admin.email);
@@ -2316,6 +2340,10 @@ export default {
       await recordServerError(env,request,error);
       throw error;
     }
+  },
+  // Mail to hello@carejoys.com, once its Email Routing rule says "Send to a Worker": forwarded on, then recorded.
+  async email(message:InboundEmailMessage,env:Env){
+    await handleInboundEmail(message,env);
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     env=withoutTestMail(env);
