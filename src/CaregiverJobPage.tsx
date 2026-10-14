@@ -199,7 +199,7 @@ function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicati
         :<p><strong>{employer}</strong> takes applications on their own site, so they haven’t seen your application yet. We saved {job.title} on your CareJoys dashboard so you can come back to it.</p>}
       <div className="onboarding-final-action">
         {!onCareJoys&&<button className="btn" onClick={onEmployerSite}>Finish on {employer}’s site</button>}
-        <a className={onCareJoys?'btn':'text-link'} href="/dashboard">See your applications</a>
+        <a className={onCareJoys?'btn':'text-link'} href="/dashboard/applications">See your applications</a>
       </div>
     </div></div>;
   }
@@ -219,6 +219,7 @@ function ApplyWithProfile({job,profile,hasResume,result,alreadyApplied,applicati
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     {error&&<div className="notice">{error}</div>}
     {agent}
-    <button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Saving…':job.employerOnCareJoys?(agent?'Just send my CareJoys profile instead':'Send my application'):(agent?'Save for later':'Save to my dashboard')}</button>
+    {/* With Apply for me on an employer's own site, Apply is the one action; saving without applying reached no one. */}
+    {!(agent&&!job.employerOnCareJoys)&&<button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Saving…':job.employerOnCareJoys?(agent?'Just send my CareJoys profile instead':'Send my application'):'Save to my dashboard'}</button>}
   </div>;
 }

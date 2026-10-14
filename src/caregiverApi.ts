@@ -235,7 +235,7 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
   const to=clean(c?.email,320).toLowerCase();
   if(env.EMAIL&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)){
     const body=caregiverApplicationEmail({firstName:clean(c?.first_name,80),jobTitle:clean(job.title,200),employerName:clean(job.employer_name,200),
-      employerOnCareJoys,applicationUrl,dashboardLink:'https://carejoys.com/dashboard',submittedOnEmployerSite:opts.submittedOnEmployerSite});
+      employerOnCareJoys,applicationUrl,dashboardLink:'https://carejoys.com/dashboard/applications',submittedOnEmployerSite:opts.submittedOnEmployerSite});
     await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text}).catch(()=>null);
   }
   return result;

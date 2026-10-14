@@ -311,17 +311,24 @@ export function caregiverApplicationEmail(input:{firstName:string;jobTitle:strin
     ?`CareJoys submitted your application on ${employer}'s own job site with your resume. They'll contact you directly.`
     :input.employerOnCareJoys
     ?`We sent your CareJoys profile to ${employer}. When they reply, you'll get an email and see it on your dashboard.`
-    :`${employer} isn't on CareJoys yet, so they take applications on their own site. If you haven't already, finish there so they see you.`;
+    :`${employer} isn't on CareJoys yet, so they take applications on their own site. Finish there so they see you.`;
   const finishLink=!input.submittedOnEmployerSite&&!input.employerOnCareJoys&&input.applicationUrl;
+  // Saved on CareJoys but not sent: the employer takes applications on its own site and hasn't seen anything yet.
+  const savedOnly=!input.submittedOnEmployerSite&&!input.employerOnCareJoys;
+  const lead=savedOnly
+    ?`You saved ${input.jobTitle} at ${employer}. You haven't applied yet.`
+    :`You applied to ${input.jobTitle} at ${employer}${input.submittedOnEmployerSite?'':' with your CareJoys profile'}.`;
   return {
-    subject:`You applied: ${input.jobTitle} at ${employer}`,
-    html:shell('Application saved',`
+    subject:savedOnly?`Finish applying: ${input.jobTitle} at ${employer}`:`You applied: ${input.jobTitle} at ${employer}`,
+    html:shell(savedOnly?'Not sent yet':'Application sent',`
       <p style="${P}">Hi ${esc(input.firstName||'there')},</p>
-      <p style="${P}">You applied to <strong>${esc(input.jobTitle)}</strong> at <strong>${esc(employer)}</strong> with your CareJoys profile.</p>
+      <p style="${P}">${savedOnly
+        ?`You saved <strong>${esc(input.jobTitle)}</strong> at <strong>${esc(employer)}</strong>. You haven't applied yet.`
+        :`You applied to <strong>${esc(input.jobTitle)}</strong> at <strong>${esc(employer)}</strong>${input.submittedOnEmployerSite?'':' with your CareJoys profile'}.`}</p>
       <p style="${P}">${esc(next)}</p>
       ${finishLink?`<p style="margin:26px 0"><a href="${esc(input.applicationUrl)}" style="${BUTTON}">Finish on ${esc(employer)}'s site</a></p>`:''}
       <p style="${P}"><a href="${esc(input.dashboardLink)}" style="color:#4255ff">See your applications</a></p>`),
-    text:`Hi ${input.firstName||'there'},\n\nYou applied to ${input.jobTitle} at ${employer} with your CareJoys profile.\n\n${next}\n\n${finishLink?'Finish on their site: '+input.applicationUrl+'\n\n':''}See your applications: ${input.dashboardLink}\n\nCareJoys · carejoys.com`
+    text:`Hi ${input.firstName||'there'},\n\n${lead}\n\n${next}\n\n${finishLink?'Finish on their site: '+input.applicationUrl+'\n\n':''}See your applications: ${input.dashboardLink}\n\nCareJoys · carejoys.com`
   };
 }
 

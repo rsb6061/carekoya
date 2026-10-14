@@ -105,8 +105,8 @@ export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
     <div className="success-mark">✓</div>
     <div className="modal-kicker">Application submitted</div>
     <h2>CareJoys applied for you.</h2>
-    <p>Your application and resume are in with <strong>{employerName}</strong>. We emailed you a receipt, and it’s on your dashboard.</p>
-    <div className="onboarding-final-action"><a className="btn" href="/dashboard">See your applications</a></div>
+    <p>Your application and resume are in with <strong>{employerName}</strong>. We emailed you a receipt, and it’s on your Applications page.</p>
+    <div className="onboarding-final-action"><a className="btn" href="/dashboard/applications">See your applications</a></div>
   </div>;
 
   return <div className="apply-agent-start">
@@ -114,7 +114,7 @@ export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
     {!resumeName
       ?<><p className="apply-with-profile-sub">Add your resume file and CareJoys can fill in {employerName}’s application for you.</p>
         <ResumeFileInput onSaved={setResumeName}/></>
-      :<button className="btn submit-button" onClick={()=>void start()}>Apply now</button>}
+      :<button className="btn submit-button" onClick={()=>void start()}>Apply</button>}
     {resumeName&&<p className="apply-agent-note">We fill in {employerName}’s application for you and ask if anything’s missing.</p>}
   </div>;
 }
