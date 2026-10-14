@@ -156,7 +156,9 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
       MAX(CASE WHEN o.claimed_employer_id IS NOT NULL THEN 1 ELSE 0 END) AS employer_on_carejoys
     FROM caregiver_job_apply_events a JOIN caregiver_jobs j ON j.id=a.caregiver_job_id
     LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id
-    WHERE a.caregiver_id=? GROUP BY j.id ORDER BY MAX(a.created_at) DESC LIMIT 20`).bind(caregiverId).all<Row>();
+    WHERE a.caregiver_id=? GROUP BY j.id
+    HAVING submitted_on_employer_site=1 OR (applied_on_carejoys=1 AND employer_on_carejoys=1)
+    ORDER BY MAX(a.created_at) DESC LIMIT 20`).bind(caregiverId).all<Row>();
 
   // Ticked only with a logged opt-in for the number on file.
   const smsConsent=Number(c.sms_consent)===1&&!!c.phone&&await smsConsentStatus(env as SmsEnv,CAREJOYS_SMS_BRAND,String(c.phone))==='opted_in';
@@ -214,13 +216,17 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
   if(!job)return null;
   const employerOnCareJoys=!!clean(job.claimed_employer_id,120);
   const applicationUrl=clean(job.source_url,1000);
+  // No saving: an employer that isn't on CareJoys only gets an application through its own site, so nothing is
+  // recorded or emailed until Apply for me actually submits there.
+  if(!employerOnCareJoys&&!opts.submittedOnEmployerSite)
+    return {status:'not_sent' as const,employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
   if(opts.submittedOnEmployerSite){
     await env.DB!.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type,source) VALUES (?,?,?,'agent_submitted','apply_for_me')")
       .bind(crypto.randomUUID(),jobId,caregiverId).run();
   }
   const already=await env.DB!.prepare("SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=? AND event_type='carejoys_applied' LIMIT 1")
     .bind(caregiverId,jobId).first();
-  const result={status:(already?'already_applied':'applied') as 'applied'|'already_applied',employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
+  const result={status:(already?'already_applied':'applied') as 'applied'|'already_applied'|'not_sent',employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
   if(already&&!opts.submittedOnEmployerSite)return result;
 
   if(!already){

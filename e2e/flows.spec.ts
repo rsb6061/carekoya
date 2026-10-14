@@ -100,7 +100,7 @@ test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
 
 test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
   const w=await watch(page);
-  await page.goto('/jobs/'+JOBS.external);
+  await page.goto('/jobs/'+JOBS.applyForMe);
   await page.getByRole('button',{name:'Apply',exact:true}).click();
   await expect(page.getByText('Apply on CareJoys')).toBeVisible();
   // The employer button stays off caregiver job pages.
@@ -123,16 +123,15 @@ test('@phone Apply starts with sign-in, and the profile form flags what is missi
   clean(w);
 });
 
-test('Apply on a job saves it and offers the employer’s site', async({page})=>{
-  const w=await watch(page);
+test('Apply on a job CareJoys can’t apply for goes straight to the employer’s site', async({page})=>{
   await signIn(page,CAREGIVER);
+  // The employer's site isn't real in tests; stop at the navigation.
+  await page.route('https://harborhomecare.test/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<h1>Harbor Home Care application</h1>'}));
   await page.goto('/jobs/'+JOBS.external);
+  await expect(page.getByRole('button',{name:/Or apply on/})).toHaveCount(0);
   await page.getByRole('button',{name:'Apply',exact:true}).click();
-  await expect(page.getByText('Apply with your CareJoys profile')).toBeVisible();
-  await page.getByRole('button',{name:'Save to my dashboard'}).click();
-  await expect(page.getByText('Saved, not sent yet')).toBeVisible();
-  await expect(page.getByRole('button',{name:'Finish on Harbor Home Care’s site'})).toBeVisible();
-  clean(w);
+  await page.waitForURL('https://harborhomecare.test/**');
+  await expect(page.getByText('Harbor Home Care application')).toBeVisible();
 });
 
 test('Apply for me takes a resume and answers the click', async({page})=>{

@@ -10,7 +10,7 @@ import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfi
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { CaregiverInviteControls, type HiddenAgency } from './CaregiverInviteControls';
 import { lockedYesText } from './caregiverProtectionRules';
-import { JobList, type PublicCaregiverJob } from './CaregiverJobsHub';
+import { JobList, applyWhere, type PublicCaregiverJob } from './CaregiverJobsHub';
 import './workspace.css';
 
 type Slot={id:string;startsAt:string;durationMinutes:number;timezone:string};
@@ -25,8 +25,7 @@ type Application={jobId:string;title:string;employerName?:string;at:string;appli
 function applicationStatus(a:Application){
   if(a.submittedOnEmployerSite)return 'CareJoys applied for you on the employer’s site';
   if(a.appliedOnCareJoys&&a.employerOnCareJoys)return 'Sent to the employer through CareJoys';
-  if(a.appliedOnCareJoys)return 'Saved on CareJoys';
-  return a.openedEmployerSite?'Opened the employer’s application':'Started on CareJoys';
+  return 'Sent to the employer through CareJoys';
 }
 type Caregiver=CaregiverProfileData&{
   id:string;email?:string;profilePhotoUrl?:string|null;freshness?:string;locationCheck?:{zipPlace:string}|null;invitesPausedUntil?:string|null;autoApply?:boolean;
@@ -86,7 +85,7 @@ export function CaregiverDashboard(){
     try{
       const r=await api<{employerOnCareJoys:boolean;employerName?:string}>('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',body:'{}'});
       const who=r.employerName||job.employerName||'The employer';
-      setNotice(r.employerOnCareJoys?`Applied. ${who} gets your profile and resume in CareJoys.`:`Saved. ${who} takes applications on their own site, so tap Finish applying to send it there.`);
+      setNotice(`Applied. ${who} gets your profile and resume in CareJoys.`);
       await load();
     }catch(e){setNotice(e instanceof Error?e.message:'Could not send your application.')}
     finally{setBusy('')}
@@ -282,9 +281,8 @@ export function CaregiverDashboard(){
               {!applied?(job.employerOnCareJoys
                 ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
                 :<a className="button" href={href+'#apply'}>Apply</a>)
-              :applied.employerOnCareJoys||applied.submittedOnEmployerSite?<span className="status applied">Applied</span>
-              :<><span className="status applied">Saved</span><a className="button secondary" href={href+'#apply'}>Finish applying</a></>}
-              <a className="text-link job-view-link" href={href}>View job</a>
+              :<span className="status applied">Applied</span>}
+              {!applied&&<span className="apply-where">{applyWhere(job)}</span>}
             </div>
           </article>})}</div>}
       </section>

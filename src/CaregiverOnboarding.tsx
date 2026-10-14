@@ -335,7 +335,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         {/* Mid-apply, the one thing left is the employer's own form, so it comes first and the extras after. */}
         <div className="modal-kicker">Profile saved</div>
         <h2>Finish applying to {employer}.</h2>
-        <p>{employer} takes applications on their own site. We saved {target.title||'this job'} to your dashboard.</p>
+        <p>{employer} takes applications on their own site. Finish there so they see you.</p>
         <div className="onboarding-final-action">
           <label className="check-row"><input type="checkbox" checked={sendProfile} onChange={e=>setSendProfile(e.target.checked)} /><span>Also send my CareJoys profile to {employer} so they can contact me</span></label>
           <button className="btn" onClick={continueApplication} disabled={continuing}>{continuing?'Opening application…':'Continue to '+employer+'’s application'}</button>

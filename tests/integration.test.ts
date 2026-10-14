@@ -1353,13 +1353,14 @@ describe('shared sign-in', ()=>{
     sent.length=0;
     expect(await (await post('/api/me/apply/job-claimed',{},{cookie})).json()).toMatchObject({status:'already_applied'});
     expect(sent).toEqual([]);
-    // An unclaimed agency is not emailed while outreach is off, so the caregiver is pointed to its own site.
+    // No saving: an employer not on CareJoys gets nothing, so nothing is recorded or emailed and the caregiver
+    // is pointed to its own site.
     const open=await post('/api/me/apply/job-open',{},{cookie});
-    expect(await open.json()).toMatchObject({status:'applied',employerOnCareJoys:false});
-    expect(sent.map(m=>m.to)).toEqual(['dc@example.com']);
-    expect(sent[0].html).toContain('https://org-open.test/apply');
+    expect(await open.json()).toMatchObject({status:'not_sent',employerOnCareJoys:false,applicationUrl:'https://org-open.test/apply'});
+    expect(sent).toEqual([]);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_id='dc' AND caregiver_job_id='job-open'").first()).toEqual({n:0});
     const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
-    expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys]).sort()).toEqual([['job-claimed',true,true],['job-open',true,false]]);
+    expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys])).toEqual([['job-claimed',true,true]]);
   });
 
   it('stores the resume file and only starts Apply for me where it can', async()=>{
