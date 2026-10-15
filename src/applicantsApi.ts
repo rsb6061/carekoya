@@ -2,6 +2,7 @@ import { employerSession, type FeatureEnv } from './serverFeatures';
 import { importApplicants, listApplicants, updateApplicant, type ApplicantDb } from './applicants';
 import { saveScreeningQuestions, screeningQuestions } from './applicantScreening';
 import { reactivationStatus, sendReactivationBatch, sendReactivationTest } from './applicantReactivation';
+import { addReferrer, listReferrers, setRewardStatus } from './applicantReferrals';
 
 // The applicant list over HTTP: an agency works its own list from its workspace, and a CareJoys admin works any
 // agency's list from the admin console (the operated service). Same storage, same rules.
@@ -81,4 +82,36 @@ export async function adminScreening(request:Request,env:FeatureEnv,adminEmail:s
   const found=await adminEmployer(request,env);
   if(found.error)return found.error;
   return screening(request,env,found.employerId,adminEmail||'admin');
+}
+
+/** Referrers and their links: GET lists them with what each has earned, POST {name,phone,email} adds one. */
+async function referrers(request:Request,env:FeatureEnv,employerId:string,actor:string){
+  const store=db(env);
+  if(request.method==='GET')return json({ok:true,...await listReferrers(store,employerId)});
+  const data=await request.json().catch(()=>null) as Row|null;
+  const result=await addReferrer(store,employerId,data||{},actor);
+  return json(result,{status:result.ok?200:400});
+}
+
+/** /api/workspace/applicant-referrers for the signed-in agency. */
+export async function workspaceReferrers(request:Request,env:FeatureEnv){
+  const employer=await employerSession(request,env);
+  if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
+  return referrers(request,env,clean(employer.id,100),clean(employer.email,320));
+}
+
+/** /api/admin/applicant-referrers?employer=<id> for a CareJoys operator. */
+export async function adminReferrers(request:Request,env:FeatureEnv,adminEmail:string){
+  const found=await adminEmployer(request,env);
+  if(found.error)return found.error;
+  return referrers(request,env,found.employerId,adminEmail||'admin');
+}
+
+/** POST /api/admin/applicant-referral-rewards/:applicantId?employer=<id> {status}: a CareJoys operator approves, denies or marks paid. */
+export async function adminReferralReward(request:Request,env:FeatureEnv,adminEmail:string,applicantId:string){
+  const found=await adminEmployer(request,env);
+  if(found.error)return found.error;
+  const data=await request.json().catch(()=>null) as Row|null;
+  const result=await setRewardStatus(db(env),found.employerId,applicantId,data?.status,adminEmail||'admin');
+  return json(result,{status:result.ok?200:(result.error==='Reward not found.'?404:400)});
 }

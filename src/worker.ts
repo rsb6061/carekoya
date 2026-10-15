@@ -20,7 +20,8 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRad
 import { APPLIED_TO_EMPLOYER_SQL, alreadyApplied, appliedCaregiverIds } from './applications';
 import { INVITES_PAUSED_SQL, OPEN_TO_EMPLOYER_SQL, browseLimit, inviteAllowance } from './caregiverProtection';
 import { DAILY_PROFILE_VIEWS, DAILY_TALENT_SEARCHES, scrubBio } from './caregiverProtectionRules';
-import { adminApplicantReactivation, adminApplicants, adminScreening, workspaceApplicants, workspaceScreening } from './applicantsApi';
+import { adminApplicantReactivation, adminApplicants, adminReferralReward, adminReferrers, adminScreening, workspaceApplicants, workspaceReferrers, workspaceScreening } from './applicantsApi';
+import { handleReferral } from './applicantReferrals';
 import { handleStillLooking } from './applicantReactivation';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { loadEmployerProfile } from './employerProfile';
@@ -2030,6 +2031,10 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     // An agency's past applicant answering the "still looking?" email (src/applicantReactivation.ts).
     if(url.pathname==="/still-looking"&&request.method==="GET") return handleStillLooking(request,env);
     if(url.pathname==="/still-looking"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleStillLooking(request,env); }
+    // Someone applying to an agency through a referrer's link (src/applicantReferrals.ts).
+    const referralLink=url.pathname.match(/^\/refer\/([a-z0-9]{6,40})\/?$/i);
+    if(referralLink&&request.method==="GET") return handleReferral(request,env,referralLink[1]);
+    if(referralLink&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleReferral(request,env,referralLink[1]); }
     if(request.method==="POST"&&url.pathname==="/api/events"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordAnalyticsEvent(request,env); }
     if(request.method==="POST"&&url.pathname==="/api/client-errors"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return recordClientError(request,env); }
 
@@ -2109,6 +2114,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       // An agency's own applicants, worked by CareJoys for the operated service (src/applicants.ts).
       if(url.pathname==="/api/admin/applicant-screening"&&(request.method==="GET"||request.method==="POST")) return adminScreening(request,env,admin.email);
       if(url.pathname==="/api/admin/applicant-reactivation"&&(request.method==="GET"||request.method==="POST")) return adminApplicantReactivation(request,env,admin.email);
+      if(url.pathname==="/api/admin/applicant-referrers"&&(request.method==="GET"||request.method==="POST")) return adminReferrers(request,env,admin.email);
+      const referralReward=url.pathname.match(/^\/api\/admin\/applicant-referral-rewards\/([^/]+)$/);
+      if(referralReward&&request.method==="POST") return adminReferralReward(request,env,admin.email,decodeURIComponent(referralReward[1]));
       const adminApplicant=url.pathname.match(/^\/api\/admin\/applicants(?:\/([^/]+))?$/);
       if(adminApplicant&&(request.method==="GET"&&!adminApplicant[1]||request.method==="POST")) return adminApplicants(request,env,admin.email,decodeURIComponent(adminApplicant[1]||""));
       const videoReview=url.pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(approve|reject)$/);
@@ -2232,6 +2240,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     // The agency's own applicants (Indeed, CareerPlug, past applicants): POST to the list imports a CSV, POST to one updates it.
     if(url.pathname==="/api/workspace/applicant-screening"&&request.method==="GET") return workspaceScreening(request,env);
     if(url.pathname==="/api/workspace/applicant-screening"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceScreening(request,env); }
+    if(url.pathname==="/api/workspace/applicant-referrers"&&request.method==="GET") return workspaceReferrers(request,env);
+    if(url.pathname==="/api/workspace/applicant-referrers"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceReferrers(request,env); }
     const workspaceApplicant=url.pathname.match(/^\/api\/workspace\/applicants(?:\/([^/]+))?$/);
     if(workspaceApplicant&&request.method==="GET"&&!workspaceApplicant[1]) return workspaceApplicants(request,env);
     if(workspaceApplicant&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceApplicants(request,env,decodeURIComponent(workspaceApplicant[1]||"")); }

@@ -560,3 +560,11 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .applicant-intake .admin-table-scroll{container-type:inline-size}
 .applicant-intake .applicant-detail{position:sticky;left:0;max-width:calc(100cqw - 24px);box-sizing:border-box}
 @container (max-width:720px){.applicant-intake .applicant-detail{grid-template-columns:1fr}}
+/* Referral links (src/ReferralsCard.tsx) */
+.referrals-card .referrer-form{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:end}
+@media (max-width:760px){.referrals-card .referrer-form{grid-template-columns:1fr}}
+.referrals-card .admin-data-table{min-width:0}
+.referrals-card .referral-link{display:block;font-size:12px;word-break:break-all;margin-bottom:4px}
+.referrals-card h4{margin:18px 0 8px}
+.referrals-card .reward-actions{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.referrals-card button.text-link{background:none;border:0;padding:0;font:inherit;font-size:13px;cursor:pointer}

@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { ReactivationCard } from './ReactivationCard';
+import { ReferralsCard } from './ReferralsCard';
 import { ApplicantDetail, ScreeningQuestionsCard, showUpText } from './ScreeningPanel';
 import type { ScreeningQuestion } from './applicantScreening';
-import { APPLICANT_SOURCE_LABELS, APPLICANT_SOURCES, type ApplicantSource, type ApplicantStage, type ApplicantView } from './applicants';
+import { APPLICANT_SOURCE_LABELS, APPLICANT_SOURCES, REFERRAL_REWARD_CENTS, type ApplicantSource, type ApplicantStage, type ApplicantView } from './applicants';
 
 type ImportRun={id:string;source:string;filename:string;total:number;added:number;duplicate:number;skipped:number;importedBy:string;createdAt:string};
 type ImportResult={total:number;added:number;duplicate:number;skipped:number};
@@ -25,6 +26,14 @@ function replyText(a:ApplicantView){
   if(r.response==='no')return 'Said not looking right now';
   if(r.status==='failed')return 'Email failed';
   return r.sentAt?`Emailed ${day(r.sentAt)}`:'';
+}
+
+/** Where the referrer's reward for this applicant stands, for under the source. */
+function rewardText(a:ApplicantView){
+  const r=a.referral;
+  if(!r.referrerId)return '';
+  const amount='$'+Math.round((r.rewardCents||REFERRAL_REWARD_CENTS)/100);
+  return {earned:`${amount} referral earned`,approved:`${amount} referral approved`,paid:`${amount} referral paid`,denied:'Referral not paid'}[r.rewardStatus as string]||`${amount} referral once screened`;
 }
 
 function summary(r:ImportResult){
@@ -55,6 +64,9 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
   const [screening,setScreening]=useState<{questions:ScreeningQuestion[];isDefault:boolean;updatedBy:string;updatedAt:string}|null>(null);
   const [openId,setOpenId]=useState('');
   const screeningUrl=base.replace(/applicants$/,'applicant-screening')+query;
+  const referrersUrl=base.replace(/applicants$/,'applicant-referrers')+query;
+  // Only a CareJoys operator approves and pays referral rewards.
+  const rewardsUrl=employerId?(applicantId:string)=>'/api/admin/applicant-referral-rewards/'+encodeURIComponent(applicantId)+query:undefined;
 
   async function api<T>(path:string,init?:RequestInit):Promise<T>{
     const res=await fetch(base+path+query,{credentials:'include',...init,headers:{'content-type':'application/json',...(init?.headers||{})}});
@@ -124,6 +136,8 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
 
     <ScreeningQuestionsCard url={screeningUrl} questions={screening} onSaved={setScreening}/>
 
+    <ReferralsCard url={referrersUrl} rewardsUrl={rewardsUrl} version={version}/>
+
     {reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
 
     {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">Upload a CSV to start the list.</p></div>:<>
@@ -151,7 +165,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
               {a.screening.knockouts.length>0&&<small className="applicant-knockout">Ruled out: {a.screening.knockouts.join('; ')}</small>}</td>
             <td>{a.phone&&<a className="text-link" href={'tel:'+a.phone}>{phoneText(a.phone)}</a>}{a.email&&<small><a className="text-link" href={'mailto:'+a.email}>{a.email}</a></small>}</td>
             <td>{a.position||'—'}</td>
-            <td>{APPLICANT_SOURCE_LABELS[a.source]||a.source}{a.sourceDetail&&<small>{a.sourceDetail}</small>}</td>
+            <td>{APPLICANT_SOURCE_LABELS[a.source]||a.source}{a.sourceDetail&&<small>{a.sourceDetail}</small>}{rewardText(a)&&<small>{rewardText(a)}</small>}</td>
             <td>{day(a.appliedAt)||'—'}<small>Received {day(a.receivedAt)}</small></td>
             <td><select className="pipeline-select" value={a.stage} onChange={e=>void update(a.id,{stage:e.target.value as ApplicantStage})} aria-label={'Stage for '+a.name}>
               {(Object.keys(STAGE_LABELS) as ApplicantStage[]).map(s=><option key={s} value={s}>{STAGE_LABELS[s]}</option>)}

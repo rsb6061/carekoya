@@ -19,6 +19,10 @@ export const APPLICANT_SOURCE_LABELS:Record<ApplicantSource,string>={
 export const APPLICANT_STAGES=['new','contacted','screened','interview','hired','not_fit'] as const;
 export type ApplicantStage=typeof APPLICANT_STAGES[number];
 
+/** What a referrer earns when the person they referred is screened with no knockout (src/applicantReferrals.ts). */
+export const REFERRAL_REWARD_CENTS=2500;
+export type ReferralRewardStatus='earned'|'approved'|'paid'|'denied';
+
 export const MAX_IMPORT_ROWS=5000;
 export const MAX_IMPORT_BYTES=3_000_000;
 
@@ -167,7 +171,9 @@ export type ApplicantView={id:string;name:string;firstName:string;lastName:strin
   /** Answers to the agency's screening questions, and the questions whose answer ruled them out. */
   screening:{answers:ScreeningAnswers;knockouts:string[];screenedBy:string};
   /** Whether they came to the interview, started, and were still working at day 30 and day 90. */
-  showUp:{interviewAt:string;interviewOutcome:string;startDate:string;day30:string;day90:string}};
+  showUp:{interviewAt:string;interviewOutcome:string;startDate:string;day30:string;day90:string};
+  /** Who referred them through a referral link, and where that referrer's reward stands. */
+  referral:{referrerId:string;referrerName:string;rewardStatus:ReferralRewardStatus|'';rewardCents:number}};
 
 export const INTERVIEW_OUTCOMES=['showed','no_show','rescheduled'] as const;
 export const RETENTION_STATUSES=['working','left'] as const;
@@ -184,11 +190,32 @@ function view(r:Row):ApplicantView{
     appliedAt:clean(r.applied_at,40),receivedAt:clean(r.received_at,40),firstContactAt:clean(r.first_contact_at,40),screenedAt:clean(r.screened_at,40),poolOptIn:Number(r.pool_opt_in)===1,
     reactivation:{sentAt:clean(r.reactivation_sent_at,40),status:clean(r.reactivation_status,20),response:clean(r.reactivation_response,10),respondedAt:clean(r.reactivation_responded_at,40),replyPhone:clean(r.reply_phone,20)},
     screening:{answers:answersOf(r.screening_answers_json),knockouts:clean(r.screening_knockouts,2000).split('|').filter(Boolean),screenedBy:clean(r.screened_by,320)},
-    showUp:{interviewAt:clean(r.interview_at,40),interviewOutcome:clean(r.interview_outcome,20),startDate:clean(r.start_date,20),day30:clean(r.day30_status,20),day90:clean(r.day90_status,20)}};
+    showUp:{interviewAt:clean(r.interview_at,40),interviewOutcome:clean(r.interview_outcome,20),startDate:clean(r.start_date,20),day30:clean(r.day30_status,20),day90:clean(r.day90_status,20)},
+    referral:{referrerId:clean(r.referrer_id,100),referrerName:clean(r.referrer_name,120),rewardStatus:clean(r.reward_status,20) as ReferralRewardStatus|'',rewardCents:Number(r.reward_cents||0)}};
+}
+
+// Every applicant query reads through this, so each row carries its referrer's name and reward.
+const SELECT_APPLICANTS=`SELECT a.*,r.name AS referrer_name,w.status AS reward_status,w.amount_cents AS reward_cents FROM agency_applicants a
+  LEFT JOIN agency_referrers r ON r.id=a.referrer_id LEFT JOIN agency_referral_rewards w ON w.applicant_id=a.id`;
+
+/**
+ * After screening answers are saved: a referred applicant with no knockout earns their referrer the reward. If a later
+ * edit adds a knockout before an operator approves it, the reward is taken back.
+ */
+async function syncReferralReward(db:Db,employerId:string,applicantId:string,knockouts:string[]){
+  const row=await db.prepare('SELECT referrer_id FROM agency_applicants WHERE id=? AND employer_id=?').bind(applicantId,employerId).first<Row>();
+  const referrerId=clean(row?.referrer_id,100);
+  if(!referrerId)return;
+  if(knockouts.length){
+    await db.prepare("DELETE FROM agency_referral_rewards WHERE applicant_id=? AND status='earned'").bind(applicantId).run();
+    return;
+  }
+  await db.prepare('INSERT INTO agency_referral_rewards(applicant_id,employer_id,referrer_id,amount_cents) VALUES (?,?,?,?) ON CONFLICT(applicant_id) DO NOTHING')
+    .bind(applicantId,employerId,referrerId,REFERRAL_REWARD_CENTS).run();
 }
 
 export async function listApplicants(db:Db,employerId:string){
-  const rows=await db.prepare('SELECT * FROM agency_applicants WHERE employer_id=? ORDER BY COALESCE(applied_at,received_at) DESC LIMIT 2000').bind(employerId).all<Row>();
+  const rows=await db.prepare(SELECT_APPLICANTS+' WHERE a.employer_id=? ORDER BY COALESCE(a.applied_at,a.received_at) DESC LIMIT 2000').bind(employerId).all<Row>();
   const imports=await db.prepare('SELECT id,source,filename,rows_total,rows_added,rows_duplicate,rows_skipped,imported_by,created_at FROM agency_applicant_imports WHERE employer_id=? ORDER BY created_at DESC LIMIT 20').bind(employerId).all<Row>();
   return {applicants:(rows.results||[]).map(view),
     imports:(imports.results||[]).map(r=>({id:clean(r.id,100),source:clean(r.source,40),filename:clean(r.filename,200),total:Number(r.rows_total||0),added:Number(r.rows_added||0),
@@ -208,10 +235,11 @@ const advanceTo=(stage:string)=>`stage=CASE WHEN stage IN (${STAGE_ORDER.slice(0
 export async function updateApplicant(db:Db,employerId:string,id:string,data:Row,actor=''){
   const sets:string[]=[];const args:unknown[]=[];
   let implied='';
+  let knockouts:string[]|null=null;
   if(data.screeningAnswers!==undefined){
     const {questions}=await screeningQuestions(db,employerId);
     const answers=cleanAnswers(questions,data.screeningAnswers);
-    const knockouts=knockoutsFor(questions,answers);
+    knockouts=knockoutsFor(questions,answers);
     sets.push('screening_answers_json=?','screening_knockouts=?','screened_by=?','screened_at=COALESCE(screened_at,CURRENT_TIMESTAMP)','first_contact_at=COALESCE(first_contact_at,CURRENT_TIMESTAMP)');
     args.push(JSON.stringify(answers),knockouts.join('|')||null,clean(actor,320)||null);
     implied='screened';
@@ -251,6 +279,7 @@ export async function updateApplicant(db:Db,employerId:string,id:string,data:Row
   if(!sets.length)return {ok:false as const,error:'Nothing to save.'};
   const res=await db.prepare(`UPDATE agency_applicants SET ${sets.join(',')},updated_at=CURRENT_TIMESTAMP WHERE id=? AND employer_id=?`).bind(...args,id,employerId).run();
   if(!res.meta?.changes)return {ok:false as const,error:'Applicant not found.'};
-  const row=await db.prepare('SELECT * FROM agency_applicants WHERE id=?').bind(id).first<Row>();
+  if(knockouts)await syncReferralReward(db,employerId,id,knockouts);
+  const row=await db.prepare(SELECT_APPLICANTS+' WHERE a.id=?').bind(id).first<Row>();
   return {ok:true as const,applicant:view(row!)};
 }
