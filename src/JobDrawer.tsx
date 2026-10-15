@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { named } from './lazyPage';
 
-const JobDetail=lazy(()=>import('./CaregiverJobPage').then(m=>({default:m.JobDetail})));
+const JobDetail=named(()=>import('./CaregiverJobPage'),'JobDetail');
 
 type Open={id:string;apply:boolean};
 
