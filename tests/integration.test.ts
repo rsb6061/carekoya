@@ -2988,6 +2988,84 @@ describe('applicant screening and show-up',()=>{
   });
 });
 
+describe('referral links',()=>{
+  const agency={cookie:'cj_session='+SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+  const admin={authorization:'Bearer ops','content-type':'application/json',origin:'https://carejoys.com'};
+  const ops={ADMIN_TOKEN:'ops'};
+  const url='/api/workspace/applicant-referrers';
+  const form={'content-type':'application/x-www-form-urlencoded',origin:'https://carejoys.com'};
+  const apply=(path:string,body:string)=>call(path,{method:'POST',headers:form,body});
+  let path='';
+
+  it('adds a referrer with a link, needing a phone or email',async()=>{
+    expect((await call(url)).status).toBe(401);
+    expect((await call(url,{method:'POST',headers:agency,body:JSON.stringify({name:'Ana Ref'})})).status).toBe(400);
+    const r=await (await call(url,{method:'POST',headers:agency,body:JSON.stringify({name:'Ana Ref',phone:'410-555-0230',email:'ana.ref@example.com'})})).json() as any;
+    expect(r).toMatchObject({ok:true,rewardCents:2500,referrers:[{name:'Ana Ref',phone:'+14105550230',referred:0,earnedCents:0}]});
+    expect(r.referrers[0].link).toMatch(/^https:\/\/carejoys\.com\/refer\/[a-z2-9]{10}$/);
+    path=r.referrers[0].link.replace('https://carejoys.com','');
+    // The same person can't get a second link.
+    expect((await call(url,{method:'POST',headers:agency,body:JSON.stringify({name:'Ana again',email:'ANA.REF@example.com'})})).status).toBe(400);
+  });
+
+  it('puts whoever applies through the link on the agency’s list as a referral',async()=>{
+    const company=(await DB.prepare("SELECT company_name c FROM employer_leads WHERE id='emp1'").first()).c;
+    const page=await call(path);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain(`Ana thinks you’d be a great fit at ${company}`);
+    expect((await call('/refer/nosuchcode1')).status).toBe(404);
+    expect((await apply(path,'first=Bea&phone=12')).status).toBe(400);
+    const ok=await apply(path,'first=Bea&last=Referred&phone=410-555-0231&email=bea@example.com&zip=21201');
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toContain('Thanks, Bea.');
+    const row=await DB.prepare("SELECT a.*,r.name AS referrer FROM agency_applicants a JOIN agency_referrers r ON r.id=a.referrer_id WHERE a.phone='+14105550231'").first();
+    expect(row).toMatchObject({employer_id:'emp1',source:'referral',source_detail:'Referred by Ana Ref',stage:'new',zip:'21201',referrer:'Ana Ref'});
+    expect(await DB.prepare("SELECT COUNT(*) n FROM caregivers WHERE email='bea@example.com'").first()).toMatchObject({n:0});
+  });
+
+  it('gives no credit for the referrer themselves or someone already on the list',async()=>{
+    await apply(path,'first=Ana&phone=4105550230');
+    expect(await DB.prepare("SELECT referrer_id,source_detail FROM agency_applicants WHERE phone='+14105550230'").first()).toMatchObject({referrer_id:null,source_detail:'Used their own referral link (Ana Ref)'});
+    await call('/api/workspace/applicants',{method:'POST',headers:agency,body:JSON.stringify({csv:'Name,Email\nCal Known,cal@example.com\n',source:'csv'})});
+    const again=await apply(path,'first=Cal&phone=410-555-0232&email=cal@example.com');
+    expect(await again.text()).toContain('already on');
+    expect(await DB.prepare("SELECT COUNT(*) n FROM agency_applicants WHERE employer_id='emp1' AND (phone='+14105550232' OR email='cal@example.com')").first()).toMatchObject({n:1});
+    expect(await DB.prepare("SELECT referrer_id FROM agency_applicants WHERE email='cal@example.com'").first()).toMatchObject({referrer_id:null});
+  });
+
+  it('earns the reward on a screen with no knockout, and takes it back if one is added before approval',async()=>{
+    const list=await (await call('/api/workspace/applicants',{headers:agency})).json() as any;
+    const bea=list.applicants.find((a:any)=>a.phone==='+14105550231');
+    expect(bea.referral).toMatchObject({referrerName:'Ana Ref',rewardStatus:''});
+    const out=await (await call('/api/workspace/applicants/'+bea.id,{method:'POST',headers:agency,body:JSON.stringify({screeningAnswers:{car:'no'}})})).json() as any;
+    expect(out.applicant.referral.rewardStatus).toBe('');
+    const passed=await (await call('/api/workspace/applicants/'+bea.id,{method:'POST',headers:agency,body:JSON.stringify({screeningAnswers:{car:'yes'}})})).json() as any;
+    expect(passed.applicant.referral).toMatchObject({rewardStatus:'earned',rewardCents:2500});
+    const failed=await (await call('/api/workspace/applicants/'+bea.id,{method:'POST',headers:agency,body:JSON.stringify({screeningAnswers:{car:'no'}})})).json() as any;
+    expect(failed.applicant.referral.rewardStatus).toBe('');
+    await call('/api/workspace/applicants/'+bea.id,{method:'POST',headers:agency,body:JSON.stringify({screeningAnswers:{car:'yes'}})});
+    const refs=await (await call(url,{headers:agency})).json() as any;
+    expect(refs.referrers[0]).toMatchObject({referred:1,screened:1,earnedCents:2500,paidCents:0});
+    expect(refs.rewards).toMatchObject([{applicantName:'Bea Referred',referrerName:'Ana Ref',status:'earned',amountCents:2500}]);
+  });
+
+  it('lets only a CareJoys admin approve and mark a reward paid',async()=>{
+    const bea=(await DB.prepare("SELECT id FROM agency_applicants WHERE phone='+14105550231'").first()).id;
+    const rewardUrl='/api/admin/applicant-referral-rewards/'+bea+'?employer=emp1';
+    expect((await call(rewardUrl,{method:'POST',headers:agency,body:JSON.stringify({status:'approved'})})).status).toBe(401);
+    expect((await call(rewardUrl,{method:'POST',headers:admin,body:JSON.stringify({status:'paid'})},ops)).status).toBe(400);
+    const approved=await (await call(rewardUrl,{method:'POST',headers:admin,body:JSON.stringify({status:'approved'})},ops)).json() as any;
+    expect(approved.rewards[0]).toMatchObject({status:'approved',approvedBy:'admin'});
+    // Once approved, a later knockout no longer takes it back.
+    await call('/api/workspace/applicants/'+bea,{method:'POST',headers:agency,body:JSON.stringify({screeningAnswers:{car:'no'}})});
+    const paid=await (await call(rewardUrl,{method:'POST',headers:admin,body:JSON.stringify({status:'paid'})},ops)).json() as any;
+    expect(paid.rewards[0]).toMatchObject({status:'paid'});
+    expect(paid.rewards[0].paidAt).not.toBe('');
+    expect(paid.referrers[0]).toMatchObject({earnedCents:2500,paidCents:2500});
+    expect((await call('/api/admin/applicant-referral-rewards/nope?employer=emp1',{method:'POST',headers:admin,body:JSON.stringify({status:'approved'})},ops)).status).toBe(404);
+  });
+});
+
 describe('replies to hello@',()=>{
   const forwards:string[]=[];
   const message=(raw:string,from='lead@facility.test')=>({from,to:'hello@carejoys.com',headers:new Headers(),
