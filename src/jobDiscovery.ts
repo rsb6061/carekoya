@@ -1460,8 +1460,10 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   const stateParam=clean(url.searchParams.get('state'),20).toUpperCase()||'MD';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,asNum(url.searchParams.get('radius'))||25));
   const center=await lookupZip(env.DB,url.searchParams.get('zip'));
-  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng
-    FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status="current"`;
+  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng,o.claimed_employer_id
+    FROM caregiver_jobs j ${zipGeoJoin('j')}
+    LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
+    WHERE j.is_published=1 AND j.status="current"`;
   const args:unknown[]=[];
   if(center){
     const box=boundingBox(center,radius);
@@ -1484,7 +1486,8 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
       id:r.id,title:normalizeTitle(r.title),role:r.role,roles,employerName:r.employer_name,city:r.city,state:r.state,zip:r.zip,
       employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
       datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at,
-      distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10
+      distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10,
+      applyForMe:!!detectApplyProvider(clean(r.source_url,1000)),employerOnCareJoys:!!clean(r.claimed_employer_id,120)
     };
   })});
 }
