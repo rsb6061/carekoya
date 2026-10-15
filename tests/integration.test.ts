@@ -2589,7 +2589,10 @@ describe('test accounts sign in with a code', ()=>{
     expect(await DB.prepare('SELECT id FROM agency_interests WHERE caregiver_id=?').bind(profile.id).first()).toBeNull();
     expect(sent.every(m=>m.to===CAREGIVER)).toBe(true);
     expect(await DB.prepare('SELECT id FROM candidate_pipeline WHERE caregiver_id=?').bind(profile.id).first()).toBeNull();
-    expect((await post('/api/me/apply-agent/job-real-t',{},{cookie})).status).toBe(403);
+    // Apply for me only ever practices for a test account: it never starts a real run that could submit.
+    expect((await post('/api/me/apply-agent/job-real-t',{},{cookie})).status).toBe(422);
+    expect((await post('/api/me/apply-agent/job-paylocity',{},{cookie})).status).toBe(503);
+    expect(await DB.prepare('SELECT id FROM apply_agent_sessions WHERE caregiver_id=?').bind(profile.id).first()).toBeNull();
 
     // Erase and start over: the old profile is retired and sign-up starts fresh.
     const reset=await post('/api/login/code',{email:CAREGIVER,code:CODE,reset:true});
