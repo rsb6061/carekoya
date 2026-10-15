@@ -7,6 +7,7 @@ type Stage=
   |{kind:'questions';sessionId:string;questions:Question[]}
   |{kind:'handoff';liveViewUrl:string;message:string;fallbackUrl:string}
   |{kind:'submitted'}
+  |{kind:'practice';filled:string[];wouldAsk:string[];needsYou:string[];captcha:boolean;screenshot:string|null}
   |{kind:'error';message:string;fallbackUrl?:string};
 
 /** Uploads the caregiver's resume file to their CareJoys account. */
@@ -50,6 +51,7 @@ export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
     const res=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json().catch(()=>({})) as any;
     if(data.status==='submitted'||data.status==='already_applied')return setStage({kind:'submitted'});
+    if(data.status==='practice')return setStage({kind:'practice',filled:data.filled||[],wouldAsk:data.wouldAsk||[],needsYou:data.needsYou||[],captcha:!!data.captcha,screenshot:data.screenshotJpeg||null});
     if(data.status==='needs_answers'){setAnswers({});setRemember({});return setStage({kind:'questions',sessionId:data.sessionId,questions:data.questions||[]})}
     if(data.status==='handoff_required')return setStage({kind:'handoff',liveViewUrl:data.liveViewUrl,message:data.blockerMessage||'',fallbackUrl:data.fallbackUrl||''});
     if(data.resumeRequired){setResumeName('');return setStage({kind:'idle'})}
@@ -99,6 +101,15 @@ export function ApplyForMe({jobId,employerName,hasResume,onActive,onSubmitted}:{
     <span>{stage.message}</span>
     {stage.liveViewUrl&&<a className="btn" href={stage.liveViewUrl} target="_blank" rel="noreferrer">Open the application</a>}
     <span>Your answers are already filled in there. If that page has closed, {stage.fallbackUrl?<a className="text-link" href={stage.fallbackUrl} target="_blank" rel="noreferrer nofollow">apply on {employerName}’s site</a>:'apply on the employer’s site'}.</span>
+  </div>;
+
+  if(stage.kind==='practice')return <div className="apply-agent-status apply-agent-practice">
+    <div className="modal-kicker">Test account · nothing was sent</div>
+    <strong>We filled in {employerName}’s application and stopped before sending it.</strong>
+    <span>Filled in: {stage.filled.length?stage.filled.join(', '):'nothing on the first page'}.</span>
+    {stage.wouldAsk.length>0&&<span>We’d ask you: {stage.wouldAsk.join(', ')}.</span>}
+    {(stage.needsYou.length>0||stage.captcha)&&<span>You’d finish on their site: {[...stage.needsYou,...(stage.captcha?['a CAPTCHA']:[])].join(', ')}.</span>}
+    {stage.screenshot&&<img className="apply-agent-practice-shot" src={'data:image/jpeg;base64,'+stage.screenshot} alt={'The filled-in '+employerName+' application'}/>}
   </div>;
 
   if(stage.kind==='submitted')return <div className="onboarding-success">

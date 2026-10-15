@@ -573,3 +573,6 @@ body .nav,body .app-header{padding:12px 0}
 .job-detail-card .apply-where{margin-top:8px}
 .public-job-actions{flex-wrap:wrap}
 .public-job-actions .apply-where,.job-card-actions .apply-where{flex-basis:100%}
+/* Test accounts' practice Apply now: what was filled, plus a screenshot of the unsent form. */
+.apply-agent-practice{text-align:left;align-items:flex-start}
+.apply-agent-practice-shot{width:100%;max-height:420px;object-fit:cover;object-position:top;border:1px solid var(--border,#e5e0d8);border-radius:10px;margin-top:8px}

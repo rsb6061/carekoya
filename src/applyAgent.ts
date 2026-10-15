@@ -129,8 +129,26 @@ export async function startApplyAgent(env:ApplyEnv,identity:CaregiverIdentity|nu
   if(!job)return json({ok:false,error:'This job is no longer open.'},{status:404});
   // Never fill in a real employer's application for a CareJoys test account.
   if(await env.DB.prepare('SELECT 1 FROM caregivers WHERE id=? AND is_test=1 LIMIT 1').bind(caregiverId).first())
-    return json({ok:false,error:'Apply for me is off for test accounts, so no employer gets a test application.',fallbackUrl:job.sourceUrl},{status:403});
+    return practiceApply(env,caregiverId,job);
   return runForCaregiver(env,caregiverId,job,'caregiver');
+}
+
+/**
+ * Test accounts (Rebecca chose "practice", 2026-10-15): fill page one of the employer's real application with the
+ * test profile and stop. Nothing is submitted, recorded or emailed, so no employer ever gets a test application.
+ */
+async function practiceApply(env:ApplyEnv,caregiverId:string,job:AgentJob){
+  const provider=detectApplyProvider(job.sourceUrl);
+  if(!provider)return json({ok:false,error:'CareJoys can’t fill in this employer’s application yet.',fallbackUrl:job.sourceUrl},{status:422});
+  if(!env.BROWSER)return json({ok:false,error:'Apply for me isn’t switched on yet.',fallbackUrl:job.sourceUrl},{status:503});
+  const profile=await profileFor(env,caregiverId);
+  if(!profile)return json({ok:false,error:'Add your name, email and phone to your profile first.',profileRequired:true},{status:409});
+  const {testFillApplication}=await browserModule();
+  const result=await testFillApplication(env.BROWSER as any,{provider,applicationUrl:applyStartUrl(provider,job.sourceUrl),profile,
+    resume:{name:'resume.pdf',mimeType:'application/pdf',bytes:new Uint8Array()},skipFileUpload:true});
+  if(!result.ok)return json({ok:false,error:'CareJoys couldn’t open this application to practice on.',fallbackUrl:job.sourceUrl},{status:502});
+  return json({ok:true,status:'practice',filled:result.filled.map(f=>f.label).slice(0,40),wouldAsk:result.wouldAsk.map(q=>q.label).slice(0,40),
+    needsYou:result.needsCandidateInBrowser.map(b=>b.text).slice(0,20),captcha:result.captcha,screenshotJpeg:result.screenshotJpeg});
 }
 
 /** One Apply for me run for a caregiver and job: their click on "Apply now", or the daily auto-apply. */
