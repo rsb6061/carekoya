@@ -2,6 +2,7 @@ import { pdfItemsText, structure } from '../src/resumeParser';
 import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
+import { classifyEmail, decodeHeader, forwardTarget, parseEmail, replyText } from '../src/inboundEmail';
 import { applicantsFromCsv, mapColumns, parseCsv, splitLocation } from '../src/applicants';
 import { cleanAnswers, cleanQuestions, DEFAULT_SCREENING_QUESTIONS, knockoutsFor, parseQuestions } from '../src/applicantScreening';
 import { classifySmsReply, normalizePhone, twilioSignature, verifyTwilioSignature } from '../src/sms';
@@ -751,5 +752,48 @@ describe('applicant screening questions',()=>{
   });
   it('falls back to the default list when stored JSON is unreadable',()=>{
     expect(parseQuestions('{bad')).toBe(DEFAULT_SCREENING_QUESTIONS);
+  });
+});
+
+describe('inbound email',()=>{
+  const mail=(headers:string,body:string)=>headers.trim().split('\n').map(l=>l.trim()).join('\r\n')+'\r\n\r\n'+body;
+  it('reads a multipart reply, decoding quoted-printable and encoded headers',()=>{
+    const raw=mail(`From: =?UTF-8?B?Sm9zw6kgUml2ZXJh?= <Jose@Harbor.test>
+      Subject: =?UTF-8?Q?Re:_Caf=C3=A9_hiring?=
+      Message-ID: <abc@harbor.test>
+      In-Reply-To: <out1@carejoys.com>
+      Content-Type: multipart/alternative; boundary="b1"`,
+      '--b1\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nYes, we=E2=80=99d like to talk.\r\n\r\nOn Mon, Oct 13, 2026 at 9:17 AM CareJoys <hello@carejoys.com> wrote:\r\n> Want help with applicants? Unsubscribe here\r\n--b1\r\nContent-Type: text/html\r\n\r\n<p>ignored</p>\r\n--b1--');
+    const p=parseEmail(raw);
+    expect(p).toMatchObject({fromEmail:'jose@harbor.test',fromName:'José Rivera',subject:'Re: Café hiring',messageId:'<abc@harbor.test>',inReplyTo:'<out1@carejoys.com>'});
+    expect(replyText(p.text)).toBe('Yes, we’d like to talk.');
+    // The quoted outreach email's own unsubscribe line doesn't count.
+    expect(classifyEmail(p).kind).toBe('reply');
+  });
+  it('falls back to the HTML part and decodes base64',()=>{
+    const p=parseEmail(mail('From: a@b.test\nContent-Type: text/html; charset=utf-8\nContent-Transfer-Encoding: base64',btoa('<p>Please remove me from your list</p>')));
+    expect(p.text.trim()).toBe('Please remove me from your list');
+    expect(classifyEmail(p).kind).toBe('unsubscribe');
+  });
+  it('spots out-of-office replies',()=>{
+    expect(classifyEmail(parseEmail(mail('From: a@b.test\nSubject: Automatic reply: CareJoys\nAuto-Submitted: auto-replied','Away until Monday'))).kind).toBe('auto_reply');
+    expect(classifyEmail(parseEmail(mail('From: a@b.test\nSubject: Out of Office','Back Monday'))).kind).toBe('auto_reply');
+  });
+  it('reads the failed address and hard or soft status from a bounce',()=>{
+    const report=(status:string)=>parseEmail(mail('From: Mail Delivery Subsystem <MAILER-DAEMON@mx.test>\nSubject: Undelivered Mail Returned to Sender\nContent-Type: multipart/report; report-type=delivery-status; boundary=r',
+      `--r\r\nContent-Type: text/plain\r\n\r\nCould not deliver.\r\n--r\r\nContent-Type: message/delivery-status\r\n\r\nReporting-MTA: dns; mx.test\r\n\r\nFinal-Recipient: rfc822; Gone@Facility.test\r\nAction: failed\r\nStatus: ${status}\r\n--r--`));
+    expect(classifyEmail(report('5.1.1'))).toEqual({kind:'bounce',bouncedEmail:'gone@facility.test',hardBounce:true});
+    expect(classifyEmail(report('4.2.2'))).toEqual({kind:'bounce',bouncedEmail:'gone@facility.test',hardBounce:false});
+  });
+  it('decodes split encoded words',()=>{
+    expect(decodeHeader('=?utf-8?Q?Hello?= =?utf-8?Q?_there?=')).toBe('Hello there');
+  });
+  it('forwards to an admin inbox, never to its own domain',async()=>{
+    const db=(emails:string[])=>({prepare:()=>({bind(){return this},run:async()=>({success:true}),first:async()=>null,all:async()=>({results:emails.map(email=>({email}))})})}) as any;
+    expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com, owner@gmail.test'})).toBe('owner@gmail.test');
+    expect(await forwardTarget({ADMIN_EMAILS:'owner@gmail.test',INBOUND_FORWARD_TO:'inbox@gmail.test'})).toBe('inbox@gmail.test');
+    expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com',DB:db(['owner@gmail.test'])})).toBe('owner@gmail.test');
+    expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com'})).toBe('');
+    expect(classifyEmail(parseEmail(mail('From: a@b.test',"Please don't send anyone without a CNA."))).kind).toBe('reply');
   });
 });

@@ -1163,7 +1163,8 @@ describe('shared sign-in', ()=>{
     expect(res.status).toBe(201);
     const created=await res.json() as any;
     expect(created.redirect).toContain('/app?opening=');
-    expect(sent.length).toBe(0);
+    // No second email to the agency; the admins still hear about the new lead.
+    expect(sent.filter(m=>!m.subject.startsWith('New hire form:'))).toHaveLength(0);
     expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
     expect(((await (await call('/api/account',{headers:{cookie}})).json()) as any).roles.employer).toBe(true);
   });
@@ -2980,5 +2981,57 @@ describe('applicant screening and show-up',()=>{
     const r=await (await call('/api/admin/applicant-screening?employer=emp-other',{method:'POST',headers:admin,body:JSON.stringify({questions:[{label:'CNA?',type:'yes_no'}]})},{ADMIN_TOKEN:'ops'})).json() as any;
     expect(r).toMatchObject({ok:true,isDefault:false,questions:[{id:'cna',label:'CNA?',type:'yes_no'}]});
     expect((await call('/api/admin/applicant-screening',{headers:admin},{ADMIN_TOKEN:'ops'})).status).toBe(400);
+  });
+});
+
+describe('replies to hello@',()=>{
+  const forwards:string[]=[];
+  const message=(raw:string,from='lead@facility.test')=>({from,to:'hello@carejoys.com',headers:new Headers(),
+    raw:new Response(raw).body!,forward:async(to:string)=>{forwards.push(to)}});
+  const raw=(from:string,subject:string,body:string,id:string)=>`From: ${from}\r\nSubject: ${subject}\r\nMessage-ID: <${id}>\r\nContent-Type: text/plain\r\n\r\n${body}`;
+  const admin={authorization:'Bearer ops'};
+  beforeAll(async()=>{
+    await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email) VALUES ('org-reply','org-reply','Sunrise Manor','Lead@Facility.test')").run();
+  });
+
+  it('forwards, records the reply against its lead, and stores a retry once',async()=>{
+    const m=raw('Dana <lead@facility.test>','Re: Hiring help','Yes, call me Thursday.\n\nOn Mon CareJoys wrote:\n> hi','r1@facility.test');
+    await worker.email(message(m) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    await worker.email(message(m) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(forwards).toEqual(['owner@gmail.test','owner@gmail.test']);
+    const body=await (await call('/api/admin/inbox?kind=reply',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0]).toMatchObject({fromEmail:'lead@facility.test',fromName:'Dana',kind:'reply',status:'new',snippet:'Yes, call me Thursday.',forwarded:true,lead:{type:'agency',id:'org-reply',name:'Sunrise Manor'}});
+    expect(body.counts.reply).toEqual({total:1,open:1});
+    const done=await call('/api/admin/inbox/'+body.messages[0].id,{method:'POST',headers:{...admin,'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({status:'handled'})},{ADMIN_TOKEN:'ops'});
+    expect(done.status).toBe(200);
+    expect((await call('/api/admin/inbox',{headers:{}})).status).toBe(401);
+  });
+
+  it('suppresses unsubscribes and hard bounces, and skips its own mail',async()=>{
+    await worker.email(message(raw('stop@facility.test','Re: CareJoys','Please take me off this list','u1@facility.test'),'stop@facility.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    const bounce='From: MAILER-DAEMON@mx.test\r\nSubject: Undeliverable\r\nMessage-ID: <b1@mx.test>\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=x\r\n\r\n--x\r\nContent-Type: message/delivery-status\r\n\r\nFinal-Recipient: rfc822; gone@facility.test\r\nStatus: 5.1.1\r\n--x--';
+    await worker.email(message(bounce,'MAILER-DAEMON@mx.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    await worker.email(message(raw('CareJoys <hello@carejoys.com>','Copy','outreach copy','own1@carejoys.com'),'hello@carejoys.com') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    const rows=(await DB.prepare("SELECT email,reason FROM email_suppressions WHERE email IN ('stop@facility.test','gone@facility.test') ORDER BY email").all()).results;
+    expect(rows).toEqual([{email:'gone@facility.test',reason:'bounce'},{email:'stop@facility.test',reason:'unsubscribe'}]);
+    expect((await DB.prepare("SELECT COUNT(*) AS n FROM email_messages WHERE from_email='hello@carejoys.com'").first() as any).n).toBe(0);
+  });
+
+  it('still records the message when forwarding fails',async()=>{
+    const failing={...message(raw('x@facility.test','Hi','Hello','f1@facility.test'),'x@facility.test'),forward:async()=>{throw new Error('unverified')}};
+    await worker.email(failing as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect((await DB.prepare("SELECT forwarded FROM email_messages WHERE message_id='<f1@facility.test>'").first() as any).forwarded).toBe(0);
+  });
+
+  it('alerts the admins about a new hire form, with Reply going to the lead',async()=>{
+    sent.length=0;
+    const res=await call('/api/employers',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},
+      body:JSON.stringify({companyName:'Bright Home Care',contactName:'Sam',email:'sam@bright.test',zip:'21201',rolesNeeded:'CNA',phone:'410-555-0100'})},{ADMIN_EMAILS:'owner@gmail.test'});
+    expect(res.status).toBe(201);
+    const alert=sent.find(m=>m.subject==='New hire form: Bright Home Care') as any;
+    expect(alert.replyTo).toBe('sam@bright.test');
+    expect(alert.to).toContain('owner@gmail.test');
+    expect(alert.text).toContain('Phone: 410-555-0100');
   });
 });

@@ -90,8 +90,8 @@ type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
-  type AdminSection='overview'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
-  const allowedSections:AdminSection[]=['overview','employers','applicants','caregivers','jobs','outreach','advanced'];
+  type AdminSection='overview'|'replies'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
+  const allowedSections:AdminSection[]=['overview','replies','employers','applicants','caregivers','jobs','outreach','advanced'];
   // Whose applicant list the Applicants section is working (the operated service).
   const [applicantEmployer,setApplicantEmployer]=useState('');
   const [section,setSection]=useState<AdminSection>(()=>{
@@ -179,11 +179,11 @@ export function AdminConsole(){
     <header className="app-header admin-app-header"><div className="app-wrap header-inner admin-header-inner">
       <a className="brand" href="/">CareJoys <span className="admin-brand-tag">Admin</span></a>
       <nav className="app-nav admin-section-nav" aria-label="Admin sections">
-        {(['overview','employers','applicants','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
+        {(['overview','replies','employers','applicants','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
           className={'nav-button '+(section===tab?'active':'')}
           aria-current={section===tab?'page':undefined}
           onClick={()=>goToSection(tab)}>
-          {{overview:'Overview',employers:'Employers',applicants:'Applicants',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
+          {{overview:'Overview',replies:'Replies',employers:'Employers',applicants:'Applicants',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
           {tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
         </button>)}
       </nav>
@@ -192,11 +192,12 @@ export function AdminConsole(){
     <main className="app-wrap app-content admin-main">
       <div className="admin-page-heading">
         <div><div className="modal-kicker">CareJoys operations</div><h1>{{
-          overview:'Your business at a glance',employers:'Employer approvals & accounts',applicants:'Agency applicants',
+          overview:'Your business at a glance',replies:'Replies to hello@',employers:'Employer approvals & accounts',applicants:'Agency applicants',
           caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
         <p>{{
           overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
+          replies:'Every email to hello@carejoys.com, matched to the lead it came from. Each one is also forwarded to your inbox.',
           employers:'Review new employers before giving them access to candidate profiles.',
           applicants:'Upload and work each agency’s own applicants. They stay that agency’s and never join caregiver matching.',
           caregivers:'Track worker profiles, recruiting campaigns and application activity.',
@@ -268,6 +269,7 @@ export function AdminConsole(){
   </div>
 </section>
 }
+      {section==='replies'&&<InboxReplies/>}
       {section==='applicants'&&<>
         <section className="section-block" style={{marginBottom:0}}>
           <select className="pipeline-select" value={applicantEmployer} onChange={e=>setApplicantEmployer(e.target.value)} aria-label="Agency account">
@@ -468,5 +470,47 @@ function JobSites(){
         {result.screenshotJpeg&&<img alt="Filled application" src={'data:image/jpeg;base64,'+result.screenshotJpeg} style={{width:'100%',marginTop:12,borderRadius:12}}/>}
       </>:<div className="notice">{result.error}</div>}
     </div>}
+  </section>;
+}
+
+type InboxMessage={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce';bouncedEmail:string;
+  lead:{type:string;id:string;name:string}|null;status:'new'|'handled';forwarded:boolean;createdAt:string};
+const REPLY_KINDS={reply:'Replies',unsubscribe:'Unsubscribes',auto_reply:'Out of office',bounce:'Bounces'} as const;
+const LEAD_LABELS:Record<string,string>={employer:'Employer',agency:'Agency or facility',school:'School',training_program:'Training program',applicant:'Agency applicant',caregiver:'Caregiver'};
+
+/** Mail to hello@ recorded by the Worker. Unsubscribes and hard bounces are already suppressed; replies wait for "Done". */
+function InboxReplies(){
+  const [kind,setKind]=useState<keyof typeof REPLY_KINDS>('reply');
+  const [data,setData]=useState<{messages:InboxMessage[];counts:Record<string,{total:number;open:number}>}|null>(null);
+  const [error,setError]=useState('');
+  async function load(k=kind){
+    try{setData(await api('/api/admin/inbox?kind='+k));setError('')}catch(e){setError(e instanceof Error?e.message:'Could not load replies')}
+  }
+  useEffect(()=>{void load(kind)},[kind]);
+  async function mark(m:InboxMessage){
+    await api('/api/admin/inbox/'+encodeURIComponent(m.id),{method:'POST',body:JSON.stringify({status:m.status==='new'?'handled':'new'})}).catch(()=>null);
+    await load();
+  }
+  return <section className="section-block">
+    <div className="admin-date-row">
+      {(Object.keys(REPLY_KINDS) as Array<keyof typeof REPLY_KINDS>).map(k=><button key={k} className={'nav-button '+(kind===k?'active':'')} onClick={()=>setKind(k)}>
+        {REPLY_KINDS[k]}{data?.counts[k]?.[k==='reply'?'open':'total']?' · '+data.counts[k][k==='reply'?'open':'total']:''}</button>)}
+    </div>
+    {error&&<div className="notice">{error}</div>}
+    {data&&!data.messages.length&&<div className="settings-card"><div className="job-meta">
+      {kind==='reply'?'No replies yet. They show up here once hello@ is routed to the carejoys Worker in Cloudflare Email Routing.':'None yet.'}</div></div>}
+    <div style={{display:'grid',gap:12}}>
+      {data?.messages.map(m=><div className="settings-card" key={m.id} style={{opacity:m.status==='handled'&&m.kind==='reply'?.6:1}}>
+        <div className="modal-kicker">{m.lead?(LEAD_LABELS[m.lead.type]||m.lead.type)+' · '+m.lead.name:'No matching lead'} · {new Date(m.createdAt.replace(' ','T')+'Z').toLocaleString()}</div>
+        <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{m.fromName?m.fromName+' · ':''}{m.fromEmail}</div>
+        <div className="job-meta" style={{overflowWrap:'anywhere'}}>{m.subject||'(no subject)'}{m.bouncedEmail?' · bounced: '+m.bouncedEmail:''}</div>
+        {m.snippet&&<p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:'8px 0'}}>{m.snippet.slice(0,600)}{m.snippet.length>600?'…':''}</p>}
+        <div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
+          {m.kind==='reply'&&<button className="button secondary" onClick={()=>void mark(m)}>{m.status==='new'?'Done':'Mark not done'}</button>}
+          <a className="text-button" style={{margin:0,width:'auto'}} href={'mailto:'+m.fromEmail+'?subject='+encodeURIComponent(/^re:/i.test(m.subject)?m.subject:'Re: '+m.subject)}>Reply</a>
+          {!m.forwarded&&<span className="job-meta">Not forwarded to your inbox</span>}
+        </div>
+      </div>)}
+    </div>
   </section>;
 }
