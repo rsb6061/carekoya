@@ -1881,6 +1881,10 @@ describe('site monitoring', ()=>{
     await report({kind:'error',message:'Script error.',path:'/'});
     await report({kind:'rejection',message:'Object Not Found Matching Id:4, MethodName:update, ParamCount:4',path:'/agency'},'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36');
     await report({kind:'error',message:'crawler error',source:'https://carejoys.com/assets/x.js:1:1',path:'/'},'Googlebot/2.1');
+    await report({kind:'react',message:'Unable to preload CSS for /assets/x.css',source:'https://carejoys.com/assets/index-AbC12345.js:1:1',path:'/jobs/job-3'},'Lightpanda/1.0');
+    // The same scraper with a borrowed Chrome user agent.
+    await report({kind:'api',message:'GET /api/account returned 607',path:'/jobs/job-3'},'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
+    await report({kind:'api',message:'GET /api/config did not reach CareJoys (fetch error)',path:'/jobs/job-3'});
     expect((await call('/api/client-errors',{method:'POST',headers:{'content-type':'application/json',origin:'https://evil.test'},body:'{}'})).status).toBe(403);
     const rows=(await DB.prepare('SELECT kind,message,count,first_path,last_path FROM client_errors ORDER BY kind').all()).results;
     expect(rows).toEqual([

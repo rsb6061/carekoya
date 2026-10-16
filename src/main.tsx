@@ -2,11 +2,13 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { CaregiverAuthProvider } from './caregiverAuth';
-import { installErrorReporter, reactErrorHandler } from './errorReporter';
+import { automatedBrowser, installErrorReporter, reactErrorHandler } from './errorReporter';
+import { keepDrawingWithoutStylesheets } from './lazyPage';
 import './styles.css';
 
 const path=window.location.pathname;
 installErrorReporter();
+keepDrawingWithoutStylesheets();
 
 function trackPageView(){
   try{
@@ -17,7 +19,7 @@ function trackPageView(){
       void fetch('/api/events',{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true}).catch(()=>{});
   }catch{}
 }
-if(!path.startsWith('/admin'))trackPageView();
+if(!path.startsWith('/admin')&&!automatedBrowser())trackPageView();
 
 ReactDOM.createRoot(document.getElementById('root')!,{
   onUncaughtError:(error,info)=>{console.error(error);reactErrorHandler(error,info)}
