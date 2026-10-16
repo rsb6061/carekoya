@@ -12,6 +12,11 @@ const seen=new Set<string>();
 
 type Report={kind:'error'|'rejection'|'react'|'api'|'api_slow';message:string;source?:string;stack?:string};
 
+/** Headless browsers (Lightpanda, Puppeteer, Playwright) are not visitors: no page views or error reports from them. */
+export function automatedBrowser(){
+  try{return navigator.webdriver===true||/headless|lightpanda|bot\b|crawler|spider/i.test(navigator.userAgent)}catch{return false}
+}
+
 export function reportClientError(report:Report){
   try{
     const key=report.kind+'|'+report.message;
@@ -20,6 +25,7 @@ export function reportClientError(report:Report){
     const detail={...report,message:report.message.slice(0,500),stack:(report.stack||'').slice(0,2000),path:window.location.pathname};
     // For the click-through test (e2e/flows.spec.ts), which fails on any report.
     window.dispatchEvent(new CustomEvent('carejoys:error-report',{detail}));
+    if(automatedBrowser())return;
     const body=JSON.stringify(detail);
     if(!navigator.sendBeacon?.(ENDPOINT,new Blob([body],{type:'application/json'})))
       void nativeFetch(ENDPOINT,{method:'POST',headers:{'content-type':'application/json'},body,keepalive:true}).catch(()=>{});

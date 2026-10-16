@@ -216,7 +216,7 @@ export async function adminAgencySearch(env:AdminEnv,q:string){
 export { outreachStatus };
 
 const TRACKED_EVENTS=new Set(['page_view']);
-const BOT_UA=/bot|crawler|spider|crawling|headless|preview|monitor|curl|wget|python|node-fetch/i;
+const BOT_UA=/bot|crawler|spider|crawling|headless|lightpanda|preview|monitor|curl|wget|python|node-fetch/i;
 
 /** First-party analytics: stores the path (never the query string), referrer host and UTM tags. No cookies, IPs or user ids. */
 export async function recordAnalyticsEvent(request:Request,env:AdminEnv){
