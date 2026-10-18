@@ -803,6 +803,19 @@ describe('public employer pages', ()=>{
     expect((await call('/api/public/employer/unchecked-care-ffff9999')).status).toBe(404);
     expect((await call('/employers/unchecked-care-ffff9999',{},htmlAssets)).status).toBe(404);
   });
+  it('shows a workspace that claimed its agency, with no manual approval', async()=>{
+    const id='cccc5555-0000-4000-8000-000000000003';
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES (?,'Claimed Care','Jo','jo@claimed.test','21201','CNA','active')").bind(id).run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,claimed_employer_id) VALUES ('org-claimed-pub','org-claimed-pub','Claimed Care','Towson','MD',1,?)").bind(id).run();
+    try{
+      const res=await call('/api/public/employer/claimed-care-cccc5555');
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as any).employer).toMatchObject({name:'Claimed Care',path:'/employers/claimed-care-cccc5555'});
+    }finally{
+      await DB.prepare("DELETE FROM agency_organizations WHERE id='org-claimed-pub'").run();
+      await DB.prepare('DELETE FROM employer_leads WHERE id=?').bind(id).run();
+    }
+  });
 });
 
 describe('audit fixes: SEO responses', ()=>{

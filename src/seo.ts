@@ -156,7 +156,8 @@ export async function jobPageContext(env:FeatureEnv,job:Row){
     .map(({r,d})=>({id:clean(r.id,200),title:normalizeTitle(r.title),employerName:clean(r.employer_name,200),city:clean(r.city,120),state:clean(r.state,20),
       pay:payText(r.pay_min,r.pay_max,r.pay_period),distanceMiles:d===null?null:Math.round(d*10)/10}));
 
-  const org=job.agency_organization_id?await env.DB.prepare("SELECT ao.id,ao.canonical_name,ao.city,ao.state,ao.provider_types,ao.primary_website,e.id AS employer_id,e.company_name,e.company_about,e.company_benefits,(e.approved_at IS NOT NULL OR COALESCE(e.is_test,0)=1) AS has_profile FROM agency_organizations ao LEFT JOIN employer_leads e ON e.id=ao.claimed_employer_id AND e.status!='disabled' WHERE ao.id=? LIMIT 1").bind(job.agency_organization_id).first<Row>():null;
+  // The workspace is joined through the claim, and a claimed workspace always has a public page (PROFILE_VISIBLE_SQL).
+  const org=job.agency_organization_id?await env.DB.prepare("SELECT ao.id,ao.canonical_name,ao.city,ao.state,ao.provider_types,ao.primary_website,e.id AS employer_id,e.company_name,e.company_about,e.company_benefits,(e.id IS NOT NULL) AS has_profile FROM agency_organizations ao LEFT JOIN employer_leads e ON e.id=ao.claimed_employer_id AND e.status!='disabled' WHERE ao.id=? LIMIT 1").bind(job.agency_organization_id).first<Row>():null;
   const otherJobs=org?asNum((await env.DB.prepare("SELECT COUNT(*) AS count FROM caregiver_jobs WHERE agency_organization_id=? AND is_published=1 AND status='current' AND id!=?").bind(org.id,job.id).first<Row>())?.count):0;
   const employer=org?{name:clean(org.canonical_name,200)||clean(job.employer_name,200),city:clean(org.city,120),state:clean(org.state,20),
     providerTypes:clean(org.provider_types,300),website:clean(org.primary_website,500),otherOpenJobs:otherJobs,
