@@ -1,3 +1,4 @@
+import { OPERATED_APPLICANT_LIMIT, OPERATED_PRICE } from './plans';
 import { useEffect, useState } from 'react';
 import { AgencyFinder } from './AgencyFinder';
 import { jobsHubPath, usState } from './usStates';
@@ -103,7 +104,6 @@ export function AboutCareJoysPage(){
   </div>;
 }
 
-const PRICE='$99';
 
 /** /pricing: where "Faster AI Hiring" lands. The founding pilot: we work the agency's own applicants. The button starts the intake form. */
 export function PricingPage(){
@@ -120,10 +120,10 @@ export function PricingPage(){
           <article className="plan-card">
             <div className="plan-head">
               <div><h2>Applicant follow-up</h2><span className="plan-note">Founding pilot</span></div>
-              <div className="plan-price"><strong>{PRICE}</strong><span>/month</span></div>
+              <div className="plan-price"><strong>{OPERATED_PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
-            <div className="plan-terms">One location, up to 75 applicants a month. Those are applicants we work, not leads we supply. We’ll tell you before you hit it.</div>
+            <div className="plan-terms">One location, up to {OPERATED_APPLICANT_LIMIT} applicants a month. Those are applicants we work, not leads we supply. We’ll tell you before you hit it.</div>
             <div className="plan-terms">Month-to-month. Cancel anytime. No placement fees or per-hire charges.</div>
             <ul className="plan-list">
               <li>Every applicant from a connected source texted within 30 minutes, 8am to 9pm.</li>

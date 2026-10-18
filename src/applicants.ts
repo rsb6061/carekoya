@@ -1,5 +1,5 @@
 // An agency's own applicants, brought into CareJoys so they can be worked for the agency: from a CSV the agency
-// exports (Indeed, CareerPlug, a spreadsheet of last quarter's applicants), and later from forwarded emails.
+// exports (Indeed, CareerPlug, a spreadsheet of last quarter's applicants), and from forwarded emails.
 // They stay the agency's: never written to `caregivers`, never matched or shown to anyone else.
 import { normalizePhone } from './sms';
 import { cleanAnswers, knockoutsFor, screeningQuestions, type ScreeningAnswers } from './applicantScreening';
@@ -14,7 +14,7 @@ type Db=ApplicantDb;
 export const APPLICANT_SOURCES=['indeed-forward','csv','dead-pile','referral','school','ad'] as const;
 export type ApplicantSource=typeof APPLICANT_SOURCES[number];
 export const APPLICANT_SOURCE_LABELS:Record<ApplicantSource,string>={
-  'indeed-forward':'Indeed (forwarded)',csv:'CSV upload','dead-pile':'Past applicants',referral:'Referral',school:'School',ad:'Ad'
+  'indeed-forward':'Forwarded email',csv:'CSV upload','dead-pile':'Past applicants',referral:'Referral',school:'School',ad:'Ad'
 };
 export const APPLICANT_STAGES=['new','contacted','screened','interview','hired','not_fit'] as const;
 export type ApplicantStage=typeof APPLICANT_STAGES[number];
@@ -173,7 +173,17 @@ export type ApplicantView={id:string;name:string;firstName:string;lastName:strin
   /** Whether they came to the interview, started, and were still working at day 30 and day 90. */
   showUp:{interviewAt:string;interviewOutcome:string;startDate:string;day30:string;day90:string};
   /** Who referred them through a referral link, and where that referrer's reward stands. */
-  referral:{referrerId:string;referrerName:string;rewardStatus:ReferralRewardStatus|'';rewardCents:number}};
+  referral:{referrerId:string;referrerName:string;rewardStatus:ReferralRewardStatus|'';rewardCents:number};
+  /** The interview booking link (src/applicantBooking.ts): when it was made, and when the applicant booked through it. */
+  booking:{sentAt:string;bookedAt:string;slotId:string}};
+
+/** "12 min", "3 hr 5 min", "2 days". */
+export function waitText(minutes:number|null){
+  if(minutes===null)return '';
+  if(minutes<60)return `${minutes} min`;
+  if(minutes<48*60){const h=Math.floor(minutes/60),m=minutes%60;return `${h} hr${m?` ${m} min`:''}`}
+  return `${Math.round(minutes/1440)} days`;
+}
 
 export const INTERVIEW_OUTCOMES=['showed','no_show','rescheduled'] as const;
 export const RETENTION_STATUSES=['working','left'] as const;
@@ -191,7 +201,8 @@ function view(r:Row):ApplicantView{
     reactivation:{sentAt:clean(r.reactivation_sent_at,40),status:clean(r.reactivation_status,20),response:clean(r.reactivation_response,10),respondedAt:clean(r.reactivation_responded_at,40),replyPhone:clean(r.reply_phone,20)},
     screening:{answers:answersOf(r.screening_answers_json),knockouts:clean(r.screening_knockouts,2000).split('|').filter(Boolean),screenedBy:clean(r.screened_by,320)},
     showUp:{interviewAt:clean(r.interview_at,40),interviewOutcome:clean(r.interview_outcome,20),startDate:clean(r.start_date,20),day30:clean(r.day30_status,20),day90:clean(r.day90_status,20)},
-    referral:{referrerId:clean(r.referrer_id,100),referrerName:clean(r.referrer_name,120),rewardStatus:clean(r.reward_status,20) as ReferralRewardStatus|'',rewardCents:Number(r.reward_cents||0)}};
+    referral:{referrerId:clean(r.referrer_id,100),referrerName:clean(r.referrer_name,120),rewardStatus:clean(r.reward_status,20) as ReferralRewardStatus|'',rewardCents:Number(r.reward_cents||0)},
+    booking:{sentAt:clean(r.booking_sent_at,40),bookedAt:clean(r.interview_booked_at,40),slotId:clean(r.interview_slot_id,100)}};
 }
 
 // Every applicant query reads through this, so each row carries its referrer's name and reward.
@@ -248,7 +259,7 @@ export async function updateApplicant(db:Db,employerId:string,id:string,data:Row
     const at=clean(data.interviewAt,40);
     if(at&&!Number.isFinite(Date.parse(at)))return {ok:false as const,error:'Enter the interview date and time.'};
     sets.push('interview_at=?');args.push(at||null);
-    if(at)implied='interview';
+    if(at){implied='interview';sets.push('interview_booked_at=COALESCE(interview_booked_at,CURRENT_TIMESTAMP)')}
   }
   if(data.interviewOutcome!==undefined){
     const v=clean(data.interviewOutcome,20);

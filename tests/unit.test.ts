@@ -3,6 +3,9 @@ import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
 import { classifyEmail, decodeHeader, forwardTarget, parseEmail, replyText } from '../src/inboundEmail';
+import { applicantFromEmail, intakeKeyOf, nameAndJobFromSubject } from '../src/applicantEmailIntake';
+import { localStamp } from '../src/applicantBooking';
+import { waitText } from '../src/applicants';
 import { applicantsFromCsv, mapColumns, parseCsv, splitLocation } from '../src/applicants';
 import { cleanAnswers, cleanQuestions, DEFAULT_SCREENING_QUESTIONS, knockoutsFor, parseQuestions } from '../src/applicantScreening';
 import { classifySmsReply, normalizePhone, twilioSignature, verifyTwilioSignature } from '../src/sms';
@@ -795,5 +798,53 @@ describe('inbound email',()=>{
     expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com',DB:db(['owner@gmail.test'])})).toBe('owner@gmail.test');
     expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com'})).toBe('');
     expect(classifyEmail(parseEmail(mail('From: a@b.test',"Please don't send anyone without a CNA."))).kind).toBe('reply');
+  });
+});
+
+describe('applicant emails',()=>{
+  const email=(head:string,body:string)=>parseEmail(head+'\r\nContent-Type: text/plain\r\n\r\n'+body);
+
+  it('reads only apply+<key>@carejoys.com addresses',()=>{
+    expect(intakeKeyOf('Apply+Abc234xyzq@CareJoys.com')).toBe('abc234xyzq');
+    expect(intakeKeyOf('hello@carejoys.com')).toBe('');
+    expect(intakeKeyOf('apply+abc@carejoys.com')).toBe('');
+    expect(intakeKeyOf('apply+abcdefgh@carejoys.com.evil.test')).toBe('');
+  });
+
+  it('takes the name and job from common subjects',()=>{
+    expect(nameAndJobFromSubject('Fwd: Maria Santos applied to your Caregiver job')).toEqual({name:'Maria Santos',job:'Caregiver'});
+    expect(nameAndJobFromSubject('New applicant for Home Health Aide - Jo Ann Lee')).toEqual({name:'Jo Ann Lee',job:'Home Health Aide'});
+    expect(nameAndJobFromSubject('Your weekly hiring summary')).toEqual({name:'',job:''});
+  });
+
+  it('reads an Indeed-style notification',()=>{
+    const a=applicantFromEmail(email('From: Indeed <noreply@indeed.com>\r\nSubject: Maria Santos applied to your Caregiver job',
+      'Maria Santos\r\nCandidate phone: 410.555.0177\r\nEmail: maria.s@example.com\r\nLocation: Towson, MD 21204\r\nView application on Indeed'));
+    expect(a).toMatchObject({board:'Indeed',firstName:'Maria',lastName:'Santos',phone:'+14105550177',email:'maria.s@example.com',city:'Towson',state:'MD',zip:'21204',position:'Caregiver'});
+  });
+
+  it('reads a CareerPlug table turned into lines, with labels above values',()=>{
+    const a=applicantFromEmail(email('From: CareerPlug <notifications@careerplug.com>\r\nSubject: New Applicant: Caregiver',
+      'A new applicant applied.\r\nName\r\nDeShawn Price\r\nPhone\r\n(443) 555-0123\r\nEmail\r\ndeshawn@example.com\r\nJob Applied To\r\nCompanion Caregiver\r\n'));
+    expect(a).toMatchObject({board:'CareerPlug',firstName:'DeShawn',lastName:'Price',phone:'+14435550123',email:'deshawn@example.com',position:'Companion Caregiver'});
+  });
+
+  it('reads a notification the agency forwarded by hand, never taking the agency as the applicant',()=>{
+    const a=applicantFromEmail(email('From: Owner <owner@harbor.test>\r\nSubject: Fwd: Kim Tran applied to your CNA job',
+      'FYI\r\n\r\n---------- Forwarded message ---------\r\nFrom: Indeed <alert@indeed.com>\r\nSubject: Kim Tran applied to your CNA job\r\nTo: owner@harbor.test\r\n\r\nKim Tran\r\nkim.tran@example.com\r\n'));
+    expect(a).toMatchObject({board:'Indeed',firstName:'Kim',lastName:'Tran',email:'kim.tran@example.com',position:'CNA'});
+  });
+
+  it('finds no applicant in a forwarding confirmation',()=>{
+    const a=applicantFromEmail(email('From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: Gmail Forwarding Confirmation','Confirmation code: 123456789'));
+    expect(a.phone+a.email).toBe('');
+  });
+
+  it('writes a booked slot in the agency’s local time, and waits in words',()=>{
+    expect(localStamp('2026-10-20T15:00:00.000Z','America/New_York')).toBe('2026-10-20T11:00');
+    expect(waitText(12)).toBe('12 min');
+    expect(waitText(185)).toBe('3 hr 5 min');
+    expect(waitText(4*1440)).toBe('4 days');
+    expect(waitText(null)).toBe('');
   });
 });

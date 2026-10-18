@@ -31,6 +31,7 @@ const GnaJobsPage=named(()=>import('./LocalLandingPages'),'GnaJobsPage');
 const CnaClassesPage=named(()=>import('./LocalLandingPages'),'CnaClassesPage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
 const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
+const ApplicantBookingPage=named(()=>import('./ApplicantBookingPage'),'ApplicantBookingPage');
 const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
 const CaregiverDashboard=named(()=>import('./CaregiverDashboard'),'CaregiverDashboard');
 const AdminConsole=named(()=>import('./AdminConsole'),'AdminConsole');
@@ -54,6 +55,7 @@ function routePage(path:string){
   if (path.startsWith('/auth')) return <EmployerAuth />;
   if (path.startsWith('/respond')) return <CandidateResponse />;
   if (path.startsWith('/confirm-interest')) return <ConfirmInterest />;
+  if (path.startsWith('/book/')) return <ApplicantBookingPage />;
   if (path === '/agent') return <AgentSetupPage />;
   if (path.startsWith('/agency')) return <AgencyClaim />;
   if (isNationalJobsPath(path) || parseJobsHubPath(path) || path.startsWith('/join/')) return <CaregiverJobsHub />;

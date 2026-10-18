@@ -3134,3 +3134,117 @@ describe('replies to hello@',()=>{
     expect(alert.text).toContain('Phone: 410-555-0100');
   });
 });
+
+describe('operated service',()=>{
+  const OP_SESSION='op-session-token';
+  const agency={cookie:'cj_session='+OP_SESSION,'content-type':'application/json',origin:'https://carejoys.com'};
+  const forwards:string[]=[];
+  const mail=(to:string,raw:string)=>({from:'alert@indeed.com',to,headers:new Headers(),raw:new Response(raw).body!,forward:async(t:string)=>{forwards.push(t)}});
+  let address='';
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-op','Harbor Home Care','Lee Owner','owner@harbor.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-op','emp-op',?,?)").bind(await sha256Hex(OP_SESSION),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('gives each agency a forwarding address and reads a job board email into its list without forwarding it',async()=>{
+    const first=await (await call('/api/workspace/applicants',{headers:agency})).json() as any;
+    address=first.intake.address;
+    expect(address).toMatch(/^apply\+[a-z0-9]{10}@carejoys\.com$/);
+    expect((await (await call('/api/workspace/applicants',{headers:agency})).json() as any).intake.address).toBe(address);
+    const raw=`From: Indeed <alert@indeed.com>\r\nSubject: Maria Santos applied to your Caregiver job\r\nMessage-ID: <in1@indeed.com>\r\nDate: ${new Date().toUTCString()}\r\nContent-Type: text/plain\r\n\r\nNew applicant\r\nName: Maria Santos\r\nPhone: (410) 555-0177\r\nEmail: maria.s@example.com\r\nLocation: Towson, MD 21204\r\n`;
+    await worker.email(mail(address.toUpperCase(),raw) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    await worker.email(mail(address,raw.replace('in1@','in2@')) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(forwards).toEqual([]);
+    const list=await (await call('/api/workspace/applicants',{headers:agency})).json() as any;
+    expect(list.applicants).toHaveLength(1);
+    expect(list.applicants[0]).toMatchObject({firstName:'Maria',lastName:'Santos',phone:'+14105550177',email:'maria.s@example.com',city:'Towson',state:'MD',zip:'21204',
+      position:'Caregiver',source:'indeed-forward',sourceDetail:'Indeed email',stage:'new'});
+    expect(list.intake.lastReceivedAt).not.toBe('');
+    expect(list.week).toMatchObject({received:1,live:1,waiting:1,contacted:0});
+  });
+
+  it('forwards and shows a message it cannot read, and ignores unknown addresses',async()=>{
+    const confirm='From: Gmail Team <forwarding-noreply@google.com>\r\nSubject: Gmail Forwarding Confirmation\r\nMessage-ID: <g1@google.com>\r\nContent-Type: text/plain\r\n\r\nConfirmation code: 123456789\r\n';
+    await worker.email(mail(address,confirm) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    await worker.email(mail('apply+nosuchagency@carejoys.com',confirm.replace('g1@','g2@')) as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(forwards).toEqual(['owner@gmail.test','owner@gmail.test']);
+    const list=await (await call('/api/workspace/applicants',{headers:agency})).json() as any;
+    expect(list.applicants).toHaveLength(1);
+    expect(list.intake.unread).toMatchObject({subject:'Gmail Forwarding Confirmation'});
+    expect(list.intake.unread.snippet).toContain('123456789');
+    const inbox=await (await call('/api/admin/inbox?kind=intake',{headers:{authorization:'Bearer ops'}},{ADMIN_TOKEN:'ops'})).json() as any;
+    expect(inbox.counts.intake).toEqual({total:4,open:2});
+  });
+
+  it('books an outside applicant through a link, moves it, and cancels it',async()=>{
+    const maria=(await DB.prepare("SELECT id FROM agency_applicants WHERE employer_id='emp-op'").first()).id;
+    const link='/api/workspace/applicants/'+maria+'/booking-link';
+    const none=await (await call(link,{method:'POST',headers:agency,body:'{}'})).json() as any;
+    expect(none).toMatchObject({ok:true,slots:0});
+    await DB.prepare("INSERT INTO openings(id,employer_id,title,role,zip,status) VALUES ('op-open','emp-op','Caregiver','Caregiver','21201','open')").run();
+    const at=(h:number)=>new Date(Math.ceil(Date.now()/3600000)*3600000+h*3600000).toISOString();
+    for(const [id,h] of [['op-s1',26],['op-s2',50]] as const)
+      await DB.prepare("INSERT INTO interview_slots(id,opening_id,employer_id,starts_at,duration_minutes,timezone,location) VALUES (?,'op-open','emp-op',?,30,'America/New_York','12 Main St')").bind(id,at(h)).run();
+    sent.length=0;
+    const r=await (await call(link,{method:'POST',headers:agency,body:JSON.stringify({send:true})})).json() as any;
+    expect(r).toMatchObject({ok:true,slots:2,emailed:true});
+    const token=r.url.split('/book/')[1];
+    expect(sent.find(m=>m.to==='maria.s@example.com')?.subject).toBe('Harbor Home Care: choose your interview time');
+    // The earlier link stopped working when this one was made.
+    expect((await call('/api/applicant-booking?token='+none.url.split('/book/')[1])).status).toBe(404);
+    const view=await (await call('/api/applicant-booking?token='+token)).json() as any;
+    expect(view).toMatchObject({company:'Harbor Home Care',firstName:'Maria',booked:null});
+    expect(view.slots.map((s:any)=>s.id)).toEqual(['op-s1','op-s2']);
+    const post=(body:object)=>call('/api/applicant-booking',{method:'POST',headers:{'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({token,...body})});
+    sent.length=0;
+    expect((await post({slotId:'op-s1'})).status).toBe(200);
+    expect(sent.map(m=>m.to).sort()).toEqual(['maria.s@example.com','owner@harbor.test']);
+    expect((sent[0] as any).attachments[0].filename).toBe('carejoys-interview.ics');
+    let row=await DB.prepare("SELECT stage,interview_slot_id,interview_at,interview_booked_at,first_contact_at FROM agency_applicants WHERE id=?").bind(maria).first();
+    expect(row).toMatchObject({stage:'interview',interview_slot_id:'op-s1'});
+    expect(row.interview_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(row.interview_booked_at).not.toBeNull();
+    expect((await post({slotId:'op-s2'})).status).toBe(200);
+    const slots=(await DB.prepare("SELECT id,status,booked_applicant_id FROM interview_slots WHERE opening_id='op-open' ORDER BY id").all()).results;
+    expect(slots).toEqual([{id:'op-s1',status:'available',booked_applicant_id:null},{id:'op-s2',status:'booked',booked_applicant_id:maria}]);
+    const week=(await (await call('/api/workspace/applicants',{headers:agency})).json() as any).week;
+    expect(week).toMatchObject({received:1,contacted:1,withinTarget:1,booked:1,waiting:0});
+    expect((await post({action:'cancel'})).status).toBe(200);
+    row=await DB.prepare("SELECT interview_slot_id,interview_booked_at FROM agency_applicants WHERE id=?").bind(maria).first();
+    expect(row).toEqual({interview_slot_id:null,interview_booked_at:null});
+    expect((await DB.prepare("SELECT status FROM interview_slots WHERE id='op-s2'").first()).status).toBe('available');
+    expect((await post({slotId:'nope'})).status).toBe(400);
+  });
+
+  it('sends the Monday report once, only to agencies with applicants',async()=>{
+    const { sendWeeklyApplicantReports }=await import('../src/applicantReport');
+    // The next Monday at the digest hour, so this week's applicants are inside its seven days.
+    const monday=new Date();monday.setUTCHours(11,0,0,0);
+    while(monday.getUTCDay()!==1||monday.getTime()<=Date.now())monday.setUTCDate(monday.getUTCDate()+1);
+    sent.length=0;
+    expect(await sendWeeklyApplicantReports(env(),new Date(monday.getTime()+86400000))).toEqual({sent:0});
+    await sendWeeklyApplicantReports(env(),monday);
+    await sendWeeklyApplicantReports(env(),monday);
+    const reports=sent.filter(m=>m.subject.startsWith('Harbor Home Care last week'));
+    expect(reports).toHaveLength(1);
+    expect(reports[0].to).toBe('owner@harbor.test');
+    expect((reports[0] as any).text).toContain('New applicants: 1');
+  });
+
+  it('starts the applicant follow-up plan as its own Stripe price and records it',async()=>{
+    const fetched:Array<{url:string;body:string}>=[];
+    const realFetch=globalThis.fetch;
+    globalThis.fetch=(async(url:any,init:any)=>{fetched.push({url:String(url),body:String(init?.body||'')});return new Response(JSON.stringify({url:'https://checkout.stripe.test/s'}),{status:200})}) as any;
+    try{
+      const stripe={STRIPE_SECRET_KEY:'sk_test',STRIPE_PRICE_ID_OPERATED:'price_operated'};
+      const status=await (await call('/api/billing',{headers:agency},stripe)).json() as any;
+      expect(status.operated).toEqual({available:true,subscribed:false});
+      expect((await call('/api/billing/checkout',{method:'POST',headers:agency,body:JSON.stringify({plan:'operated'})},stripe)).status).toBe(200);
+      const params=new URLSearchParams(fetched[0].body);
+      expect(params.get('line_items[0][price]')).toBe('price_operated');
+      expect(params.get('subscription_data[metadata][plan]')).toBe('operated');
+      // Without the introductions price, only the operated plan can be bought.
+      expect((await call('/api/billing/checkout',{method:'POST',headers:agency,body:'{}'},stripe)).status).toBe(503);
+    }finally{globalThis.fetch=realFetch}
+  });
+});

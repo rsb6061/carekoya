@@ -3,6 +3,9 @@ import { importApplicants, listApplicants, updateApplicant, type ApplicantDb } f
 import { saveScreeningQuestions, screeningQuestions } from './applicantScreening';
 import { reactivationStatus, sendReactivationBatch, sendReactivationTest } from './applicantReactivation';
 import { addReferrer, listReferrers, setRewardStatus } from './applicantReferrals';
+import { ensureIntakeKey, intakeAddress } from './applicantEmailIntake';
+import { applicantWeek } from './applicantReport';
+import { createBookingLink } from './applicantBooking';
 
 // The applicant list over HTTP: an agency works its own list from its workspace, and a CareJoys admin works any
 // agency's list from the admin console (the operated service). Same storage, same rules.
@@ -16,11 +19,41 @@ const clean=(v:unknown,max=200)=>typeof v==='string'?v.trim().slice(0,max):'';
 
 async function respond(env:FeatureEnv,employerId:string,request:Request,id:string,actor:string){
   const store=db(env);
-  if(request.method==='GET')return json({ok:true,...await listApplicants(store,employerId)});
+  if(request.method==='GET'){
+    // The forwarding address, the last message there that couldn't be read (a Gmail confirmation code lands here),
+    // this week's numbers, and whether there are interview times for a booking link to offer.
+    const address=intakeAddress(await ensureIntakeKey(store,employerId));
+    const unread=address?await store.prepare("SELECT subject,snippet,created_at FROM email_messages WHERE mailbox=? AND kind='intake' AND status='new' ORDER BY created_at DESC LIMIT 1").bind(address).first<Row>():null;
+    const lastRead=address?await store.prepare("SELECT created_at FROM email_messages WHERE mailbox=? AND kind='intake' AND status='handled' ORDER BY created_at DESC LIMIT 1").bind(address).first<Row>():null;
+    const slots=await store.prepare("SELECT COUNT(*) AS n FROM interview_slots WHERE employer_id=? AND status='available' AND datetime(starts_at)>datetime('now','+30 minutes')").bind(employerId).first<Row>();
+    return json({ok:true,...await listApplicants(store,employerId),
+      intake:{address,lastReceivedAt:clean(lastRead?.created_at,40),unread:unread?{subject:clean(unread.subject,300),snippet:clean(unread.snippet,600),receivedAt:clean(unread.created_at,40)}:null},
+      week:await applicantWeek(store,employerId),openInterviewTimes:Number(slots?.n||0)});
+  }
   const data=await request.json().catch(()=>null) as Row|null;
   if(!data)return json({ok:false,error:'Nothing to save.'},{status:400});
   const result=id?await updateApplicant(store,employerId,id,data,actor):await importApplicants(store,employerId,{csv:data.csv,source:data.source,filename:data.filename,sourceDetail:data.sourceDetail},actor);
   return json(result,{status:result.ok?200:(result.error==='Applicant not found.'?404:400)});
+}
+
+async function bookingLink(env:FeatureEnv,employerId:string,request:Request,applicantId:string){
+  const data=await request.json().catch(()=>({})) as Row;
+  const result=await createBookingLink(env,employerId,applicantId,data?.send===true);
+  return json(result,{status:result.ok?200:result.status});
+}
+
+/** POST /api/workspace/applicants/:id/booking-link {send?} for the signed-in agency. */
+export async function workspaceBookingLink(request:Request,env:FeatureEnv,applicantId:string){
+  const employer=await employerSession(request,env);
+  if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
+  return bookingLink(env,clean(employer.id,100),request,applicantId);
+}
+
+/** POST /api/admin/applicants/:id/booking-link?employer=<id> {send?} for a CareJoys operator. */
+export async function adminBookingLink(request:Request,env:FeatureEnv,applicantId:string){
+  const found=await adminEmployer(request,env);
+  if(found.error)return found.error;
+  return bookingLink(env,found.employerId,request,applicantId);
 }
 
 /** /api/workspace/applicants[/:id] for the signed-in agency. */

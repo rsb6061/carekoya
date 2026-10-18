@@ -51,14 +51,14 @@ function publicName(first:unknown,last:unknown,display:unknown){
   return parts.length>1?`${parts[0]} ${parts[parts.length-1].charAt(0).toUpperCase()}.`:(d||'Caregiver');
 }
 function asNumber(v:unknown){const n=Number(v||0);return Number.isFinite(n)?n:0;}
-function safeTimeZone(value:string){try{new Intl.DateTimeFormat('en-US',{timeZone:value});return value}catch{return 'UTC'}}
-function startsLabel(startsAt:string,timeZone:string){
+export function safeTimeZone(value:string){try{new Intl.DateTimeFormat('en-US',{timeZone:value});return value}catch{return 'UTC'}}
+export function startsLabel(startsAt:string,timeZone:string){
   const d=new Date(startsAt);
   return d.toLocaleString('en-US',{timeZone:safeTimeZone(timeZone),weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});
 }
 function icsStamp(date:Date){return date.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z')}
 function icsEscape(value:string){return value.replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n')}
-function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;caregiverEmail:string;employerEmail:string;startsAt:string;duration:number;where?:string}){
+export function interviewIcs(input:{uid:string;title:string;company:string;caregiver:string;caregiverEmail:string;employerEmail:string;startsAt:string;duration:number;where?:string}){
   const start=new Date(input.startsAt);
   const end=new Date(start.getTime()+input.duration*60000);
   return [
