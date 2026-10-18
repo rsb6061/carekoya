@@ -556,6 +556,9 @@ body{font-family:"Avenir Next","Helvetica Neue",Helvetica,Arial,ui-sans-serif,sy
 .screening-question-list li input{flex:1 1 260px;width:auto}
 .applicant-detail{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:28px;padding:6px 2px 10px;white-space:normal}
 @media (max-width:760px){.applicant-detail{grid-template-columns:1fr}}
+.booking-link{border-top:1px solid var(--line,#e6e1f5);margin-top:6px;padding:12px 2px 6px;white-space:normal}
+.booking-link input{width:100%;max-width:520px;margin-top:8px}
+.intake-address{font-size:15px;padding:8px 12px;border-radius:10px;background:#f4f1ff;word-break:break-all}
 /* The detail panel sits in a wide, side-scrolling table: pin it to the visible width. */
 .applicant-intake .admin-table-scroll{container-type:inline-size}
 .applicant-intake .applicant-detail{position:sticky;left:0;max-width:calc(100cqw - 24px);box-sizing:border-box}

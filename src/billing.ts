@@ -7,6 +7,8 @@ export type BillingEnv=FeatureEnv&{
   STRIPE_PRICE_ID?:string;
   /** Optional yearly price for the same plan; checkout offers it when set. */
   STRIPE_PRICE_ID_YEARLY?:string;
+  /** Applicant follow-up, the operated service (src/plans.ts). Its own product and price; checkout offers it when set. */
+  STRIPE_PRICE_ID_OPERATED?:string;
   /** "1" once Stripe Tax is active with a business address; checkout then adds tax and collects address and tax ID. */
   STRIPE_AUTOMATIC_TAX?:string;
   STRIPE_WEBHOOK_SECRET?:string;
@@ -29,6 +31,10 @@ const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body
 /** Billing is inert (no limits, no upgrade UI) until both Stripe settings exist. */
 export function billingEnabled(env:BillingEnv){
   return !!(clean(env.STRIPE_SECRET_KEY)&&clean(env.STRIPE_PRICE_ID));
+}
+/** Applicant follow-up can be bought once its Stripe price exists, whether or not introductions are billed yet. */
+export function operatedEnabled(env:BillingEnv){
+  return !!(clean(env.STRIPE_SECRET_KEY)&&clean(env.STRIPE_PRICE_ID_OPERATED));
 }
 export function freeContacts(env:BillingEnv){
   const raw=clean(env.FREE_CONTACTS);
@@ -76,7 +82,10 @@ export async function billingStatus(request:Request,env:BillingEnv){
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const allowance=await contactAllowance(env,clean(employer.id,100));
-  return json({ok:true,enabled:allowance.enabled,subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
+  const row=env.DB?await env.DB.prepare('SELECT status,plan FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>():null;
+  const subscribed=ACTIVE_STATUSES.has(clean(row?.status,40));
+  return json({ok:true,enabled:allowance.enabled,plan:subscribed?(clean(row?.plan,20)==='operated'?'operated':'hiring'):'',
+    operated:{available:operatedEnabled(env),subscribed:subscribed&&clean(row?.plan,20)==='operated'},subscribed:allowance.subscribed,freeContacts:allowance.free,contactsUsed:allowance.used,
     freeContactsRemaining:Number.isFinite(allowance.remaining)?allowance.remaining:null,
     paymentIssue:allowance.status==='past_due'||allowance.status==='unpaid',yearly:allowance.enabled&&!!clean(env.STRIPE_PRICE_ID_YEARLY),
     inviteAllowance:env.DB?await inviteAllowance(env,clean(employer.id,100),allowance.subscribed):null});
@@ -96,7 +105,9 @@ async function stripe(env:BillingEnv,path:string,params:Record<string,string>,id
 }
 
 export async function createCheckout(request:Request,env:BillingEnv){
-  if(!billingEnabled(env))return json({ok:false,error:'Billing is not set up yet'},{status:503});
+  const body=await request.json().catch(()=>({})) as {plan?:unknown;locations?:unknown};
+  const operated=body?.plan==='operated';
+  if(operated?!operatedEnabled(env):!billingEnabled(env))return json({ok:false,error:'Billing is not set up yet'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const existing=await env.DB!.prepare('SELECT stripe_customer_id,status FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
@@ -108,19 +119,21 @@ export async function createCheckout(request:Request,env:BillingEnv){
       return json({ok:true,url:portal.url});
     }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not open billing'},{status:502})}
   }
-  const body=await request.json().catch(()=>({})) as {plan?:unknown;locations?:unknown};
   const yearly=body?.plan==='yearly'&&clean(env.STRIPE_PRICE_ID_YEARLY);
+  const price=operated?clean(env.STRIPE_PRICE_ID_OPERATED):yearly||env.STRIPE_PRICE_ID!;
   // Priced per location: checkout asks how many, and the billing portal can change it later.
   const locations=Math.min(MAX_LOCATIONS,Math.max(1,Math.floor(asNum(body?.locations))||1));
   const params:Record<string,string>={
     mode:'subscription',
-    'line_items[0][price]':yearly||env.STRIPE_PRICE_ID!,
+    'line_items[0][price]':price,
     'line_items[0][quantity]':String(locations),
     'line_items[0][adjustable_quantity][enabled]':'true',
     'line_items[0][adjustable_quantity][minimum]':'1',
     'line_items[0][adjustable_quantity][maximum]':String(MAX_LOCATIONS),
     client_reference_id:clean(employer.id,100),
     'subscription_data[metadata][employer_id]':clean(employer.id,100),
+    'subscription_data[metadata][plan]':operated?'operated':'hiring',
+    'metadata[plan]':operated?'operated':'hiring',
     success_url:ORIGIN+'/app?billing=success',
     cancel_url:ORIGIN+'/app?billing=cancelled'
   };
@@ -141,7 +154,7 @@ export async function createCheckout(request:Request,env:BillingEnv){
 }
 
 export async function createPortal(request:Request,env:BillingEnv){
-  if(!billingEnabled(env))return json({ok:false,error:'Billing is not set up yet'},{status:503});
+  if(!billingEnabled(env)&&!operatedEnabled(env))return json({ok:false,error:'Billing is not set up yet'},{status:503});
   const employer=await employerSession(request,env);
   if(!employer)return json({ok:false,error:'Sign in required'},{status:401});
   const row=await env.DB!.prepare('SELECT stripe_customer_id FROM employer_billing WHERE employer_id=? LIMIT 1').bind(employer.id).first<Row>();
@@ -171,6 +184,20 @@ export async function verifyStripeSignature(payload:string,header:string,secret:
   });
 }
 
+/**
+ * Which plan a subscription is on: the operated price wins, so a switch in the billing portal is picked up;
+ * otherwise what checkout recorded. null when neither says, which leaves the stored plan alone.
+ */
+function planOf(env:BillingEnv,sub:Row){
+  const items=((sub.items as Row|undefined)?.data as Row[]|undefined)||[];
+  const prices=items.map(i=>clean((i.price as Row|undefined)?.id,100)).filter(Boolean);
+  const operated=clean(env.STRIPE_PRICE_ID_OPERATED,100);
+  if(operated&&prices.includes(operated))return 'operated';
+  if(prices.length&&operated)return 'hiring';
+  const meta=clean((sub.metadata as Row|undefined)?.plan,20);
+  return meta==='operated'||meta==='hiring'?meta:null;
+}
+
 export async function handleStripeWebhook(request:Request,env:BillingEnv){
   if(!env.DB||!env.STRIPE_WEBHOOK_SECRET)return json({ok:false,error:'Webhook not configured'},{status:503});
   const payload=await request.text();
@@ -180,20 +207,22 @@ export async function handleStripeWebhook(request:Request,env:BillingEnv){
   if(event.type==='checkout.session.completed'){
     const employerId=clean(obj.client_reference_id,100);
     if(employerId){
-      await env.DB.prepare(`INSERT INTO employer_billing(employer_id,stripe_customer_id,stripe_subscription_id,status,updated_at) VALUES (?,?,?,'active',CURRENT_TIMESTAMP)
-        ON CONFLICT(employer_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,stripe_subscription_id=excluded.stripe_subscription_id,status='active',updated_at=CURRENT_TIMESTAMP`)
-        .bind(employerId,clean(obj.customer,100)||null,clean(obj.subscription,100)||null).run();
+      const plan=clean((obj.metadata as Row|undefined)?.plan,20)==='operated'?'operated':'hiring';
+      await env.DB.prepare(`INSERT INTO employer_billing(employer_id,stripe_customer_id,stripe_subscription_id,status,plan,updated_at) VALUES (?,?,?,'active',?,CURRENT_TIMESTAMP)
+        ON CONFLICT(employer_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,stripe_subscription_id=excluded.stripe_subscription_id,status='active',plan=excluded.plan,updated_at=CURRENT_TIMESTAMP`)
+        .bind(employerId,clean(obj.customer,100)||null,clean(obj.subscription,100)||null,plan).run();
     }
   }else if(event.type==='customer.subscription.updated'||event.type==='customer.subscription.deleted'||event.type==='customer.subscription.created'){
     const status=event.type==='customer.subscription.deleted'?'canceled':clean(obj.status,40)||'none';
     const periodEnd=asNum(obj.current_period_end)?new Date(asNum(obj.current_period_end)*1000).toISOString():null;
     const employerId=clean((obj.metadata as Row|undefined)?.employer_id,100);
-    const updated=await env.DB.prepare('UPDATE employer_billing SET status=?,current_period_end=COALESCE(?,current_period_end),stripe_subscription_id=?,updated_at=CURRENT_TIMESTAMP WHERE stripe_subscription_id=? OR stripe_customer_id=?')
-      .bind(status,periodEnd,clean(obj.id,100),clean(obj.id,100),clean(obj.customer,100)).run();
+    const plan=planOf(env,obj);
+    const updated=await env.DB.prepare('UPDATE employer_billing SET status=?,current_period_end=COALESCE(?,current_period_end),stripe_subscription_id=?,plan=COALESCE(?,plan),updated_at=CURRENT_TIMESTAMP WHERE stripe_subscription_id=? OR stripe_customer_id=?')
+      .bind(status,periodEnd,clean(obj.id,100),plan,clean(obj.id,100),clean(obj.customer,100)).run();
     if(!asNum(updated.meta?.changes)&&employerId){
-      await env.DB.prepare(`INSERT INTO employer_billing(employer_id,stripe_customer_id,stripe_subscription_id,status,current_period_end) VALUES (?,?,?,?,?)
-        ON CONFLICT(employer_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,stripe_subscription_id=excluded.stripe_subscription_id,status=excluded.status,current_period_end=excluded.current_period_end,updated_at=CURRENT_TIMESTAMP`)
-        .bind(employerId,clean(obj.customer,100)||null,clean(obj.id,100),status,periodEnd).run();
+      await env.DB.prepare(`INSERT INTO employer_billing(employer_id,stripe_customer_id,stripe_subscription_id,status,current_period_end,plan) VALUES (?,?,?,?,?,?)
+        ON CONFLICT(employer_id) DO UPDATE SET stripe_customer_id=excluded.stripe_customer_id,stripe_subscription_id=excluded.stripe_subscription_id,status=excluded.status,current_period_end=excluded.current_period_end,plan=COALESCE(excluded.plan,plan),updated_at=CURRENT_TIMESTAMP`)
+        .bind(employerId,clean(obj.customer,100)||null,clean(obj.id,100),status,periodEnd,plan).run();
     }
   }
   return json({ok:true});

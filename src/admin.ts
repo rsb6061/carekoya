@@ -205,11 +205,18 @@ export async function sendAdminAgencyTest(request:Request,env:AdminEnv,admin:{em
 export async function adminAgencySearch(env:AdminEnv,q:string){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const term=clean(q,120).toLowerCase();
-  const rows=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.city,o.state,o.claimed_employer_id,
-      (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=o.id AND j.status='current' AND j.is_published=1) AS jobs,
-      (SELECT COUNT(*) FROM agency_org_candidate_matches m WHERE m.organization_id=o.id) AS matches
-    FROM agency_organizations o WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 ${term?'AND lower(o.canonical_name) LIKE ?':"AND o.id IN (SELECT agency_organization_id FROM caregiver_jobs WHERE status='current' AND is_published=1)"}
-    ORDER BY jobs DESC,matches DESC LIMIT 12`).bind(...(term?['%'+term+'%']:[])).all<Row>();
+  // Jobs are counted in one pass and only the 12 agencies shown get their match counts: a count per agency across
+  // every listed agency ran past D1's CPU limit once the job and match tables grew.
+  const jobCounts="SELECT agency_organization_id AS id,COUNT(*) AS jobs FROM caregiver_jobs WHERE status='current' AND is_published=1 AND agency_organization_id IS NOT NULL GROUP BY agency_organization_id";
+  const top=await env.DB.prepare(term
+    ?`SELECT o.id,o.canonical_name,o.city,o.state,o.claimed_employer_id,COALESCE(j.jobs,0) AS jobs FROM agency_organizations o LEFT JOIN (${jobCounts}) j ON j.id=o.id
+        WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND lower(o.canonical_name) LIKE ? ORDER BY jobs DESC,o.canonical_name LIMIT 12`
+    :`SELECT o.id,o.canonical_name,o.city,o.state,o.claimed_employer_id,j.jobs FROM (${jobCounts} ORDER BY jobs DESC LIMIT 40) j JOIN agency_organizations o ON o.id=j.id
+        WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 ORDER BY j.jobs DESC,o.canonical_name LIMIT 12`).bind(...(term?['%'+term+'%']:[])).all<Row>();
+  const list=top.results||[];
+  const matches=list.length?(await env.DB.prepare(`SELECT organization_id AS id,COUNT(*) AS n FROM agency_org_candidate_matches WHERE organization_id IN (${list.map(()=>'?').join(',')}) GROUP BY organization_id`)
+    .bind(...list.map(r=>r.id)).all<Row>()).results||[]:[];
+  const rows={results:list.map(r=>({...r,matches:matches.find(m=>m.id===r.id)?.n||0}) as Row)};
   return json({ok:true,agencies:(rows.results||[]).map(r=>({id:r.id,name:r.canonical_name,city:r.city,state:r.state,jobs:asNum(r.jobs),matches:asNum(r.matches),claimed:!!r.claimed_employer_id}))});
 }
 

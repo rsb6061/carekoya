@@ -17,6 +17,7 @@ const CLEAR_EMPLOYER_COOKIE='__Host-cj_session=; Path=/; HttpOnly; Secure; SameS
 const CLEAR_SCHOOL_COOKIE='__Host-cj_school_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
 
 import { employerProfilePath } from './employerProfilePath';
+import { PROFILE_VISIBLE_SQL } from './employerProfile';
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const emailValid=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body),{
@@ -258,7 +259,7 @@ export async function accountStatus(request:Request,env:AccountEnv){
       UNION ALL SELECT contact_name,3 FROM school_leads WHERE lower(email)=?)
     WHERE COALESCE(name,'')!='' ORDER BY rank LIMIT 1`).bind(session.email,session.email,session.email).first<{name:string}>();
   // The hiring workspace's public page, once CareJoys approved it, for "View public profile" in the account menu.
-  const employer=await env.DB!.prepare("SELECT id,company_name FROM employer_leads WHERE lower(email)=? AND status!='disabled' AND (approved_at IS NOT NULL OR COALESCE(is_test,0)=1) ORDER BY created_at DESC LIMIT 1")
+  const employer=await env.DB!.prepare(`SELECT e.id,e.company_name FROM employer_leads e WHERE lower(e.email)=? AND ${PROFILE_VISIBLE_SQL} ORDER BY e.created_at DESC LIMIT 1`)
     .bind(session.email).first<Record<string,unknown>>();
   return json({ok:true,signedIn:true,email:session.email,name:clean(name?.name,120).split(/\s+/)[0]||'',roles:await accountRoles(env,session.email),
     employerProfilePath:employer?employerProfilePath(employer.company_name,employer.id):undefined});

@@ -1,3 +1,4 @@
+import { waitText } from './applicants';
 export type EmailSendResult = {
   messageId?: string;
 };
@@ -456,6 +457,51 @@ export function monthlyResultsEmail(input:{company:string;month:string;views:num
       <table style="width:100%;border-collapse:collapse;${P}">${rows.map(([label,n])=>`<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${esc(label)}</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right"><strong>${n}</strong></td></tr>`).join('')}</table>
       ${button(input.link,'Open your workspace')}`),
     text:`Your ${input.month} on CareJoys\n\n${rows.map(([label,n])=>label+': '+n).join('\n')}\n\n${input.link}\n\nCareJoys · carejoys.com`
+  };
+}
+
+/** Sent by CareJoys for an agency to one of its own applicants: pick an interview time. */
+export function applicantBookingInviteEmail(input:{firstName:string;company:string;position:string;link:string}){
+  const job=input.position?`the ${input.position} job`:'your application';
+  return {
+    subject:`${input.company}: choose your interview time`,
+    html:shell(`Choose your interview time`,`
+      <p style="${P}">Hi ${esc(input.firstName||'there')},</p>
+      <p style="${P}">Thanks for applying to ${esc(job)} at <strong>${esc(input.company)}</strong>. Pick the interview time that works for you, and you'll both get a calendar invite.</p>
+      ${button(input.link,'Choose a time')}
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">CareJoys sends this for ${esc(input.company)}. If none of the times work, contact the agency directly.</p>`),
+    text:`Hi ${input.firstName||'there'},\n\nThanks for applying to ${job} at ${input.company}. Pick the interview time that works for you, and you'll both get a calendar invite:\n\n${input.link}\n\nCareJoys sends this for ${input.company}.`
+  };
+}
+
+export type WeeklyApplicantNumbers={received:number;live:number;contacted:number;medianMinutes:number|null;withinTarget:number;waiting:number;
+  screened:number;booked:number;interviewsHeld:number;showed:number;noShow:number;started:number};
+
+/** The Monday applicant report: last week's applicants, from first contact to first day. */
+export function weeklyApplicantReportEmail(input:{company:string;week:WeeklyApplicantNumbers;link:string;settingsLink:string}){
+  const w=input.week;
+  const rows:[string,string][]=[
+    ['New applicants',String(w.received)],
+    ...(w.live?[
+      ['Reached',`${w.contacted} of ${w.live}`] as [string,string],
+      ['Typical time to first contact',waitText(w.medianMinutes)||'—'] as [string,string],
+      ['Reached within 30 minutes',`${w.withinTarget} of ${w.live}`] as [string,string]
+    ]:[]),
+    ['Screened',String(w.screened)],
+    ['Interviews booked',String(w.booked)],
+    ['Came to their interview',w.interviewsHeld?`${w.showed} of ${w.interviewsHeld}`:'0'],
+    ['Started work',String(w.started)]
+  ];
+  const lead=w.waiting?`${w.waiting} new applicant${w.waiting===1?' is':'s are'} still waiting for a first call.`:'';
+  return {
+    subject:`${input.company} last week: ${w.received} new applicant${w.received===1?'':'s'}, ${w.booked} interview${w.booked===1?'':'s'} booked, ${w.started} started`,
+    html:shell('Your applicants last week',`
+      ${lead?`<p style="${P}"><strong>${esc(lead)}</strong></p>`:''}
+      <table style="width:100%;border-collapse:collapse;${P}">${rows.map(([label,v])=>`<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${esc(label)}</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right"><strong>${esc(v)}</strong></td></tr>`).join('')}</table>
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">Time to first contact counts applicants who arrived by email, referral link or ad, from the moment they reached CareJoys. Uploaded lists aren't counted.</p>
+      ${button(input.link,'Open your applicants')}
+      <p style="font-size:13px;line-height:1.6;color:#8a849b">You get this email on Mondays after a week with applicants. <a href="${esc(input.settingsLink)}" style="color:#8a849b">Turn it off in Settings</a>.</p>`),
+    text:`Your applicants last week\n\n${lead?lead+'\n\n':''}${rows.map(([label,v])=>label+': '+v).join('\n')}\n\n${input.link}\n\nTurn this email off in Settings: ${input.settingsLink}\n\nCareJoys · carejoys.com`
   };
 }
 

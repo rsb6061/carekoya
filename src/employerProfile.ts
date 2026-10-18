@@ -13,8 +13,11 @@ export type EmployerProfile={
   jobs:EmployerProfileJob[];isTest:boolean;
 };
 
-/** A workspace may have a public page once CareJoys approved it (or it is a CareJoys test workspace). */
-export const PROFILE_VISIBLE_SQL="e.status!='disabled' AND (e.approved_at IS NOT NULL OR COALESCE(e.is_test,0)=1)";
+/**
+ * A workspace may have a public page once CareJoys approved it, once it claimed its agency (the claim verified it, as
+ * employerApproval in src/employerApproval.ts says), or when it is a CareJoys test workspace.
+ */
+export const PROFILE_VISIBLE_SQL="e.status!='disabled' AND (e.approved_at IS NOT NULL OR COALESCE(e.is_test,0)=1 OR EXISTS (SELECT 1 FROM agency_organizations claimed WHERE claimed.claimed_employer_id=e.id))";
 
 /** The public page path for an approved workspace, or '' when it has none yet. */
 export async function profilePathFor(env:FeatureEnv,employerId:string){

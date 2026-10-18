@@ -473,9 +473,9 @@ function JobSites(){
   </section>;
 }
 
-type InboxMessage={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce';bouncedEmail:string;
+type InboxMessage={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce'|'intake';bouncedEmail:string;
   lead:{type:string;id:string;name:string}|null;status:'new'|'handled';forwarded:boolean;createdAt:string};
-const REPLY_KINDS={reply:'Replies',unsubscribe:'Unsubscribes',auto_reply:'Out of office',bounce:'Bounces'} as const;
+const REPLY_KINDS={reply:'Replies',unsubscribe:'Unsubscribes',auto_reply:'Out of office',bounce:'Bounces',intake:'Applicant emails'} as const;
 const LEAD_LABELS:Record<string,string>={employer:'Employer',agency:'Agency or facility',school:'School',training_program:'Training program',applicant:'Agency applicant',caregiver:'Caregiver'};
 
 /** Mail to hello@ recorded by the Worker. Unsubscribes and hard bounces are already suppressed; replies wait for "Done". */

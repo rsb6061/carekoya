@@ -2,6 +2,10 @@
 // Every message is forwarded to the owner's inbox first, untouched, so reading mail works exactly as before;
 // then it is recorded in email_messages, matched to a lead, and unsubscribes and hard bounces are suppressed.
 // Nothing here sends mail to anyone but the forward.
+// Mail to an agency's apply+<key>@carejoys.com address is different: it is a job board's applicant notification, read
+// into that agency's applicant list (src/applicantEmailIntake.ts) and forwarded only when it can't be read.
+import { intakeKeyOf, receiveApplicantEmail } from './applicantEmailIntake';
+import type { ApplicantDb } from './applicants';
 
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<{success:boolean;meta?:Record<string,unknown>}>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
@@ -192,6 +196,8 @@ async function suppress(db:DB,email:string,reason:'unsubscribe'|'bounce'){
 
 /** The Worker's email() handler. Forwarding never depends on the recording that follows it. */
 export async function handleInboundEmail(message:InboundEmailMessage,env:InboundEnv){
+  const intakeKey=intakeKeyOf(message.to);
+  if(intakeKey)return handleApplicantEmail(message,env,intakeKey);
   const target=await forwardTarget(env);
   let forwarded=false;
   if(target){
@@ -218,7 +224,38 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
   }catch(error){console.error('inbound email record failed',error)}
 }
 
-const KINDS=['reply','unsubscribe','auto_reply','bounce'];
+/**
+ * An applicant notification sent to an agency's intake address. Read ones are recorded as handled and not forwarded,
+ * so the admin inbox isn't flooded; one that can't be read (a Gmail forwarding confirmation, a weekly summary) is
+ * forwarded and left open, and the agency sees it on its Applicants page too.
+ */
+async function handleApplicantEmail(message:InboundEmailMessage,env:InboundEnv,key:string){
+  if(!env.DB)return;
+  let parsed:ParsedEmail;
+  try{parsed=parseEmail(await readRaw(message.raw))}
+  catch(error){console.error('applicant email parse failed',error);return}
+  let result:Awaited<ReturnType<typeof receiveApplicantEmail>>|null=null;
+  try{result=await receiveApplicantEmail(env.DB as unknown as ApplicantDb,key,parsed)}
+  catch(error){console.error('applicant email intake failed',error)}
+  const read=result?.status==='added'||result?.status==='duplicate';
+  let forwarded=false;
+  if(!read){
+    const target=await forwardTarget(env);
+    if(target){
+      try{await message.forward(target);forwarded=true}
+      catch(error){console.error('inbound forward failed',error)}
+    }
+  }
+  try{
+    await env.DB.prepare(`INSERT OR IGNORE INTO email_messages(id,direction,mailbox,from_email,from_name,subject,snippet,message_id,kind,lead_type,lead_id,lead_name,status,forwarded)
+      VALUES (?,'inbound',?,?,?,?,?,NULLIF(?,''),'intake',?,?,?,?,?)`)
+      .bind(crypto.randomUUID(),clean(message.to,320).toLowerCase(),parsed.fromEmail||clean(message.from,320).toLowerCase(),clean(parsed.fromName,200),clean(parsed.subject,300),
+        parsed.text.trim().slice(0,2000),clean(parsed.messageId,500),
+        result?.applicantId?'applicant':result?.employerId?'employer':null,result?.applicantId||result?.employerId||null,result?.name||null,read?'handled':'new',forwarded?1:0).run();
+  }catch(error){console.error('applicant email record failed',error)}
+}
+
+const KINDS=['reply','unsubscribe','auto_reply','bounce','intake'];
 
 /** GET /api/admin/inbox: the latest messages, newest first, plus how many replies still need a look. */
 export async function adminInbox(env:InboundEnv,url:URL){

@@ -3,13 +3,15 @@ import { ReactivationCard } from './ReactivationCard';
 import { ReferralsCard } from './ReferralsCard';
 import { ApplicantDetail, ScreeningQuestionsCard, showUpText } from './ScreeningPanel';
 import type { ScreeningQuestion } from './applicantScreening';
-import { APPLICANT_SOURCE_LABELS, APPLICANT_SOURCES, REFERRAL_REWARD_CENTS, type ApplicantSource, type ApplicantStage, type ApplicantView } from './applicants';
+import { APPLICANT_SOURCE_LABELS, APPLICANT_SOURCES, waitText, REFERRAL_REWARD_CENTS, type ApplicantSource, type ApplicantStage, type ApplicantView } from './applicants';
 
 type ImportRun={id:string;source:string;filename:string;total:number;added:number;duplicate:number;skipped:number;importedBy:string;createdAt:string};
 type ImportResult={total:number;added:number;duplicate:number;skipped:number};
+type Intake={address:string;lastReceivedAt:string;unread:{subject:string;snippet:string;receivedAt:string}|null};
+type Week={received:number;live:number;contacted:number;medianMinutes:number|null;withinTarget:number;waiting:number;screened:number;booked:number;interviewsHeld:number;showed:number;noShow:number;started:number};
 
 const STAGE_LABELS:Record<ApplicantStage,string>={new:'New',contacted:'Contacted',screened:'Screened',interview:'Interview',hired:'Hired',not_fit:'Not a fit'};
-// Forwarded Indeed emails arrive on their own once that route exists; an upload is one of the others.
+// Forwarded emails arrive on their own at the agency's address; an upload is one of the others.
 const UPLOAD_SOURCES=APPLICANT_SOURCES.filter(s=>s!=='indeed-forward');
 const UPLOAD_HELP:Partial<Record<ApplicantSource,string>>={
   csv:'New applicants exported from Indeed, CareerPlug or another job board.',
@@ -43,6 +45,66 @@ function summary(r:ImportResult){
   return parts.join(' ');
 }
 
+async function copyText(text:string){
+  try{await navigator.clipboard.writeText(text);return true}catch{return false}
+}
+
+/** The agency's forwarding address, and how to point Indeed or CareerPlug at it. */
+function ForwardingCard({intake}:{intake:Intake}){
+  const [copied,setCopied]=useState(false);
+  return <div className="settings-card">
+    <h3>Forward new applicants</h3>
+    <p className="job-meta">Send Indeed, CareerPlug or any job board’s “new applicant” emails to this address and each applicant is added here the moment they arrive.</p>
+    <div className="inline-form"><code className="intake-address">{intake.address}</code>
+      <button type="button" className="button secondary" onClick={()=>void copyText(intake.address).then(setCopied)}>{copied?'Copied':'Copy'}</button></div>
+    <p className="job-meta">In Indeed: Employer settings → Notifications, add this address for new applicants. In CareerPlug: Account → Notifications. Or set a Gmail or Outlook filter that forwards those emails here.</p>
+    {intake.lastReceivedAt&&<p className="job-meta">Last applicant email read {day(intake.lastReceivedAt)}.</p>}
+    {intake.unread&&<div className="alert-status alert-info" role="status"><strong>We got an email here we couldn’t read as an applicant</strong> ({day(intake.unread.receivedAt)}): {intake.unread.subject||'no subject'}.
+      {intake.unread.snippet&&<small> {intake.unread.snippet.slice(0,300)}</small>} If it’s a forwarding confirmation code, use the code above to finish setting up forwarding.</div>}
+  </div>;
+}
+
+/** The last seven days, the same numbers as the Monday email. */
+function WeekCard({week}:{week:Week}){
+  const items:[string,string][]=[['New applicants',String(week.received)],
+    ...(week.live?[['Typical time to first contact',waitText(week.medianMinutes)||'—'],['Reached within 30 minutes',`${week.withinTarget} of ${week.live}`]] as [string,string][]:[]),
+    ['Screened',String(week.screened)],['Interviews booked',String(week.booked)],['Came to their interview',week.interviewsHeld?`${week.showed} of ${week.interviewsHeld}`:'0'],['Started work',String(week.started)]];
+  return <div className="settings-card">
+    <h3>Last 7 days</h3>
+    {week.waiting>0&&<p className="applicant-knockout">{week.waiting} new applicant{week.waiting===1?' is':'s are'} still waiting for a first call.</p>}
+    <div className="opportunity-summary">{items.map(([k,v])=><div key={k}><strong>{v}</strong><span>{k}</span></div>)}</div>
+    <p className="job-meta">The owner gets these numbers by email every Monday.</p>
+  </div>;
+}
+
+/** A link the applicant uses to pick one of the agency's interview times. */
+function BookingLink({applicant:a,openTimes,make}:{applicant:ApplicantView;openTimes:number;make:(send:boolean)=>Promise<{url:string;emailed?:boolean}|null>}){
+  const [url,setUrl]=useState('');
+  const [note,setNote]=useState('');
+  const [busy,setBusy]=useState(false);
+  async function run(send:boolean){
+    setBusy(true);setNote('');
+    const r=await make(send);
+    setBusy(false);
+    if(!r)return;
+    setUrl(r.url);
+    setNote(r.emailed?`Emailed to ${a.email}.`:(await copyText(r.url))?'Link copied. Text it to them.':'Copy the link below and text it to them.');
+  }
+  return <div className="booking-link">
+    <h4>Interview booking link</h4>
+    {a.booking.bookedAt&&a.showUp.interviewAt?<p className="job-meta">Booked an interview through the link {day(a.booking.bookedAt)}.</p>
+      :a.booking.sentAt?<p className="job-meta">Link made {day(a.booking.sentAt)}, not booked yet.</p>:null}
+    {openTimes===0?<p className="job-meta">Add interview times to one of your job listings first, so the link has times to offer.</p>:<>
+      <p className="job-meta">They pick one of your {openTimes} open interview time{openTimes===1?'':'s'}, and you both get a calendar invite. A new link replaces the old one.</p>
+      <div className="inline-form">
+        <button type="button" className="button secondary" disabled={busy} onClick={()=>void run(false)}>Copy booking link</button>
+        {a.email&&<button type="button" className="button" disabled={busy} onClick={()=>void run(true)}>Email it to them</button>}
+      </div></>}
+    {note&&<p className="job-meta" role="status">{note}</p>}
+    {url&&<input className="pipeline-select" readOnly value={url} aria-label="Booking link" onFocus={e=>e.target.select()}/>}
+  </div>;
+}
+
 /**
  * The agency's own applicants: upload a CSV, see who came from where, and move each one along.
  * `base` is /api/workspace/applicants for the agency, or /api/admin/applicants with `employerId` for a CareJoys operator.
@@ -63,6 +125,9 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
   const [version,setVersion]=useState(0);
   const [screening,setScreening]=useState<{questions:ScreeningQuestion[];isDefault:boolean;updatedBy:string;updatedAt:string}|null>(null);
   const [openId,setOpenId]=useState('');
+  const [intake,setIntake]=useState<Intake|null>(null);
+  const [week,setWeek]=useState<Week|null>(null);
+  const [openTimes,setOpenTimes]=useState(0);
   const screeningUrl=base.replace(/applicants$/,'applicant-screening')+query;
   const referrersUrl=base.replace(/applicants$/,'applicant-referrers')+query;
   // Only a CareJoys operator approves and pays referral rewards.
@@ -75,7 +140,10 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
     return body;
   }
   async function load(){
-    try{const d=await api<{applicants:ApplicantView[];imports:ImportRun[]}>('');setApplicants(d.applicants);setImports(d.imports);setVersion(v=>v+1)}
+    try{
+      const d=await api<{applicants:ApplicantView[];imports:ImportRun[];intake?:Intake;week?:Week;openInterviewTimes?:number}>('');
+      setApplicants(d.applicants);setImports(d.imports);setIntake(d.intake||null);setWeek(d.week||null);setOpenTimes(d.openInterviewTimes||0);setVersion(v=>v+1);
+    }
     catch(e){setNotice({text:(e as Error).message,tone:'error'})}
   }
   useEffect(()=>{
@@ -106,6 +174,14 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
     }catch(err){setNotice({text:(err as Error).message,tone:'error'});return false}
   }
 
+  async function bookingLink(id:string,send:boolean){
+    try{
+      const r=await api<{url:string;emailed?:boolean}>('/'+encodeURIComponent(id)+'/booking-link',{method:'POST',body:JSON.stringify({send})});
+      await load();
+      return r;
+    }catch(err){setNotice({text:(err as Error).message,tone:'error'});return null}
+  }
+
   const list=applicants||[];
   const replyOf=(a:ApplicantView)=>a.reactivation.response||(a.reactivation.status==='sent'?'waiting':'');
   const shown=list.filter(a=>(!sourceFilter||a.source===sourceFilter)&&(!stageFilter||a.stage===stageFilter)&&(!replyFilter||replyOf(a)===replyFilter));
@@ -116,6 +192,10 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
     <div className="section-heading"><h2>{title}</h2>
       <p>Applicants from the agency’s own job posts and past applicant lists. They stay the agency’s: they aren’t added to CareJoys caregiver matching.</p></div>
     {notice&&<div className={'alert-status workspace-alert'+(notice.tone==='ok'?'':' alert-error')} role="status">{notice.tone==='ok'?'✓ ':''}{notice.text}</div>}
+
+    {week&&applicants&&applicants.length>0&&<WeekCard week={week}/>}
+
+    {intake?.address&&<ForwardingCard intake={intake}/>}
 
     <div className="settings-card">
       <h3>Upload applicants</h3>
@@ -140,7 +220,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
 
     {reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
 
-    {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">Upload a CSV to start the list.</p></div>:<>
+    {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">Forward your applicant emails to the address above, or upload a CSV to start the list.</p></div>:<>
       <div className="admin-subheading">
         <h3>{shown.length} of {list.length} applicant{list.length===1?'':'s'}</h3>
         <select className="pipeline-select" value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)} aria-label="Filter by source">
@@ -174,7 +254,8 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
               onBlur={e=>{if(e.target.value!==a.notes)void update(a.id,{notes:e.target.value})}}/></td>
           </tr>
           {openId===a.id&&<tr className="applicant-detail-row"><td colSpan={7}>
-            <ApplicantDetail applicant={a} questions={screening?.questions||[]} save={patch=>update(a.id,patch)}/></td></tr>}
+            <ApplicantDetail applicant={a} questions={screening?.questions||[]} save={patch=>update(a.id,patch)}/>
+            <BookingLink applicant={a} openTimes={openTimes} make={send=>bookingLink(a.id,send)}/></td></tr>}
           </Fragment>)}</tbody>
         </table>
       </div>

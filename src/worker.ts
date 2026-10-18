@@ -20,9 +20,11 @@ import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRad
 import { APPLIED_TO_EMPLOYER_SQL, alreadyApplied, appliedCaregiverIds } from './applications';
 import { INVITES_PAUSED_SQL, OPEN_TO_EMPLOYER_SQL, browseLimit, inviteAllowance } from './caregiverProtection';
 import { DAILY_PROFILE_VIEWS, DAILY_TALENT_SEARCHES, scrubBio } from './caregiverProtectionRules';
-import { adminApplicantReactivation, adminApplicants, adminReferralReward, adminReferrers, adminScreening, workspaceApplicants, workspaceReferrers, workspaceScreening } from './applicantsApi';
+import { adminApplicantReactivation, adminApplicants, adminBookingLink, adminReferralReward, adminReferrers, adminScreening, workspaceApplicants, workspaceBookingLink, workspaceReferrers, workspaceScreening } from './applicantsApi';
+import { applicantBookingSubmit, applicantBookingView } from './applicantBooking';
 import { handleReferral } from './applicantReferrals';
 import { handleStillLooking } from './applicantReactivation';
+import { sendWeeklyApplicantReports } from './applicantReport';
 import { DIGEST_UTC_HOUR, exportCandidatesCsv, forwardToAts, getLicenseChecks, getWorkspaceSettings, saveLicenseCheck, saveWorkspaceSettings, sendDailyDigests, sendMonthlyResults } from './settingsApi';
 import { loadEmployerProfile } from './employerProfile';
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent, withinCommute, type TalentFilters } from './talentSearch';
@@ -88,6 +90,7 @@ interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
   STRIPE_PRICE_ID_YEARLY?: string;
+  STRIPE_PRICE_ID_OPERATED?: string;
   STRIPE_AUTOMATIC_TAX?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   FREE_CONTACTS?: string;
@@ -796,7 +799,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/login"||url.pathname==="/signup"){
     return seoAsset(request,env,{title:(url.pathname==="/login"?"Sign in":"Create your account")+" | CareJoys",description:"Sign in to CareJoys with an email link or Google.",canonical:url.pathname,robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")){
+  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")||url.pathname.startsWith("/book/")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
@@ -2117,6 +2120,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(url.pathname==="/api/admin/applicant-referrers"&&(request.method==="GET"||request.method==="POST")) return adminReferrers(request,env,admin.email);
       const referralReward=url.pathname.match(/^\/api\/admin\/applicant-referral-rewards\/([^/]+)$/);
       if(referralReward&&request.method==="POST") return adminReferralReward(request,env,admin.email,decodeURIComponent(referralReward[1]));
+      const adminBooking=url.pathname.match(/^\/api\/admin\/applicants\/([^/]+)\/booking-link$/);
+      if(adminBooking&&request.method==="POST") return adminBookingLink(request,env,decodeURIComponent(adminBooking[1]));
       const adminApplicant=url.pathname.match(/^\/api\/admin\/applicants(?:\/([^/]+))?$/);
       if(adminApplicant&&(request.method==="GET"&&!adminApplicant[1]||request.method==="POST")) return adminApplicants(request,env,admin.email,decodeURIComponent(adminApplicant[1]||""));
       const videoReview=url.pathname.match(/^\/api\/admin\/videos\/([^/]+)\/(approve|reject)$/);
@@ -2214,6 +2219,9 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     }
     if(request.method==="GET"&&url.pathname==="/api/activate") return getActivation(url,env);
     if(request.method==="POST"&&url.pathname==="/api/activate") return completeActivation(request,env);
+    // An agency's own applicant picking an interview time from a booking link (src/applicantBooking.ts).
+    if(request.method==="GET"&&url.pathname==="/api/applicant-booking") return applicantBookingView(env,url);
+    if(request.method==="POST"&&url.pathname==="/api/applicant-booking"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return applicantBookingSubmit(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/respond") return getCandidateResponse(url,env);
     if(request.method==="POST"&&url.pathname==="/api/respond"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return submitCandidateResponse(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/agency/teaser") return getAgencyTeaser(url,env);
@@ -2242,6 +2250,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(url.pathname==="/api/workspace/applicant-screening"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceScreening(request,env); }
     if(url.pathname==="/api/workspace/applicant-referrers"&&request.method==="GET") return workspaceReferrers(request,env);
     if(url.pathname==="/api/workspace/applicant-referrers"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceReferrers(request,env); }
+    const workspaceBooking=url.pathname.match(/^\/api\/workspace\/applicants\/([^/]+)\/booking-link$/);
+    if(workspaceBooking&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceBookingLink(request,env,decodeURIComponent(workspaceBooking[1])); }
     const workspaceApplicant=url.pathname.match(/^\/api\/workspace\/applicants(?:\/([^/]+))?$/);
     if(workspaceApplicant&&request.method==="GET"&&!workspaceApplicant[1]) return workspaceApplicants(request,env);
     if(workspaceApplicant&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return workspaceApplicants(request,env,decodeURIComponent(workspaceApplicant[1]||"")); }
@@ -2393,7 +2403,7 @@ export default {
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
-        // Candidates to agencies' ATS inboxes, then the morning digest and (on the 1st) last month's results.
+        // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
         await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
@@ -2401,6 +2411,7 @@ export default {
         if(hour.getUTCHours()===DIGEST_UTC_HOUR){
           await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
           await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
+          await sendWeeklyApplicantReports(env,hour).catch(error=>console.error('weekly applicant report failed',error));
         }
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
