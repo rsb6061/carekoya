@@ -381,16 +381,10 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   if(stage==='known'){
     return <div ref={rootRef} className={'caregiver-onboarding '+(compact?'compact':'')}>
       <div className="onboarding-auth">
-        <div className="modal-kicker">Signed in as {auth.email}</div>
         <h2>Welcome back{form.firstName?', '+form.firstName:''}.</h2>
-        <p>Your CareJoys profile is saved. Open any job and apply with it in one step, or update your details.</p>
-        <div className="onboarding-summary">
-          {summaryValue('Role',form.role)}
-          {summaryValue('ZIP',form.zip)}
-          {summaryValue('Shifts',form.shifts)}
-          {summaryValue('Credentials',form.certifications)}
-        </div>
-        <div className="auth-choice">
+        <p>Your profile is saved, so you can apply to any job in one step.</p>
+        {(form.role||form.zip||form.certifications)&&<p className="onboarding-known-summary">{[form.role,form.zip?'ZIP '+form.zip:'',...form.certifications.split(',').map(c=>c.trim()).filter(c=>c&&c.toLowerCase()!==form.role.toLowerCase())].filter(Boolean).join(' · ')}</p>}
+        <div className="auth-choice auth-choice-row">
           <a className="btn" href="/dashboard">Open my dashboard</a>
           <a className="btn secondary" href="/dashboard/profile">Update my profile</a>
         </div>

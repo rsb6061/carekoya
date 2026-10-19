@@ -656,3 +656,17 @@ body .home-ai-hero>.wrap>p{font-size:20px;line-height:1.5;max-width:720px;margin
 .section-center .dash-preview{text-align:left}
 .home-ai-hero .modal-kicker{display:inline-block;margin-bottom:18px}
 body .app-footer{background:#fff;color:var(--muted);border-top:1px solid var(--line);padding:40px 0 56px;font-size:15px}
+
+/* Plan page: each plan is its own card, with air between them */
+.plan-section .plan-card-option{margin-top:0}
+.plan-section .plan-card-option+.plan-card-option{margin-top:18px}
+.plan-section .plan-card-option h3{margin:0 0 8px;font-size:21px}
+.plan-section .plan-card-option .job-meta{margin:0 0 18px;font-size:16px;line-height:1.55}
+.plan-section .plan-card-option .plan-actions{margin:0}
+
+/* A signed-in caregiver's welcome-back card: one summary line and two buttons, nothing else */
+.onboarding-auth p{font-size:16px}
+.onboarding-known-summary{font-weight:500;color:var(--ink)!important}
+.auth-choice-row{grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.auth-choice-row{grid-template-columns:1fr}}
+.dash-main-col .page-head-row{align-items:center}.dash-main-col .page-head-row .header-action{padding-top:0}
