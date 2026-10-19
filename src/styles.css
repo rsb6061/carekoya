@@ -724,3 +724,12 @@ body .check-row{font-size:15px!important}
 .workspace-setup .setup-step p{margin:4px 0 10px}
 .workspace-setup .setup-step.done p,.workspace-setup .setup-step.done strong{color:var(--muted)}
 .workspace-setup .setup-step.done .setup-step-mark{background:#e3f3e8;color:#2c694c}
+
+/* Caregiver profile: the form first, the self-saving files after it; the save bar fades over white */
+.profile-page .profile-save-bar{background:linear-gradient(transparent,#fff 40%);padding:18px 0 14px}
+.profile-files{margin-top:36px}
+.profile-files .section-heading{display:block;margin-bottom:14px}
+.profile-files .section-heading p{margin:4px 0 0;color:var(--muted)}
+.profile-files .profile-section+.profile-section{margin-top:14px}
+.profile-section .resume-card{margin-top:14px}
+.browse-all-jobs{margin:16px 0 0}

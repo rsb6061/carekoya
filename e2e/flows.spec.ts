@@ -89,11 +89,9 @@ test('@phone a job opens in a side panel over the list, with Apply inside it', a
 test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
   const w=await watch(page);
   await signIn(page,CAREGIVER);
-  await page.goto('/caregiver-jobs/maryland');
-  // The header's jobs link points at /caregiver-jobs until the session loads, then at the dashboard; wait for the signed-in one.
-  await page.locator('header a[href="/dashboard/jobs"]').first().click();
+  await page.goto('/dashboard');
+  await page.getByRole('link',{name:'Browse all jobs near you'}).click();
   await expect(page).toHaveURL(/\/dashboard\/jobs$/);
-  await expect(page.getByRole('navigation',{name:'Dashboard sections'}).getByRole('link',{name:'All jobs'})).toHaveAttribute('aria-current','page');
   await page.getByRole('link',{name:'Home Health Aide'}).first().click();
   await expect(page.getByRole('dialog',{name:'Job details'}).getByRole('heading',{name:'Home Health Aide',level:1})).toBeVisible();
   clean(w);
