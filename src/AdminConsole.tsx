@@ -16,7 +16,7 @@ type Overview={
     caregiverSignups:Array<{source:string}&Count>;
     workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
     outreachChannels:{
-      agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string};
+      agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string;reinvite?:{mode:string;today:number;total:number}};
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
@@ -329,7 +329,7 @@ export function AdminConsole(){
   <div className="section-heading"><h2>What's actually sending</h2>
     <p>Separate outbound channels with independent schedules and caps. A disabled bulk campaign does not stop hourly agency hiring invitations.</p></div>
   <div className="admin-stat-grid">
-    <Stat label="Agency hiring invites" value={oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'}/>
+    <Stat label="Agency hiring invites" value={oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'+(oc.agencyHiring.reinvite?.mode?' · re-sending the new copy to '+(oc.agencyHiring.reinvite.mode==='openers'?'agencies that opened the old one':'every agency that got the old one')+': '+oc.agencyHiring.reinvite.today+' today, '+oc.agencyHiring.reinvite.total+' so far':oc.agencyHiring.reinvite?.total?' · '+oc.agencyHiring.reinvite.total+' re-sent the new copy':'')}/>
     <Stat label="Agency inbox alerts" value={oc.agencyInboxAlerts.unclaimedEnabled?'On':'Claimed only'} sub={oc.agencyInboxAlerts.claimedLast24h+' to claimed agencies, '+oc.agencyInboxAlerts.unclaimedLast24h+' to unclaimed in the last 24 hours · hourly, at most one per agency a day'}/>
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
     <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>

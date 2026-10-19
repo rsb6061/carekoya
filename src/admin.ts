@@ -7,7 +7,7 @@ import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -103,6 +103,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
   const topPaths=await db.prepare(`SELECT path,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY path ORDER BY count DESC LIMIT 12`).all<Row>();
   const topSources=await db.prepare(`SELECT COALESCE(NULLIF(utm_source,''),NULLIF(referrer_host,''),'direct') AS source,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY 1 ORDER BY count DESC LIMIT 12`).all<Row>();
   const invites=await db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today FROM agency_outreach_events WHERE event_type='hiring_needs_invite'").first<Row>();
+  const reinvites=await db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today FROM agency_outreach_events WHERE event_type='hiring_needs_reinvite'").first<Row>();
   // The other automatic senders, so the Outreach tab lists every channel that can email someone.
   const inboxAlerts=await db.prepare(`SELECT
     COALESCE(SUM(CASE WHEN event_type='interest_notify' THEN 1 ELSE 0 END),0) AS claimed,
@@ -143,7 +144,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
       agencyHiring:{enabled:on(env.AGENCY_HIRING_INVITES_ENABLED),cap:hiringCap,
         // Same pacing as the hourly cron in worker.ts: the daily cap spread over 24 runs.
         perHour:Math.min(hiringCap,Math.max(1,Math.ceil(hiringCap/24))),
-        today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly'},
+        today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly',
+        reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')}},
       generalBulk:{enabled:on(env.OUTREACH_ENABLED)},
       reactivationReminders:{enabled:on(env.REACTIVATION_REMINDER_ENABLED),sent:num(reminders,'sent')},
       agencyInboxAlerts:{claimedLast24h:num(inboxAlerts,'claimed'),unclaimedLast24h:num(inboxAlerts,'unclaimed'),

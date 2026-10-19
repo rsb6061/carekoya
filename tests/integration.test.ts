@@ -5,7 +5,7 @@ import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
-import { sendAgencyHiringInvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
+import { sendAgencyHiringInvites, sendAgencyHiringReinvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
@@ -1577,6 +1577,32 @@ describe('agency hiring-needs invites', ()=>{
     await sendAgencyHiringInvites(env(),50);
     expect(sent.filter(m=>m.to==='jobs@brightway.test')).toHaveLength(0);
     expect(friendlyAgencyName('Sunrise Home Care Inc.')).toBe('Sunrise Home Care');
+  });
+
+  it('re-sends the new copy to agencies that only saw the old invite, openers first, once', async()=>{
+    const org=(id:string,email:string)=>DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active) VALUES (?,?,?,?,'Towson','MD',1)").bind(id,id,id,email).run();
+    await org('org-old-open','open@oldcopy.test');await org('org-old-cold','cold@oldcopy.test');await org('org-old-claimed','claimed@oldcopy.test');
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status) VALUES ('emp-oldcopy','Old Copy Care','Jo','claimed@oldcopy.test','21204','CNA','active')").run();
+    await DB.prepare("UPDATE agency_organizations SET claimed_employer_id='emp-oldcopy' WHERE id='org-old-claimed'").run();
+    for(const id of ['org-old-open','org-old-cold','org-old-claimed'])
+      await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,created_at) VALUES (?,?,'hiring_needs_invite',?,'2026-10-12 15:00:00')").bind('ev-'+id,id,id+'@x').run();
+    await DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at,opened_at) VALUES ('tt-old-open','org-old-open','h-old-open','open@oldcopy.test',?,'2026-10-12 15:00:00','2026-10-13 09:00:00')").bind(new Date(Date.now()+86400000).toISOString()).run();
+    // Brightway got its invite today, with the new copy, so it is never re-sent.
+    sent.length=0;
+    expect(await sendAgencyHiringReinvites(env(),50,'')).toEqual({attempted:0,sent:0,failed:0});
+    expect(sent).toHaveLength(0);
+    await sendAgencyHiringReinvites(env(),50,'openers');
+    expect(sent.map(m=>m.to)).toEqual(['open@oldcopy.test']);
+    expect(sent[0].subject).toBe('org-old-open: answer every caregiver applicant in 30 minutes');
+    sent.length=0;
+    await sendAgencyHiringReinvites(env(),50,'all');
+    expect(sent.map(m=>m.to)).toEqual(['cold@oldcopy.test']);
+    sent.length=0;
+    await sendAgencyHiringReinvites(env(),50,'all');
+    expect(sent).toHaveLength(0);
+    // Re-sent agencies are still excluded from the first-time batch.
+    await sendAgencyHiringInvites(env(),50);
+    expect(sent.map(m=>m.to).filter(t=>t.endsWith('@oldcopy.test'))).toEqual([]);
   });
 
   it('never emails a senior living facility or a chain board, even with live jobs and an email', async()=>{

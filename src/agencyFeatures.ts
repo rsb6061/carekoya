@@ -580,6 +580,37 @@ async function deliverTestHiringInvite(env:FeatureEnv,org:Row){
     .bind(crypto.randomUUID(),org.id,email,result.messageId||null,JSON.stringify({jobCount:asNum(org.job_count)})).run();
 }
 
+/** The hiring invite's copy changed to "answer every applicant in 30 minutes" when PR #154 deployed; invites before this are the old copy. */
+export const NEW_INVITE_COPY_AT='2026-10-19 01:08:00';
+
+/** Unclaimed agencies that got the old invite, never re-sent, warmest first; `openersOnly` keeps it to those who opened the link. */
+const hiringReinviteEligibleSql=(openersOnly:boolean)=>`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.city,
+      (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=o.id AND j.is_published=1 AND j.status='current') AS job_count,
+      EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND t.opened_at IS NOT NULL) AS opened
+    FROM agency_organizations o
+    WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
+      AND o.primary_email IS NOT NULL AND o.primary_email!=''
+      AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
+      AND EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND e.event_type='hiring_needs_invite' AND datetime(e.created_at)<datetime('${NEW_INVITE_COPY_AT}'))
+      AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE (e.organization_id=o.id OR lower(trim(e.recipient_email))=lower(trim(o.primary_email))) AND e.event_type IN ('hiring_needs_reinvite','hiring_needs_reinvite_failed'))
+      ${openersOnly?"AND EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND t.opened_at IS NOT NULL)":''}
+    ORDER BY opened DESC,job_count DESC,o.id
+    LIMIT ?`;
+
+/** Re-sends the new invite to up to `limit` agencies that only ever saw the old copy. Off unless AGENCY_HIRING_REINVITE is 'openers' or 'all'. */
+export function sendAgencyHiringReinvites(env:FeatureEnv,limit:number,mode:string){
+  const m=String(mode||'').toLowerCase();
+  if(m!=='openers'&&m!=='all')return Promise.resolve({attempted:0,sent:0,failed:0});
+  return sendClaimInvites(env,hiringReinviteEligibleSql(m==='openers'),limit,hiringInviteFor,'hiring_needs_reinvite','agency_hiring_invite');
+}
+
+/** Re-sends of the new invite so far: today (UTC) and ever. */
+export async function hiringReinviteCounts(env:FeatureEnv){
+  if(!env.DB)return {today:0,total:0};
+  const row=await env.DB.prepare("SELECT COUNT(*) AS total,SUM(datetime(created_at)>=datetime('now','start of day')) AS today FROM agency_outreach_events WHERE event_type='hiring_needs_reinvite'").first<Row>();
+  return {today:asNum(row?.today),total:asNum(row?.total)};
+}
+
 /** Sends the hiring-needs invite to up to `limit` agencies, each with a 14-day claim link that lands on hiring preferences. */
 export function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo=''){
   return sendClaimInvites(env,HIRING_INVITE_ELIGIBLE_SQL,limit,hiringInviteFor,'hiring_needs_invite','agency_hiring_invite',copyTo);
