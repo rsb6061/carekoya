@@ -595,3 +595,6 @@ body{font-family:Figtree,"Helvetica Neue",Helvetica,Arial,ui-sans-serif,system-u
 .applicant-intake .opportunity-summary>div{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:#f7f6fb;border:1px solid #e8e6f0;border-radius:16px}
 .applicant-intake .opportunity-summary strong{font-size:24px;font-weight:600;line-height:1.1}
 .applicant-intake .opportunity-summary span{font-size:14px;color:var(--muted);line-height:1.4}
+.dash-main-col .agency-jobs{margin-top:40px}
+.dash-main-col .agency-jobs .section-heading h2{font-size:24px}
+.workspace-settings .widget-card{margin-bottom:0}

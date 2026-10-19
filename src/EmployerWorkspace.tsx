@@ -127,14 +127,15 @@ export function EmployerWorkspace(){
   const [firstLoadDone,setFirstLoadDone]=useState(false);
   const [inviteAllowance,setInviteAllowance]=useState<InviteAllowance|null>(null);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
-  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||t==='applicants'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':'openings'});
+  // ?tab=jobs was the old Jobs & widget tab: the widget now lives in Settings, the crawled jobs under Job Listings.
+  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||t==='applicants'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'||t==='jobs'?'settings':'openings'});
   // Candidates shows one source at a time: people talking to the agency through CareJoys, or applicants from its own job posts (?tab=applicants, or ?source=posts).
   const [candidateSource,setCandidateSource]=useState<'carejoys'|'posts'>(()=>{const q=new URLSearchParams(window.location.search);return q.get('tab')==='applicants'||q.get('source')==='posts'?'posts':'carejoys'});
   // How many of the agency's own applicants (operated service) are on the list. The source switch shows once there are any, or once the agency is claimed.
   const [applicantCount,setApplicantCount]=useState(0);
   const hasApplicants=applicantCount>0;
   // Settings scrolls to the applicant cards when opened from the setup checklist or the empty applicant list.
-  const [settingsFocus,setSettingsFocus]=useState('');
+  const [settingsFocus,setSettingsFocus]=useState(()=>new URLSearchParams(window.location.search).get('tab')==='jobs'?'widget':'');
   const [setupDismissed,setSetupDismissed]=useState(()=>{try{return localStorage.getItem(SETUP_DISMISSED_KEY)==='1'}catch{return false}});
   const [applications,setApplications]=useState<InboxItem[]>([]);
   const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
@@ -211,10 +212,6 @@ export function EmployerWorkspace(){
   }
 
   useEffect(()=>{void loadSession()},[]);
-  // A link to /app?tab=jobs (the widget) opens that tab once the linked agency has loaded.
-  useEffect(()=>{
-    if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='jobs')setTab('jobs');
-  },[agencyNetwork.agency]);
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
   useEffect(()=>{
     if(!session)return;
@@ -315,7 +312,7 @@ export function EmployerWorkspace(){
     setCandidateSource(source);
     showUrl({tab:'candidates',job:jobId,source:source==='posts'?'posts':''});
   }
-  function openTab(next:'openings'|'jobs'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next})}
+  function openTab(next:'openings'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next})}
   /** Settings, scrolled to the applicant forwarding, upload and screening cards. */
   function openApplicantSettings(){openTab('settings');setSettingsFocus('applicants')}
   /** Candidates from one source; the URL keeps the source so a reload lands on the same list. */
@@ -573,7 +570,6 @@ export function EmployerWorkspace(){
       <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>openTab('openings')}>Job Listings</button>
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>openCandidates()}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>openFind()} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
-      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>openTab('jobs')}>Jobs &amp; widget</button>}
       {(billing?.enabled||billing?.operated?.available)&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>openTab('plan')}>Plan</button>}
       <button className={'dash-sidenav-item '+(tab==='settings'?'active':'')} onClick={()=>openTab('settings')}>Settings</button>
      </nav>
@@ -608,6 +604,8 @@ export function EmployerWorkspace(){
           <h3>Closed</h3>
           {closedOpenings.map(o=><div className="closed-opening" key={o.id}><span><strong>{o.title}</strong>{o.zip?' · '+o.zip:''}</span><button type="button" className="text-button" onClick={()=>void setOpeningStatus(o,'open')}>Reopen</button></div>)}
         </div>}</>}
+        {/* Jobs CareJoys found on the agency's own careers page, listed under its CareJoys listings. */}
+        {agencyNetwork.agency&&<AgencyJobsPanel onRecruit={openingId=>void (async()=>{await refreshWorkspace();await runMatch(openingId)})()}/>}
       </section>}
 
       {(billing?.enabled||billing?.operated?.available)&&shownTab==='plan'&&billing&&<section className="section-block plan-section">
@@ -702,12 +700,7 @@ export function EmployerWorkspace(){
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
-      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} applicants={agencyNetwork.agency||hasApplicants?<ApplicantIntake base="/api/workspace/applicants" section="setup" onCount={setApplicantCount}/>:null} focus={settingsFocus} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
-
-      {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
-        <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>
-        <AgencyJobsPanel onRecruit={openingId=>void (async()=>{await refreshWorkspace();await runMatch(openingId)})()}/>
-      </section>}
+      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} applicants={agencyNetwork.agency||hasApplicants?<ApplicantIntake base="/api/workspace/applicants" section="setup" onCount={setApplicantCount}/>:null} widget={agencyNetwork.agency?<JobsWidgetCard agencyId={agencyNetwork.agency.id}/>:null} focus={settingsFocus} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
 
       {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')}
         onOpenPage={()=>{window.history.pushState(null,'','/app?candidate='+encodeURIComponent(panelRow.id));setPageRowId(panelRow.id);setPanelRowId('');window.scrollTo(0,0)}}/>}
