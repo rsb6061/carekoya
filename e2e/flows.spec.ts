@@ -90,7 +90,8 @@ test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
   const w=await watch(page);
   await signIn(page,CAREGIVER);
   await page.goto('/caregiver-jobs/maryland');
-  await page.getByRole('link',{name:/Find (caregiver )?jobs/}).first().click();
+  // The header's jobs link points at /caregiver-jobs until the session loads, then at the dashboard; wait for the signed-in one.
+  await page.locator('header a[href="/dashboard/jobs"]').first().click();
   await expect(page).toHaveURL(/\/dashboard\/jobs$/);
   await expect(page.getByRole('navigation',{name:'Dashboard sections'}).getByRole('link',{name:'All jobs'})).toHaveAttribute('aria-current','page');
   await page.getByRole('link',{name:'Home Health Aide'}).first().click();
