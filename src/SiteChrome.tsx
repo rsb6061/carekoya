@@ -31,6 +31,7 @@ export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links)
       <a href="/login">Sign in</a>
       <a href="/privacy-policy">Privacy</a>
       <a href="/terms-of-service">Terms</a>
+      <a href="/llms.txt">llms.txt</a>
     </nav>
   </div></footer>;
 }

@@ -105,7 +105,7 @@ export function AboutCareJoysPage(){
 }
 
 
-/** /pricing: where "Faster AI Hiring" lands. The founding pilot: we work the agency's own applicants. The button starts the intake form. */
+/** /pricing: where the "For agencies" header button lands. The founding pilot: we work the agency's own applicants. The button starts the intake form. */
 export function PricingPage(){
   return <div>
     <SiteHeader/>
@@ -119,18 +119,15 @@ export function PricingPage(){
         <div className="pricing-offer">
           <article className="plan-card">
             <div className="plan-head">
-              <div><h2>Applicant follow-up</h2><span className="plan-note">Founding pilot</span></div>
+              <div><h2>Pro</h2></div>
               <div className="plan-price"><strong>{OPERATED_PRICE}</strong><span>/month</span></div>
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
             <div className="plan-terms">One location, up to {OPERATED_APPLICANT_LIMIT} applicants a month. Those are applicants we work, not leads we supply. We’ll tell you before you hit it.</div>
-            <div className="plan-terms">Month-to-month. Cancel anytime. No placement fees or per-hire charges.</div>
             <ul className="plan-list">
-              <li>Every applicant from a connected source texted within 30 minutes, 8am to 9pm.</li>
-              <li>Screened by text with your questions: certification, transportation, shifts and pay.</li>
-              <li>Candidates who pass your screening questions and want an interview are booked onto your calendar.</li>
-              <li>We set it up, and a person reviews every screening and every booking before it reaches you.</li>
-              <li>Weekly numbers: applicants received, reached, screened, interviews booked, hired.</li>
+              <li>Every applicant texted right away and screened with your questions: certification, transportation, shifts and pay.</li>
+              <li>Candidates who pass and want an interview are booked straight onto your calendar.</li>
+              <li>A person reviews every screening and booking, and you get weekly numbers: applicants, screened, interviews, hired.</li>
             </ul>
           </article>
         </div>
@@ -148,7 +145,7 @@ export function PricingPage(){
           <div className="step">
             <div className="modal-kicker">2 · We work it</div>
             <h3>We work every applicant</h3>
-            <p className="meta">Each one is texted within 30 minutes during the day, asked your screening questions, and kept warm so nobody goes cold waiting on a callback.</p>
+            <p className="meta">Each one is texted right away, asked your screening questions, and kept warm so nobody goes cold waiting on a callback.</p>
           </div>
           <div className="step">
             <div className="modal-kicker">3 · You interview</div>

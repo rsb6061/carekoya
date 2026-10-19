@@ -164,23 +164,6 @@ function NationalJobsPage(){
           :<div className="empty"><strong>We couldn’t find caregiver jobs for “{q}”.</strong><div>Try a city and state like “Baltimore, MD”, a ZIP code, or pick a state below.</div></div>}
       </div></section>}
 
-      <section className="section caregiver-jobs-section" id="states"><div className="wrap">
-        <div className="section-heading"><div>
-          <div className="modal-kicker">Browse</div>
-          <h2>Caregiver jobs by state</h2>
-          <p>{data?.total?data.total+' current opening'+(data.total===1?'':'s')+' in '+data.states.length+' state'+(data.states.length===1?'':'s')+', verified from care-employer career pages.':'Verified from care-employer career pages.'}</p>
-        </div></div>
-        {loading&&!data
-          ?<div className="empty"><strong>Loading states…</strong></div>
-          :!data||data.states.length===0
-            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed.</div></div>
-            :<div className="state-grid">{data.states.map(s=><a key={s.code} className="state-card" href={'/caregiver-jobs/'+s.slug}><strong>{s.name}</strong><span>{s.count} job{s.count===1?'':'s'}</span></a>)}</div>}
-        {data&&data.cities.length>0&&<div className="hub-cities">
-          <h3>Popular cities</h3>
-          <div className="job-tags">{data.cities.map(c=><a className="pill" key={c.state+c.slug} href={'/caregiver-jobs/'+c.stateSlug+'/'+c.slug}>{c.city}, {c.state} ({c.count})</a>)}</div>
-        </div>}
-      </div></section>
-
       <section className="section caregiver-jobs-section" id="current-jobs"><div className="wrap">
         <div className="section-heading"><div>
           <div className="modal-kicker">Current openings</div>
@@ -192,6 +175,22 @@ function NationalJobsPage(){
           ?<div className="empty"><strong>Loading current openings…</strong></div>
           :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {role||'caregiver'} jobs yet.</strong></div>}
         {data&&<Pager page={data.page} pages={data.pages} onChange={setPage}/>}
+      </div></section>
+
+      <section className="section caregiver-jobs-section" id="cities"><div className="wrap">
+        <div className="section-heading"><div>
+          <div className="modal-kicker">Browse</div>
+          <h2>Caregiver jobs by city</h2>
+          <p>{data?.total?data.total+' current opening'+(data.total===1?'':'s')+' in '+data.states.length+' state'+(data.states.length===1?'':'s')+', verified from care-employer career pages.':'Verified from care-employer career pages.'}</p>
+        </div></div>
+        {loading&&!data
+          ?<div className="empty"><strong>Loading cities…</strong></div>
+          :!data||data.states.length===0
+            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed.</div></div>
+            :<>
+              {data.cities.length>0&&<div className="job-tags hub-city-tags">{data.cities.map(c=><a className="pill" key={c.state+c.slug} href={'/caregiver-jobs/'+c.stateSlug+'/'+c.slug}>{c.city}, {c.state} ({c.count})</a>)}</div>}
+              <p className="hub-other-states" id="states">By state: {data.states.map((s,i)=><span key={s.code}>{i>0&&', '}<a href={'/caregiver-jobs/'+s.slug}>{s.name}</a> ({s.count})</span>)}</p>
+            </>}
       </div></section>
 
       <HowItWorks/>

@@ -12,7 +12,7 @@ test('@phone job search by ZIP from the homepage', async({page})=>{
   await page.goto('/');
   await page.locator('#preview-role').selectOption('CNA');
   await page.locator('#preview-zip').fill('21201');
-  await page.getByRole('button',{name:'Preview my jobs'}).click();
+  await page.getByRole('button',{name:'Find jobs'}).click();
   await expect(page.getByRole('heading',{name:'A few matches near you'})).toBeVisible();
   await expect(page.locator('.home-preview-results').getByRole('link',{name:/CNA - Day Shift/})).toBeVisible();
   await page.getByRole('link',{name:'Create my free profile for personalized matches'}).click();
@@ -162,7 +162,6 @@ test('employer onboarding from Hire caregivers', async({page})=>{
   await page.getByLabel('Role needed').selectOption('CNA');
   await page.getByLabel('Hiring ZIP').fill('21201');
   await page.getByLabel('Company name').fill('Bayview Care');
-  await page.getByLabel('What kind of employer are you?').selectOption('home_care');
   await page.getByLabel('Your name').fill('Sam Employer');
   await page.getByRole('textbox',{name:'Email'}).fill('e2e-new-employer@example.test');
   await page.getByRole('button',{name:'Get started'}).click();

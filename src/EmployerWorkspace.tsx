@@ -576,20 +576,20 @@ export function EmployerWorkspace(){
       {(billing?.enabled||billing?.operated?.available)&&shownTab==='plan'&&billing&&<section className="section-block plan-section">
         <div className="section-heading"><h2>Your plan</h2></div>
         {billing.plan==='operated'
-          ?<><p className="plan-line"><strong>Applicant follow-up</strong> · CareJoys works your applicants, with unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
+          ?<><p className="plan-line"><strong>CareJoys Pro</strong> · CareJoys works your applicants, with unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
           :billing.subscribed
           ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
-          :billing.enabled&&<div className="settings-card plan-card-option">
+          :billing.enabled&&!billing.operated?.available&&<div className="settings-card plan-card-option">
             <h3>CareJoys Hiring · {HIRING_PRICE}/month per location</h3>
             <p className="job-meta">Unlimited caregiver introductions. You have <strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left.</p>
             <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · {HIRING_PRICE}/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or {HIRING_YEARLY_PRICE}/year</button>}</div>
           </div>}
         {billing.operated?.available&&billing.plan!=='operated'&&<div className="settings-card plan-card-option">
-          <h3>Applicant follow-up · {OPERATED_PRICE}/month per location</h3>
-          <p className="job-meta">CareJoys works the applicants you already get from Indeed and your other job posts: each one reached fast, screened with your questions, and booked onto your calendar, with a report every Monday. Up to {OPERATED_APPLICANT_LIMIT} applicants a month per location. Includes unlimited caregiver introductions.</p>
+          <h3>CareJoys Pro · {OPERATED_PRICE}/month per location</h3>
+          <p className="job-meta">CareJoys works the applicants you already get from Indeed and your other job posts: each one texted right away, screened with your questions, and booked onto your calendar, with a report every Monday. Up to {OPERATED_APPLICANT_LIMIT} applicants a month per location. Includes unlimited caregiver introductions.{billing.enabled&&!billing.subscribed&&billing.freeContacts?<> You have <strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left.</>:null}</p>
           <div className="plan-actions">{billing.subscribed
             ?<button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Switch plans in billing</button>
-            :<button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout','operated')}>Start applicant follow-up</button>}</div>
+            :<button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout','operated')}>Start Pro · {OPERATED_PRICE}/month</button>}</div>
         </div>}
       </section>}
 

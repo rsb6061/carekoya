@@ -6,7 +6,7 @@ import { homePath, lastDashboard } from './dashboardHome';
  *  With hireButton, signed-out visitors also get the employer button to /pricing. */
 export function AccountLink({className,hireButton=false}:{className?:string;hireButton?:boolean}){
   const auth=useCaregiverAuth();
-  const hire=hireButton&&<a className="nav-cta" href="/pricing"><span className="hide-sm">Faster AI Hiring</span><span className="show-sm">Hire</span></a>;
+  const hire=hireButton&&<a className="nav-cta" href="/pricing"><span className="hide-sm">For agencies</span><span className="show-sm">Hire</span></a>;
   // Keep the space while the session loads so the header doesn't jump.
   if(auth.loading)return <><a className={className} href="/login" style={{visibility:'hidden'}} aria-hidden="true" tabIndex={-1}>Sign in</a>{hire}</>;
   if(!auth.isAuthenticated)return <><a className={className} href="/login">Sign in</a>{hire}</>;

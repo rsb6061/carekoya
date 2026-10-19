@@ -39,7 +39,6 @@ export function HomeHero(){
       </h1>
       <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
       <HomeJobPreview/>
-      <p className="home-note">Free for caregivers. No signup to preview jobs.</p>
     </div>
   </section>;
 }
@@ -48,7 +47,7 @@ export function HomeMatchesSection(){
   const stats=useHomeStats();
   return <section className="section soft section-center" id="matches">
     <div className="wrap">
-      <h2>Automatically matching caregivers with the best jobs</h2>
+      <h2>See the jobs CareJoys picks for you</h2>
       <DashboardPreview stats={stats}/>
     </div>
   </section>;
