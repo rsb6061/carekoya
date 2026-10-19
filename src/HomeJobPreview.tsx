@@ -29,7 +29,7 @@ export function HomeJobPreview(){
       <select id="preview-role" value={role} onChange={e=>setRole(e.target.value)}>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</select>
       <label className="sr-only" htmlFor="preview-zip">Your ZIP code</label>
       <input id="preview-zip" value={zip} onChange={e=>setZip(e.target.value)} placeholder="Your ZIP code" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} required />
-      <button className="btn" type="submit" disabled={status==='loading'}>{status==='loading'?'Finding jobs…':'Preview my jobs'}</button>
+      <button className="btn" type="submit" disabled={status==='loading'}>{status==='loading'?'Finding jobs…':'Find jobs'}</button>
     </form>
     {status==='error'&&<p role="alert" className="notice">{message}</p>}
     {status==='ready'&&result&&<div className="home-preview-results" aria-live="polite">

@@ -96,7 +96,7 @@ function IntakePage({ kind }: { kind: Kind }) {
     <div className="modal-kicker">{kind === 'employer' ? 'For employers' : 'For training programs'}</div>
     <h1>{kind === 'employer' ? 'Tell us about your hiring' : 'Add your training program'}</h1>
     <p className="login-sub">{kind === 'employer'
-      ? 'We’ll take over your applicant pipeline. Every applicant contacted in 30 minutes, screened, and scheduled.'
+      ? 'We’ll take over your applicant pipeline. Every applicant contacted right away, screened, and scheduled.'
       : 'Can’t find your caregiver training program? Send it to CareJoys and we’ll review it for the Maryland directory.'}</p>
     {kind==='employer'&&<p className="login-sub">Already listed as a licensed agency? <a className="text-link" href="#claim-agency">Claim your agency free</a>.</p>}
     <form className="intake-form" onSubmit={handleSubmit}>
@@ -106,21 +106,11 @@ function IntakePage({ kind }: { kind: Kind }) {
           <label>Hiring ZIP<input name="zip" inputMode="numeric" pattern="[0-9]{5}" maxLength={5} required defaultValue={presetZip || known?.zip || ''} key={'zip'+(known?.zip||'')} /></label>
         </div>
         <label>Company name<input name="companyName" required defaultValue={known?.companyName || ''} key={'co'+(known?.companyName||'')} /></label>
-        <label>What kind of employer are you?<select name="employerType" required defaultValue=""><option value="" disabled>Select</option><option value="home_care">Home-care agency</option><option value="assisted_living">Assisted living or senior community</option><option value="other">Other</option></select></label>
         <label>Your name<input name="contactName" required defaultValue={known?.contactName || ''} key={'cn'+(known?.contactName||'')} /></label>
         <div className="form-grid">
           <label>Email<input type="email" name="email" required defaultValue={lockedEmail} readOnly={!!lockedEmail} /></label>
           <label>Phone (optional)<input name="phone" defaultValue={known?.phone || ''} key={'ph'+(known?.phone||'')} /></label>
         </div>
-        <details className="intake-more">
-          <summary>Add schedule, pay and requirements (optional)</summary>
-          <div className="intake-form">
-            <ScheduleEditor />
-            <div className="form-grid"><label>Min pay / hr<input type="number" name="payMin" min="0" /></label><label>Max pay / hr<input type="number" name="payMax" min="0" /></label></div>
-            <label>Transportation<select name="transportationRequired" defaultValue=""><option value="">Not specified</option><option value="yes">Required</option><option value="no">Not required</option></select></label>
-            <label>Must-have requirements<textarea name="hiringNotes" rows={3} placeholder="Experience, credential, schedule, client requirements..." /></label>
-          </div>
-        </details>
       </> : <>
         <label>School / program name<input name="organizationName" required /></label>
         <label>Your name<input name="contactName" required /></label>

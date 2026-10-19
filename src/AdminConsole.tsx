@@ -36,6 +36,14 @@ type Overview={
   employers:Array<{id:string;company_name:string;contact_name?:string;email:string;zip?:string;created_at:string;last_login_at?:string;openings:number;contacted:number;interviews:number;claimed_agency?:string;approval:string}>;
 };
 
+type AdminSection='overview'|'replies'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
+// The admin's left nav, grouped by what the owner does: watch, answer and approve first; then the two sides of the market; then growth and tools.
+const ADMIN_NAV:{label:string;items:[AdminSection,string][]}[]=[
+  {label:'Today',items:[['overview','Overview'],['replies','Replies'],['employers','Employers']]},
+  {label:'Marketplace',items:[['caregivers','Caregivers'],['jobs','Jobs']]},
+  {label:'Growth',items:[['applicants','Applicants'],['outreach','Outreach']]},
+  {label:'Tools',items:[['advanced','Advanced']]},
+];
 const STEP_LABELS:Record<string,string>={employers:'Employer signups',openings:'Openings',matched:'Matches',contacted:'Contacted',interested:'Interested',interviews:'Interviews booked',hired:'Hired'};
 const KIND_LABELS:Record<string,string>={reactivation:'Caregiver reactivation',agency_teasers:'Agency teasers'};
 const caregiverSourceLabel=(source:string)=>({
@@ -90,7 +98,6 @@ type AgencyOption={id:string;name:string;city?:string;state?:string;jobs:number;
 export function AdminConsole(){
   const [data,setData]=useState<Overview|null>(null);
   const [needsLogin,setNeedsLogin]=useState(false);
-  type AdminSection='overview'|'replies'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
   const allowedSections:AdminSection[]=['overview','replies','employers','applicants','caregivers','jobs','outreach','advanced'];
   // Whose applicant list the Applicants section is working (the operated service).
   const [applicantEmployer,setApplicantEmployer]=useState('');
@@ -176,22 +183,22 @@ export function AdminConsole(){
 
 
   return <div>
-    <header className="app-header admin-app-header"><div className="app-wrap header-inner admin-header-inner">
+    <header className="app-header"><div className="app-wrap header-inner">
       <a className="brand" href="/">CareJoys <span className="admin-brand-tag">Admin</span></a>
-      <nav className="app-nav admin-section-nav" aria-label="Admin sections">
-        {(['overview','replies','employers','applicants','caregivers','jobs','outreach','advanced'] as const).map(tab=><button key={tab}
-          className={'nav-button '+(section===tab?'active':'')}
-          aria-current={section===tab?'page':undefined}
-          onClick={()=>goToSection(tab)}>
-          {{overview:'Overview',replies:'Replies',employers:'Employers',applicants:'Applicants',caregivers:'Caregivers',jobs:'Jobs',outreach:'Outreach',advanced:'Advanced'}[tab]}
-          {tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
-        </button>)}
-      </nav>
-      <AccountMenu/>
+      <nav className="app-nav"><AccountMenu/></nav>
     </div></header>
-    <main className="app-wrap app-content admin-main">
-      <div className="admin-page-heading">
-        <div><div className="modal-kicker">CareJoys operations</div><h1>{{
+    <main className="app-wrap app-content dash-layout admin-main">
+     <nav className="dash-sidenav" aria-label="Admin sections">
+      {ADMIN_NAV.map(group=><div className="admin-nav-group" key={group.label}>
+        <div className="dash-sidenav-label">{group.label}</div>
+        {group.items.map(([tab,label])=><button key={tab} className={'dash-sidenav-item '+(section===tab?'active':'')} aria-current={section===tab?'page':undefined} onClick={()=>goToSection(tab)}>
+          {label}{tab==='employers'&&pending.length>0&&<span className="admin-nav-count">{pending.length}</span>}
+        </button>)}
+      </div>)}
+     </nav>
+     <div className="dash-main-col">
+      <div className="page-head page-head-row admin-page-heading">
+        <div><h1>{{
           overview:'Your business at a glance',replies:'Replies to hello@',employers:'Employer approvals & accounts',applicants:'Agency applicants',
           caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
@@ -205,13 +212,12 @@ export function AdminConsole(){
           outreach:'See which campaigns are running, review school prospects and measure real responses.',
           advanced:'Outreach controls, test environments and technical diagnostics.'
         }[section]}</p></div>
-        <button className="button secondary" onClick={()=>void load()} disabled={busy}>Refresh data</button>
+        <div className="header-action"><button className="button secondary" onClick={()=>void load()} disabled={busy}>Refresh data</button></div>
       </div>
       {notice&&<div className="alert-status workspace-alert" role="status">{notice}</div>}
       {(section==='overview'||section==='caregivers'||section==='jobs'||section==='outreach'||section==='advanced')&&<div className="admin-date-row">
         <span>Reporting period</span>
         {['7','30','90','all'].map(k=><button key={k} className={'nav-button '+(windowKey===k?'active':'')} onClick={()=>setWindowKey(k)}>{k==='all'?'All time':k+' days'}</button>)}
-        <small>Approval queue always shows all pending employers.</small>
       </div>}
       {section==='overview'&&<>
         {pending.length>0?<section className="admin-alert-card">
@@ -229,7 +235,7 @@ export function AdminConsole(){
         </section>
         <section className="section-block" style={{marginTop:0}}>
         <div className="section-heading"><h2>Hiring activity</h2><p>Separate counts of new employers, openings and candidate actions for this period. These are not a sequential conversion cohort.</p></div>
-        <div style={grid}>{steps.map(s=><Stat key={s.step} label={STEP_LABELS[s.step]||s.step} value={s.count}/>)}</div>
+        <div style={grid}>{steps.filter(s=>s.step!=='employers').map(s=><Stat key={s.step} label={STEP_LABELS[s.step]||s.step} value={s.count}/>)}</div>
       </section>
         <section className="section-block">
           <div className="section-heading"><h2>What to do next</h2><p>CareJoys is still building a reliably reachable candidate network.</p></div>
@@ -410,6 +416,7 @@ export function AdminConsole(){
         </div>
       </section>
       </>}
+     </div>
     </main>
   </div>;
 

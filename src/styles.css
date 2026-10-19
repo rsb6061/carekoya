@@ -670,3 +670,49 @@ body .app-footer{background:#fff;color:var(--muted);border-top:1px solid var(--l
 .auth-choice-row{grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:560px){.auth-choice-row{grid-template-columns:1fr}}
 .dash-main-col .page-head-row{align-items:center}.dash-main-col .page-head-row .header-action{padding-top:0}
+/* Home hero: the job-preview form and its results sit centred under the headline */
+.home-ai-hero .home-job-preview{margin-left:auto;margin-right:auto}
+.home-ai-hero .home-job-preview .search{margin-left:auto;margin-right:auto}
+.home-ai-hero .home-preview-results{text-align:left}
+
+/* Home audience bands: body copy at reading size, matching the DentalScouts cards rather than listing-row text */
+.jobcta strong{font-size:21px;line-height:1.2;letter-spacing:-.02em}
+.jobcta span{font-size:17px;line-height:1.55}
+.jobcta>div{gap:8px}
+#schools .job .meta{font-size:17px;line-height:1.55}
+#schools .pill,.home-steps .pill{font-size:14px;padding:7px 12px}
+#schools .job-tags{margin-top:14px}
+
+/* Caregiver jobs hub: reading-size copy; cities are the browse list, states a one-line index beneath */
+.caregiver-jobs-section .section-heading p{font-size:17px}
+.caregiver-public-job-list .job .meta{font-size:16px}
+.caregiver-public-job-list .pill,.hub-city-tags .pill,.hub-quick-states .pill{font-size:14px;padding:7px 12px}
+.hub-city-tags .pill{text-decoration:none;color:var(--ink);margin-bottom:8px}
+.hub-other-states{font-size:15px;color:var(--muted);line-height:1.7}
+.hub-other-states a{color:var(--ink)}
+.empty{font-size:16px}
+
+/* Reading-size floor for public pages and forms: body copy 16px+, notes and pills never below 14px */
+.intake-form label{font-size:16px}
+.intake-form input,.intake-form select,.intake-form textarea,.login-card input,.login-card select,.login-card textarea{font-size:16px;font-family:inherit}
+body .check-row{font-size:15px!important}
+.meta{font-size:15px}
+.plan-terms,.legal-consent,.turnstile-note,.apply-signin-terms,.field-error,.employer-signin-note,.onboarding-file-note,.onboarding-optional,.profile-photo-copy p,.caregiver-next-steps p,.auth-signed-in,.job-summary-note,.agency-finder-option span,.apply-agent-note,.apply-agent-remember span,.job-detail-source,.apply-where,.resume-file-meta{font-size:14px}
+.pill,.resume-points span,.onboarding-summary-item{font-size:14px}
+
+/* Workspace headings: the company name and tab titles are labels, not a marketing hero */
+.dash-main-col .page-head h1{font-size:28px;letter-spacing:-.025em;margin-bottom:4px}
+.dash-main-col .section-heading h2{font-size:24px;letter-spacing:-.02em}
+.dash-main-col .page-head{margin-bottom:18px}
+
+/* Admin: same left-nav layout as the agency workspace; the page title is a label, the subtitle carries the explanation */
+.admin-nav-group{display:flex;flex-direction:column;gap:2px}
+.admin-nav-group+.admin-nav-group{margin-top:18px}
+.admin-nav-group .dash-sidenav-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.admin-page-heading h1{font:600 28px/1.15 var(--display);letter-spacing:-.025em;margin:0 0 6px}
+.admin-page-heading p{font-size:16px}
+.admin-date-row{margin:18px 0 10px;font-size:14px}
+.admin-main.dash-layout{padding-top:30px}
+@media(max-width:760px){.admin-nav-group{flex-direction:row;gap:6px}.admin-nav-group+.admin-nav-group{margin:0 0 0 6px}}
+.admin-main .section-heading{display:block}
+.admin-main .section-heading p{margin:6px 0 0;color:var(--muted);line-height:1.55;max-width:760px}

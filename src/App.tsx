@@ -118,24 +118,24 @@ function Home() {
           <div className="modal-kicker">How CareJoys works</div>
           <h2>From finding work to your next opportunity</h2>
           <div className="home-steps">
-            <div><b>1</b><h3>Preview nearby jobs</h3><p>Start with your ZIP and role. Compare real local openings before creating a profile.</p><span className="pill">No signup required</span></div>
-            <div><b>2</b><h3>Create one reusable profile</h3><p>Tell CareJoys your pay, commute and schedule preferences. Uploading a resume is optional.</p><span className="pill">Resume optional</span></div>
-            <div><b>3</b><h3>Return to better matches</h3><p>Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p><span className="pill">Optional email alerts</span></div>
+            <div><b>1</b><h3>Preview nearby jobs</h3><p>Start with your ZIP and role. Compare real local openings before creating a profile.</p></div>
+            <div><b>2</b><h3>Create one reusable profile</h3><p>Tell CareJoys your pay, commute and schedule preferences. Uploading a resume is optional.</p></div>
+            <div><b>3</b><h3>Return to better matches</h3><p>Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p></div>
           </div>
         </div>
       </section>
 
       <HomeMatchesSection/>
 
-      <section className="section" id="caregivers">
+      <section className="section" id="agencies">
         <div className="wrap">
-          <h2>For caregivers</h2>
+          <h2>For agencies and assisted living facilities</h2>
           <div className="jobcta">
             <div>
-              <strong>One profile. Better local opportunities.</strong>
-              <span>Tell CareJoys where you work, what shifts you want, and when you are looking. Keep your availability current without rebuilding a resume for every employer.</span>
+              <strong>Turn caregiver applicants into interviews.</strong>
+              <span>We text, screen and book every applicant you already get from Indeed, your website and CareJoys onto your calendar. No placement fees or per-hire charges.</span>
             </div>
-            <a className="btn" href="/caregiver-jobs">Find jobs</a>
+            <a className="btn" href="/pricing">See how it works</a>
           </div>
         </div>
       </section>
