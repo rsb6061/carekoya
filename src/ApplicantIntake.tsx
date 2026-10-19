@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { ReactivationCard } from './ReactivationCard';
 import { ReferralsCard } from './ReferralsCard';
 import { ApplicantDetail, ScreeningQuestionsCard, showUpText } from './ScreeningPanel';
@@ -64,35 +64,6 @@ function ForwardingCard({intake}:{intake:Intake}){
   </div>;
 }
 
-/** The first screen after an agency claims: the three things that make the applicant list work, each ticked off as it's done. */
-function SetupCard({intake,openTimes,listingsLink}:{intake:Intake;openTimes:number;listingsLink:string}){
-  const [copied,setCopied]=useState(false);
-  const forwarded=!!intake.lastReceivedAt;
-  const Step=({n,done,title,children}:{n:number;done:boolean;title:string;children:ReactNode})=><li className={'setup-step'+(done?' done':'')}>
-    <span className="setup-step-mark" aria-hidden="true">{done?'✓':n}</span>
-    <div><strong>{title}{done?<small> · done</small>:null}</strong>{children}</div>
-  </li>;
-  return <div className="settings-card setup-card">
-    <h3>Let’s get your applicants answered</h3>
-    <p className="job-meta">Three steps, about five minutes. Nothing changes on Indeed or CareerPlug.</p>
-    <ol className="setup-steps">
-      <Step n={1} done={forwarded} title="Forward applicants here">
-        <div className="inline-form"><code className="intake-address">{intake.address}</code>
-          <button type="button" className="button secondary" onClick={()=>void copyText(intake.address).then(setCopied)}>{copied?'Copied':'Copy'}</button></div>
-        <p className="job-meta">In Indeed: Employer settings → Notifications, add this address for new applicants. In CareerPlug: Account → Notifications. Or set a Gmail or Outlook filter that forwards those emails here. New applicants show up below within minutes.</p>
-        {intake.unread&&<div className="alert-status alert-info" role="status"><strong>We got an email here we couldn’t read as an applicant</strong> ({day(intake.unread.receivedAt)}): {intake.unread.subject||'no subject'}.
-          {intake.unread.snippet&&<small> {intake.unread.snippet.slice(0,300)}</small>} If it’s a forwarding confirmation code, use the code above to finish setting up forwarding.</div>}
-      </Step>
-      <Step n={2} done={openTimes>0} title="Add interview times">
-        <p className="job-meta">Pick a few 30-minute slots each week on a job listing. Applicants book themselves and both of you get the calendar invite.{listingsLink&&<> <a className="text-link" href={listingsLink}>Open job listings</a></>}</p>
-      </Step>
-      <Step n={3} done={false} title="Your Monday report">
-        <p className="job-meta">Every Monday: applicants, time to first contact, interviews booked and who showed. It starts the first week an applicant lands.</p>
-      </Step>
-    </ol>
-  </div>;
-}
-
 /** The last seven days, the same numbers as the Monday email. */
 function WeekCard({week}:{week:Week}){
   const items:[string,string][]=[['New applicants',String(week.received)],
@@ -138,7 +109,13 @@ function BookingLink({applicant:a,openTimes,make}:{applicant:ApplicantView;openT
  * The agency's own applicants: upload a CSV, see who came from where, and move each one along.
  * `base` is /api/workspace/applicants for the agency, or /api/admin/applicants with `employerId` for a CareJoys operator.
  */
-export function ApplicantIntake({base,employerId='',title='Applicants',reactivation}:{base:string;employerId?:string;title?:string;
+export function ApplicantIntake({base,employerId='',title='Applicants',section='all',onSetup,onCount,reactivation}:{base:string;employerId?:string;title?:string;
+  /** `list` is the applicant table on the agency's Candidates page; `setup` is the forwarding, screening and referral cards on its Settings page; `all` is both, for the CareJoys operator. */
+  section?:'all'|'list'|'setup';
+  /** Opens the agency's applicant settings, from the empty list. */
+  onSetup?:()=>void;
+  /** How many applicants are on the list, after each load; the workspace shows it on the source switch. */
+  onCount?:(n:number)=>void;
   /** Admin only: where the "still looking?" email to past applicants is sent from. */
   reactivation?:{url:string;agencyName:string;testTo:string}}){
   const query=employerId?'?employer='+encodeURIComponent(employerId):'';
@@ -171,7 +148,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
   async function load(){
     try{
       const d=await api<{applicants:ApplicantView[];imports:ImportRun[];intake?:Intake;week?:Week;openInterviewTimes?:number}>('');
-      setApplicants(d.applicants);setImports(d.imports);setIntake(d.intake||null);setWeek(d.week||null);setOpenTimes(d.openInterviewTimes||0);setVersion(v=>v+1);
+      setApplicants(d.applicants);onCount?.(d.applicants.length);setImports(d.imports);setIntake(d.intake||null);setWeek(d.week||null);setOpenTimes(d.openInterviewTimes||0);setVersion(v=>v+1);
     }
     catch(e){setNotice({text:(e as Error).message,tone:'error'})}
   }
@@ -217,16 +194,8 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
   const emailed=list.some(a=>a.reactivation.sentAt);
   const bySource=APPLICANT_SOURCES.map(s=>({s,n:list.filter(a=>a.source===s).length})).filter(x=>x.n);
 
-  return <section className="section-block applicant-intake">
-    <div className="section-heading"><h2>{title}</h2>
-      <p>Applicants from the agency’s own job posts and past applicant lists. They stay the agency’s: they aren’t added to CareJoys caregiver matching.</p></div>
-    {notice&&<div className={'alert-status workspace-alert'+(notice.tone==='ok'?'':' alert-error')} role="status">{notice.tone==='ok'?'✓ ':''}{notice.text}</div>}
-
-    {week&&applicants&&applicants.length>0&&<WeekCard week={week}/>}
-
-    {intake?.address&&(applicants&&applicants.length===0?<SetupCard intake={intake} openTimes={openTimes} listingsLink={employerId?'':'/app?tab=openings'}/>:<ForwardingCard intake={intake}/>)}
-
-    <div className="settings-card">
+  const showList=section!=='setup',showSetup=section!=='list';
+  const uploadCard=<div className="settings-card">
       <h3>Upload applicants</h3>
       <form className="intake-form" onSubmit={upload}>
         <label>Where they came from
@@ -241,15 +210,29 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
         <button className="button" disabled={busy}>{busy?'Uploading…':'Upload'}</button>
       </form>
       {imports.length>0&&<p className="job-meta">Last upload: {imports[0].filename||'CSV'}, {APPLICANT_SOURCE_LABELS[imports[0].source as ApplicantSource]||imports[0].source}, {day(imports[0].createdAt)}. {imports[0].added} added of {imports[0].total} rows.</p>}
-    </div>
+    </div>;
 
-    <ScreeningQuestionsCard url={screeningUrl} questions={screening} onSaved={setScreening}/>
+  return <section className={'section-block applicant-intake'+(section==='all'?'':' applicant-intake-'+section)} id={section==='setup'?'applicant-forwarding':undefined}>
+    {section==='all'&&<div className="section-heading"><h2>{title}</h2>
+      <p>Applicants from the agency’s own job posts and past applicant lists. They stay the agency’s: they aren’t added to CareJoys caregiver matching.</p></div>}
+    {section==='setup'&&<div className="settings-group-heading"><h3>Applicants from your job posts</h3>
+      <p className="job-meta">Indeed, CareerPlug and website applicants land on Candidates under From your job posts. They stay yours and never join CareJoys caregiver matching.</p></div>}
+    {notice&&<div className={'alert-status workspace-alert'+(notice.tone==='ok'?'':' alert-error')} role="status">{notice.tone==='ok'?'✓ ':''}{notice.text}</div>}
 
-    <ReferralsCard url={referrersUrl} rewardsUrl={rewardsUrl} version={version}/>
+    {showList&&week&&applicants&&applicants.length>0&&<WeekCard week={week}/>}
 
-    {reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
+    {showSetup&&intake?.address&&<ForwardingCard intake={intake}/>}
 
-    {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">The first one lands here the moment Indeed forwards it. Or upload a CSV to start the list.</p></div>:<>
+    {showSetup&&uploadCard}
+
+    {showSetup&&<ScreeningQuestionsCard url={screeningUrl} questions={screening} onSaved={setScreening}/>}
+
+    {showSetup&&<ReferralsCard url={referrersUrl} rewardsUrl={rewardsUrl} version={version}/>}
+
+    {showSetup&&reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
+
+    {!showList?null:applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="empty"><strong>No applicants from your job posts yet.</strong><div>{intake?.address?<>Forward Indeed’s “new applicant” emails to <code className="intake-address">{intake.address}</code> and each one lands here the moment it arrives. Or upload a CSV.</>:'The first one lands here the moment Indeed forwards it. Or upload a CSV to start the list.'}</div>
+      {onSetup&&<div className="empty-actions"><button type="button" className="button secondary" onClick={onSetup}>Set up forwarding and uploads</button></div>}</div>:<>
       <div className="admin-subheading">
         <h3>{shown.length} of {list.length} applicant{list.length===1?'':'s'}</h3>
         <select className="pipeline-select" value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)} aria-label="Filter by source">
@@ -263,6 +246,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
         {emailed&&<select className="pipeline-select" value={replyFilter} onChange={e=>setReplyFilter(e.target.value)} aria-label="Filter by reply">
           <option value="">All replies</option><option value="yes">Said yes</option><option value="no">Said no</option><option value="waiting">Emailed, no answer</option>
         </select>}
+        {onSetup&&<button type="button" className="text-button" onClick={onSetup}>Upload or forward applicants</button>}
       </div>
       <p className="job-meta">Open an applicant’s name to fill in the screening call, the interview, and whether they started and stayed.</p>
       <div className="settings-card admin-table-scroll">

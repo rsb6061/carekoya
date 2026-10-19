@@ -127,9 +127,14 @@ export function EmployerWorkspace(){
   const [firstLoadDone,setFirstLoadDone]=useState(false);
   const [inviteAllowance,setInviteAllowance]=useState<InviteAllowance|null>(null);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
-  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'|'applicants'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':t==='applicants'?'applicants':'openings'});
-  // The agency's own applicants (operated service). The tab shows once CareJoys or the agency has uploaded some.
-  const [hasApplicants,setHasApplicants]=useState(false);
+  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||t==='applicants'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':'openings'});
+  // Candidates shows one source at a time: people talking to the agency through CareJoys, or applicants from its own job posts (?tab=applicants, or ?source=posts).
+  const [candidateSource,setCandidateSource]=useState<'carejoys'|'posts'>(()=>{const q=new URLSearchParams(window.location.search);return q.get('tab')==='applicants'||q.get('source')==='posts'?'posts':'carejoys'});
+  // How many of the agency's own applicants (operated service) are on the list. The source switch shows once there are any, or once the agency is claimed.
+  const [applicantCount,setApplicantCount]=useState(0);
+  const hasApplicants=applicantCount>0;
+  // Settings scrolls to the applicant cards when opened from the setup checklist or the empty applicant list.
+  const [settingsFocus,setSettingsFocus]=useState('');
   const [setupDismissed,setSetupDismissed]=useState(()=>{try{return localStorage.getItem(SETUP_DISMISSED_KEY)==='1'}catch{return false}});
   const [applications,setApplications]=useState<InboxItem[]>([]);
   const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
@@ -213,7 +218,7 @@ export function EmployerWorkspace(){
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
   useEffect(()=>{
     if(!session)return;
-    fetch('/api/workspace/applicants',{credentials:'include'}).then(r=>r.ok?r.json():null).then((d:{applicants?:unknown[]}|null)=>setHasApplicants(!!d?.applicants?.length)).catch(()=>{});
+    fetch('/api/workspace/applicants',{credentials:'include'}).then(r=>r.ok?r.json():null).then((d:{applicants?:unknown[]}|null)=>setApplicantCount(d?.applicants?.length||0)).catch(()=>{});
   },[session?.id]);
 
   useEffect(()=>{
@@ -305,9 +310,16 @@ export function EmployerWorkspace(){
   function openCandidates(jobId='',chip:StageFilter=''){
     leavePage();
     setCandidateJobId(jobId);setCandidateView('active');setStageFilter(chip);setTab('pipeline');
-    showUrl({tab:'candidates',job:jobId});
+    // A job's candidates are CareJoys conversations; the agency's own applicants aren't tied to a listing.
+    const source=jobId?'carejoys':candidateSource;
+    setCandidateSource(source);
+    showUrl({tab:'candidates',job:jobId,source:source==='posts'?'posts':''});
   }
-  function openTab(next:'openings'|'jobs'|'plan'|'settings'|'applicants'){leavePage();setTab(next);showUrl({tab:next})}
+  function openTab(next:'openings'|'jobs'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next})}
+  /** Settings, scrolled to the applicant forwarding, upload and screening cards. */
+  function openApplicantSettings(){openTab('settings');setSettingsFocus('applicants')}
+  /** Candidates from one source; the URL keeps the source so a reload lands on the same list. */
+  function pickCandidateSource(source:'carejoys'|'posts'){setCandidateSource(source);showUrl({tab:'candidates',job:candidateJobId,source:source==='posts'?'posts':''})}
 
   /** Refreshes the suggestions for a job listing, then opens Find caregivers for it. */
   async function runMatch(openingId:string){
@@ -508,7 +520,7 @@ export function EmployerWorkspace(){
   const setupSteps:SetupStep[]=[
     {title:'Add a job listing',done:openOpenings.length>0,action:'Add a job',onAction:()=>openOpeningForm(null),detail:'Role, ZIP, pay and shifts. Suggested caregivers and invitations start from a listing.'},
     {title:'Add interview times',done:hasSlots,action:'Add times',onAction:()=>{if(openOpenings[0])void openInterviewSlots(openOpenings[0])},disabled:openOpenings.length===0,detail:'A few 30-minute slots a week. A caregiver who says yes books one straight away.'},
-    ...(agencyNetwork.agency?[{title:'Forward your applicants',done:hasApplicants,action:'Set up forwarding',onAction:()=>openTab('applicants'),detail:'Point Indeed and your website applicants at your CareJoys address so each one is texted and screened.'}]:[]),
+    ...(agencyNetwork.agency?[{title:'Forward your applicants',done:hasApplicants,action:'Set up forwarding',onAction:openApplicantSettings,detail:'Point Indeed and your website applicants at your CareJoys address so each one is texted and screened.'}]:[]),
   ];
   const showSetup=!setupDismissed&&setupSteps.some(st=>!st.done);
   function dismissSetup(){setSetupDismissed(true);try{localStorage.setItem(SETUP_DISMISSED_KEY,'1')}catch{/* private mode */}}
@@ -558,8 +570,6 @@ export function EmployerWorkspace(){
     <main className="app-wrap app-content dash-layout">
      <nav className="dash-sidenav" aria-label="Workspace">
       <div className="dash-sidenav-label">Hiring</div>
-      {/* A claimed agency's own applicants come first: that list works on day one, before any CareJoys caregiver matches. */}
-      {(agencyNetwork.agency||hasApplicants||tab==='applicants')&&<button className={'dash-sidenav-item '+(tab==='applicants'?'active':'')} onClick={()=>openTab('applicants')}>Applicants</button>}
       <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>openTab('openings')}>Job Listings</button>
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>openCandidates()}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>openFind()} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
@@ -632,7 +642,12 @@ export function EmployerWorkspace(){
         </div>:<div className="section-heading">
           <h2>All candidates</h2>
         </div>}
-        {openingPipeline.length===0?<div className="empty"><strong>No candidates yet.</strong><div>Caregivers who apply{agencyNetwork.agency?' to your jobs':''} or say yes to an invitation show here.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openFind(candidateJob?.status==='open'?candidateJob.id:'')} disabled={pendingApproval}>Find caregivers</button></div></div>:
+        {!candidateJob&&(agencyNetwork.agency||hasApplicants)&&<div className="candidate-sources" role="group" aria-label="Candidates from">
+          <button type="button" className={'chip'+(candidateSource==='carejoys'?' on':'')} aria-pressed={candidateSource==='carejoys'} onClick={()=>pickCandidateSource('carejoys')}>From CareJoys <strong>{viewCounts.active}</strong></button>
+          <button type="button" className={'chip'+(candidateSource==='posts'?' on':'')} aria-pressed={candidateSource==='posts'} onClick={()=>pickCandidateSource('posts')}>From your job posts <strong>{applicantCount}</strong></button>
+        </div>}
+        {!candidateJob&&candidateSource==='posts'&&(agencyNetwork.agency||hasApplicants)?<ApplicantIntake base="/api/workspace/applicants" section="list" onSetup={openApplicantSettings} onCount={setApplicantCount}/>:
+        openingPipeline.length===0?<div className="empty"><strong>No candidates yet.</strong><div>Caregivers who apply{agencyNetwork.agency?' to your jobs':''} or say yes to an invitation show here.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openFind(candidateJob?.status==='open'?candidateJob.id:'')} disabled={pendingApproval}>Find caregivers</button></div></div>:
         <><div className="candidate-views">
           <div className="inbox-filters" role="group" aria-label="Show">
             <button type="button" className={'chip'+(candidateView==='active'&&!stageFilter?' on':'')} aria-pressed={candidateView==='active'&&!stageFilter} onClick={()=>{setCandidateView('active');setStageFilter('')}}>All <strong>{viewCounts.active}</strong></button>
@@ -687,9 +702,7 @@ export function EmployerWorkspace(){
 
       {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
-      {shownTab==='applicants'&&<ApplicantIntake base="/api/workspace/applicants"/>}
-
-      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
+      {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} applicants={agencyNetwork.agency||hasApplicants?<ApplicantIntake base="/api/workspace/applicants" section="setup" onCount={setApplicantCount}/>:null} focus={settingsFocus} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
 
       {shownTab==='jobs'&&agencyNetwork.agency&&<section className="section-block">
         <JobsWidgetCard agencyId={agencyNetwork.agency.id}/>

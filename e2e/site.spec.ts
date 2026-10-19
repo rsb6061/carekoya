@@ -211,9 +211,9 @@ test('agency opens its emailed link and one click opens its dashboard', async({p
   const waiting=/to work with you/.test(await page.locator('h1').innerText());
   if(!waiting){await page.getByRole('button',{name:'CNA',exact:true}).click();await page.getByRole('button',{name:'Nights'}).click();}
   await page.getByRole('button',{name:waiting?'Open my inbox':'Start hiring faster'}).click();
-  await expect(page).toHaveURL(waiting?/\/app\?tab=candidates/:/\/app\?tab=applicants/);
+  await expect(page).toHaveURL(waiting?/\/app\?tab=candidates/:/\/app\?tab=openings/);
   if(waiting)await expect(page.locator('.match-tile').first()).toBeVisible();
-  else await expect(page.getByRole('heading',{name:'Let’s get your applicants answered'})).toBeVisible();
+  else await expect(page.getByRole('heading',{name:'Get set up'})).toBeVisible();
   clean(w);
 });
 

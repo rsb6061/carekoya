@@ -73,7 +73,7 @@ export async function sendWeeklyApplicantReports(env:FeatureEnv&{EMAIL?:{send(m:
     if(Number(claimed.meta?.changes||0)!==1)continue;
     const to=clean(e.email,320).toLowerCase();
     if(!emailValid(to))continue;
-    const mail=weeklyApplicantReportEmail({company:clean(e.company_name,200),week,link:ORIGIN+'/app?tab=applicants',settingsLink:ORIGIN+'/app?tab=settings'});
+    const mail=weeklyApplicantReportEmail({company:clean(e.company_name,200),week,link:ORIGIN+'/app?tab=candidates&source=posts',settingsLink:ORIGIN+'/app?tab=settings'});
     try{await env.EMAIL.send({from:FROM,to,subject:mail.subject,html:mail.html,text:mail.text});sent++}catch(error){console.error('applicant report failed',error)}
   }
   return {sent};

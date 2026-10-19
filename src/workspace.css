@@ -578,3 +578,20 @@ body{font-family:Figtree,"Helvetica Neue",Helvetica,Arial,ui-sans-serif,system-u
 .setup-step>div{flex:1;min-width:0}
 .setup-step strong small{font-weight:500;color:var(--muted,#6e6882)}
 .setup-step .job-meta{margin-top:4px}
+
+/* Candidates: which source the list shows; the agency's own applicants nest inside the Candidates block. */
+.candidate-sources{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+.candidate-sources .chip strong{margin-left:4px}
+.applicant-intake-list,.applicant-intake-setup{margin-top:0}
+.applicant-intake-list .admin-subheading{margin-top:0}
+.settings-group-heading{margin-top:36px}
+.settings-group-heading h3{font-size:20px;font-weight:600;margin:0 0 4px}
+.settings-group-heading p{margin:0 0 14px}
+.settings-group-heading h3{font-family:var(--display);letter-spacing:-.02em}
+.applicant-intake-setup .admin-subheading{margin-top:0}
+.applicant-intake-setup .admin-subheading h3{font-size:20px}
+/* The week's numbers as a stat row; the shared summary styles only load on the activation page. */
+.applicant-intake .opportunity-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0 14px}
+.applicant-intake .opportunity-summary>div{display:flex;flex-direction:column;gap:2px;padding:14px 16px;background:#f7f6fb;border:1px solid #e8e6f0;border-radius:16px}
+.applicant-intake .opportunity-summary strong{font-size:24px;font-weight:600;line-height:1.1}
+.applicant-intake .opportunity-summary span{font-size:14px;color:var(--muted);line-height:1.4}

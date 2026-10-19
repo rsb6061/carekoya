@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { AGENCY_SMS_CONSENT_TEXT } from './smsConsent';
 
@@ -16,7 +16,11 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
  * Set up once: what caregivers read about the agency, which emails arrive, where
  * candidates are forwarded, and the export.
  */
-export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agency:boolean;homeAlertQuery:string;onOpenTemplates:()=>void}){
+export function WorkspaceSettings({agency,applicants,focus='',homeAlertQuery,onOpenTemplates}:{agency:boolean;
+  /** The applicant forwarding, upload and screening cards, for an agency with its own job posts. */
+  applicants?:ReactNode;
+  /** `applicants` scrolls to those cards once the page has loaded. */
+  focus?:string;homeAlertQuery:string;onOpenTemplates:()=>void}){
   const profilePath=useCaregiverAuth().employerProfilePath;
   const [settings,setSettings]=useState<Settings|null>(null);
   // Saved caregiver searches that email new matches; null while loading or when the workspace can't use them yet.
@@ -45,6 +49,11 @@ export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agenc
     catch(e){setNotice({text:(e as Error).message,tone:'error'})}
   }
   const otherAlerts=(alerts||[]).filter(a=>a.id!==homeAlert?.id);
+  useEffect(()=>{
+    if(!settings||focus!=='applicants')return;
+    const t=setTimeout(()=>document.getElementById('applicant-forwarding')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+    return()=>clearTimeout(t);
+  },[settings,focus]);
 
   async function save(patch:Partial<Settings>,done:string){
     setBusy(true);
@@ -82,6 +91,8 @@ export function WorkspaceSettings({agency,homeAlertQuery,onOpenTemplates}:{agenc
         <button className="button" disabled={busy}>Save</button>
       </form>
     </div>
+
+    {applicants}
 
     <div className="settings-card">
       <h3>Email</h3>
