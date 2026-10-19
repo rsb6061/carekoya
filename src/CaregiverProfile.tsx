@@ -1,6 +1,4 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { ProfilePhotoSection } from './ProfilePhotoSection';
-import { IntroVideoSection } from './IntroVideoSection';
 import { cleanList } from './listField';
 import { CHECKLIST } from './checklist';
 import { SMS_FINE_PRINT, SMS_LABEL } from './smsConsent';
@@ -92,19 +90,16 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
   }
 
   return <form className="profile-editor intake-form" onSubmit={submit}>
-    <ProfilePhotoSection hasPhoto={!!c.profilePhotoUrl}/>
-    <IntroVideoSection/>
-
-    <Section title="When you can work" hint="Tap the shifts you can usually work. Employers match you to openings on these.">
-      <AvailabilityGrid days={days} setDays={setDays}/>
-      <label className="check-row"><input type="checkbox" checked={liveIn} onChange={e=>setLiveIn(e.target.checked)}/><span>I’m open to live-in jobs</span></label>
+    <Section title="About you" hint="Your phone number is only shared with employers you apply to or accept.">
       <div className="form-grid">
-        <div className="chip-field"><span>Hours I want</span><Chips options={['Full-time','Part-time','Per diem']} value={hours.map(h=>({full_time:'Full-time',part_time:'Part-time',per_diem:'Per diem'} as Record<string,string>)[h]||h)} onChange={v=>setHours(v.map(x=>({'Full-time':'full_time','Part-time':'part_time','Per diem':'per_diem'} as Record<string,string>)[x]))}/></div>
-        <label>I can start<select name="startAvailability" defaultValue={c.startAvailability||''}>
-          <option value="">Select</option><option value="now">Right away</option><option value="2_weeks">Within 2 weeks</option><option value="1_month">Within a month</option><option value="later">Later than a month</option>
-        </select></label>
+        <label>First name<input name="firstName" defaultValue={c.firstName||''} required/></label>
+        <label>Last name<input name="lastName" defaultValue={c.lastName||''} required/></label>
       </div>
+      <label>Mobile phone<input name="phone" type="tel" autoComplete="tel" defaultValue={c.phone||''}/></label>
+      <label className="check-row sms-consent"><input type="checkbox" name="smsConsent" defaultChecked={!!c.smsConsent}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT} See our <a href="/privacy-policy#sms">Privacy Policy</a> and <a href="/terms-of-service#sms">Terms</a>.</small></span></label>
+      <label>A few words for employers<textarea name="bio" rows={3} maxLength={1200} defaultValue={c.bio||''} placeholder="What you love about caregiving, the clients you work best with…"/></label>
     </Section>
+
 
     <Section title="Credentials and experience">
       <div className="form-grid">
@@ -123,8 +118,15 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
       <div className="chip-field"><span>I’m comfortable with</span><Chips options={['Pets in the home','Smokers in the home']} value={conditions.map(x=>x==='pets'?'Pets in the home':'Smokers in the home')} onChange={v=>setConditions(v.map(x=>x.startsWith('Pets')?'pets':'smokers'))}/></div>
     </Section>
 
-    <Section title="What employers check first" hint="Check each one that’s true for you. Employers see the ones you check; anything left blank shows as not answered.">
-      <div className="checklist-field">{CHECKLIST.map(([key,label])=><label className="check-row" key={key}><input type="checkbox" checked={checklist.includes(key)} onChange={e=>setChecklist(prev=>e.target.checked?[...prev,key]:prev.filter(k=>k!==key))}/><span>{label}</span></label>)}</div>
+    <Section title="When you can work" hint="Tap the shifts you can usually work. Employers match you to openings on these.">
+      <AvailabilityGrid days={days} setDays={setDays}/>
+      <label className="check-row"><input type="checkbox" checked={liveIn} onChange={e=>setLiveIn(e.target.checked)}/><span>I’m open to live-in jobs</span></label>
+      <div className="form-grid">
+        <div className="chip-field"><span>Hours I want</span><Chips options={['Full-time','Part-time','Per diem']} value={hours.map(h=>({full_time:'Full-time',part_time:'Part-time',per_diem:'Per diem'} as Record<string,string>)[h]||h)} onChange={v=>setHours(v.map(x=>({'Full-time':'full_time','Part-time':'part_time','Per diem':'per_diem'} as Record<string,string>)[x]))}/></div>
+        <label>I can start<select name="startAvailability" defaultValue={c.startAvailability||''}>
+          <option value="">Select</option><option value="now">Right away</option><option value="2_weeks">Within 2 weeks</option><option value="1_month">Within a month</option><option value="later">Later than a month</option>
+        </select></label>
+      </div>
     </Section>
 
     <Section title="Pay and travel">
@@ -138,15 +140,11 @@ export function CaregiverProfileEditor({caregiver,save}:{caregiver:CaregiverProf
       </div>
     </Section>
 
-    <Section title="About you" hint="Your phone number is only shared with employers you apply to or accept.">
-      <div className="form-grid">
-        <label>First name<input name="firstName" defaultValue={c.firstName||''} required/></label>
-        <label>Last name<input name="lastName" defaultValue={c.lastName||''} required/></label>
-      </div>
-      <label>Mobile phone<input name="phone" type="tel" autoComplete="tel" defaultValue={c.phone||''}/></label>
-      <label className="check-row sms-consent"><input type="checkbox" name="smsConsent" defaultChecked={!!c.smsConsent}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT} See our <a href="/privacy-policy#sms">Privacy Policy</a> and <a href="/terms-of-service#sms">Terms</a>.</small></span></label>
-      <label>A few words for employers<textarea name="bio" rows={3} maxLength={1200} defaultValue={c.bio||''} placeholder="What you love about caregiving, the clients you work best with…"/></label>
+    <Section title="What employers check first" hint="Check each one that’s true for you. Employers see the ones you check; anything left blank shows as not answered.">
+      <div className="checklist-field">{CHECKLIST.map(([key,label])=><label className="check-row" key={key}><input type="checkbox" checked={checklist.includes(key)} onChange={e=>setChecklist(prev=>e.target.checked?[...prev,key]:prev.filter(k=>k!==key))}/><span>{label}</span></label>)}</div>
     </Section>
+
+
 
     {error&&<div className="notice">{error}</div>}
     <div className="profile-save-bar"><button className="button" disabled={saving}>{saving?'Saving…':'Save my profile'}</button><a className="text-link" href="/dashboard">Cancel</a></div>

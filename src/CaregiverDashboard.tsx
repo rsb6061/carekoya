@@ -6,6 +6,8 @@ import { jobsHubPath, usState } from './usStates';
 import { payLabel, tidyTitle } from './jobFormat';
 import { rememberDashboard } from './dashboardHome';
 import { AccountMenu, CloseAccountSide } from './AccountLink';
+import { ProfilePhotoSection } from './ProfilePhotoSection';
+import { IntroVideoSection } from './IntroVideoSection';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { CaregiverInviteControls, type HiddenAgency } from './CaregiverInviteControls';
@@ -101,7 +103,7 @@ export function CaregiverDashboard(){
   const header=<header className="app-header"><div className="app-wrap header-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="app-nav">
-      <a className="nav-link" href={data?.caregiver?'/dashboard/jobs':jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Find jobs</a>
+      <a className="nav-link" href={data?.caregiver?'/dashboard#matches':jobsHubPath(usState(data?.caregiver?.state||'')||usState('MD')!)}>Find jobs</a>
       <AccountMenu/>
     </nav>
   </div></header>;
@@ -204,15 +206,21 @@ export function CaregiverDashboard(){
       <DashNav sections={sections} page="profile"/>
       <div className="dash-main-col profile-page">
         <div className="page-head"><h1>Your profile</h1><p>Employers see this when CareJoys matches you. The more you fill in, the better your matches.</p></div>
-        <section className="section-block" id="resume" style={{marginTop:0}}>
-          <div className="section-heading"><h2>Your resume</h2><p>CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p></div>
-          <div className="settings-card resume-card">
-            {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
-            <ResumeFileInput label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
-          </div>
-          {notice&&<div className="notice" role="status">{notice}</div>}
-        </section>
         <CaregiverProfileEditor caregiver={c} save={async body=>{await api('/api/me/profile',{method:'POST',body:JSON.stringify(body)});window.location.assign('/dashboard?saved=1')}}/>
+        <section className="section-block profile-files" id="resume">
+          <div className="section-heading"><div><h2>Your files</h2><p>Each one saves on its own; no need to press Save.</p></div></div>
+          <section className="settings-card profile-section">
+            <h3>Your resume</h3>
+            <p className="job-meta">CareJoys attaches it when it applies for you. Only you and the employers you apply to see it.</p>
+            <div className="resume-card">
+              {data.resume?<span><a className="text-link" href="/api/me/resume">{data.resume.fileName}</a>{data.resume.updatedAt?' · added '+when(data.resume.updatedAt):''}</span>:<span>No resume file yet.</span>}
+              <ResumeFileInput label={data.resume?'Replace resume':'Add your resume'} onSaved={()=>{setNotice('Resume saved.');void load()}}/>
+            </div>
+            {notice&&<div className="notice" role="status">{notice}</div>}
+          </section>
+          <ProfilePhotoSection hasPhoto={!!c.profilePhotoUrl}/>
+          <IntroVideoSection/>
+        </section>
         <CloseAccountSide side="caregiver"/>
       </div>
     </main>
@@ -285,6 +293,7 @@ export function CaregiverDashboard(){
               {!applied&&<span className="apply-where">{applyWhere(job)}</span>}
             </div>
           </article>})}</div>}
+        <p className="job-meta browse-all-jobs"><a className="text-link" href="/dashboard/jobs">Browse all jobs near you</a></p>
       </section>
 
       {c.workStatus==='not_looking'||c.workStatus==='maybe_later'
@@ -336,7 +345,6 @@ function DashNav({sections,page='dashboard'}:{sections:{id:string;label:string}[
     <div className="dash-sidenav-label">Dashboard</div>
     {sections.map(s=><a key={s.id} href={(page==='dashboard'?'':'/dashboard')+'#'+s.id} className={active===s.id?'active':undefined} aria-current={active===s.id?'true':undefined} onClick={()=>setActive(s.id)}>{s.label}</a>)}
     <a href="/dashboard/applications" className={page==='applications'?'active':undefined} aria-current={page==='applications'?'page':undefined}>Applications</a>
-    <a href="/dashboard/jobs" className={page==='jobs'?'active':undefined} aria-current={page==='jobs'?'page':undefined}>All jobs</a>
     <a href="/dashboard/profile" className={page==='profile'?'active':undefined} aria-current={page==='profile'?'page':undefined}>Profile</a>
     <a href="/dashboard/settings" className={page==='settings'?'active':undefined} aria-current={page==='settings'?'page':undefined}>Settings</a>
   </nav>;

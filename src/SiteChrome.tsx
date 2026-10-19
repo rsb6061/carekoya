@@ -9,7 +9,7 @@ type Links={jobsHref?:string;showTraining?:boolean};
 export function SiteHeader({jobsHref='/caregiver-jobs',hireButton=true}:Omit<Links,'showTraining'>&{hireButton?:boolean}){
   // A signed-in caregiver's jobs live in their dashboard, next to their matches and applications.
   const auth=useCaregiverAuth();
-  if(auth.isAuthenticated&&auth.roles?.caregiver)jobsHref='/dashboard/jobs';
+  if(auth.isAuthenticated&&auth.roles?.caregiver)jobsHref='/dashboard#matches';
   return <header className="nav"><div className="wrap nav-inner">
     <a className="brand" href="/">CareJoys</a>
     <nav className="navlinks">
