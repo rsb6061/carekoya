@@ -435,14 +435,15 @@ describe('outreach', ()=>{
     expect(sent.every(m=>m.subject.startsWith('[Test] '))).toBe(true);
     expect(await runCount()).toBe(before);
   });
-  it('admin agency walkthrough sends a live teaser for a hidden test agency', async()=>{
+  it('admin agency walkthrough sends the live hiring invite for a hidden test agency', async()=>{
     sent.length=0;
     const post=(body:object)=>call('/api/admin/agency-test',{method:'POST',headers:{cookie:'cj_session='+SESSION,origin:'https://carejoys.com','content-type':'application/json'},body:JSON.stringify(body)},{ADMIN_EMAILS:'pat@acme.test'});
     const res=await post({});
     expect(res.status).toBe(200);
     expect((await res.json() as any).result.candidateCount).toBeGreaterThan(0);
     expect(sent.map(m=>m.to)).toEqual(['pat@acme.test']);
-    expect(sent[0].subject.startsWith('[Test] ')).toBe(true);
+    expect(sent[0].subject).toBe('[Test] CareJoys Test Agency: answer every caregiver applicant in 30 minutes');
+    expect(sent[0].html).toContain('Set up my hiring');
     const token=decodeURIComponent((sent[0].html||'').match(/agency\?token=([^"&\s]+)/)![1]);
     const teaser=await (await call('/api/agency/teaser?token='+encodeURIComponent(token))).json() as any;
     expect(teaser.agency.name).toBe('CareJoys Test Agency');
@@ -450,7 +451,7 @@ describe('outreach', ()=>{
     expect(Array.isArray(teaser.jobs)).toBe(true);
     // Hidden from public search and not counted as real outreach.
     expect((await (await call('/api/agency/search?q=carejoys')).json() as any).agencies).toEqual([]);
-    expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE event_type='candidate_teaser'").first()).toEqual({n:0});
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE event_type IN ('candidate_teaser','hiring_needs_invite')").first()).toEqual({n:0});
     expect((await post({reset:true})).status).toBe(200);
     expect((await call('/api/agency/teaser?token='+encodeURIComponent(token))).status).toBe(404);
   });
@@ -1562,9 +1563,9 @@ describe('agency hiring-needs invites', ()=>{
     const first=await sendAgencyHiringInvites(env(),50,'hello@carejoys.com');
     const mine=sent.filter(m=>m.to==='jobs@brightway.test');
     expect(mine).toHaveLength(1);
-    expect(mine[0].subject).toBe('Your job is live on CareJoys, Brightway Care');
-    expect(mine[0].html).toContain('1 of your jobs is already listed on CareJoys');
-    expect(mine[0].html).toContain('See your jobs and inbox');
+    expect(mine[0].subject).toBe('Brightway Care: answer every caregiver applicant in 30 minutes');
+    expect(mine[0].html).toContain('We already list one of your openings on CareJoys, so caregivers near Towson can apply there too.');
+    expect(mine[0].html).toContain('Set up my hiring');
     expect(mine[0].headers?.['List-Unsubscribe']).toBeTruthy();
     expect(sent.filter(m=>m.to==='hello@carejoys.com')).toHaveLength(1);
     expect(first.sent).toBeGreaterThan(0);
@@ -2075,9 +2076,13 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,zip,is_active) VALUES ('org-claim1','org-claim1','Claim Care','owner@claimcare.test','Towson','MD','21204',1)").run();
     await DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES ('tt-claim1','org-claim1',?,'owner@claimcare.test',?,CURRENT_TIMESTAMP)").bind(await sha256Hex('claim-token-1'),new Date(Date.now()+86400000).toISOString()).run();
     sent.length=0;
-    const res=await post('/api/agency/claim/request',{token:'claim-token-1'},{origin:'https://carejoys.com'});
+    const res=await post('/api/agency/claim/request',{token:'claim-token-1',needs:{roles:['CNA','HHA'],shifts:['Nights','Weekends'],count:'3–5',sources:['Indeed']}},{origin:'https://carejoys.com'});
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=jobs'});
+    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=applicants'});
+    // What they ticked on the page is their hiring profile and Always-on opening.
+    expect(await DB.prepare("SELECT hiring_status,roles,shifts,requirements,roles_source FROM agency_org_hiring_profiles WHERE organization_id='org-claim1'").first())
+      .toEqual({hiring_status:'hiring',roles:'CNA, HHA',shifts:'Nights, Weekends',requirements:'Needs this month: 3–5. Applicants come from: Indeed.',roles_source:'employer_confirmed'});
+    expect(await DB.prepare("SELECT title,role,status FROM openings WHERE agency_organization_id='org-claim1' AND source='agency_profile'").first()).toEqual({title:'CNA / HHA hiring',role:'CNA',status:'open'});
     const cookies=res.headers.get('set-cookie')||'';
     expect(cookies).toContain('__Host-cj_session=');
     expect(cookies).toContain('__Host-cj_account=');

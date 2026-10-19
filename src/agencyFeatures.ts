@@ -276,6 +276,16 @@ export async function getAgencyTeaser(url:URL,env:FeatureEnv){
   },candidateCount:previews.length,candidates:previews,interests,jobCount:jobs.length,jobs:jobs.slice(0,5)});
 }
 
+const list=(v:unknown,max=12)=>Array.isArray(v)?v.map(x=>clean(x,40)).filter(Boolean).slice(0,max):[];
+/** The claim page's hiring-needs ticks as a hiring profile: roles and shifts as stored, the rest in the notes. */
+function claimNeeds(v:unknown):Row|null{
+  const d=(v&&typeof v==='object'?v:{}) as Row;
+  const roles=list(d.roles),shifts=list(d.shifts),sources=list(d.sources),count=clean(d.count,20);
+  if(!roles.length&&!shifts.length&&!sources.length&&!count)return null;
+  const notes=[count?`Needs this month: ${count}.`:'',sources.length?`Applicants come from: ${sources.join(', ')}.`:''].filter(Boolean).join(' ');
+  return {roles,shifts:shifts.join(', '),requirements:notes};
+}
+
 /**
  * The agency clicked the link we emailed to its own address, which proves that inbox, so one click on the page signs
  * it in: no second email. The click is a POST from the page, never the GET, so link scanners can't claim an agency.
@@ -303,12 +313,15 @@ export async function requestAgencyClaim(request:Request,env:FeatureEnv,accountC
   await env.DB.prepare("UPDATE agency_teaser_tokens SET claim_requested_at=CURRENT_TIMESTAMP,employer_id=? WHERE id=?").bind(employerId,row.token_id).run();
   // Starting the session finishes the claim (see startEmployerSession).
   const session=await startEmployerSession(env,employerId);
+  // The claim page asks what they're hiring for; whatever they ticked becomes their hiring profile and Always-on opening.
+  const needs=claimNeeds(data?.needs);
+  if(needs)await saveHiringProfile(env,employerId,clean(row.organization_id,100),'hiring',needs);
   const waiting=await env.DB.prepare("SELECT 1 AS hit FROM agency_interests WHERE organization_id=? LIMIT 1").bind(row.organization_id).first();
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store','Set-Cookie':employerSessionCookie(session)});
   const account=accountCookie?await accountCookie(employerId):null;
   if(account)headers.append('Set-Cookie',account);
-  // Caregivers already waiting open Candidates; otherwise the jobs and widget, which work before any caregiver matches.
-  return new Response(JSON.stringify({ok:true,redirect:waiting?'/app?tab=candidates':'/app?tab=jobs'}),{status:200,headers});
+  // Caregivers already waiting open Candidates; otherwise Applicants, where forwarding their own applicants works on day one.
+  return new Response(JSON.stringify({ok:true,redirect:waiting?'/app?tab=candidates':'/app?tab=applicants'}),{status:200,headers});
 }
 
 export async function getAgencyNetwork(request:Request,env:FeatureEnv){
@@ -337,6 +350,46 @@ export async function getAgencyNetwork(request:Request,env:FeatureEnv){
   },hiringProfile:hp||null,matches});
 }
 
+/** Writes confirmed hiring needs to the agency's profile and its Always-on opening (created if missing); returns the opening id. */
+async function saveHiringProfile(env:FeatureEnv,employerId:string,orgId:string,status:string,data:Row|null){
+  const db=env.DB!;
+  const roles=Array.isArray(data?.roles)?(data!.roles as unknown[]).map(x=>clean(x,40)).filter(Boolean).slice(0,12).join(', '):clean(data?.roles,400);
+  await db.prepare(`INSERT INTO agency_org_hiring_profiles
+    (organization_id,hiring_status,roles,shifts,pay_min,pay_max,service_radius_miles,service_areas,transportation_required,requirements,roles_source,geography_source,hiring_status_source,employer_confirmed_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?, 'employer_confirmed','employer_confirmed','employer_confirmed',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    ON CONFLICT(organization_id) DO UPDATE SET
+      hiring_status=excluded.hiring_status,roles=excluded.roles,shifts=excluded.shifts,pay_min=excluded.pay_min,pay_max=excluded.pay_max,
+      service_radius_miles=excluded.service_radius_miles,service_areas=excluded.service_areas,transportation_required=excluded.transportation_required,
+      requirements=excluded.requirements,roles_source='employer_confirmed',geography_source='employer_confirmed',
+      hiring_status_source='employer_confirmed',employer_confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`)
+    .bind(orgId,status,roles,clean(data?.shifts,400),asNum(data?.payMin)||null,asNum(data?.payMax)||null,asNum(data?.serviceRadiusMiles)||null,
+      clean(data?.serviceAreas,500),data?.transportationRequired===true?1:0,clean(data?.requirements,1500)).run();
+  await db.prepare("UPDATE agency_organizations SET current_hiring_signal=?,hiring_signal_source='employer_confirmed',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(status,orgId).run();
+  await scoreAgencyMatches(env);
+
+  const orgRow=await db.prepare("SELECT canonical_name,city,state,zip FROM agency_organizations WHERE id=?").bind(orgId).first<Row>();
+  let opening=await db.prepare("SELECT id FROM openings WHERE employer_id=? AND agency_organization_id=? AND source='agency_profile' ORDER BY created_at DESC LIMIT 1").bind(employerId,orgId).first<{id:string}>();
+  const roleList=roles.split(',').map(x=>x.trim()).filter(Boolean);
+  const openingRole=roleList[0]||'Caregiver';
+  const openingTitle=(roleList.length?roleList.join(' / '):'Caregiver')+' hiring';
+  if(!opening){
+    const openingId=crypto.randomUUID();
+    await db.prepare(`INSERT INTO openings
+      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source,agency_organization_id,service_radius_miles)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'agency_profile',?,?)`)
+      .bind(openingId,employerId,openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',orgId,Math.min(50,asNum(data?.serviceRadiusMiles))||null).run();
+    opening={id:openingId};
+  }else{
+    await db.prepare(`UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,transportation_required=?,requirements=?,
+      status=?,service_radius_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
+        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',Math.min(50,asNum(data?.serviceRadiusMiles))||null,opening.id).run();
+  }
+
+  return opening.id;
+}
+
 /** Saves an agency's always-on hiring needs into its Always-on opening, then `rematch` scores that opening like any other. */
 export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv,rematch?:(employerId:string,openingId:string)=>Promise<unknown>){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
@@ -347,43 +400,11 @@ export async function updateAgencyHiringProfile(request:Request,env:FeatureEnv,r
   const data=await request.json().catch(()=>null) as Row|null;
   const status=clean(data?.hiringStatus,40);
   if(!['hiring','always_hiring','not_hiring','unknown'].includes(status))return json({ok:false,error:'Choose a valid hiring status.'},{status:400});
-  const roles=Array.isArray(data?.roles)?(data!.roles as unknown[]).map(x=>clean(x,40)).filter(Boolean).slice(0,12).join(', '):clean(data?.roles,400);
-  await env.DB.prepare(`INSERT INTO agency_org_hiring_profiles
-    (organization_id,hiring_status,roles,shifts,pay_min,pay_max,service_radius_miles,service_areas,transportation_required,requirements,roles_source,geography_source,hiring_status_source,employer_confirmed_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?, 'employer_confirmed','employer_confirmed','employer_confirmed',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-    ON CONFLICT(organization_id) DO UPDATE SET
-      hiring_status=excluded.hiring_status,roles=excluded.roles,shifts=excluded.shifts,pay_min=excluded.pay_min,pay_max=excluded.pay_max,
-      service_radius_miles=excluded.service_radius_miles,service_areas=excluded.service_areas,transportation_required=excluded.transportation_required,
-      requirements=excluded.requirements,roles_source='employer_confirmed',geography_source='employer_confirmed',
-      hiring_status_source='employer_confirmed',employer_confirmed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`)
-    .bind(org.id,status,roles,clean(data?.shifts,400),asNum(data?.payMin)||null,asNum(data?.payMax)||null,asNum(data?.serviceRadiusMiles)||null,
-      clean(data?.serviceAreas,500),data?.transportationRequired===true?1:0,clean(data?.requirements,1500)).run();
-  await env.DB.prepare("UPDATE agency_organizations SET current_hiring_signal=?,hiring_signal_source='employer_confirmed',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(status,org.id).run();
-  await scoreAgencyMatches(env);
-
-  const orgRow=await env.DB.prepare("SELECT canonical_name,city,state,zip FROM agency_organizations WHERE id=?").bind(org.id).first<Row>();
-  let opening=await env.DB.prepare("SELECT id FROM openings WHERE employer_id=? AND agency_organization_id=? AND source='agency_profile' ORDER BY created_at DESC LIMIT 1").bind(employer.id,org.id).first<{id:string}>();
-  const roleList=roles.split(',').map(x=>x.trim()).filter(Boolean);
-  const openingRole=roleList[0]||'Caregiver';
-  const openingTitle=(roleList.length?roleList.join(' / '):'Caregiver')+' hiring';
-  if(!opening){
-    const openingId=crypto.randomUUID();
-    await env.DB.prepare(`INSERT INTO openings
-      (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,transportation_required,requirements,status,source,agency_organization_id,service_radius_miles)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'agency_profile',?,?)`)
-      .bind(openingId,employer.id,openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
-        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',org.id,Math.min(50,asNum(data?.serviceRadiusMiles))||null).run();
-    opening={id:openingId};
-  }else{
-    await env.DB.prepare(`UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,transportation_required=?,requirements=?,
-      status=?,service_radius_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
-      .bind(openingTitle,openingRole,orgRow?.city||'',orgRow?.state||'',orgRow?.zip||'',asNum(data?.payMin)||null,asNum(data?.payMax)||null,
-        clean(data?.shifts,400),data?.transportationRequired===true?1:0,clean(data?.requirements,1500),status==='not_hiring'?'paused':'open',Math.min(50,asNum(data?.serviceRadiusMiles))||null,opening.id).run();
-  }
-
+  const employerId=clean(employer.id,100),orgId=clean(org.id,100);
+  const openingId=await saveHiringProfile(env,employerId,orgId,status,data);
   // The opening goes through the same matcher as every other opening: commute distance, role and schedule.
-  if(status!=='not_hiring'&&rematch)await rematch(clean(employer.id,100),opening.id);
-  return json({ok:true,openingId:opening.id});
+  if(status!=='not_hiring'&&rematch)await rematch(employerId,openingId);
+  return json({ok:true,openingId});
 }
 
 /** Home care agencies due a teaser: unclaimed, emailable, not suppressed, not teased in 30 days, with real matches. */
@@ -547,6 +568,18 @@ async function sendClaimInvites(env:FeatureEnv,sql:string,limit:number,build:(or
   return {attempted:(orgs.results||[]).length,sent,failed};
 }
 
+/** One hiring invite to the test agency, marked [Test]: a live 14-day claim link, outside caps and stats. Throws if it doesn't send. */
+async function deliverTestHiringInvite(env:FeatureEnv,org:Row){
+  const token=crypto.randomUUID()+'-'+crypto.randomUUID();
+  const email=clean(org.primary_email,320).toLowerCase();
+  const body=hiringInviteFor(org,'https://carejoys.com/agency?token='+encodeURIComponent(token));
+  const result=await env.EMAIL!.send({from:'CareJoys <hello@carejoys.com>',to:email,subject:'[Test] '+body.subject,html:body.html,text:body.text});
+  await env.DB!.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)")
+    .bind(crypto.randomUUID(),org.id,await sha256Hex(token),email,new Date(Date.now()+14*86400000).toISOString()).run();
+  await env.DB!.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,'hiring_needs_invite_test',?,?,?)")
+    .bind(crypto.randomUUID(),org.id,email,result.messageId||null,JSON.stringify({jobCount:asNum(org.job_count)})).run();
+}
+
 /** Sends the hiring-needs invite to up to `limit` agencies, each with a 14-day claim link that lands on hiring preferences. */
 export function sendAgencyHiringInvites(env:FeatureEnv,limit:number,copyTo=''){
   return sendClaimInvites(env,HIRING_INVITE_ELIGIBLE_SQL,limit,hiringInviteFor,'hiring_needs_invite','agency_hiring_invite',copyTo);
@@ -641,9 +674,10 @@ export async function startTestAgency(env:FeatureEnv,email:string,sourceId=''){
           AND (upper(coalesce(c.state,''))='MD' OR CAST(substr(coalesce(c.zip,''),1,3) AS INTEGER) BETWEEN 206 AND 219)
         ORDER BY g DESC,f DESC LIMIT 75) c`).bind(TEST_AGENCY_ID,TEST_AGENCY_ID).run();
   }
-  const org=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
+  const org=await env.DB.prepare(`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.city,COUNT(m.id) AS candidate_count,MAX(m.fit_score) AS top_score
     FROM agency_organizations o LEFT JOIN agency_org_candidate_matches m ON m.organization_id=o.id WHERE o.id=? GROUP BY o.id`).bind(TEST_AGENCY_ID).first<Row>();
-  await deliverTeaser(env,org!,true);
   const jobs=await env.DB.prepare('SELECT COUNT(*) AS n FROM caregiver_jobs WHERE agency_organization_id=?').bind(TEST_AGENCY_ID).first<Row>();
+  // The same invite real agencies get, so the walkthrough is what they see.
+  await deliverTestHiringInvite(env,{...org!,job_count:asNum(jobs?.n)});
   return {email,agencyName:clean(org?.canonical_name,200),candidateCount:asNum(org?.candidate_count),jobCount:asNum(jobs?.n)};
 }
