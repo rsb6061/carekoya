@@ -531,7 +531,6 @@ export function EmployerWorkspace(){
 
     <main className="app-wrap app-content dash-layout">
      <nav className="dash-sidenav" aria-label="Workspace">
-      <button className="button dash-sidenav-new" onClick={()=>openOpeningForm(null)}>+ New job listing</button>
       <div className="dash-sidenav-label">Hiring</div>
       {/* A claimed agency's own applicants come first: that list works on day one, before any CareJoys caregiver matches. */}
       {(agencyNetwork.agency||hasApplicants||tab==='applicants')&&<button className={'dash-sidenav-item '+(tab==='applicants'?'active':'')} onClick={()=>openTab('applicants')}>Applicants</button>}
@@ -545,6 +544,7 @@ export function EmployerWorkspace(){
      <div className="dash-main-col">
       <section className="page-head page-head-row">
         <div><h1>{workspace?.company_name||session.companyName||'Recruiting workspace'}</h1></div>
+        <div className="header-action"><button className="button" onClick={()=>openOpeningForm(null)}>+ New job listing</button></div>
       </section>
 
       {pendingApproval&&<div className="alert-status workspace-alert" role="status"><strong>Caregiver matching is awaiting account approval.</strong> You can create job listings and add interview availability now. Caregiver profiles and outreach unlock after approval. Use a verified agency email or claim your agency to verify automatically, or wait for manual review. <button className="text-button" onClick={()=>void refreshWorkspace()} disabled={loading}>Recheck approval</button></div>}
@@ -579,9 +579,12 @@ export function EmployerWorkspace(){
           ?<><p className="plan-line"><strong>Applicant follow-up</strong> · CareJoys works your applicants, with unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
           :billing.subscribed
           ?<><p className="plan-line"><strong>CareJoys Hiring</strong> · unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
-          :billing.enabled&&<><p className="plan-line"><strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left. CareJoys Hiring is {HIRING_PRICE}/month per location.</p>
-            <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · {HIRING_PRICE}/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or {HIRING_YEARLY_PRICE}/year</button>}</div></>}
-        {billing.operated?.available&&billing.plan!=='operated'&&<div className="settings-card">
+          :billing.enabled&&<div className="settings-card plan-card-option">
+            <h3>CareJoys Hiring · {HIRING_PRICE}/month per location</h3>
+            <p className="job-meta">Unlimited caregiver introductions. You have <strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left.</p>
+            <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · {HIRING_PRICE}/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or {HIRING_YEARLY_PRICE}/year</button>}</div>
+          </div>}
+        {billing.operated?.available&&billing.plan!=='operated'&&<div className="settings-card plan-card-option">
           <h3>Applicant follow-up · {OPERATED_PRICE}/month per location</h3>
           <p className="job-meta">CareJoys works the applicants you already get from Indeed and your other job posts: each one reached fast, screened with your questions, and booked onto your calendar, with a report every Monday. Up to {OPERATED_APPLICANT_LIMIT} applicants a month per location. Includes unlimited caregiver introductions.</p>
           <div className="plan-actions">{billing.subscribed
