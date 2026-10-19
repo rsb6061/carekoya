@@ -16,10 +16,12 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
  * Set up once: what caregivers read about the agency, which emails arrive, where
  * candidates are forwarded, and the export.
  */
-export function WorkspaceSettings({agency,applicants,focus='',homeAlertQuery,onOpenTemplates}:{agency:boolean;
+export function WorkspaceSettings({agency,applicants,widget,focus='',homeAlertQuery,onOpenTemplates}:{agency:boolean;
   /** The applicant forwarding, upload and screening cards, for an agency with its own job posts. */
   applicants?:ReactNode;
-  /** `applicants` scrolls to those cards once the page has loaded. */
+  /** The copy-paste jobs widget, for a claimed agency. */
+  widget?:ReactNode;
+  /** `applicants` or `widget` scrolls to those cards once the page has loaded. */
   focus?:string;homeAlertQuery:string;onOpenTemplates:()=>void}){
   const profilePath=useCaregiverAuth().employerProfilePath;
   const [settings,setSettings]=useState<Settings|null>(null);
@@ -50,8 +52,9 @@ export function WorkspaceSettings({agency,applicants,focus='',homeAlertQuery,onO
   }
   const otherAlerts=(alerts||[]).filter(a=>a.id!==homeAlert?.id);
   useEffect(()=>{
-    if(!settings||focus!=='applicants')return;
-    const t=setTimeout(()=>document.getElementById('applicant-forwarding')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+    const id={applicants:'applicant-forwarding',widget:'jobs-widget'}[focus];
+    if(!settings||!id)return;
+    const t=setTimeout(()=>document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'}),50);
     return()=>clearTimeout(t);
   },[settings,focus]);
 
@@ -93,6 +96,10 @@ export function WorkspaceSettings({agency,applicants,focus='',homeAlertQuery,onO
     </div>
 
     {applicants}
+
+    {widget&&<div className="settings-group-heading" id="jobs-widget"><h3>Your website</h3>
+      <p className="job-meta">Show your CareJoys job listings on your own careers page. Caregivers who apply through it land in Candidates.</p></div>}
+    {widget}
 
     <div className="settings-card">
       <h3>Email</h3>
