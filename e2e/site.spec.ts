@@ -207,12 +207,13 @@ test('agency opens its emailed link and one click opens its dashboard', async({p
   const w=await watch(page);
   await page.goto('/agency?token='+LINKS.agencyTeaser);
   // An earlier test may have applied to this agency: then the page leads with that caregiver and opens Candidates.
-  await expect(page.locator('h1')).toHaveText(/live on CareJoys|to work with you/);
+  await expect(page.locator('h1')).toHaveText(/Hire caregivers faster|to work with you/);
   const waiting=/to work with you/.test(await page.locator('h1').innerText());
-  await page.getByRole('button',{name:waiting?'Open my inbox':'Open my dashboard'}).click();
-  await expect(page).toHaveURL(waiting?/\/app\?tab=candidates/:/\/app\?tab=jobs/);
+  if(!waiting){await page.getByRole('button',{name:'CNA',exact:true}).click();await page.getByRole('button',{name:'Nights'}).click();}
+  await page.getByRole('button',{name:waiting?'Open my inbox':'Start hiring faster'}).click();
+  await expect(page).toHaveURL(waiting?/\/app\?tab=candidates/:/\/app\?tab=applicants/);
   if(waiting)await expect(page.locator('.match-tile').first()).toBeVisible();
-  else await expect(page.getByRole('heading',{name:'Show these jobs on your website'})).toBeVisible();
+  else await expect(page.getByRole('heading',{name:'Let’s get your applicants answered'})).toBeVisible();
   clean(w);
 });
 
