@@ -704,3 +704,15 @@ body .check-row{font-size:15px!important}
 .dash-main-col .page-head h1{font-size:28px;letter-spacing:-.025em;margin-bottom:4px}
 .dash-main-col .section-heading h2{font-size:24px;letter-spacing:-.02em}
 .dash-main-col .page-head{margin-bottom:18px}
+
+/* Admin: same left-nav layout as the agency workspace; the page title is a label, the subtitle carries the explanation */
+.admin-nav-group{display:flex;flex-direction:column;gap:2px}
+.admin-nav-group+.admin-nav-group{margin-top:18px}
+.admin-nav-group .dash-sidenav-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.admin-page-heading h1{font:600 28px/1.15 var(--display);letter-spacing:-.025em;margin:0 0 6px}
+.admin-page-heading p{font-size:16px}
+.admin-date-row{margin:18px 0 10px;font-size:14px}
+.admin-main.dash-layout{padding-top:30px}
+@media(max-width:760px){.admin-nav-group{flex-direction:row;gap:6px}.admin-nav-group+.admin-nav-group{margin:0 0 0 6px}}
+.admin-main .section-heading{display:block}
+.admin-main .section-heading p{margin:6px 0 0;color:var(--muted);line-height:1.55;max-width:760px}
