@@ -91,24 +91,18 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
     fetch('/api/public/caregiver-jobs/'+encodeURIComponent(id)+'/context').then(r=>r.ok?r.json():null).then((body:any)=>{if(body?.ok)setContext(body)}).catch(()=>{});
   },[id]);
 
-  // Apply from a job card on a job CareJoys can't apply for: go straight to the employer's application.
-  useEffect(()=>{if(startApply&&job&&!job.employerOnCareJoys&&!job.applyForMe)void applyOnEmployerSite()},[job?.id]);
-
-  // Quick apply: straight to the employer's own application, recorded so CareJoys can count it.
-  async function applyOnEmployerSite(){
+  // The employer's own application opens in a new tab (a real link, so no popup blocker), and the click is
+  // recorded so CareJoys can count it. CareJoys stays open behind it with the job still showing.
+  function applyOnEmployerSite(){
     if(!job)return;
     setLeaving(true);
-    try{
-      const res=await fetch('/api/public/caregiver-jobs/'+encodeURIComponent(job.id)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-      const body=await res.json() as {applicationUrl?:string};
-      window.location.href=body.applicationUrl||job.sourceUrl;
-    }catch{window.location.href=job.sourceUrl}
+    void fetch('/api/public/caregiver-jobs/'+encodeURIComponent(job.id)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
   }
 
-  // CareJoys can't apply for this job (employer not on CareJoys, job site Apply for me doesn't support), so Apply
-  // goes straight to the employer's own application instead of a popup.
+  // CareJoys can't apply for this job (employer not on CareJoys, job site Apply for me doesn't support), so the
+  // Apply button is the link to the employer's own application.
   const externalOnly=!!job&&!job.employerOnCareJoys&&!job.applyForMe;
-  function startApplying(){if(externalOnly)void applyOnEmployerSite();else setApplyOpen(true)}
+  function startApplying(){setApplyOpen(true)}
 
   if(loading)return <main className="job-detail-shell"><div className="wrap"><div className="empty">Loading job…</div></div></main>;
   if(!job)return <main className="job-detail-shell"><div className="wrap">{!embedded&&<a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a>}<div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
@@ -136,10 +130,12 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
             {payText&&<span className="pill">{payText}</span>}
           </div>
           <div className="job-detail-actions">
-            <button className="btn job-apply-primary" onClick={startApplying} disabled={leaving}>{applicationSent?'Applied ✓':leaving&&externalOnly?'Opening…':'Apply'}</button>
-            {!externalOnly&&<button className="text-button job-apply-direct" onClick={applyOnEmployerSite} disabled={leaving}>{leaving?'Opening…':'Or apply on '+job.employerName+'’s site'}</button>}
+            {externalOnly
+              ?<a className="btn job-apply-primary" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Apply on {job.employerName}’s site ↗</a>
+              :<button className="btn job-apply-primary" onClick={startApplying}>{applicationSent?'Applied ✓':'Apply'}</button>}
+            {!externalOnly&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
           </div>
-          {!applicationSent&&<p className="apply-where">{externalOnly?'Applies on '+job.employerName+'’s site':'Applies through CareJoys'}</p>}
+          {!applicationSent&&<p className="apply-where">{externalOnly?(leaving?'Opened in a new tab. Finish your application there; this page stays here.':'Opens the employer’s application in a new tab'):'Applies through CareJoys'}</p>}
           <div className="job-detail-source">CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</div>
         </section>
 

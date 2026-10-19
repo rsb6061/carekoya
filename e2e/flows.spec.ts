@@ -122,15 +122,18 @@ test('@phone Apply starts with sign-in, and the profile form flags what is missi
   clean(w);
 });
 
-test('Apply on a job CareJoys can’t apply for goes straight to the employer’s site', async({page})=>{
+test('Apply on a job CareJoys can’t apply for opens the employer’s site in a new tab', async({page,context})=>{
   await signIn(page,CAREGIVER);
   // The employer's site isn't real in tests; stop at the navigation.
-  await page.route('https://harborhomecare.test/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<h1>Harbor Home Care application</h1>'}));
+  await context.route('https://harborhomecare.test/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<h1>Harbor Home Care application</h1>'}));
   await page.goto('/jobs/'+JOBS.external);
-  await expect(page.getByRole('button',{name:/Or apply on/})).toHaveCount(0);
-  await page.getByRole('button',{name:'Apply',exact:true}).click();
-  await page.waitForURL('https://harborhomecare.test/**');
-  await expect(page.getByText('Harbor Home Care application')).toBeVisible();
+  await expect(page.getByRole('link',{name:/Or apply on/})).toHaveCount(0);
+  const [tab]=await Promise.all([context.waitForEvent('page'),page.getByRole('link',{name:/^Apply on /}).click()]);
+  await tab.waitForURL('https://harborhomecare.test/**');
+  await expect(tab.getByText('Harbor Home Care application')).toBeVisible();
+  // CareJoys stays open behind it, on the same job.
+  await expect(page).toHaveURL(new RegExp('/jobs/'+JOBS.external));
+  await expect(page.getByText('Opened in a new tab')).toBeVisible();
 });
 
 test('Apply for me takes a resume and answers the click', async({page})=>{
