@@ -46,7 +46,7 @@ const applicationEventLabel=(event:string)=>({
   apply_started:'Application started',apply_completed:'Application submitted'
 } as Record<string,string>)[event]||event.replace(/_/g,' ');
 const approvalLabel=(status:string)=>({
-  manual:'Approved manually',agency:'Verified agency',agency_domain:'Agency email domain (automatic)'
+  manual:'Approved manually',agency:'Claimed by agency (via its own inbox)',agency_domain:'Agency email domain (automatic)'
 } as Record<string,string>)[status]||status;
 const pct=(a:number,b:number)=>b>0?Math.round(a/b*100)+'%':'—';
 const day=(iso?:string)=>iso?new Date(iso.replace(' ','T')+(iso.endsWith('Z')?'':'Z')).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
