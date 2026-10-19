@@ -357,9 +357,9 @@ describe('job location by agency state', ()=>{
   });
   it('keeps service and marketing pages from agency websites off the jobs list', ()=>{
     for(const t of ['Companion Care','Companion Care Services for Adults and Seniors','Caregiver of the Year Award','Finding the Perfect Caregiver',
-      'Caregiver Careers at Village Caregiving','Become a Caregiver','Caregiver Resources','Home Health Aide Services','What Does a CNA Do?'])
+      'Caregiver Careers at Village Caregiving','Become a Caregiver','Caregiver Resources','Home Health Aide Services','What Does a CNA Do?','Caregiver of the Month','Honoring Our CNAs'])
       expect(looksLikeMarketingPage(t),t).toBe(true);
-    for(const t of ['Home Health Aide (HHA)','Certified Nursing Assistant','Direct Support Professional (DSP)','Live-In Caregiver','CNA - Private Duty - Baltimore (Hourly)','Caregiver Needed!'])
+    for(const t of ['Home Health Aide (HHA)','Certified Nursing Assistant','Direct Support Professional (DSP)','Live-In Caregiver','CNA - Private Duty - Baltimore (Hourly)','Caregiver Needed!','HHA Positions Available'])
       expect(looksLikeMarketingPage(t),t).toBe(false);
     expect(notAJobPosting('Companion Care','https://a.test/companion-care','generic_html')).toBe(true);
     expect(notAJobPosting('Companion Care','https://boards.greenhouse.io/a/jobs/1','greenhouse')).toBe(false);
