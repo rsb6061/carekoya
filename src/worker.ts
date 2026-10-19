@@ -12,7 +12,7 @@ import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
-import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
+import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -87,6 +87,8 @@ interface Env {
   AGENCY_HIRING_INVITES_ENABLED?: string;
   FACILITY_PILOT_ENABLED?: string;
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
+  /** 'openers' or 'all': re-send the new invite to agencies that got the old copy (Rebecca's call, 2026-10-19). Blank is off. */
+  AGENCY_HIRING_REINVITE?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
   STRIPE_PRICE_ID_YEARLY?: string;
@@ -2425,7 +2427,11 @@ export default {
             const sent=await sendFacilityPilotInvites(env,hour.getUTCHours()>=FACILITY_PILOT_UTC_HOUR?FACILITY_PILOT_DAILY_BATCH-pilot.today:0,pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
             pilotToday=pilot.today+(sent?.sent||0);
           }
-          await sendAgencyHiringInvites(env,Math.min(Math.max(1,Math.ceil(cap/24)),cap-counts.today-pilotToday),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          // Re-sends of the new copy to agencies that got the old one come first, out of the same daily cap, while AGENCY_HIRING_REINVITE is set.
+          const slice=Math.max(1,Math.ceil(cap/24));
+          const resent=await hiringReinviteCounts(env);
+          const again=await sendAgencyHiringReinvites(env,Math.min(slice,cap-counts.today-resent.today-pilotToday),env.AGENCY_HIRING_REINVITE||'').catch(()=>null);
+          await sendAgencyHiringInvites(env,Math.min(slice,cap-counts.today-resent.today-(again?.sent||0)-pilotToday),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
         }
         return;
       }
