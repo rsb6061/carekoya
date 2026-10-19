@@ -716,3 +716,11 @@ body .check-row{font-size:15px!important}
 @media(max-width:760px){.admin-nav-group{flex-direction:row;gap:6px}.admin-nav-group+.admin-nav-group{margin:0 0 0 6px}}
 .admin-main .section-heading{display:block}
 .admin-main .section-heading p{margin:6px 0 0;color:var(--muted);line-height:1.55;max-width:760px}
+
+/* Jobs tab first-run checklist */
+.workspace-setup{margin-bottom:22px}
+.workspace-setup .section-heading{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px}
+.workspace-setup h3{margin:0 0 4px;font-size:20px}
+.workspace-setup .setup-step p{margin:4px 0 10px}
+.workspace-setup .setup-step.done p,.workspace-setup .setup-step.done strong{color:var(--muted)}
+.workspace-setup .setup-step.done .setup-step-mark{background:#e3f3e8;color:#2c694c}

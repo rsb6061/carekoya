@@ -34,6 +34,22 @@ type StageFilter=''|'reply'|'contacted'|'interview'|'hired';
 const STAGE_FILTERS:[Exclude<StageFilter,''>,string,(r:MatchRow)=>boolean][]=[
   ['reply','Needs your reply',needsReply],['contacted','Invited · waiting',r=>r.stage==='contacted'],
   ['interview','Interview',r=>r.stage==='interview'],['hired','Hired',r=>r.stage==='hired']];
+const SETUP_DISMISSED_KEY='cj-workspace-setup-dismissed';
+type SetupStep={title:string;done:boolean;action:string;onAction:()=>void;disabled?:boolean;detail:string};
+/** The first-run checklist on Jobs. Done steps are ticked; the next undone one carries its button. */
+function SetupChecklist({steps,onDismiss}:{steps:SetupStep[];onDismiss:()=>void}){
+  const done=steps.filter(st=>st.done).length;
+  return <div className="settings-card setup-card workspace-setup">
+    <div className="section-heading"><div><h3>Get set up</h3><p className="job-meta">{done} of {steps.length} done. About five minutes in all.</p></div><button type="button" className="text-button" onClick={onDismiss}>Hide</button></div>
+    <ol className="setup-steps">
+      {steps.map((st,i)=><li className={'setup-step'+(st.done?' done':'')} key={st.title}>
+        <span className="setup-step-mark" aria-hidden="true">{st.done?'✓':i+1}</span>
+        <div><strong>{st.title}{st.done?<small> · done</small>:null}</strong><p className="job-meta">{st.detail}</p>
+          {!st.done&&<button type="button" className="button secondary" onClick={st.onAction} disabled={st.disabled}>{st.action}</button>}</div>
+      </li>)}
+    </ol>
+  </div>;
+}
 /** This week's invitations against the workspace's cap, when the server sends one. */
 type InviteAllowance={used:number;limit:number};
 // Home care roles first for agencies, assisted living roles first for communities.
@@ -114,6 +130,7 @@ export function EmployerWorkspace(){
   const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'jobs'|'plan'|'settings'|'applicants'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'?'settings':t==='applicants'?'applicants':'openings'});
   // The agency's own applicants (operated service). The tab shows once CareJoys or the agency has uploaded some.
   const [hasApplicants,setHasApplicants]=useState(false);
+  const [setupDismissed,setSetupDismissed]=useState(()=>{try{return localStorage.getItem(SETUP_DISMISSED_KEY)==='1'}catch{return false}});
   const [applications,setApplications]=useState<InboxItem[]>([]);
   const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
   const [loading,setLoading]=useState(false);
@@ -486,6 +503,15 @@ export function EmployerWorkspace(){
     [openingPipeline,candidateView,chipTest]
   );
   const openOpenings=openings.filter(o=>o.status!=='closed');
+  // First-run checklist on Jobs: the three things a new agency does before CareJoys can work for it. It goes away when all are done or dismissed.
+  const hasSlots=openOpenings.some(o=>(o.available_interview_slots||0)>0);
+  const setupSteps:SetupStep[]=[
+    {title:'Add a job listing',done:openOpenings.length>0,action:'Add a job',onAction:()=>openOpeningForm(null),detail:'Role, ZIP, pay and shifts. Suggested caregivers and invitations start from a listing.'},
+    {title:'Add interview times',done:hasSlots,action:'Add times',onAction:()=>{if(openOpenings[0])void openInterviewSlots(openOpenings[0])},disabled:openOpenings.length===0,detail:'A few 30-minute slots a week. A caregiver who says yes books one straight away.'},
+    ...(agencyNetwork.agency?[{title:'Forward your applicants',done:hasApplicants,action:'Set up forwarding',onAction:()=>openTab('applicants'),detail:'Point Indeed and your website applicants at your CareJoys address so each one is texted and screened.'}]:[]),
+  ];
+  const showSetup=!setupDismissed&&setupSteps.some(st=>!st.done);
+  function dismissSetup(){setSetupDismissed(true);try{localStorage.setItem(SETUP_DISMISSED_KEY,'1')}catch{/* private mode */}}
   const closedOpenings=openings.filter(o=>o.status==='closed');
   const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
   async function checkLicense(row:MatchRow,result:LicenseCheck['result']|''){
@@ -563,7 +589,8 @@ export function EmployerWorkspace(){
       {shownTab==='openings'&&<section className="section-block">
         <div className="section-heading"><h2>Job Listings</h2></div>
         {results.invited+results.applied>0&&<p className="results-line" role="status"><strong>Your results on CareJoys:</strong> {[results.applied?results.applied+' applied':'',results.invited?results.invited+' invited · '+results.yes+' said yes':'',results.hired+' hired'].filter(Boolean).join(' · ')}</p>}
-        {openings.length===0?<div className="empty"><strong>No job listings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create job listing</button></div></div>:
+        {showSetup&&<SetupChecklist steps={setupSteps} onDismiss={dismissSetup}/>}
+        {openings.length===0?(!showSetup&&<div className="empty"><strong>No job listings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create job listing</button></div></div>):
         <>{openOpenings.length===0&&<div className="empty"><strong>No open roles.</strong><div>Reopen one below or add a new job listing.</div></div>}
         <div className="job-list">{openOpenings.map((o,i)=><OpeningCard key={o.id} opening={o} tone={cardTone(i)} rows={everyone.filter(p=>p.opening_id===o.id)} suggested={suggestedFor(o.id).length} pendingApproval={pendingApproval}
           onFind={()=>void runMatch(o.id)} onCandidates={()=>openCandidates(o.id)} onSlots={()=>void openInterviewSlots(o)} onEdit={()=>openOpeningForm(o)} onClose={()=>void setOpeningStatus(o,'closed')}/>)}</div>
