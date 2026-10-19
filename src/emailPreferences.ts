@@ -28,7 +28,7 @@ export async function unsubscribeLink(db:DB,email:string,source:string){
 }
 
 const page=(title:string,body:string)=>new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${title} | CareJoys</title>
-<style>body{margin:0;background:#f7f0e6;font-family:Arial,Helvetica,sans-serif;color:#1b153c}main{max-width:480px;margin:12vh auto;padding:32px 24px;background:#fffdf9;border:1px solid #d8d2ff;border-radius:24px}h1{font-family:Georgia,serif;font-weight:400}p{color:#5f5972;line-height:1.6}button{background:#4255ff;color:#fff;border:0;border-radius:999px;padding:14px 22px;font-weight:700;font-size:16px;cursor:pointer}</style></head>
+<style>body{margin:0;background:#ffffff;font-family:Arial,Helvetica,sans-serif;color:#191e49}main{max-width:480px;margin:12vh auto;padding:32px 24px;background:#f7f6fb;border:1px solid #e8e6f0;border-radius:24px}h1{font-weight:600}p{color:#5b5f7e;line-height:1.6}button{background:#b8368f;color:#fff;border:0;border-radius:999px;padding:14px 22px;font-weight:700;font-size:16px;cursor:pointer}</style></head>
 <body><main><div style="font-weight:700;margin-bottom:20px">CareJoys</div><h1>${title}</h1>${body}</main></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 
 /** GET shows a confirm button (so link scanners don't unsubscribe people); POST unsubscribes, including mail-client one-click. */

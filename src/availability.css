@@ -1,8 +1,8 @@
 /* The weekly availability grid (src/AvailabilityGrid.tsx): signup and the caregiver profile. */
 .availability-grid{display:grid;grid-template-columns:minmax(110px,1.4fr) repeat(7,minmax(34px,1fr));gap:6px;margin-top:14px;align-items:stretch}
-.availability-day{text-align:center;font-size:13px;font-weight:600;color:#514b65;align-self:end}
+.availability-day{text-align:center;font-size:13px;font-weight:600;color:#5b5f7e;align-self:end}
 .availability-block{text-align:left;border:0;background:transparent;font:inherit;cursor:pointer;padding:4px 0;display:flex;flex-direction:column}
-.availability-block small{color:#7a7490;font-size:12px}
-.availability-cell{border:1px solid #ddd6f3;border-radius:10px;background:#fff;min-height:40px;cursor:pointer;font:inherit;color:#fff;font-weight:700}
+.availability-block small{color:#8a8ca3;font-size:12px}
+.availability-cell{border:1px solid #e8e6f0;border-radius:10px;background:#fff;min-height:40px;cursor:pointer;font:inherit;color:#fff;font-weight:700}
 .availability-cell.on{background:var(--blue);border-color:var(--blue)}
 @media (max-width:640px){.availability-grid{grid-template-columns:72px repeat(7,1fr);gap:4px}.availability-block strong{font-size:12px}.availability-block small{display:none}.availability-day{font-size:11px}.availability-cell{min-height:34px}}

@@ -1657,7 +1657,7 @@ async function talentAlerts(request:Request,env:Env,workspaceId:string,alertId?:
 async function turnOffTalentAlert(url:URL,env:Env){
   const token=clean(url.searchParams.get("token"),200);
   if(token&&env.DB)await env.DB.prepare("DELETE FROM talent_alerts WHERE off_token=?").bind(token).run();
-  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert turned off</title><body style="font-family:Arial,sans-serif;background:#f7f0e6;color:#1b153c;padding:48px 20px;text-align:center"><h1 style="font-family:Georgia,serif;font-weight:400">This alert is off.</h1><p>You won't get emails for this search anymore. <a href="/app?tab=talent">Open Find caregivers</a></p></body>`,{headers:{'content-type':'text/html; charset=utf-8'}});
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert turned off</title><body style="font-family:Arial,sans-serif;background:#ffffff;color:#191e49;padding:48px 20px;text-align:center"><h1 style="font-weight:600">This alert is off.</h1><p>You won't get emails for this search anymore. <a href="/app?tab=talent">Open Find caregivers</a></p></body>`,{headers:{'content-type':'text/html; charset=utf-8'}});
 }
 /**
  * Daily: for each saved search, caregivers who joined since the last check and live within commuting range (or the
