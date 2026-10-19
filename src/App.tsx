@@ -113,29 +113,14 @@ function Home() {
     <main>
       <HomeHero/>
 
-      <section className="section" id="how">
+      <section className="section section-center" id="how">
         <div className="wrap">
           <div className="modal-kicker">How CareJoys works</div>
           <h2>From finding work to your next opportunity</h2>
-          <div className="steps">
-            <div className="step">
-              <div className="modal-kicker">1 · Find</div>
-              <h3>Preview nearby jobs</h3>
-              <p className="meta">Start with your ZIP and role. Compare real local openings before creating a profile.</p>
-              <div className="job-tags"><span className="pill">No signup required</span></div>
-            </div>
-            <div className="step">
-              <div className="modal-kicker">2 · Confirm</div>
-              <h3>Create one reusable profile</h3>
-              <p className="meta">Tell CareJoys your pay, commute and schedule preferences. Uploading a resume is optional.</p>
-              <div className="job-tags"><span className="pill">Resume optional</span></div>
-            </div>
-            <div className="step">
-              <div className="modal-kicker">3 · Get matched</div>
-              <h3>Return to better matches</h3>
-              <p className="meta">Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p>
-              <div className="job-tags"><span className="pill">Optional email alerts</span></div>
-            </div>
+          <div className="home-steps">
+            <div><b>1</b><h3>Preview nearby jobs</h3><p>Start with your ZIP and role. Compare real local openings before creating a profile.</p><span className="pill">No signup required</span></div>
+            <div><b>2</b><h3>Create one reusable profile</h3><p>Tell CareJoys your pay, commute and schedule preferences. Uploading a resume is optional.</p><span className="pill">Resume optional</span></div>
+            <div><b>3</b><h3>Return to better matches</h3><p>Apply with your profile and choose whether to receive a free weekly email with suitable jobs.</p><span className="pill">Optional email alerts</span></div>
           </div>
         </div>
       </section>

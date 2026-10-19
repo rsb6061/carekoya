@@ -32,19 +32,21 @@ export function HomeHero(){
   const watched=stats&&stats.employersWatched>=1000?thousands(stats.employersWatched)+' ':'';
   return <section className="hero home-ai-hero">
     <div className="wrap">
+      <span className="modal-kicker">For CNAs, HHAs and caregivers</span>
       <h1>
         <span className="hero-title-line">Match with the best CNA and caregiver jobs near you.</span>{' '}
         <span className="hero-title-accent">Let AI do the legwork.</span>
       </h1>
       <p>CareJoys finds jobs from {watched}home-care agencies and assisted living facilities and matches you with the best ones, automatically.</p>
       <HomeJobPreview/>
+      <p className="home-note">Free for caregivers. No signup to preview jobs.</p>
     </div>
   </section>;
 }
 
 export function HomeMatchesSection(){
   const stats=useHomeStats();
-  return <section className="section" id="matches">
+  return <section className="section soft section-center" id="matches">
     <div className="wrap">
       <h2>Automatically matching caregivers with the best jobs</h2>
       <DashboardPreview stats={stats}/>
