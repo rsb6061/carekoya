@@ -571,3 +571,12 @@ body{font-family:Figtree,"Helvetica Neue",Helvetica,Arial,ui-sans-serif,system-u
 .referrals-card h4{margin:18px 0 8px}
 .referrals-card .reward-actions{display:flex;gap:10px;align-items:center;white-space:nowrap}
 .referrals-card button.text-link{background:none;border:0;padding:0;font:inherit;font-size:13px;cursor:pointer}
+
+/* The applicants setup card: three numbered steps, ticked as they're done. */
+.setup-steps{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:16px}
+.setup-step{display:flex;gap:12px;align-items:flex-start}
+.setup-step-mark{flex:0 0 28px;height:28px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#eeeaff;color:#3b326b;font-weight:700;font-size:13px}
+.setup-step.done .setup-step-mark{background:var(--blue);color:#fff}
+.setup-step>div{flex:1;min-width:0}
+.setup-step strong small{font-weight:500;color:var(--muted,#6e6882)}
+.setup-step .job-meta{margin-top:4px}

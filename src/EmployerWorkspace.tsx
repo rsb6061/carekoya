@@ -189,7 +189,7 @@ export function EmployerWorkspace(){
   }
 
   useEffect(()=>{void loadSession()},[]);
-  // A claim link lands on /app?tab=jobs; open that tab once the linked agency has loaded.
+  // A link to /app?tab=jobs (the widget) opens that tab once the linked agency has loaded.
   useEffect(()=>{
     if(agencyNetwork.agency&&new URLSearchParams(window.location.search).get('tab')==='jobs')setTab('jobs');
   },[agencyNetwork.agency]);
@@ -533,11 +533,12 @@ export function EmployerWorkspace(){
      <nav className="dash-sidenav" aria-label="Workspace">
       <button className="button dash-sidenav-new" onClick={()=>openOpeningForm(null)}>+ New job listing</button>
       <div className="dash-sidenav-label">Hiring</div>
+      {/* A claimed agency's own applicants come first: that list works on day one, before any CareJoys caregiver matches. */}
+      {(agencyNetwork.agency||hasApplicants||tab==='applicants')&&<button className={'dash-sidenav-item '+(tab==='applicants'?'active':'')} onClick={()=>openTab('applicants')}>Applicants</button>}
       <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>openTab('openings')}>Job Listings</button>
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>openCandidates()}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>openFind()} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
-      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>openTab('jobs')}>Jobs</button>}
-      {(hasApplicants||tab==='applicants')&&<button className={'dash-sidenav-item '+(tab==='applicants'?'active':'')} onClick={()=>openTab('applicants')}>Applicants</button>}
+      {agencyNetwork.agency&&<button className={'dash-sidenav-item '+(tab==='jobs'?'active':'')} onClick={()=>openTab('jobs')}>Jobs &amp; widget</button>}
       {(billing?.enabled||billing?.operated?.available)&&<button className={'dash-sidenav-item '+(tab==='plan'?'active':'')} onClick={()=>openTab('plan')}>Plan</button>}
       <button className={'dash-sidenav-item '+(tab==='settings'?'active':'')} onClick={()=>openTab('settings')}>Settings</button>
      </nav>

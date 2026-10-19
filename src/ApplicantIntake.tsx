@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ReactivationCard } from './ReactivationCard';
 import { ReferralsCard } from './ReferralsCard';
 import { ApplicantDetail, ScreeningQuestionsCard, showUpText } from './ScreeningPanel';
@@ -61,6 +61,35 @@ function ForwardingCard({intake}:{intake:Intake}){
     {intake.lastReceivedAt&&<p className="job-meta">Last applicant email read {day(intake.lastReceivedAt)}.</p>}
     {intake.unread&&<div className="alert-status alert-info" role="status"><strong>We got an email here we couldn’t read as an applicant</strong> ({day(intake.unread.receivedAt)}): {intake.unread.subject||'no subject'}.
       {intake.unread.snippet&&<small> {intake.unread.snippet.slice(0,300)}</small>} If it’s a forwarding confirmation code, use the code above to finish setting up forwarding.</div>}
+  </div>;
+}
+
+/** The first screen after an agency claims: the three things that make the applicant list work, each ticked off as it's done. */
+function SetupCard({intake,openTimes,listingsLink}:{intake:Intake;openTimes:number;listingsLink:string}){
+  const [copied,setCopied]=useState(false);
+  const forwarded=!!intake.lastReceivedAt;
+  const Step=({n,done,title,children}:{n:number;done:boolean;title:string;children:ReactNode})=><li className={'setup-step'+(done?' done':'')}>
+    <span className="setup-step-mark" aria-hidden="true">{done?'✓':n}</span>
+    <div><strong>{title}{done?<small> · done</small>:null}</strong>{children}</div>
+  </li>;
+  return <div className="settings-card setup-card">
+    <h3>Let’s get your applicants answered</h3>
+    <p className="job-meta">Three steps, about five minutes. Nothing changes on Indeed or CareerPlug.</p>
+    <ol className="setup-steps">
+      <Step n={1} done={forwarded} title="Forward applicants here">
+        <div className="inline-form"><code className="intake-address">{intake.address}</code>
+          <button type="button" className="button secondary" onClick={()=>void copyText(intake.address).then(setCopied)}>{copied?'Copied':'Copy'}</button></div>
+        <p className="job-meta">In Indeed: Employer settings → Notifications, add this address for new applicants. In CareerPlug: Account → Notifications. Or set a Gmail or Outlook filter that forwards those emails here. New applicants show up below within minutes.</p>
+        {intake.unread&&<div className="alert-status alert-info" role="status"><strong>We got an email here we couldn’t read as an applicant</strong> ({day(intake.unread.receivedAt)}): {intake.unread.subject||'no subject'}.
+          {intake.unread.snippet&&<small> {intake.unread.snippet.slice(0,300)}</small>} If it’s a forwarding confirmation code, use the code above to finish setting up forwarding.</div>}
+      </Step>
+      <Step n={2} done={openTimes>0} title="Add interview times">
+        <p className="job-meta">Pick a few 30-minute slots each week on a job listing. Applicants book themselves and both of you get the calendar invite.{listingsLink&&<> <a className="text-link" href={listingsLink}>Open job listings</a></>}</p>
+      </Step>
+      <Step n={3} done={false} title="Your Monday report">
+        <p className="job-meta">Every Monday: applicants, time to first contact, interviews booked and who showed. It starts the first week an applicant lands.</p>
+      </Step>
+    </ol>
   </div>;
 }
 
@@ -195,7 +224,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
 
     {week&&applicants&&applicants.length>0&&<WeekCard week={week}/>}
 
-    {intake?.address&&<ForwardingCard intake={intake}/>}
+    {intake?.address&&(applicants&&applicants.length===0?<SetupCard intake={intake} openTimes={openTimes} listingsLink={employerId?'':'/app?tab=openings'}/>:<ForwardingCard intake={intake}/>)}
 
     <div className="settings-card">
       <h3>Upload applicants</h3>
@@ -220,7 +249,7 @@ export function ApplicantIntake({base,employerId='',title='Applicants',reactivat
 
     {reactivation&&<ReactivationCard url={reactivation.url} agencyName={reactivation.agencyName} defaultTestTo={reactivation.testTo} version={version} onSent={()=>void load()}/>}
 
-    {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">Forward your applicant emails to the address above, or upload a CSV to start the list.</p></div>:<>
+    {applicants===null?<p className="job-meta">Loading…</p>:list.length===0?<div className="settings-card"><strong>No applicants yet.</strong><p className="job-meta">The first one lands here the moment Indeed forwards it. Or upload a CSV to start the list.</p></div>:<>
       <div className="admin-subheading">
         <h3>{shown.length} of {list.length} applicant{list.length===1?'':'s'}</h3>
         <select className="pipeline-select" value={sourceFilter} onChange={e=>setSourceFilter(e.target.value)} aria-label="Filter by source">

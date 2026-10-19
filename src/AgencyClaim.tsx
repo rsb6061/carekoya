@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { TurnstileField } from './TurnstileField';
 import './activation.css';
 
-type CandidatePreview={role:string;area:string;experience:string;freshness:string;fitScore:number};
 type InterestPreview={role:string;area:string;jobTitle:string|null;experience:string};
 type JobPreview={title:string;area:string};
 type AgencyPreview={name:string;city?:string;state?:string;providerTypes?:string;claimed?:boolean;claimRequested?:boolean};
@@ -15,11 +14,26 @@ async function api<T>(path:string,init?:RequestInit):Promise<T>{
   return body;
 }
 
+const ROLES=['CNA','HHA','PCA','Companion','Live-in'];
+const SHIFTS=['Days','Evenings','Nights','Weekends'];
+const COUNTS=['1–2','3–5','6+'];
+const SOURCES=['Indeed','CareerPlug','Our website','Referrals','Other'];
+const toggle=(list:string[],v:string)=>list.includes(v)?list.filter(x=>x!==v):[...list,v];
+
+function Chips({label,options,value,onChange}:{label:string;options:string[];value:string[];onChange:(next:string[])=>void}){
+  return <div className="needs-field"><span>{label}</span>
+    <div className="needs-chips">{options.map(o=><button type="button" key={o} className={'needs-chip'+(value.includes(o)?' on':'')} aria-pressed={value.includes(o)} onClick={()=>onChange(toggle(value,o))}>{o}</button>)}</div>
+  </div>;
+}
+
 export function AgencyClaim(){
   const token=new URLSearchParams(window.location.search).get('token')||'';
   const [agency,setAgency]=useState<AgencyPreview|null>(null);
-  const [candidates,setCandidates]=useState<CandidatePreview[]>([]);
-  const [count,setCount]=useState(0);
+  // What they're hiring for, ticked on the page; saved with the claim.
+  const [roles,setRoles]=useState<string[]>([]);
+  const [shifts,setShifts]=useState<string[]>([]);
+  const [count,setCount]=useState('');
+  const [sources,setSources]=useState<string[]>([]);
   const [interests,setInterests]=useState<InterestPreview[]>([]);
   const [jobs,setJobs]=useState<JobPreview[]>([]);
   const [jobCount,setJobCount]=useState(0);
@@ -29,15 +43,16 @@ export function AgencyClaim(){
 
   useEffect(()=>{
     if(!token){setStatus('error');setMessage('This agency link is missing.');return;}
-    api<{agency:AgencyPreview;candidateCount:number;candidates:CandidatePreview[];interests?:InterestPreview[];jobs?:JobPreview[];jobCount?:number}>('/api/agency/teaser?token='+encodeURIComponent(token))
-      .then(data=>{setAgency(data.agency);setInterests(data.interests||[]);setCandidates(data.candidates||[]);setCount(data.candidateCount||0);setJobs(data.jobs||[]);setJobCount(data.jobCount||0);setStatus('ready')})
+    api<{agency:AgencyPreview;interests?:InterestPreview[];jobs?:JobPreview[];jobCount?:number}>('/api/agency/teaser?token='+encodeURIComponent(token))
+      .then(data=>{setAgency(data.agency);setInterests(data.interests||[]);setJobs(data.jobs||[]);setJobCount(data.jobCount||0);setStatus('ready')})
       .catch(error=>{setStatus('error');setMessage(error instanceof Error?error.message:'Could not open this agency link.')});
   },[token]);
 
   async function claim(){
     setStatus('sending');setMessage('');
     try{
-      const data=await api<{redirect:string}>('/api/agency/claim/request',{method:'POST',body:JSON.stringify({token,turnstileToken})});
+      const needs={roles,shifts,count,sources};
+      const data=await api<{redirect:string}>('/api/agency/claim/request',{method:'POST',body:JSON.stringify({token,turnstileToken,needs})});
       window.location.assign(data.redirect||'/app');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not open your dashboard.');
@@ -63,23 +78,15 @@ export function AgencyClaim(){
           </div>)}
         </div>
       </>:<>
-      <h1>{jobCount===1?'Your job is':'Your jobs are'} live on CareJoys.</h1>
-      <p className="activation-intro">Caregivers can apply in a minute, and every application lands in one free inbox. Open your dashboard to see who applies and to copy a free widget for your own careers page.</p>
-      {jobCount>0&&<>
-        <div className="activation-kicker">Your openings on CareJoys{jobCount>jobs.length?' ('+jobCount+')':''}</div>
-        <div className="candidate-preview-list">
-          {jobs.map((j,i)=><div className="candidate-preview" key={'j'+i}><strong>{j.title}</strong>{j.area&&<span>{j.area}</span>}</div>)}
-        </div>
-      </>}
-      </>}
-      {count>0&&<>
-        <div className="activation-kicker">Caregivers near you on CareJoys</div>
-        <div className="candidate-preview-list">
-          {candidates.map((c,i)=><div className="candidate-preview" key={i}>
-            <strong>{c.role}</strong>
-            <span>{[c.area,c.experience,c.freshness].filter(Boolean).join(' · ')}</span>
-          </div>)}
-        </div>
+      <h1>Hire caregivers faster.</h1>
+      <p className="activation-intro">Every applicant answered in 30 minutes, screened, and booked into your calendar. Tell us what you’re hiring for and we start this week.</p>
+      {!agency.claimed&&<div className="needs-form">
+        <Chips label="What are you hiring for?" options={ROLES} value={roles} onChange={setRoles}/>
+        <Chips label="Shifts" options={SHIFTS} value={shifts} onChange={setShifts}/>
+        <Chips label="How many do you need this month?" options={COUNTS} value={count?[count]:[]} onChange={next=>setCount(next.filter(c=>c!==count)[0]||'')}/>
+        <Chips label="Where do applicants come from today?" options={SOURCES} value={sources} onChange={setSources}/>
+      </div>}
+      {jobCount>0&&<p className="activation-intro">We already list {jobCount===1?'one of your openings':jobCount+' of your openings'} on CareJoys{jobs[0]?' ('+jobs.map(j=>j.title).slice(0,3).join(', ')+(jobCount>3?', …':'')+')':''}, so caregivers nearby can apply there too.</p>}
       </>}
 
       <div className="agency-source-note">
@@ -91,10 +98,10 @@ export function AgencyClaim(){
         <div className="notice">This agency is already linked to a CareJoys workspace. Sign in to continue.</div>
         <a className="btn" href="/login?next=/app">Sign in to CareJoys</a>
       </>:<>
-        <p className="activation-intro">This link was sent to your agency email, so one click opens your dashboard. Your first 5 caregiver introductions are free.</p>
+        <p className="activation-intro">This link was sent to {agency.name}’s email, so one click opens your dashboard. Your first month is free.</p>
         <TurnstileField onToken={setTurnstileToken}/>
         {message&&<div className="notice">{message}</div>}
-        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Opening…':interests.length?'Open my inbox':'Open my dashboard'}</button>
+        <button className="btn activation-submit" onClick={claim} disabled={status==='sending'}>{status==='sending'?'Opening…':interests.length?'Open my inbox':'Start hiring faster'}</button>
       </>}
     </main>
   </div>;
