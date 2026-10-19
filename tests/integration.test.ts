@@ -2104,7 +2104,7 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     sent.length=0;
     const res=await post('/api/agency/claim/request',{token:'claim-token-1',needs:{roles:['CNA','HHA'],shifts:['Nights','Weekends'],count:'3–5',sources:['Indeed']}},{origin:'https://carejoys.com'});
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=applicants'});
+    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=openings'});
     // What they ticked on the page is their hiring profile and Always-on opening.
     expect(await DB.prepare("SELECT hiring_status,roles,shifts,requirements,roles_source FROM agency_org_hiring_profiles WHERE organization_id='org-claim1'").first())
       .toEqual({hiring_status:'hiring',roles:'CNA, HHA',shifts:'Nights, Weekends',requirements:'Needs this month: 3–5. Applicants come from: Indeed.',roles_source:'employer_confirmed'});
