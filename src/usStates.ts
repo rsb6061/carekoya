@@ -33,8 +33,16 @@ export function parseJobsHubPath(pathname:string){
   return {state,citySlug:m[3]?slugify(decodeURIComponent(m[3])):'',cna:m[1]==='cna'};
 }
 
-/** `/caregiver-jobs`, the all-states jobs page. */
-export const isNationalJobsPath=(pathname:string)=>pathname==='/caregiver-jobs'||pathname==='/caregiver-jobs/';
+/** `/caregiver-jobs` or `/cna-jobs`, the all-states jobs pages. */
+export const isNationalJobsPath=(pathname:string)=>/^\/(caregiver|cna)-jobs\/?$/.test(pathname);
+export const isCnaJobsPath=(pathname:string)=>/^\/cna-jobs(\/|$)/.test(pathname);
+
+/** The cities CareJoys leads with (search demand for CNA jobs, best first): hero pills and the footer link to these. */
+export const TOP_CITIES:ReadonlyArray<{state:string;stateSlug:string;slug:string;name:string}>=[
+  ['NV','nevada','las-vegas','Las Vegas'],['TX','texas','houston','Houston'],['CA','california','los-angeles','Los Angeles'],
+  ['CA','california','san-diego','San Diego'],['CA','california','sacramento','Sacramento'],['FL','florida','jacksonville','Jacksonville'],
+  ['WA','washington','seattle','Seattle'],['NE','nebraska','omaha','Omaha'],['MD','maryland','baltimore','Baltimore'],['TX','texas','dallas','Dallas'],
+].map(([state,stateSlug,slug,name])=>({state,stateSlug,slug,name}));
 
 export const jobsHubPath=(state:UsState,citySlug='',cna=false)=>(cna?'/cna-jobs/':'/caregiver-jobs/')+state.slug+(citySlug?'/'+citySlug:'');
 

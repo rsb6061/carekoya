@@ -8,7 +8,7 @@ import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
 import { adminInbox, adminInboxUpdate, handleInboundEmail, type InboundEmailMessage } from './inboundEmail';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
-import { jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { isNationalJobsPath, jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
@@ -215,6 +215,7 @@ async function careJoysChildSitemap(env:Env,name:string){
     const {states,cities,cnaStates,cnaCities}=await hubLocations(env);
     const newest=states.map(s=>s.lastmod).filter(Boolean).sort().pop()||null;
     const entries:SitemapEntry[]=[{url:SEO_ORIGIN+"/caregiver-jobs",lastmod:newest}];
+    if(cnaStates.length)entries.push({url:SEO_ORIGIN+"/cna-jobs",lastmod:cnaStates.map(s=>s.lastmod).filter(Boolean).sort().pop()||null});
     for(const s of states){
       entries.push({url:SEO_ORIGIN+jobsHubPath(s.state),lastmod:s.lastmod});
       // /hire-caregivers/maryland is listed with the static pages.
@@ -306,6 +307,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - About CareJoys: https://carejoys.com/about
 - Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
 - Caregiver jobs (search by city, state or ZIP): https://carejoys.com/caregiver-jobs
+- CNA jobs (only jobs a CNA or GNA can apply to): https://carejoys.com/cna-jobs, https://carejoys.com/cna-jobs/{state} and https://carejoys.com/cna-jobs/{state}/{city}
 - Caregiver jobs by state and city: https://carejoys.com/caregiver-jobs/{state} and https://carejoys.com/caregiver-jobs/{state}/{city} (for example /caregiver-jobs/virginia)
 - Hire caregivers by state: https://carejoys.com/hire-caregivers/{state}
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
@@ -472,43 +474,56 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       jsonLd:{"@context":"https://schema.org","@type":"AboutPage","url":SEO_ORIGIN+"/about","name":"About CareJoys","about":{"@id":SEO_ORIGIN+"/#organization"},"isPartOf":{"@id":SEO_ORIGIN+"/#website"}}
     });
   }
-  if(url.pathname==="/caregiver-jobs"||url.pathname==="/caregiver-jobs/"){
+  if(isNationalJobsPath(url.pathname)){
+    // /caregiver-jobs lists every caregiver job; /cna-jobs only jobs a CNA or GNA can apply to.
+    const cna=url.pathname.startsWith("/cna-jobs");
+    const base=cna?"/cna-jobs":"/caregiver-jobs";
     const q=clean(url.searchParams.get("q"),120);
     if(q){
       // The search box: a state or city opens its page; a ZIP (or no match) stays here and the page lists what it can.
-      const found=await resolveJobsSearch(env,q);
+      const found=await resolveJobsSearch(env,cna&&!/\b[cg]nas?\b/i.test(q)?"cna "+q:q);
       if(found&&"path" in found)return Response.redirect(SEO_ORIGIN+found.path,302);
     }
     const page=Math.max(1,Math.floor(Number(url.searchParams.get("page")||1))||1);
     const role=clean(url.searchParams.get("role"),40);
-    const data=await nationalJobsHub(env,{role,page});
-    const canonical="/caregiver-jobs"+(data.page>1&&!role&&!q?"?page="+data.page:"");
+    // The site filters by two roles only, caregiver and CNA, and each has its own page; old ?role= links land on one.
+    if(role&&!q)return roleRedirect(role,cna?"/cna-jobs":"/caregiver-jobs","/cna-jobs");
+    const data=await nationalJobsHub(env,{page,cna});
+    const canonical=base+(data.page>1&&(cna||!role)&&!q?"?page="+data.page:"");
+    const noun=cna?"CNA jobs":"caregiver jobs";
+    const Noun=cna?"CNA jobs":"Caregiver jobs";
     const itemList:any[]=[];
     const jobsHtml=data.jobs.map((job,index)=>{
-      const title=normalizeTitle(job.title)||"Caregiver job";
+      const title=normalizeTitle(job.title)||(cna?"CNA job":"Caregiver job");
       const jobUrl="/jobs/"+encodeURIComponent(String(job.id||""));
       itemList.push({"@type":"ListItem","position":(data.page-1)*JOBS_PER_PAGE+index+1,"name":title,"url":SEO_ORIGIN+jobUrl});
       const label=[job.employer_name,[job.city,job.state].filter(Boolean).join(", ")||job.zip,payText(job.pay_min,job.pay_max,job.pay_period)].filter(Boolean).join(" · ");
       return '<li><a href="'+jobUrl+'">'+htmlEscape(title)+'</a> — '+htmlEscape(label)+'</li>';
     }).join("");
-    const pager=data.pages>1?'<nav aria-label="Pages">'+(data.page>1?'<a href="/caregiver-jobs'+(data.page>2?"?page="+(data.page-1):"")+'">Previous</a> ':'')+'Page '+data.page+' of '+data.pages+(data.page<data.pages?' <a href="/caregiver-jobs?page='+(data.page+1)+'">Next</a>':'')+'</nav>':'';
-    const stateLinks=data.states.map(s=>'<li><a href="'+jobsHubPath(s.state)+'">Caregiver jobs in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join("");
-    const cityLinks=data.cities.map(c=>'<li><a href="'+jobsHubPath(c.state,c.slug)+'">Caregiver jobs in '+htmlEscape(c.city)+', '+c.state.code+'</a> ('+c.count+')</li>').join("");
+    const pager=data.pages>1?'<nav aria-label="Pages">'+(data.page>1?'<a href="'+base+(data.page>2?"?page="+(data.page-1):"")+'">Previous</a> ':'')+'Page '+data.page+' of '+data.pages+(data.page<data.pages?' <a href="'+base+'?page='+(data.page+1)+'">Next</a>':'')+'</nav>':'';
+    const stateLinks=data.states.map(s=>'<li><a href="'+jobsHubPath(s.state,'',cna)+'">'+Noun+' in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join("");
+    const cityLinks=data.cities.map(c=>'<li><a href="'+jobsHubPath(c.state,c.slug,cna)+'">'+Noun+' in '+htmlEscape(c.city)+', '+c.state.code+'</a> ('+c.count+')</li>').join("");
+    const sibling=cna?'<p><a href="/caregiver-jobs">All caregiver jobs, including HHA, PCA and DSP</a></p>':'<p><a href="/cna-jobs">CNA jobs only</a></p>';
     return seoAsset(request,env,{
-      title:data.page>1?fitTitle("Caregiver Jobs by State and City, Page "+data.page):"Caregiver Jobs by State and City: CNA, HHA & PCA | CareJoys",
-      description:trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current caregiver jobs":"Caregiver jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city, state or ZIP, upload one resume, and apply to CNA, HHA, PCA, DSP and caregiver openings.",160),
+      title:cna
+        ?(data.page>1?fitTitle("CNA Jobs by City and State, Page "+data.page):"CNA Jobs Near You: Certified Nursing Assistant Jobs | CareJoys")
+        :(data.page>1?fitTitle("Caregiver Jobs by State and City, Page "+data.page):"Caregiver Jobs by State and City: CNA, HHA & PCA | CareJoys"),
+      description:cna
+        ?trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current CNA and GNA jobs":"CNA jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city or ZIP, create one free profile, and apply to certified nursing assistant jobs near you.",160)
+        :trimAtWord((data.page>1?"Page "+data.page+" of "+data.pages+". ":"")+(data.total?data.total+" current caregiver jobs":"Caregiver jobs")+(data.states.length>1?" in "+data.states.length+" states":"")+". Search by city, state or ZIP, upload one resume, and apply to CNA, HHA, PCA, DSP and caregiver openings.",160),
       canonical,
       // Searches and role filters are views of this page, not pages of their own.
-      robots:data.total>0&&!role&&!q?undefined:"noindex,follow",
+      robots:data.total>0&&(cna||!role)&&!q?undefined:"noindex,follow",
       ogImage:"/og/caregiver-jobs.png",
-      snapshot:'<main><p><a href="/">CareJoys</a> › Caregiver jobs</p><h1>Caregiver and CNA jobs near you</h1><p>Search by city, state or ZIP. Create one free profile, resume optional, and CareJoys matches you with caregiver jobs and employers near you.</p><form action="/caregiver-jobs" method="get"><input name="q" aria-label="City, state or ZIP" placeholder="City, state or ZIP"><button type="submit">Search jobs</button></form>'+(stateLinks?'<h2>Caregiver jobs by state</h2><ul>'+stateLinks+'</ul>':'')+(cityLinks?'<h2>Popular cities</h2><ul>'+cityLinks+'</ul>':'')+'<h2>Newest caregiver jobs</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified caregiver jobs from employer career pages now. Create your free profile and we will match you as openings are confirmed.</p>')+'<p><a href="/caregiver-resume">Upload your caregiver resume</a></p></main>',
+      snapshot:'<main><p><a href="/">CareJoys</a> › '+(cna?'<a href="/caregiver-jobs">Caregiver jobs</a> › CNA jobs':'Caregiver jobs')+'</p><h1>'+(cna?'CNA jobs near you':'Caregiver and CNA jobs near you')+'</h1><p>Search by city or ZIP. Create one free profile, resume optional, and CareJoys matches you with '+noun+' and employers near you.</p><form action="'+base+'" method="get"><input name="q" aria-label="City, state or ZIP" placeholder="City, state or ZIP"><button type="submit">Search jobs</button></form>'+(cityLinks?'<h2>'+Noun+' by city</h2><ul>'+cityLinks+'</ul>':'')+(stateLinks?'<h2>'+Noun+' by state</h2><ul>'+stateLinks+'</ul>':'')+'<h2>Newest '+noun+'</h2>'+(jobsHtml?'<p>'+data.total+' current opening'+(data.total===1?'':'s')+', verified from employer career pages.</p><ul>'+jobsHtml+'</ul>'+pager:'<p>CareJoys is adding verified '+noun+' from employer career pages now. Create your free profile and we will match you as openings are confirmed.</p>')+sibling+'<p><a href="/caregiver-resume">Upload your '+(cna?'CNA':'caregiver')+' resume</a></p></main>',
       jsonLd:{"@context":"https://schema.org","@graph":[
-        {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":"Caregiver jobs by state and city","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+        {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":Noun+" by state and city","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
         {"@type":"BreadcrumbList","itemListElement":[
           {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
-          {"@type":"ListItem","position":2,"name":"Caregiver jobs","item":SEO_ORIGIN+"/caregiver-jobs"}
+          {"@type":"ListItem","position":2,"name":"Caregiver jobs","item":SEO_ORIGIN+"/caregiver-jobs"},
+          ...(cna?[{"@type":"ListItem","position":3,"name":"CNA jobs","item":SEO_ORIGIN+"/cna-jobs"}]:[])
         ]},
-        ...(itemList.length?[{"@type":"ItemList","name":"Newest caregiver jobs","itemListElement":itemList}]:[])
+        ...(itemList.length?[{"@type":"ItemList","name":"Newest "+noun,"itemListElement":itemList}]:[])
       ]}
     });
   }
@@ -518,12 +533,13 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
     const cna=hub.cna;
     const page=Math.max(1,Math.floor(Number(url.searchParams.get("page")||1))||1);
     const role=clean(url.searchParams.get("role"),40);
+    if(role)return roleRedirect(role,jobsHubPath(hub.state,hub.citySlug,cna),jobsHubPath(hub.state,hub.citySlug,true));
     const data=await jobsHub(env,{state:hub.state,citySlug:hub.citySlug,role,page,cna});
     if(hub.citySlug&&!data.city){
       // A town with caregiver jobs but no CNA jobs sends CNA searchers to its caregiver page.
       if(cna&&(await jobsHub(env,{state:hub.state,citySlug:hub.citySlug})).city)return Response.redirect(SEO_ORIGIN+jobsHubPath(hub.state,hub.citySlug),302);
-      return seoAsset(request,env,{status:404,title:"Page not found | CareJoys",description:"This page does not exist.",canonical:jobsHubPath(hub.state),robots:"noindex,follow",
-        snapshot:'<main><h1>No current caregiver jobs here.</h1><p><a href="'+jobsHubPath(hub.state)+'">Browse caregiver jobs in '+htmlEscape(hub.state.name)+'</a></p></main>'});
+      // A town with no current jobs (a linked city between postings, an old link) opens its state's page.
+      return new Response(null,{status:302,headers:{location:jobsHubPath(hub.state,'',cna)}});
     }
     const isMaryland=hub.state.code==="MD";
     const metro=data.metro;
@@ -1459,8 +1475,13 @@ async function getCnaClasses(url:URL,env:Env){
   return json({ok:true,area:area.slug,programs:data.programs,jobs:data.jobs},{headers:{"cache-control":"public,max-age=300"}});
 }
 
+/** An old `?role=` jobs link: CNA (or GNA) opens the CNA page, anything else the page without the filter. */
+function roleRedirect(role:string,here:string,cnaPath:string){
+  return new Response(null,{status:301,headers:{location:/^[cg]na$/i.test(role)?cnaPath:here}});
+}
+
 async function getNationalJobs(url:URL,env:Env){
-  const data=await nationalJobsHub(env,{role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1)});
+  const data=await nationalJobsHub(env,{role:clean(url.searchParams.get("role"),40),page:Number(url.searchParams.get("page")||1),cna:url.searchParams.get("cna")==="1"});
   return json({ok:true,total:data.total,page:data.page,pages:data.pages,
     states:data.states.map(s=>({code:s.state.code,name:s.state.name,slug:s.state.slug,count:s.count})),
     cities:data.cities.map(c=>({city:c.city,slug:c.slug,state:c.state.code,stateSlug:c.state.slug,count:c.count})),

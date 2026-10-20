@@ -6,7 +6,7 @@ import { clean, emailLink, signIn, watch } from './helpers';
 // The rest of the site: every public page loads cleanly, every internal link resolves, every button does
 // something, and the flows that arrive by email (sign-in links, invites, activation, agency claims) work.
 
-const PUBLIC_PAGES=['/','/caregiver-jobs','/caregiver-jobs/maryland','/caregiver-jobs/maryland/baltimore','/cna-jobs/maryland',
+const PUBLIC_PAGES=['/','/caregiver-jobs','/cna-jobs','/caregiver-jobs/maryland','/caregiver-jobs/maryland/baltimore','/cna-jobs/maryland',
   '/gna-jobs/maryland','/gna-jobs/maryland/baltimore','/cna-classes/baltimore','/training-programs/maryland','/training-programs/'+TRAINING.slug,
   '/hire-caregivers','/hire-caregivers/maryland','/pricing','/about','/caregiver-resume','/resources/how-to-become-a-caregiver-in-maryland',
   '/resources/nurse-aide-registry-by-state','/privacy-policy','/terms-of-service','/login','/signup','/agent','/add-training-program',
@@ -29,6 +29,22 @@ test.describe('@phone every public page', ()=>{
     expect(res?.status()).toBe(404);
     await expect(page.getByRole('heading',{name:'Page not found'})).toBeVisible();
   });
+});
+
+test('CNA jobs have their own page, and the CNA filter goes there', async({page})=>{
+  const res=await page.goto('/caregiver-jobs?role=CNA');
+  expect(new URL(page.url()).pathname).toBe('/cna-jobs');
+  expect(res?.status()).toBe(200);
+  await expect(page.getByRole('heading',{level:1})).toHaveText('CNA jobs near you');
+  await expect(page.locator('link[rel=canonical]')).toHaveAttribute('href',/\/cna-jobs$/);
+  await page.goto('/caregiver-jobs');
+  await page.locator('.hub-filters').getByRole('link',{name:'CNA',exact:true}).click();
+  await expect(page).toHaveURL(/\/cna-jobs$/);
+  await expect(page.locator('footer').getByRole('link',{name:'CNA jobs',exact:true})).toHaveAttribute('href','/cna-jobs');
+  // Old links filtered by roles the site no longer splits out land on the caregiver page.
+  await page.goto('/caregiver-jobs/maryland?role=HHA');
+  expect(new URL(page.url()).pathname+new URL(page.url()).search).toBe('/caregiver-jobs/maryland');
+  await expect(page.locator('.hub-filters a')).toHaveText(['Caregiver','CNA']);
 });
 
 test('every internal link on the public pages resolves', async({page,request})=>{
@@ -229,9 +245,11 @@ test('Find my agency on Hire caregivers', async({page})=>{
 test('@phone job hub filters and ZIP search', async({page})=>{
   const w=await watch(page);
   await page.goto('/caregiver-jobs/maryland');
-  await page.getByRole('button',{name:'HHA',exact:true}).click();
   await expect(page.getByRole('link',{name:/Home Health Aide/}).first()).toBeVisible();
-  await expect(page.getByRole('link',{name:/CNA - Day Shift/})).toHaveCount(0);
+  await page.locator('.hub-filters').getByRole('link',{name:'CNA',exact:true}).click();
+  await expect(page).toHaveURL(/\/cna-jobs\/maryland$/);
+  await expect(page.getByRole('link',{name:/CNA - Day Shift/}).first()).toBeVisible();
+  await expect(page.getByRole('link',{name:/Home Health Aide/})).toHaveCount(0);
   clean(w);
 });
 

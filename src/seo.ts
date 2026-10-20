@@ -212,7 +212,16 @@ export const METROS:Metro[]=[
     'Boston','Allston','Brighton','Hyde Park','South Boston','Mattapan','Dorchester','Roxbury','Jamaica Plain','Roslindale',
     'West Roxbury','Charlestown','East Boston','Cambridge','Somerville','Brookline','Newton','Waltham','Watertown','Belmont',
     'Arlington','Lexington','Quincy','Milton','Dedham','Norwood','Needham','Wellesley','Randolph','Braintree','Weymouth',
-    'Canton','Walpole','Malden','Medford','Everett','Chelsea','Revere','Winchester','Woburn','Burlington']}
+    'Canton','Walpole','Malden','Medford','Everett','Chelsea','Revere','Winchester','Woburn','Burlington']},
+  {state:'NV',slug:'las-vegas',name:'Las Vegas',area:'Las Vegas, Henderson and North Las Vegas',zipPrefixes:['889','890','891'],places:[
+    'Las Vegas','Henderson','North Las Vegas','N Las Vegas','Paradise','Spring Valley','Enterprise','Summerlin','Whitney','Sunrise Manor','Boulder City']},
+  {state:'NY',slug:'new-york',name:'New York City',area:'all five boroughs',zipPrefixes:['100','101','102','103','104','110','111','112','113','114','116'],places:[
+    'New York','New York City','NYC','Manhattan','Brooklyn','Bronx','The Bronx','Queens','Staten Island','Flushing','Jamaica','Astoria',
+    'Long Island City','Forest Hills','Jackson Heights','Elmhurst','Corona','Ozone Park','Richmond Hill','Far Rockaway','Bayside','Fresh Meadows','Rego Park','Woodside']},
+  {state:'CA',slug:'los-angeles',name:'Los Angeles',area:'Los Angeles and nearby cities in LA County',zipPrefixes:['900','901','902','903','904','905','906','907','908','910','911','912','913','914','915','916','917','918'],places:[
+    'Los Angeles','Long Beach','Pasadena','Glendale','Torrance','Burbank','Santa Monica','Inglewood','Culver City','Downey','Norwalk','Whittier',
+    'West Covina','El Monte','Alhambra','Pomona','Gardena','Carson','Compton','Lakewood','Van Nuys','North Hollywood','Sherman Oaks','Encino',
+    'Northridge','Reseda','Woodland Hills','Canoga Park','Tarzana','Studio City','Hollywood','West Hollywood','Beverly Hills']}
 ];
 export const metroFor=(stateCode:string,slug:string)=>METROS.find(m=>m.state===stateCode&&m.slug===slug)||null;
 /** The metro a place belongs to, so its own page can link up to the metro page. */
@@ -304,24 +313,28 @@ const PUBLISHED="is_published=1 AND status='current'";
 const roleWhere=(role:string)=>role?" AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,'')) LIKE lower(?))":'';
 const roleArgs=(role:string)=>role?[role,'%"'+role+'"%']:[];
 
-/** `/caregiver-jobs`: every state with current jobs, the busiest cities, and the newest jobs nationwide. */
-export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:number}={}){
-  const role=clean(opts.role,40);
+/** `/caregiver-jobs` (or `/cna-jobs` with `cna`): every state with current jobs, the busiest cities, and the newest jobs nationwide. */
+export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:number;cna?:boolean}={}){
+  const cna=!!opts.cna;
+  // /cna-jobs is itself the CNA filter, so a role there would only narrow it to nothing.
+  const role=cna?'':clean(opts.role,40);
+  const only=cna?' AND '+CNA_JOB_SQL:'';
+  const cityMin=cna?CNA_PAGE_MIN_JOBS:CITY_PAGE_MIN_JOBS;
   const empty={jobs:[] as Row[],total:0,states:[] as {state:UsState;count:number}[],cities:[] as {state:UsState;city:string;slug:string;count:number}[],page:1,pages:1};
   if(!env.DB)return empty;
-  const stateRows=(await env.DB.prepare(`SELECT state,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} GROUP BY state ORDER BY count DESC`).all<Row>()).results||[];
+  const stateRows=(await env.DB.prepare(`SELECT state,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${only} GROUP BY state ORDER BY count DESC`).all<Row>()).results||[];
   const states=stateRows.map(r=>({state:usState(clean(r.state,20)),count:asNum(r.count)})).filter((s):s is {state:UsState;count:number}=>!!s.state&&s.count>0);
-  const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED} AND COALESCE(city,'')!=''
-    GROUP BY state,lower(city) HAVING COUNT(*)>=? ORDER BY count DESC LIMIT 30`).bind(CITY_PAGE_MIN_JOBS).all<Row>()).results||[];
-  const metros=(await metroTotals(env)).filter(t=>t.count>=CITY_PAGE_MIN_JOBS);
+  const cityRows=(await env.DB.prepare(`SELECT state,city,COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${only} AND COALESCE(city,'')!=''
+    GROUP BY state,lower(city) HAVING COUNT(*)>=? ORDER BY count DESC LIMIT 30`).bind(cityMin).all<Row>()).results||[];
+  const metros=(await metroTotals(env,'',cna)).filter(t=>t.count>=cityMin);
   const cities=[...cityRows.map(r=>({state:usState(clean(r.state,20)),city:clean(r.city,120),slug:slugify(clean(r.city,120)),count:asNum(r.count)}))
     .filter((c):c is {state:UsState;city:string;slug:string;count:number}=>!!c.state&&!!c.slug&&!metros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug)),
     ...metros.flatMap(t=>{const state=usState(t.metro.state);return state?[{state,city:t.metro.name,slug:t.metro.slug,count:t.count}]:[]})]
     .sort((a,b)=>b.count-a.count).slice(0,30);
-  const total=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${roleWhere(role)}`).bind(...roleArgs(role)).first<Row>())?.count);
+  const total=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}`).bind(...roleArgs(role)).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
   const page=Math.min(pages,Math.max(1,Math.floor(opts.page||1)));
-  const jobs=((await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${PUBLISHED}${roleWhere(role)}
+  const jobs=((await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}
     ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ? OFFSET ?`)
     .bind(...roleArgs(role),JOBS_PER_PAGE,(page-1)*JOBS_PER_PAGE).all<Row>()).results||[]);
   return {jobs,total,states,cities,page,pages};
