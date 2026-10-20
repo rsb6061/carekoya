@@ -54,7 +54,7 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
           </div>
         </div>
         <div className="public-job-actions">
-          <a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>
+          {job.employerOnCareJoys||job.applyForMe?<a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>:<a className="btn job-apply-primary" href={href}>View job</a>}
           {applyWhere(job)&&<span className="apply-where">{applyWhere(job)}</span>}
         </div>
       </article>;

@@ -288,7 +288,8 @@ export function CaregiverDashboard(){
             <div className="job-card-actions">
               {!applied?(job.employerOnCareJoys
                 ?<button className="button" disabled={!!busy} onClick={()=>void apply(job)}>{busy==='apply:'+job.id?'Applying…':'Apply'}</button>
-                :<a className="button" href={href+'#apply'}>Apply</a>)
+                :job.applyForMe?<a className="button" href={href+'#apply'}>Apply</a>
+                :<a className="button" href={href}>View job</a>)
               :<span className="status applied">Applied</span>}
               {!applied&&<span className="apply-where">{applyWhere(job)}</span>}
             </div>
