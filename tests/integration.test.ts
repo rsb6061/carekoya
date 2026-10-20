@@ -988,6 +988,14 @@ describe('audit fixes: SEO responses', ()=>{
     expect(sitemap).toContain('<loc>https://carejoys.com/caregiver-jobs</loc>');
     // Texas has one job here, under STATE_PAGE_MIN_JOBS, so its page stays out of the sitemap.
     expect(sitemap).not.toContain('/caregiver-jobs/texas<');
+    // CNA jobs have their own all-states page; old ?role= filter links land on one of the two pages.
+    const cnaPage=await call('/cna-jobs',{},htmlAssets);
+    expect(cnaPage.status).toBe(200);
+    expect(await cnaPage.text()).toContain('<link rel="canonical" href="https://carejoys.com/cna-jobs" />');
+    expect((await call('/caregiver-jobs?role=CNA',{},htmlAssets)).headers.get('location')).toBe('/cna-jobs');
+    expect((await call('/caregiver-jobs/maryland?role=HHA',{},htmlAssets)).headers.get('location')).toBe('/caregiver-jobs/maryland');
+    // A city with no current jobs opens its state page rather than a dead end.
+    expect((await call('/cna-jobs/texas/nowhere',{},htmlAssets)).headers.get('location')).toBe('/cna-jobs/texas');
     await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-tx'").run();
   });
 });

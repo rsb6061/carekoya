@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
-import { isNationalJobsPath, jobsHubPath, parseJobsHubPath, stateForZipPrefix, usState } from './usStates';
+import { TOP_CITIES, isCnaJobsPath, isNationalJobsPath, jobsHubPath, parseJobsHubPath, stateForZipPrefix, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { payLabel, pillLabel } from './jobFormat';
 import './styles.css';
@@ -23,16 +23,15 @@ type National={total:number;page:number;pages:number;jobs:PublicCaregiverJob[];
   states:{code:string;name:string;slug:string;count:number}[];
   cities:{city:string;slug:string;state:string;stateSlug:string;count:number}[]};
 
-const ROLES=['CNA','GNA','HHA','PCA','DSP','Caregiver'];
 const NEAR_MILES=25;
 
 function employmentPills(value?:string){
   return (value||'').split(/[,;|]+/).map(v=>pillLabel(v)).filter(Boolean);
 }
 
-/** City, state or ZIP. A state or city opens its page; a ZIP lists jobs near it on /caregiver-jobs. */
-export function JobsSearch({defaultValue=''}:{defaultValue?:string}){
-  return <form className="search jobs-search" action="/caregiver-jobs" method="get" role="search">
+/** City, state or ZIP. A state or city opens its page; a ZIP lists jobs near it on /caregiver-jobs (or /cna-jobs). */
+export function JobsSearch({defaultValue='',cna=false}:{defaultValue?:string;cna?:boolean}){
+  return <form className="search jobs-search" action={cna?'/cna-jobs':'/caregiver-jobs'} method="get" role="search">
     <input name="q" defaultValue={defaultValue} placeholder="City, state or ZIP" aria-label="City, state or ZIP" autoComplete="address-level2" required />
     <button className="btn" type="submit">Search jobs</button>
   </form>;
@@ -62,10 +61,12 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
   </div>;
 }
 
-function RoleFilters({role,onChange}:{role:string;onChange:(role:string)=>void}){
-  return <div className="hub-filters" role="group" aria-label="Filter by role">
-    {['',...ROLES].map(r=><button key={r||'all'} className={'hub-filter '+(role===r?'active':'')} onClick={()=>onChange(r)}>{r||'All roles'}</button>)}
-  </div>;
+/** Two kinds of job, each with its own pages: every caregiver job, or only the ones a CNA can apply to. */
+function RoleFilters({cna,cnaHref,allHref}:{cna:boolean;cnaHref:string;allHref:string}){
+  return <nav className="hub-filters" aria-label="Job type">
+    <a className={'hub-filter '+(cna?'':'active')} href={allHref} aria-current={cna?undefined:'page'}>Caregiver</a>
+    <a className={'hub-filter '+(cna?'active':'')} href={cnaHref} aria-current={cna?'page':undefined}>CNA</a>
+  </nav>;
 }
 
 function Pager({page,pages,onChange}:{page:number;pages:number;onChange:(page:number)=>void}){
@@ -101,10 +102,12 @@ export function CaregiverJobsHub(){
 }
 
 function NationalJobsPage(){
+  const cna=isCnaJobsPath(window.location.pathname);
+  const noun=cna?'CNA jobs':'caregiver jobs';
+  const Noun=cna?'CNA jobs':'Caregiver jobs';
   const params=new URLSearchParams(window.location.search);
   const q=(params.get('q')||'').trim();
   const zip=(q.match(/^(\d{5})(?:-\d{4})?$/)||[])[1]||'';
-  const [role,setRole]=useState(params.get('role')||'');
   const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
   const [data,setData]=useState<National|null>(null);
   const [loading,setLoading]=useState(true);
@@ -113,19 +116,19 @@ function NationalJobsPage(){
   useEffect(()=>{
     setLoading(true);
     const p=new URLSearchParams({page:String(page)});
-    if(role)p.set('role',role);
+    if(cna)p.set('cna','1');
     fetch('/api/public/jobs-national?'+p.toString())
       .then(r=>r.json()).then((d:any)=>{if(Array.isArray(d?.jobs))setData(d)}).catch(()=>{}).finally(()=>setLoading(false));
-    syncQuery({q,role,page:page>1?String(page):''});
-  },[role,page]);
+    syncQuery({q,page:page>1?String(page):''});
+  },[cna,page]);
 
   useEffect(()=>{
     if(!zip)return;
     // Unknown ZIPs fall back to their state rather than the API's Maryland default.
     const p=new URLSearchParams({zip,radius:String(NEAR_MILES),limit:'50',state:stateForZipPrefix(zip)||'NONE'});
-    if(role)p.set('role',role);
+    if(cna)p.set('role','CNA');
     fetch('/api/public/caregiver-jobs?'+p.toString()).then(r=>r.json()).then((d:any)=>setNear(Array.isArray(d?.jobs)?d.jobs:[])).catch(()=>setNear([]));
-  },[zip,role]);
+  },[zip,cna]);
 
   const zipState=zip?usState(stateForZipPrefix(zip)):null;
 
@@ -134,14 +137,15 @@ function NationalJobsPage(){
     <main className="maryland-caregiver-page">
       <section className="caregiver-campaign-hero"><div className="wrap caregiver-campaign-grid">
         <div>
-          <div className="hub-breadcrumb"><a href="/">CareJoys</a> › Caregiver jobs</div>
-          <div className="modal-kicker">Caregiver jobs</div>
-          <h1>Caregiver jobs near you</h1>
-          <p>Search by city, state or ZIP. Create one free profile, resume optional, and CareJoys matches you with caregiver jobs and employers near you.</p>
-          <JobsSearch defaultValue={q}/>
-          {data&&data.states.length>0&&<div className="hub-quick-states job-tags">
-            {data.states.slice(0,8).map(s=><a className="pill" key={s.code} href={'/caregiver-jobs/'+s.slug}>{s.name}</a>)}
-          </div>}
+          <div className="hub-breadcrumb"><a href="/">CareJoys</a> › {cna?<><a href="/caregiver-jobs">Caregiver jobs</a> › CNA jobs</>:'Caregiver jobs'}</div>
+          <div className="modal-kicker">{Noun}</div>
+          <h1>{Noun} near you</h1>
+          <p>Search by city or ZIP. Create one free profile, resume optional, and CareJoys matches you with {noun} and employers near you.</p>
+          <JobsSearch defaultValue={q} cna={cna}/>
+          {/* People search by city, so the quick picks are the cities with the most CNA job searches. */}
+          <div className="hub-quick-states job-tags">
+            {TOP_CITIES.map(c=><a className="pill" key={c.state+c.slug} href={(cna?'/cna-jobs/':'/caregiver-jobs/')+c.stateSlug+'/'+c.slug}>{c.name}</a>)}
+          </div>
         </div>
         <div className="campaign-form-card" id="caregiver-profile">
           <CaregiverOnboarding referralSlug="" />
@@ -153,43 +157,44 @@ function NationalJobsPage(){
           ?<>
             <div className="section-heading"><div>
               <div className="modal-kicker">Near {zip}</div>
-              <h2>Caregiver jobs within {NEAR_MILES} miles of {zip}</h2>
+              <h2>{Noun} within {NEAR_MILES} miles of {zip}</h2>
             </div></div>
             {near===null
               ?<div className="empty"><strong>Looking for jobs near {zip}…</strong></div>
               :near.length===0
-                ?<div className="empty"><strong>No current caregiver jobs within {NEAR_MILES} miles of {zip} yet.</strong><div>{zipState?<>Try <a className="text-link" href={jobsHubPath(zipState)}>all caregiver jobs in {zipState.name}</a>, or upload</>:'Upload'} your resume above and we’ll match you as openings are confirmed.</div></div>
+                ?<div className="empty"><strong>No current {noun} within {NEAR_MILES} miles of {zip} yet.</strong><div>{zipState?<>Try <a className="text-link" href={jobsHubPath(zipState,'',cna)}>all {noun} in {zipState.name}</a>, or upload</>:'Upload'} your resume above and we’ll match you as openings are confirmed.</div></div>
                 :<JobList jobs={near}/>}
           </>
-          :<div className="empty"><strong>We couldn’t find caregiver jobs for “{q}”.</strong><div>Try a city and state like “Baltimore, MD”, a ZIP code, or pick a state below.</div></div>}
+          :<div className="empty"><strong>We couldn’t find {noun} for “{q}”.</strong><div>Try a city and state like “Baltimore, MD”, a ZIP code, or pick a state below.</div></div>}
       </div></section>}
 
       <section className="section caregiver-jobs-section" id="current-jobs"><div className="wrap">
         <div className="section-heading"><div>
           <div className="modal-kicker">Current openings</div>
-          <h2>Newest caregiver jobs</h2>
+          <h2>Newest {noun}</h2>
           <p>Open a job on CareJoys, then apply with the same reusable profile.</p>
         </div></div>
-        <RoleFilters role={role} onChange={r=>{setRole(r);setPage(1)}}/>
+        <RoleFilters cna={cna} cnaHref="/cna-jobs" allHref="/caregiver-jobs"/>
         {loading&&!data
           ?<div className="empty"><strong>Loading current openings…</strong></div>
-          :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {role||'caregiver'} jobs yet.</strong></div>}
+          :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {noun} yet.</strong></div>}
         {data&&<Pager page={data.page} pages={data.pages} onChange={setPage}/>}
       </div></section>
 
       <section className="section caregiver-jobs-section" id="cities"><div className="wrap">
         <div className="section-heading"><div>
           <div className="modal-kicker">Browse</div>
-          <h2>Caregiver jobs by city</h2>
+          <h2>{Noun} by city</h2>
           <p>{data?.total?data.total+' current opening'+(data.total===1?'':'s')+' in '+data.states.length+' state'+(data.states.length===1?'':'s')+', verified from care-employer career pages.':'Verified from care-employer career pages.'}</p>
         </div></div>
         {loading&&!data
           ?<div className="empty"><strong>Loading cities…</strong></div>
           :!data||data.states.length===0
-            ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed.</div></div>
+            ?<div className="empty"><strong>CareJoys is adding verified {noun} now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed.</div></div>
             :<>
-              {data.cities.length>0&&<div className="job-tags hub-city-tags">{data.cities.map(c=><a className="pill" key={c.state+c.slug} href={'/caregiver-jobs/'+c.stateSlug+'/'+c.slug}>{c.city}, {c.state} ({c.count})</a>)}</div>}
-              <p className="hub-other-states" id="states">By state: {data.states.map((s,i)=><span key={s.code}>{i>0&&', '}<a href={'/caregiver-jobs/'+s.slug}>{s.name}</a> ({s.count})</span>)}</p>
+              {data.cities.length>0&&<div className="job-tags hub-city-tags">{data.cities.map(c=><a className="pill" key={c.state+c.slug} href={(cna?'/cna-jobs/':'/caregiver-jobs/')+c.stateSlug+'/'+c.slug}>{c.city}, {c.state} ({c.count})</a>)}</div>}
+              <p className="hub-other-states" id="states">By state: {data.states.map((s,i)=><span key={s.code}>{i>0&&', '}<a href={(cna?'/cna-jobs/':'/caregiver-jobs/')+s.slug}>{s.name}</a> ({s.count})</span>)}</p>
+              <p className="hub-other-states">{cna?<a className="text-link" href="/caregiver-jobs">All caregiver jobs, including HHA, PCA and DSP →</a>:<a className="text-link" href="/cna-jobs">CNA jobs only →</a>}</p>
             </>}
       </div></section>
 
@@ -208,7 +213,6 @@ function StateJobsPage(){
   const citySlug=parsed?.citySlug||'';
   const cna=!!parsed?.cna;
   const params=new URLSearchParams(window.location.search);
-  const [role,setRole]=useState(params.get('role')||'');
   const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
   const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
   const [hub,setHub]=useState<Hub|null>(null);
@@ -229,14 +233,13 @@ function StateJobsPage(){
     const q=new URLSearchParams({state:state.code,page:String(page)});
     if(citySlug)q.set('city',citySlug);
     if(cna)q.set('cna','1');
-    if(role)q.set('role',role);
     fetch('/api/public/jobs-hub?'+q.toString())
       .then(r=>r.json())
       .then((data:any)=>{if(Array.isArray(data?.jobs))setHub(data)})
       .catch(()=>{})
       .finally(()=>setJobsLoading(false));
-    syncQuery({role,page:page>1?String(page):''});
-  },[referralSlug,state.code,citySlug,cna,role,page]);
+    syncQuery({page:page>1?String(page):''});
+  },[referralSlug,state.code,citySlug,cna,page]);
 
   const place=hub?.city?hub.city+', '+state.code:state.name;
   const area=hub?.metro?'the '+hub.metro.name+' area':place;
@@ -277,7 +280,7 @@ function StateJobsPage(){
           </div>
         </div>
 
-        <RoleFilters role={role} onChange={r=>{setRole(r);setPage(1)}}/>
+        <RoleFilters cna={cna} cnaHref={jobsHubPath(state,citySlug,true)} allHref={jobsHubPath(state,citySlug)}/>
 
         {jobsLoading&&!hub
           ?<div className="empty"><strong>Loading current openings…</strong></div>

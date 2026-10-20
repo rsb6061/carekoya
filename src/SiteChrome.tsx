@@ -1,5 +1,6 @@
 import { AccountLink } from './AccountLink';
 import { useCaregiverAuth } from './caregiverAuth';
+import { TOP_CITIES } from './usStates';
 
 // The one header and footer for every public page, so the nav doesn't change from page to page.
 
@@ -24,6 +25,7 @@ export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links)
     <div className="footer-brand"><strong>CareJoys</strong><span>Free caregiver career matches and job alerts.</span><span className="footer-operator">CareJoys is operated by NourishNode.</span></div>
     <nav className="footer-links">
       <a href={jobsHref}>Caregiver jobs</a>
+      <a href="/cna-jobs">CNA jobs</a>
       {showTraining&&<a href="/training-programs/maryland">Maryland training programs</a>}
       <a href="/resources/nurse-aide-registry-by-state">CNA registry by state</a>
       <a href="/pricing">For employers</a>
@@ -32,6 +34,9 @@ export function SiteFooter({jobsHref='/caregiver-jobs',showTraining=true}:Links)
       <a href="/privacy-policy">Privacy</a>
       <a href="/terms-of-service">Terms</a>
       <a href="/llms.txt">llms.txt</a>
+    </nav>
+    <nav className="footer-links footer-cities" aria-label="CNA jobs by city">
+      {TOP_CITIES.map(c=><a key={c.state+c.slug} href={'/cna-jobs/'+c.stateSlug+'/'+c.slug}>CNA jobs in {c.name}</a>)}
     </nav>
   </div></footer>;
 }
