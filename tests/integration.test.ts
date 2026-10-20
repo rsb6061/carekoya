@@ -1925,6 +1925,8 @@ describe('site monitoring', ()=>{
     // The same scraper with a borrowed Chrome user agent.
     await report({kind:'api',message:'GET /api/account returned 607',path:'/jobs/job-3'},'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
     await report({kind:'api',message:'GET /api/config did not reach CareJoys (fetch error)',path:'/jobs/job-3'});
+    // A scraper passing as a two-year-old Chrome.
+    await report({kind:'api',message:'GET /api/public/caregiver-jobs/:id did not reach CareJoys (Failed to fetch)',path:'/jobs/job-3'},'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     expect((await call('/api/client-errors',{method:'POST',headers:{'content-type':'application/json',origin:'https://evil.test'},body:'{}'})).status).toBe(403);
     const rows=(await DB.prepare('SELECT kind,message,count,first_path,last_path FROM client_errors ORDER BY kind').all()).results;
     expect(rows).toEqual([

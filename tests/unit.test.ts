@@ -2,6 +2,7 @@ import { pdfItemsText, structure } from '../src/resumeParser';
 import { hourlyPayFloor } from '../src/payPreferences';
 import { availabilityByDay, jobFit, jobConflict } from '../src/caregiverApi';
 import { describe, expect, it } from 'vitest';
+import { staleBrowser } from '../src/monitoring';
 import { classifyEmail, decodeHeader, forwardTarget, parseEmail, replyText } from '../src/inboundEmail';
 import { applicantFromEmail, intakeKeyOf, nameAndJobFromSubject } from '../src/applicantEmailIntake';
 import { localStamp } from '../src/applicantBooking';
@@ -846,5 +847,17 @@ describe('applicant emails',()=>{
     expect(waitText(185)).toBe('3 hr 5 min');
     expect(waitText(4*1440)).toBe('4 days');
     expect(waitText(null)).toBe('');
+  });
+});
+
+describe('monitoring: frozen old browsers',()=>{
+  const oct2026=Date.UTC(2026,9,20);
+  const chrome=(v:number)=>`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`;
+  it('flags Chrome and Firefox two years behind, not current ones or Safari',()=>{
+    expect(staleBrowser(chrome(120),oct2026)).toBe(true);
+    expect(staleBrowser('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',oct2026)).toBe(true);
+    expect(staleBrowser(chrome(155),oct2026)).toBe(false);
+    expect(staleBrowser(chrome(140),oct2026)).toBe(false);
+    expect(staleBrowser('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',oct2026)).toBe(false);
   });
 });

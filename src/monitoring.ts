@@ -13,6 +13,18 @@ export type MonitorEnv={DB?:DB;EMAIL?:EmailBinding;ADMIN_EMAILS?:string;ALERT_EM
 
 const clean=(v:unknown,max:number)=>typeof v==='string'?v.trim().slice(0,max):'';
 const BOT_UA=/bot|crawler|spider|crawling|headless|lightpanda|preview|monitor|curl|wget|python|node-fetch/i;
+// Chrome and Firefox ship a new major version every 4 weeks and update themselves; Chrome 120 and Firefox 121 came out in
+// Dec 2023. A browser two years (26 versions) behind is almost always a scraper with a copied user agent.
+const BROWSER_MAJOR=/(?:Chrome|Firefox)\/(\d+)\./;
+const RELEASE_BASE={major:120,at:Date.UTC(2023,11,5)};
+export function staleBrowser(ua:string,now=Date.now()){
+  const major=Number(ua.match(BROWSER_MAJOR)?.[1]||0);
+  if(!major)return false;
+  const current=RELEASE_BASE.major+Math.floor((now-RELEASE_BASE.at)/(28*86400000));
+  return major<current-26;
+}
+/** Bots, scrapers and frozen old browsers: their page views and errors are not visitors'. */
+export const notAVisitor=(ua:string,now=Date.now())=>BOT_UA.test(ua)||staleBrowser(ua,now);
 const KINDS=new Set(['error','rejection','react','api','api_slow','server']);
 // Noise that is not CareJoys' code: browser extensions, in-app browsers, email link scanners (Microsoft Safe Links'
 // "Object Not Found Matching Id"), errors the browser hides from us, and scraping browsers that pass as Chrome
@@ -37,7 +49,7 @@ const json=(body:unknown,init:ResponseInit={})=>new Response(JSON.stringify(body
 export async function recordClientError(request:Request,env:MonitorEnv){
   const done=new Response(null,{status:204});
   if(!env.DB)return done;
-  if(BOT_UA.test(request.headers.get('user-agent')||''))return done;
+  if(notAVisitor(request.headers.get('user-agent')||''))return done;
   const text=await request.text().catch(()=>'');
   if(!text||text.length>16000)return done;
   let data:Row;

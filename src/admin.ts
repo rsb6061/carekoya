@@ -2,6 +2,7 @@ import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serve
 import { employerApproval } from './employerApproval';
 import { resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
+import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
 import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
@@ -225,12 +226,11 @@ export async function adminAgencySearch(env:AdminEnv,q:string){
 export { outreachStatus };
 
 const TRACKED_EVENTS=new Set(['page_view']);
-const BOT_UA=/bot|crawler|spider|crawling|headless|lightpanda|preview|monitor|curl|wget|python|node-fetch/i;
 
 /** First-party analytics: stores the path (never the query string), referrer host and UTM tags. No cookies, IPs or user ids. */
 export async function recordAnalyticsEvent(request:Request,env:AdminEnv){
   if(!env.DB)return new Response(null,{status:204});
-  if(BOT_UA.test(request.headers.get('user-agent')||''))return new Response(null,{status:204});
+  if(notAVisitor(request.headers.get('user-agent')||''))return new Response(null,{status:204});
   const data=await request.json().catch(()=>null) as Row|null;
   const type=clean(data?.type,40);
   if(!TRACKED_EVENTS.has(type))return new Response(null,{status:204});
