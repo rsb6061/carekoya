@@ -861,3 +861,16 @@ describe('monitoring: frozen old browsers',()=>{
     expect(staleBrowser('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',oct2026)).toBe(false);
   });
 });
+
+describe('job scanning priorities', ()=>{
+  it('ranks agencies in the target cities first, in plan order, with metro suburbs included', async()=>{
+    const {sourcingRankSql,SOURCING_TARGETS}=await import('../src/sourcingPriorities');
+    const sql=sourcingRankSql('ao.state','ao.city');
+    expect(sql.startsWith("CASE WHEN ao.state='NV'")).toBe(true);
+    expect(sql).toContain("'brooklyn'");
+    expect(sql).toContain("'henderson'");
+    expect(sql.endsWith('ELSE '+SOURCING_TARGETS.length+' END')).toBe(true);
+    // Constants are written in, not bound, so the query stays under D1's 100 bound values.
+    expect(sql).not.toContain('?');
+  });
+});

@@ -3,6 +3,7 @@ import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { US_STATES, stateForZipPrefix, usState } from './usStates';
 import { detectApplyProvider } from './applyAgentRules';
+import { sourcingRankSql } from './sourcingPriorities';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -1420,6 +1421,7 @@ export async function discoverDueAgencyJobsBatch(env:FeatureEnv,limit=48){
 // Also finds sites never scanned (new imports) and odd statuses, so it reads every organization: run it hourly at most.
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
+  const rank=sourcingRankSql('ao.state','ao.city');
   const rows=await env.DB.prepare(`SELECT ${ORG_SCAN_COLUMNS}
     FROM agency_organizations ao
     LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
@@ -1437,6 +1439,8 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
     ORDER BY
       -- Sites never checked come first; a site that had nothing waits a week before another look.
       CASE WHEN scan.last_scanned_at IS NULL THEN 0 ELSE 1 END,
+      -- Then agencies in the cities closest to gaining, or losing, a CNA jobs page (sourcingPriorities.ts).
+      ${rank},
       CASE WHEN lower(COALESCE(ao.primary_careers_url,"")) LIKE "%workday%"
         OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%icims%"
         OR lower(COALESCE(ao.primary_careers_url,"")) LIKE "%paylocity%"
