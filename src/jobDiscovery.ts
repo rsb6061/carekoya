@@ -1291,7 +1291,7 @@ export async function retryFailedAgencyJobSourcesBatch(env:FeatureEnv,limit=24){
     JOIN agency_organizations ao ON ao.id=scan.organization_id
     WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
       AND scan.last_status IN ('no_job_board_found','fetch_failed','job_links_no_relevant_roles')
-      AND datetime(scan.last_scanned_at)<datetime("now","-3 days")
+      AND scan.last_scanned_at<datetime("now","-3 days")
     ORDER BY CASE scan.last_status WHEN 'job_links_no_relevant_roles' THEN 0 WHEN 'no_job_board_found' THEN 1 ELSE 2 END,
       COALESCE(scan.jobs_seen,0) DESC,scan.last_scanned_at ASC
     LIMIT ?`).bind(limit).all<Row>();
@@ -1397,10 +1397,30 @@ export async function repairJobCityBatch(env:FeatureEnv,limit=100){
 
 // A Worker invocation keeps at most six outgoing connections open, so more than six sites at once only queues them.
 const SCAN_CONCURRENCY=6;
-// offset skips sites another invocation may still be scanning, since both pick from the same ordered list.
+const ORG_SCAN_COLUMNS='ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain,scan.last_scanned_at';
+const QUIET_SCAN_STATUSES=['no_job_board_found','fetch_failed','job_links_no_relevant_roles','candidates_rejected','no_valid_source'];
+/**
+ * Sites already scanned whose next look is due: those with jobs after a day, the rest after a week. Both read
+ * agency_job_scan_state through its (last_status,last_scanned_at) index, so a run reads about as many rows as it scans.
+ * The full ordered list in discoverAgencyJobsBatch read every organization (~330k D1 rows) and ran twice every five minutes.
+ */
+async function dueRescans(env:FeatureEnv,limit:number){
+  const pick=async(statuses:string[],age:string,n:number)=>n<=0?[]:(await env.DB!.prepare(`SELECT ${ORG_SCAN_COLUMNS}
+    FROM agency_job_scan_state scan JOIN agency_organizations ao ON ao.id=scan.organization_id
+    WHERE scan.last_status IN (${statuses.map(()=>'?').join(',')}) AND scan.last_scanned_at<datetime('now',?)
+      AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0
+    ORDER BY scan.last_status,scan.last_scanned_at LIMIT ?`).bind(...statuses,age,n).all<Row>()).results||[];
+  const live=await pick(['published'],'-24 hours',limit);
+  return [...live,...await pick(QUIET_SCAN_STATUSES,'-7 days',limit-live.length)];
+}
+export async function discoverDueAgencyJobsBatch(env:FeatureEnv,limit=48){
+  if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
+  return scanOrgs(env,await dueRescans(env,limit));
+}
+// Also finds sites never scanned (new imports) and odd statuses, so it reads every organization: run it hourly at most.
 export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
   if(!env.DB)return {processed:0,seen:0,published:0,rejected:0};
-  const rows=await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.primary_domain,ao.primary_website,ao.primary_careers_url,ao.city,ao.state,ao.zip,ao.current_hiring_signal,ao.is_chain,scan.last_scanned_at
+  const rows=await env.DB.prepare(`SELECT ${ORG_SCAN_COLUMNS}
     FROM agency_organizations ao
     LEFT JOIN agency_job_scan_state scan ON scan.organization_id=ao.id
     WHERE ao.is_active=1 AND COALESCE(ao.is_test,0)=0
@@ -1428,6 +1448,9 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
       COALESCE(scan.last_scanned_at,"") ASC,
       ao.caregiver_relevance_score DESC
     LIMIT ? OFFSET ?`).bind(limit,offset).all<Row>();
+  return scanOrgs(env,rows.results||[]);
+}
+async function scanOrgs(env:FeatureEnv,orgs:Row[]){
   let seen=0,published=0,rejected=0;
   async function scanOne(org:Row){
     let result:{seen:number;published:number;rejected:number;jobLinksSeen:number;provider:string;status:string};
@@ -1444,11 +1467,8 @@ export async function discoverAgencyJobsBatch(env:FeatureEnv,limit=12,offset=0){
     ).run();
   }
   // Sites are slow to answer, so a few are scanned at once rather than one after another.
-  const orgs=rows.results||[];
   for(let i=0;i<orgs.length;i+=SCAN_CONCURRENCY)await Promise.all(orgs.slice(i,i+SCAN_CONCURRENCY).map(scanOne));
-  const statusRows=await env.DB.prepare('SELECT last_status,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published,SUM(jobs_rejected) AS jobs_rejected,SUM(job_links_seen) AS job_links_seen FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY last_status ORDER BY sources DESC').all<Row>();
-  const providerRows=await env.DB.prepare('SELECT source_provider,COUNT(*) AS sources,SUM(jobs_seen) AS jobs_seen,SUM(jobs_published) AS jobs_published FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime("now","-10 minutes") GROUP BY source_provider ORDER BY sources DESC').all<Row>();
-  return {processed:(rows.results||[]).length,seen,published,rejected,statusBreakdown:statusRows.results||[],providerBreakdown:providerRows.results||[]};
+  return {processed:orgs.length,seen,published,rejected};
 }
 
 export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){

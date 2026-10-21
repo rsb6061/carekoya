@@ -13,7 +13,7 @@ import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurs
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
-import { discoverAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
+import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
 import { ageDays, freshnessLabel, scoreCandidate, commuteRadiusMiles, serviceRadiusMiles, MAX_SERVICE_RADIUS_MILES } from './matching';
@@ -2374,10 +2374,38 @@ function withoutTestMail(env:Env):Env{
   }} as EmailBinding};
 }
 
+// Crawlers fetch the same public pages again and again, and every page runs D1 queries billed per row read (the home
+// page and the jobs hubs read tens of thousands of rows each). Responses the code already marks public are kept at the
+// edge for an hour for signed-out GETs to carejoys.com, so a repeat hit reads nothing. A request with a cookie goes
+// straight through (the home page redirects signed-in visitors), and the browser still gets the response's own max-age.
+const EDGE_CACHE_SECONDS=3600;
+const EDGE_HOST=new URL(SEO_ORIGIN).hostname;
+async function edgeCached(request:Request,ctx:WorkerCtx|undefined,handle:()=>Promise<Response>):Promise<Response>{
+  const cache=(globalThis as unknown as {caches?:{default?:Cache}}).caches?.default;
+  if(!cache||request.method!=="GET"||new URL(request.url).hostname!==EDGE_HOST||request.headers.has("cookie")||request.headers.has("authorization"))return handle();
+  const hit=await cache.match(request).catch(()=>undefined);
+  if(hit){
+    const res=new Response(hit.body,hit);
+    res.headers.set("cache-control",hit.headers.get("x-origin-cache-control")||"public,max-age=300");
+    res.headers.delete("x-origin-cache-control");
+    return res;
+  }
+  const response=await handle();
+  const cacheControl=response.headers.get("cache-control")||"";
+  if((response.status===200||response.status===404)&&/\bpublic\b/.test(cacheControl)&&!response.headers.has("set-cookie")){
+    const stored=new Response(response.clone().body,response);
+    stored.headers.set("cache-control","public,max-age="+EDGE_CACHE_SECONDS);
+    stored.headers.set("x-origin-cache-control",cacheControl);
+    const put=cache.put(request,stored).catch(()=>null);
+    if(ctx)ctx.waitUntil(put);else await put;
+  }
+  return response;
+}
+
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
     env=withoutTestMail(env);
-    try{return await handleRequest(request,env,ctx)}
+    try{return await edgeCached(request,ctx,()=>handleRequest(request,env,ctx))}
     catch(error){
       // Still the runtime's own error page, but now the exception is on record and in the next alert email.
       await recordServerError(env,request,error);
@@ -2397,14 +2425,9 @@ export default {
         await alertNewClientErrors(env).catch(error=>console.error('error alert failed',error));
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
-        await normalizeExistingJobsBatch(env,100).catch(()=>null);
-        await repairJobPayBatch(env,500).catch(()=>null);
-        await repairJobCityBatch(env,100).catch(()=>null);
-        await unpublishNonJobsBatch(env,2000).catch(()=>null);
-        // New sites before retries, and one step failing never skips the rest.
-        await discoverAgencyJobsBatch(env,48).catch(()=>null);
-        await recoverRejectedJobsBatch(env,180).catch(()=>null);
-        await retryFailedAgencyJobSourcesBatch(env,6).catch(()=>null);
+        // Only sites whose next look is due, picked through an index. D1 bills every row a query reads, and the
+        // full ordered list (discoverAgencyJobsBatch) read ~330k rows a run, so that one runs hourly below.
+        await discoverDueAgencyJobsBatch(env,48).catch(()=>null);
         return;
       }
       if(event.cron==="2,7,12,17,22,27,32,37,42,47,52,57 * * * *"){
@@ -2413,15 +2436,18 @@ export default {
         // Texts held overnight go out once the recipient's 8am arrives, plus interview reminders. No-op while SMS_ENABLED is off.
         await runCareJoysSmsJobs(env).catch(error=>console.error('sms jobs failed',error));
         await recordedSummaryRun(env,event.cron);
-        // Together with the :17 run below, agency websites are checked 120 an hour, 30 per invocation.
-        if([2,32,47].includes(new Date(event.scheduledTime??Date.now()).getUTCMinutes()))await enrichAgencyBatch(env,30);
-        // A second job crawl in its own invocation (own connections and time), past the sites the */5 run took.
-        await discoverAgencyJobsBatch(env,24,48).catch(()=>null);
         return;
       }
       if(event.cron==="17 * * * *"){
+        const hour=new Date(event.scheduledTime??Date.now());
+        // New sites (never scanned) first, then sites that failed three days ago. Both read every organization or
+        // scan row, so they run hourly rather than every five minutes.
+        await discoverAgencyJobsBatch(env,48).catch(()=>null);
+        await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
         await enrichAgencyBatch(env,30);
-        await scoreAgencyMatches(env);
+        // Rescoring reads every organization against every caregiver (~1.4M D1 rows); a new caregiver is scored on
+        // sign-up (scoreCaregiverAgainstAgencies), so every six hours is enough.
+        if(hour.getUTCHours()%6===0)await scoreAgencyMatches(env);
         await notifyAgenciesOfInterestsBatch(env,20);
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
@@ -2430,7 +2456,6 @@ export default {
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
         await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
-        const hour=new Date(event.scheduledTime??Date.now());
         if(hour.getUTCHours()===DIGEST_UTC_HOUR){
           await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
           await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
@@ -2469,6 +2494,13 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         // Saved Find caregivers searches: one email per search when new caregivers nearby match it.
         await sendTalentAlerts(env).catch(error=>console.error("talent alerts failed",error));
+        // Clean-ups for rows saved before a rule changed. Each reads all of caregiver_jobs, so once a day, not every five minutes; last, since
+        // recovering rejected jobs re-fetches their pages.
+        await normalizeExistingJobsBatch(env,100).catch(()=>null);
+        await repairJobPayBatch(env,500).catch(()=>null);
+        await repairJobCityBatch(env,100).catch(()=>null);
+        await unpublishNonJobsBatch(env,2000).catch(()=>null);
+        await recoverRejectedJobsBatch(env,180).catch(()=>null);
         return;
       }
       // A schedule none of the branches above recognised: note the exact string so a mismatch shows up in D1.
