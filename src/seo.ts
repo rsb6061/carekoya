@@ -147,8 +147,10 @@ export async function jobPageContext(env:FeatureEnv,job:Row){
   let sql=`SELECT j.id,j.title,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregiver_jobs j ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current' AND j.id!=? AND j.agency_organization_id!=?`;
   const args:unknown[]=[job.id,clean(job.agency_organization_id,100)];
+  // The state goes in even with coordinates: the box alone can't use an index, so it read every published job
+  // (~35k D1 rows) on every job page view. With it, the read stays within one state's jobs.
+  if(state){sql+=' AND j.state=?';args.push(state)}
   if(geo){const box=boundingBox(geo,25);sql+=' AND zg.lat BETWEEN ? AND ? AND zg.lng BETWEEN ? AND ?';args.push(box.minLat,box.maxLat,box.minLng,box.maxLng)}
-  else if(state){sql+=' AND j.state=?';args.push(state)}
   sql+=' ORDER BY CASE WHEN lower(j.role)=lower(?) THEN 0 ELSE 1 END,j.last_seen_at DESC LIMIT 40';args.push(role);
   const rows=(await env.DB.prepare(sql).bind(...args).all<Row>()).results||[];
   const similar=rows.map(r=>{const g=rowGeo(r);return {r,d:geo&&g?haversineMiles(geo,g):null}})
