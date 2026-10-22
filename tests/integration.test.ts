@@ -1084,6 +1084,16 @@ describe('DataForSEO pull in the Worker', ()=>{
     expect(saved.find(r=>r.name==='Agency 1')).toMatchObject({state:'VA',phone:'(804) 555-1001',website:'https://agency1.example/',rating:4.5,caregiver_match_eligible:1,is_active:1});
     expect(saved.find(r=>r.name==='Richmond Medical Supply').caregiver_match_eligible).toBe(0);
     expect(saved.find(r=>r.name==='Closed Agency').is_active).toBe(0);
+
+    // A second pull of the same listings writes nothing for the unchanged ones.
+    await DB.prepare("UPDATE agencies SET updated_at='2026-01-01 00:00:00' WHERE source='google_business' AND is_active=1").run();
+    await DB.prepare("DELETE FROM dataforseo_import_jobs").run();
+    await job('imp2','import');
+    const again=fakeApi([[listing(1),listing(2,{title:'Agency 2 Renamed'}),listing(3,{address_info:{region:'Maryland'}})],[listing(4),listing(5,{title:'Richmond Medical Supply'})]],5);
+    try{await runDataForSeoJobs(env(creds));await runDataForSeoJobs(env(creds))}finally{again.restore()}
+    const stamps=Object.fromEntries(((await DB.prepare("SELECT name,updated_at FROM agencies WHERE source='google_business' AND is_active=1").all()).results as any[]).map(r=>[r.name,r.updated_at]));
+    expect(stamps['Agency 1']).toBe('2026-01-01 00:00:00');
+    expect(stamps['Agency 2 Renamed']).not.toBe('2026-01-01 00:00:00');
   });
 
   it('a facility pull saves facilities and leaves home care listings alone', async()=>{
