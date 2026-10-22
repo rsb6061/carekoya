@@ -1,4 +1,5 @@
 import { type EmailBinding, employerMagicLinkEmail, caregiverJobInviteEmail, employerCandidateInterestedEmail, interviewConfirmedEmail } from './email';
+import { syncPostedJobsForEmployer } from './postedJobs';
 
 import { contactAllowance, lockedIntroductions } from './billing';
 import { employerPitch } from './employerPitch';
@@ -184,6 +185,7 @@ export async function startEmployerSession(env:FeatureEnv,employerId:string){
     await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) SELECT ?,organization_id,'agency_claim_verified',recipient_email,? FROM agency_teaser_tokens WHERE id=?")
       .bind(crypto.randomUUID(),JSON.stringify({employerId}),claim.id).run();
   }
+  if(pendingClaims.results?.length)await syncPostedJobsForEmployer(env.DB,employerId);
   return session;
 }
 

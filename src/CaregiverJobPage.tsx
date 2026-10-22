@@ -11,6 +11,8 @@ import './styles.css';
 type Job={
   id:string;title:string;role:string;roles?:string[];employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;description?:string;sourceUrl:string;
+  /** The agency posted this job on CareJoys, so there's no employer site to send anyone to. */
+  postedOnCareJoys?:boolean;
   datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;applyForMe?:boolean;employerOnCareJoys?:boolean;
 };
 
@@ -133,13 +135,13 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
             {externalOnly
               ?<a className="btn job-apply-primary" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Apply on {job.employerName}’s site ↗</a>
               :<button className="btn job-apply-primary" onClick={startApplying}>{applicationSent?'Applied ✓':'Apply'}</button>}
-            {!externalOnly&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
+            {!externalOnly&&!job.postedOnCareJoys&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
           </div>
           {!applicationSent&&<p className="apply-where">{externalOnly?(leaving?'Opened in a new tab. Finish your application there; this page stays here.':'Opens the employer’s application in a new tab'):'Applies through CareJoys'}</p>}
-          <div className="job-detail-source">CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</div>
+          <div className="job-detail-source">{job.postedOnCareJoys?`Posted on CareJoys by ${job.employerName}.`:<>CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</>}</div>
         </section>
 
-        {description?.lead&&<section className="section job-description-section"><h2>About this job</h2><p>{description.lead}</p>{description.bullets.length>0&&<ul className="job-description-list">{description.bullets.map((b,i)=><li key={i}>{b}</li>)}</ul>}<p className="job-summary-note">Summary written by CareJoys. See the full posting on <a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow">{job.employerName}’s site</a>.</p></section>}
+        {description?.lead&&<section className="section job-description-section"><h2>About this job</h2><p>{description.lead}</p>{description.bullets.length>0&&<ul className="job-description-list">{description.bullets.map((b,i)=><li key={i}>{b}</li>)}</ul>}{!job.postedOnCareJoys&&<p className="job-summary-note">Summary written by CareJoys. See the full posting on <a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow">{job.employerName}’s site</a>.</p>}</section>}
         {context?.payContext&&<section className="section job-description-section"><h2>Pay for {context.payContext.role} jobs in {context.payContext.state}</h2><p>The median advertised pay across {context.payContext.count} current {context.payContext.role} jobs in {context.payContext.state} is ${context.payContext.median.toFixed(2)}/hr{context.payContext.position?<>; this job is <strong>{context.payContext.position}</strong> that median.</>:'.'}</p></section>}
         {context?.employer&&<section className="section job-description-section"><h2>About {context.employer.name}</h2>
           <p>{[context.employer.providerTypes,[context.employer.city,context.employer.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</p>
@@ -152,7 +154,7 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
         {context&&context.similar.length>0&&<section className="section job-description-section"><h2>Similar caregiver jobs nearby</h2>
           <div className="jobs">{context.similar.map(j=><article className="job" key={j.id}><div><h3><a href={'/jobs/'+encodeURIComponent(j.id)}>{j.title}</a></h3><div className="meta">{[j.employerName,[j.city,j.state].filter(Boolean).join(', '),j.pay,j.distanceMiles!==null?j.distanceMiles+' mi away':''].filter(Boolean).join(' · ')}</div></div></article>)}</div>
         </section>}
-        <p className="job-detail-source"><a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow">Original employer listing ↗</a></p>
+        {!job.postedOnCareJoys&&<p className="job-detail-source"><a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow">Original employer listing ↗</a></p>}
       </div>
     </main>
 

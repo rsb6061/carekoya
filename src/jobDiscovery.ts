@@ -1201,7 +1201,8 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   for(const job of unique.values())if(await saveDiscoveredJob(env,org,job))published++;
   await reconcileOrgDuplicates(env,clean(org.id,100));
   // A chain's scan sees one rotating slice of its postings, so they get longer before counting as gone.
-  await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND datetime(last_seen_at)<datetime("now",?)').bind(org.id,chain?'-21 days':'-7 days').run();
+  // Jobs the agency posted on CareJoys aren't on its careers page; they stay up while the listing is open.
+  await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND source_provider!="carejoys" AND datetime(last_seen_at)<datetime("now",?)').bind(org.id,chain?'-21 days':'-7 days').run();
 
   const rejected=Math.max(0,unique.size-published);
   const provider=Array.from(providers).sort().join('+')||'generic';
@@ -1354,7 +1355,7 @@ export const SUSPECT_PAY_SQL='(pay_min<=0 OR pay_max<=0 OR pay_min>pay_max OR pa
 /** Unpublishes stored rows that the not-a-job rule now rejects. */
 export async function unpublishNonJobsBatch(env:FeatureEnv,limit=500){
   if(!env.DB)return {checked:0,unpublished:0};
-  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND COALESCE(publication_reason,'')!='employer_restored' AND (
+  const rows=await env.DB.prepare(`SELECT id,title,source_url,source_provider FROM caregiver_jobs WHERE is_published=1 AND COALESCE(publication_reason,'')!='employer_restored' AND source_provider!='carejoys' AND (
       source_provider='generic_html' OR lower(title) LIKE '%training%' OR lower(title) LIKE '%class%' OR lower(title) LIKE '%course%' OR lower(title) LIKE '%council%'
       OR lower(title) LIKE '%scholarship%' OR lower(title) LIKE '%tuition%' OR lower(source_url) LIKE '%training%' OR lower(source_url) LIKE '%class%' OR lower(source_url) LIKE '%course%'
     ) LIMIT ?`).bind(limit).all<Row>();
@@ -1528,7 +1529,7 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
 }
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
+  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.source_provider,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.id=? AND j.is_published=1 AND j.status="current" LIMIT 1`).bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
@@ -1541,6 +1542,8 @@ export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
     firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
     applyForMe:!!detectApplyProvider(clean(row.source_url,1000)),
-    employerOnCareJoys:!!clean(row.claimed_employer_id,120)
+    employerOnCareJoys:!!clean(row.claimed_employer_id,120),
+    // Posted by the agency on CareJoys: there's no employer site to send anyone to.
+    postedOnCareJoys:row.source_provider==='carejoys'
   }});
 }
