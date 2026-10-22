@@ -1708,7 +1708,7 @@ describe('reply-yes outreach from rebecca@', ()=>{
 describe('Rebecca\'s mail from the admin console', ()=>{
   const admin=(path:string,body?:unknown)=>call(path,body===undefined?{headers:{authorization:'Bearer t0ken'}}:{method:'POST',headers:{authorization:'Bearer t0ken','content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify(body)},{ADMIN_TOKEN:'t0ken',INBOUND_FORWARD_TO:'rebecca@gmail.test'});
   // The replies-to-hello@ tests below count every recorded message, so these leave none behind.
-  afterAll(async()=>{await DB.prepare("DELETE FROM email_messages WHERE direction='outbound' OR id IN ('em-hello-q','em-ry-proof')").run()});
+  afterAll(async()=>{await DB.prepare("DELETE FROM email_messages WHERE direction='outbound' OR id IN ('em-hello-q','em-ry-proof','em-conv-1','em-conv-ooo')").run()});
   it('saves a draft, then sends it from rebecca@ with a copy to the owner inbox', async()=>{
     const saved=await (await admin('/api/admin/mail/drafts',{to:'Owner@Tuparan.test',subject:'Checking in',text:'Hi, quick note.'})).json() as any;
     expect(saved.ok).toBe(true);
@@ -1730,6 +1730,32 @@ describe('Rebecca\'s mail from the admin console', ()=>{
     expect(sent[0]).toMatchObject({from:'Rebecca at CareJoys <hello@carejoys.com>',replyTo:'hello@carejoys.com',headers:{'In-Reply-To':'<abc123@mail.test>',References:'<abc123@mail.test>'}});
     expect((await DB.prepare("SELECT status FROM email_messages WHERE id='em-hello-q'").first() as any).status).toBe('handled');
     expect((await admin('/api/admin/mail/send',{to:'not-an-email',subject:'x',text:'y'})).status).toBe(400);
+  });
+  it('groups mail into one conversation per person, with the outreach note that started it', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,primary_contact_name,city,state,is_active) VALUES ('org-conv','org-conv','Bright Path Care, LLC','owner@brightpath.test','Lee Park','Towson','MD',1)").run();
+    await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload,created_at) VALUES ('ev-conv','org-conv','reply_yes_invite','owner@brightpath.test','{\"variant\":\"a\"}','2026-10-20 10:00:00')").run();
+    await DB.prepare("INSERT INTO email_messages(id,direction,mailbox,from_email,from_name,subject,snippet,kind,status,created_at) VALUES ('em-conv-1','inbound','rebecca@carejoys.com','Owner@BrightPath.test','Lee Park','Re: Quick question about Bright Path Care','yes','reply','new','2026-10-21 09:00:00')").run();
+    await DB.prepare("INSERT INTO email_messages(id,direction,mailbox,from_email,subject,snippet,kind,status) VALUES ('em-conv-ooo','inbound','rebecca@carejoys.com','away@elsewhere.test','Out of office','Back Monday','auto_reply','handled')").run();
+    let inbox=await (await admin('/api/admin/conversations')).json() as any;
+    let convo=inbox.conversations.find((c:any)=>c.email==='owner@brightpath.test');
+    expect(convo.needsReply).toBe(true);
+    expect(convo.messages.map((m:any)=>[m.direction,!!m.outreach])).toEqual([['outbound',true],['inbound',false]]);
+    expect(convo.messages[0].text).toContain('Hi Lee,');
+    expect(convo.messages[0].subject).toBe('Quick question about Bright Path Care');
+    expect(inbox.conversations.find((c:any)=>c.email==='away@elsewhere.test')).toBeUndefined();
+    expect(inbox.automatic.map((m:any)=>m.id)).toContain('em-conv-ooo');
+    // Answering puts Rebecca's reply in the same conversation, without the quoted original, and clears Needs reply.
+    expect((await admin('/api/admin/mail/send',{to:'owner@brightpath.test',subject:'Re: Quick question about Bright Path Care',text:'Great, setting it up.\n\nOn Lee Park wrote:\n> yes',inReplyToId:'em-conv-1'})).status).toBe(200);
+    inbox=await (await admin('/api/admin/conversations')).json() as any;
+    convo=inbox.conversations.find((c:any)=>c.email==='owner@brightpath.test');
+    expect(convo.needsReply).toBe(false);
+    expect(convo.replied).toBe(true);
+    expect(convo.messages[2]).toMatchObject({direction:'outbound',text:'Great, setting it up.'});
+    // Marking it as needing a reply and then Done round-trips.
+    await admin('/api/admin/conversations/status',{email:'owner@brightpath.test',status:'new'});
+    expect((await (await admin('/api/admin/conversations')).json() as any).conversations.find((c:any)=>c.email==='owner@brightpath.test').needsReply).toBe(true);
+    await admin('/api/admin/conversations/status',{email:'owner@brightpath.test',status:'handled'});
+    expect((await (await admin('/api/admin/conversations')).json() as any).conversations.find((c:any)=>c.email==='owner@brightpath.test').needsReply).toBe(false);
   });
 });
 

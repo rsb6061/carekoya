@@ -14,7 +14,7 @@ import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesOutreach';
-import { adminMail, adminSaveDraft, adminSendMail } from './adminMail';
+import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
@@ -2150,6 +2150,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="POST"&&inboxItem) return adminInboxUpdate(request,env,decodeURIComponent(inboxItem[1]));
       // Rebecca's replies and new emails, sent from rebecca@ by the Worker (src/adminMail.ts).
       if(request.method==="GET"&&url.pathname==="/api/admin/mail") return adminMail(env);
+      if(request.method==="GET"&&url.pathname==="/api/admin/conversations") return adminConversations(env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/conversations/status") return adminConversationStatus(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/mail/drafts") return adminSaveDraft(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/mail/send") return adminSendMail(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/reply-yes/test"){
