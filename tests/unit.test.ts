@@ -799,6 +799,9 @@ describe('inbound email',()=>{
     expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com',DB:db(['owner@gmail.test'])})).toBe('owner@gmail.test');
     expect(await forwardTarget({ADMIN_EMAILS:'hello@carejoys.com'})).toBe('');
     expect(classifyEmail(parseEmail(mail('From: a@b.test',"Please don't send anyone without a CNA."))).kind).toBe('reply');
+    expect(classifyEmail(parseEmail(mail('From: a@b.test','Stop'))).kind).toBe('unsubscribe');
+    expect(classifyEmail(parseEmail(mail('From: a@b.test','Yes'))).kind).toBe('reply');
+    expect(classifyEmail(parseEmail(mail('From: a@b.test',"Can't stop thinking about this, yes please"))).kind).toBe('reply');
   });
 });
 

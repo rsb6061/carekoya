@@ -12,6 +12,8 @@ import { isNationalJobsPath, jobsHubPath, parseJobsHubPath, slugify, usState } f
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
+import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesOutreach';
+import { adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
@@ -89,6 +91,8 @@ interface Env {
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
   /** 'openers' or 'all': re-send the new invite to agencies that got the old copy (Rebecca's call, 2026-10-19). Blank is off. */
   AGENCY_HIRING_REINVITE?: string;
+  // "reply_yes": the plain-text note from rebecca@ replaces the styled hiring invite and its re-sends (src/replyYesOutreach.ts).
+  AGENCY_OUTREACH_EMAIL?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_ID?: string;
   STRIPE_PRICE_ID_YEARLY?: string;
@@ -2136,6 +2140,16 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="GET"&&url.pathname==="/api/admin/inbox") return adminInbox(env,url);
       const inboxItem=url.pathname.match(/^\/api\/admin\/inbox\/([^/]+)$/);
       if(request.method==="POST"&&inboxItem) return adminInboxUpdate(request,env,decodeURIComponent(inboxItem[1]));
+      // Rebecca's replies and new emails, sent from rebecca@ by the Worker (src/adminMail.ts).
+      if(request.method==="GET"&&url.pathname==="/api/admin/mail") return adminMail(env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/mail/drafts") return adminSaveDraft(request,env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/mail/send") return adminSendMail(request,env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/reply-yes/test"){
+        const to=(admin.email||"").toLowerCase();
+        if(!to.includes("@"))return json({ok:false,error:"No admin email to send the test to"},{status:400});
+        try{return json({ok:true,result:await sendReplyYesTest(env,to)})}
+        catch(error){return json({ok:false,error:error instanceof Error?error.message:"Test send failed"},{status:502})}
+      }
       if(request.method==="POST"&&url.pathname==="/api/admin/sms/test") return adminSmsTest(request,env,admin.email);
       // An agency's own applicants, worked by CareJoys for the operated service (src/applicants.ts).
       if(url.pathname==="/api/admin/applicant-screening"&&(request.method==="GET"||request.method==="POST")) return adminScreening(request,env,admin.email);
@@ -2473,11 +2487,18 @@ export default {
             const sent=await sendFacilityPilotInvites(env,hour.getUTCHours()>=FACILITY_PILOT_UTC_HOUR?FACILITY_PILOT_DAILY_BATCH-pilot.today:0,pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
             pilotToday=pilot.today+(sent?.sent||0);
           }
-          // Re-sends of the new copy to agencies that got the old one come first, out of the same daily cap, while AGENCY_HIRING_REINVITE is set.
           const slice=Math.max(1,Math.ceil(cap/24));
           const resent=await hiringReinviteCounts(env);
-          const again=await sendAgencyHiringReinvites(env,Math.min(slice,cap-counts.today-resent.today-pilotToday),env.AGENCY_HIRING_REINVITE||'').catch(()=>null);
-          await sendAgencyHiringInvites(env,Math.min(slice,cap-counts.today-resent.today-(again?.sent||0)-pilotToday),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          const replyYes=await replyYesCounts(env);
+          const left=cap-counts.today-resent.today-replyYes.today-pilotToday;
+          if(String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes'){
+            // Rebecca's plain-text reply-yes note replaces the styled invite (2026-10-22). It waits for rebecca@'s routing rule.
+            if(replyYes.routingLive)await sendReplyYesBatch(env,Math.min(slice,left)).catch(error=>console.error('reply-yes outreach failed',error));
+          }else{
+            // Re-sends of the new copy to agencies that got the old one come first, out of the same daily cap, while AGENCY_HIRING_REINVITE is set.
+            const again=await sendAgencyHiringReinvites(env,Math.min(slice,left),env.AGENCY_HIRING_REINVITE||'').catch(()=>null);
+            await sendAgencyHiringInvites(env,Math.min(slice,left-(again?.sent||0)),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+          }
         }
         return;
       }

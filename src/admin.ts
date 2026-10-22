@@ -1,14 +1,15 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
-import { resetTestAgency, startTestAgency } from './agencyFeatures';
+import { humanOpen, resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
 import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
 import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
+import { replyYesCounts } from './replyYesOutreach';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -96,7 +97,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
       (SELECT COUNT(*) FROM caregivers WHERE source='legacy_carekoya' AND work_status='actively_looking' AND ${since('activation_completed_at')}) AS actively_looking`).first<Row>();
   const agencies=await db.prepare(`SELECT
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('sent_at')}) AS teasers_sent,
-      (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('opened_at')}) AS teasers_opened,
+      (SELECT COUNT(*) FROM agency_teaser_tokens t WHERE ${since('t.opened_at')} AND ${humanOpen()}) AS teasers_opened,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claim_requested_at')}) AS claims_requested,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claimed_at')}) AS claimed`).first<Row>();
   const jobApplies=await db.prepare(`SELECT event_type,COUNT(*) AS count FROM caregiver_job_apply_events WHERE ${since('created_at')} GROUP BY event_type ORDER BY count DESC`).all<Row>();
@@ -146,7 +147,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
         // Same pacing as the hourly cron in worker.ts: the daily cap spread over 24 runs.
         perHour:Math.min(hiringCap,Math.max(1,Math.ceil(hiringCap/24))),
         today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly',
-        reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')}},
+        reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')},
+        replyYes:{on:String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes',...await replyYesCounts(env as never)}},
       generalBulk:{enabled:on(env.OUTREACH_ENABLED)},
       reactivationReminders:{enabled:on(env.REACTIVATION_REMINDER_ENABLED),sent:num(reminders,'sent')},
       agencyInboxAlerts:{claimedLast24h:num(inboxAlerts,'claimed'),unclaimedLast24h:num(inboxAlerts,'unclaimed'),

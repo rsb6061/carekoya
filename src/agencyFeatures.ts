@@ -237,6 +237,11 @@ export async function scoreAgencyMatches(env:FeatureEnv){
   return {scored:asNum(result.meta?.changes)};
 }
 
+/** Link visits this soon after sending are an inbox's security scanner, not a person: 140 of the first 150 recorded opens were. */
+export const SCANNER_MINUTES=2;
+/** SQL: the token `t` was opened by a person. Also filters opens recorded before scanner visits were left out. */
+export const humanOpen=(t='t')=>`${t}.opened_at IS NOT NULL AND (${t}.sent_at IS NULL OR (julianday(${t}.opened_at)-julianday(${t}.sent_at))*1440>=${SCANNER_MINUTES})`;
+
 async function teaserRecord(env:FeatureEnv,token:string){
   if(!env.DB||!token)return null;
   const hash=await sha256Hex(token);
@@ -264,7 +269,9 @@ export async function getAgencyTeaser(url:URL,env:FeatureEnv){
   const token=clean(url.searchParams.get('token'),300);
   const row=await teaserRecord(env,token);
   if(!row)return json({ok:false,error:'This agency link is invalid or has expired.'},{status:404});
-  await env.DB!.prepare("UPDATE agency_teaser_tokens SET opened_at=COALESCE(opened_at,CURRENT_TIMESTAMP) WHERE id=?").bind(row.token_id).run();
+  // Inbox security scanners load every link within seconds of delivery; only a visit after that counts as the agency opening it.
+  await env.DB!.prepare(`UPDATE agency_teaser_tokens SET opened_at=COALESCE(opened_at,CURRENT_TIMESTAMP) WHERE id=?
+      AND (sent_at IS NULL OR datetime(sent_at)<=datetime('now','-${SCANNER_MINUTES} minutes'))`).bind(row.token_id).run();
   const previews=await candidatePreviews(env,clean(row.organization_id,100),5);
   const interests=await waitingInterestPreviews(env,clean(row.organization_id,100));
   // The agency's own openings we already list, so the page is never empty even before any caregiver matches.
@@ -586,14 +593,14 @@ export const NEW_INVITE_COPY_AT='2026-10-19 01:08:00';
 /** Unclaimed agencies that got the old invite, never re-sent, warmest first; `openersOnly` keeps it to those who opened the link. */
 const hiringReinviteEligibleSql=(openersOnly:boolean)=>`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.city,
       (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=o.id AND j.is_published=1 AND j.status='current') AS job_count,
-      EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND t.opened_at IS NOT NULL) AS opened
+      EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND ${humanOpen()}) AS opened
     FROM agency_organizations o
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       AND EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND e.event_type='hiring_needs_invite' AND datetime(e.created_at)<datetime('${NEW_INVITE_COPY_AT}'))
       AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE (e.organization_id=o.id OR lower(trim(e.recipient_email))=lower(trim(o.primary_email))) AND e.event_type IN ('hiring_needs_reinvite','hiring_needs_reinvite_failed'))
-      ${openersOnly?"AND EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND t.opened_at IS NOT NULL)":''}
+      ${openersOnly?`AND EXISTS (SELECT 1 FROM agency_teaser_tokens t WHERE t.organization_id=o.id AND ${humanOpen()})`:''}
     ORDER BY opened DESC,job_count DESC,o.id
     LIMIT ?`;
 
