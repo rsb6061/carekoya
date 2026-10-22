@@ -2464,31 +2464,12 @@ export default {
       }
       if(event.cron==="17 * * * *"){
         const hour=new Date(event.scheduledTime??Date.now());
-        // New sites (never scanned) first, then sites that failed three days ago. Both read every organization or
-        // scan row, so they run hourly rather than every five minutes.
-        await discoverAgencyJobsBatch(env,48).catch(()=>null);
-        await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
-        await enrichAgencyBatch(env,30);
-        // Rescoring reads every organization against every caregiver (~1.4M D1 rows); a new caregiver is scored on
-        // sign-up (scoreCaregiverAgainstAgencies), so every six hours is enough.
-        if(hour.getUTCHours()%6===0)await scoreAgencyMatches(env);
-        await notifyAgenciesOfInterestsBatch(env,20);
-        // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
-        await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
-        await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
-        // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
-        await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
-        // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
-        await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
-        if(hour.getUTCHours()===DIGEST_UTC_HOUR){
-          await refreshPostedJobs(env.DB!).catch(error=>console.error('posted job refresh failed',error));
-          await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
-          await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
-          await sendWeeklyApplicantReports(env,hour).catch(error=>console.error('weekly applicant report failed',error));
-        }
+        // Agency outreach goes first: the job scans below often run out the cron's time (or throw) before reaching it,
+        // which skipped about half the hourly batches.
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
-        if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true'){
+        // A failure here must not stop the scans either.
+        if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true')try{
           const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
           const counts=await hiringInviteCounts(env);
           // The facility pilot goes first, as one daily batch; agency invites get what is left of this cap. Nothing sends until FACILITY_PILOT_ENABLED=true.
@@ -2510,6 +2491,28 @@ export default {
             const again=await sendAgencyHiringReinvites(env,Math.min(slice,left),env.AGENCY_HIRING_REINVITE||'').catch(()=>null);
             await sendAgencyHiringInvites(env,Math.min(slice,left-(again?.sent||0)),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
           }
+        }catch(error){console.error('agency outreach failed',error)}
+        // New sites (never scanned) first, then sites that failed three days ago. Both read every organization or
+        // scan row, so they run hourly rather than every five minutes.
+        await discoverAgencyJobsBatch(env,48).catch(()=>null);
+        await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
+        await enrichAgencyBatch(env,30);
+        // Rescoring reads every organization against every caregiver (~1.4M D1 rows); a new caregiver is scored on
+        // sign-up (scoreCaregiverAgainstAgencies), so every six hours is enough.
+        if(hour.getUTCHours()%6===0)await scoreAgencyMatches(env);
+        await notifyAgenciesOfInterestsBatch(env,20);
+        // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
+        await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
+        await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
+        // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
+        await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
+        // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
+        await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
+        if(hour.getUTCHours()===DIGEST_UTC_HOUR){
+          await refreshPostedJobs(env.DB!).catch(error=>console.error('posted job refresh failed',error));
+          await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
+          await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
+          await sendWeeklyApplicantReports(env,hour).catch(error=>console.error('weekly applicant report failed',error));
         }
         return;
       }
