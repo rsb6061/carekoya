@@ -400,8 +400,8 @@ export function AdminConsole(){
           <Stat label="Reactivation sent" value={f.reactivation.sent}/>
           <Stat label="Opened" value={f.reactivation.opened} sub={pct(f.reactivation.opened,f.reactivation.sent)}/>
           <Stat label="Confirmed" value={f.reactivation.completed} sub={`${f.reactivation.activelyLooking} looking`}/>
-          <Stat label="Agency teasers" value={f.agencyClaims.teasersSent}/>
-          <Stat label="Teasers opened" value={f.agencyClaims.teasersOpened} sub={pct(f.agencyClaims.teasersOpened,f.agencyClaims.teasersSent)}/>
+          <Stat label="Agency invites sent" value={f.agencyClaims.teasersSent}/>
+          <Stat label="Opened by a person" value={f.agencyClaims.teasersOpened} sub={pct(f.agencyClaims.teasersOpened,f.agencyClaims.teasersSent)+' · inbox scanner visits in the first 2 minutes are left out'}/>
           <Stat label="Agencies claimed" value={f.agencyClaims.claimed} sub={`${f.agencyClaims.claimsRequested} requested`}/>
         </div>
         {data.outreach.recentRuns.length>0&&<div className="settings-card" style={{marginTop:12}}>{data.outreach.recentRuns.map(r=><div className="job-meta" key={r.created_at+r.kind}>{day(r.created_at)} · {KIND_LABELS[r.kind]||r.kind} · {r.trigger} · sent {r.sent}{r.failed?`, failed ${r.failed}`:''}</div>)}</div>}

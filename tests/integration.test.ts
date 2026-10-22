@@ -1613,6 +1613,18 @@ describe('agency hiring-needs invites', ()=>{
     expect(sent.map(m=>m.to).filter(t=>t.endsWith('@oldcopy.test'))).toEqual([]);
   });
 
+  it('an inbox scanner loading the link right after sending is not an open; a later visit is', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active) VALUES ('org-scan','org-scan','Scan Care','owner@scan.test','Towson','MD',1)").run();
+    const add=async(id:string,token:string,sentAt:string)=>DB.prepare("INSERT INTO agency_teaser_tokens(id,organization_id,token_hash,recipient_email,expires_at,sent_at) VALUES (?,?,?,'owner@scan.test',?,?)")
+      .bind(id,'org-scan',await sha256Hex(token),new Date(Date.now()+86400000).toISOString(),sentAt).run();
+    await add('tt-scan-now','scan-now',new Date().toISOString().replace('T',' ').slice(0,19));
+    await add('tt-scan-later','scan-later','2026-10-12 15:00:00');
+    expect((await call('/api/agency/teaser?token=scan-now')).status).toBe(200);
+    expect((await call('/api/agency/teaser?token=scan-later')).status).toBe(200);
+    const opened=Object.fromEntries(((await DB.prepare("SELECT id,opened_at FROM agency_teaser_tokens WHERE organization_id='org-scan'").all()).results as any[]).map(r=>[r.id,!!r.opened_at]));
+    expect(opened).toEqual({'tt-scan-now':false,'tt-scan-later':true});
+  });
+
   it('never emails a senior living facility or a chain board, even with live jobs and an email', async()=>{
     await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active,provider_kind) VALUES ('org-facility','org-facility','Oak Grove Assisted Living','jobs@oakgrove.test','Towson','MD',1,'facility')").run();
     await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-facility','org-facility','job-facility','test','https://oakgrove.test/jobs/1','CNA','CNA','Oak Grove','Towson','MD','current',1)").run();

@@ -1,6 +1,6 @@
 import { employerSession, publicFormGuard, sendEmployerMagicLink } from './serverFeatures';
 import { employerApproval } from './employerApproval';
-import { resetTestAgency, startTestAgency } from './agencyFeatures';
+import { humanOpen, resetTestAgency, startTestAgency } from './agencyFeatures';
 import { accountSession } from './accountAuth';
 import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
@@ -96,7 +96,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
       (SELECT COUNT(*) FROM caregivers WHERE source='legacy_carekoya' AND work_status='actively_looking' AND ${since('activation_completed_at')}) AS actively_looking`).first<Row>();
   const agencies=await db.prepare(`SELECT
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('sent_at')}) AS teasers_sent,
-      (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('opened_at')}) AS teasers_opened,
+      (SELECT COUNT(*) FROM agency_teaser_tokens t WHERE ${since('t.opened_at')} AND ${humanOpen()}) AS teasers_opened,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claim_requested_at')}) AS claims_requested,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claimed_at')}) AS claimed`).first<Row>();
   const jobApplies=await db.prepare(`SELECT event_type,COUNT(*) AS count FROM caregiver_job_apply_events WHERE ${since('created_at')} GROUP BY event_type ORDER BY count DESC`).all<Row>();
