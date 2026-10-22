@@ -39,7 +39,7 @@ async function fetchText(url:string,ms=7000){
     if(!res.ok)return null;
     const type=res.headers.get('content-type')||'';
     if(!type.includes('text/html')&&!type.includes('text/plain'))return null;
-    return {url:res.url,text:(await res.text()).slice(0,750000)};
+    return {url:res.url||url,text:(await res.text()).slice(0,750000)};
   }catch{return null}finally{clearTimeout(timer)}
 }
 function htmlText(html:string){
