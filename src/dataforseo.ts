@@ -6,7 +6,7 @@
 //   1. probes every state × category with a one-result request (≈ a cent each) to learn totals → "estimated"
 //      for estimate jobs, otherwise
 //   2. pages through the listings, upserting `agencies` rows as source 'google_business', and
-//   3. retires that state's Google rows this pull didn't see, then marks the job "done".
+//   3. retires that state's Google rows this pull didn't see (and that no pull has seen for 30 days), then marks the job "done".
 // Spend is tracked from DataForSEO's own reported cost; a job stops ("stopped") before passing max_cost.
 import { US_STATES, usState } from './usStates';
 
@@ -96,7 +96,11 @@ const UPSERT=`INSERT INTO agencies (
     provider_type=excluded.provider_type,organization_key=excluded.organization_key,caregiver_relevance_score=excluded.caregiver_relevance_score,
     caregiver_match_eligible=excluded.caregiver_match_eligible,source_as_of_date=excluded.source_as_of_date,google_place_id=excluded.google_place_id,
     google_cid=excluded.google_cid,google_category=excluded.google_category,rating=excluded.rating,review_count=excluded.review_count,
-    latitude=excluded.latitude,longitude=excluded.longitude,provider_kind=excluded.provider_kind,google_pull_category=excluded.google_pull_category`;
+    latitude=excluded.latitude,longitude=excluded.longitude,provider_kind=excluded.provider_kind,google_pull_category=excluded.google_pull_category
+  -- Rewrite a row only when the listing changed, it was retired, or it hasn't been marked seen for 30 days: an unchanged row
+  -- costs no D1 write. Retirement below allows for that window.
+  WHERE agencies.is_active IS NOT 1 OR agencies.last_source_sync_at IS NULL OR datetime(agencies.last_source_sync_at)<datetime('now','-30 days')
+    OR agencies.name IS NOT excluded.name OR agencies.address1 IS NOT excluded.address1 OR agencies.city IS NOT excluded.city OR agencies.state IS NOT excluded.state OR agencies.zip IS NOT excluded.zip OR agencies.phone IS NOT excluded.phone OR agencies.website IS NOT excluded.website OR agencies.source_url IS NOT excluded.source_url OR agencies.provider_type IS NOT excluded.provider_type OR agencies.organization_key IS NOT excluded.organization_key OR agencies.caregiver_relevance_score IS NOT excluded.caregiver_relevance_score OR agencies.caregiver_match_eligible IS NOT excluded.caregiver_match_eligible OR agencies.google_place_id IS NOT excluded.google_place_id OR agencies.google_cid IS NOT excluded.google_cid OR agencies.google_category IS NOT excluded.google_category OR agencies.rating IS NOT excluded.rating OR agencies.review_count IS NOT excluded.review_count OR agencies.latitude IS NOT excluded.latitude OR agencies.longitude IS NOT excluded.longitude OR agencies.provider_kind IS NOT excluded.provider_kind OR agencies.google_pull_category IS NOT excluded.google_pull_category`;
 
 async function saveAgencies(db:DB,rows:GoogleAgency[]){
   const statements=rows.map(r=>db.prepare(UPSERT).bind(
@@ -208,7 +212,7 @@ export async function runDataForSeoJobs(env:DataForSeoEnv){
       const retire=[...categories,...(categories.some(c=>DEFAULT_CATEGORIES.includes(c))?['legacy_home_care']:[])];
       await env.DB.prepare(`UPDATE agencies SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE source='google_business' AND state IN (${states.map(()=>'?').join(',')})
         AND COALESCE(google_pull_category,'legacy_home_care') IN (${retire.map(()=>'?').join(',')})
-        AND (last_source_sync_at IS NULL OR datetime(last_source_sync_at)<datetime(?))`).bind(...states,...retire,clean(job.created_at,40)).run();
+        AND (last_source_sync_at IS NULL OR datetime(last_source_sync_at)<datetime(?,'-30 days'))`).bind(...states,...retire,clean(job.created_at,40)).run();
       await updateJob(env.DB,id,{status:'done',finished_at:new Date().toISOString()});
       return {ran:true,status:'done'};
     }

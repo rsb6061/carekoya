@@ -1214,8 +1214,16 @@ function exactToken(text:string,value:string){
 }
 export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
   if(!env.DB)return {reviewed:0,recovered:0};
-  const sql="SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72 AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence','low_confidence')) ORDER BY CASE WHEN j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence') THEN 0 WHEN j.publication_reason='low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?";
+  // Jobs not yet reviewed (or changed since) come first, and among them those at agencies in the priority SEO cities.
+  const sql=`SELECT j.id,j.title,j.role,j.roles_json,j.city,j.state,j.zip,j.source_url,j.source_listing_url,j.description_text,j.confidence,j.valid_through,j.publication_reason,j.source_provider,ao.id AS org_id,ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.zip AS org_zip,ao.primary_website,ao.primary_domain
+    FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
+    WHERE j.status='current' AND j.is_published=0 AND j.confidence>=72
+      AND (j.publication_reason IS NULL OR j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence','low_confidence'))
+      AND (j.recovery_checked_at IS NULL OR j.recovery_checked_at<j.updated_at)
+    ORDER BY ${sourcingRankSql('ao.state','ao.city')},
+      CASE WHEN j.publication_reason IN ('missing_state_evidence','missing_maryland_evidence') THEN 0 WHEN j.publication_reason='low_confidence' THEN 1 ELSE 2 END,j.updated_at DESC LIMIT ?`;
   const rows=await env.DB.prepare(sql).bind(limit).all<Row>();
+  const checked=(id:unknown)=>env.DB!.prepare("UPDATE caregiver_jobs SET recovery_checked_at=CURRENT_TIMESTAMP WHERE id=?").bind(id).run();
   let recovered=0;
   for(const row of rows.results||[]){
     let title=normalizeTitle(row.title);
@@ -1233,13 +1241,13 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
       }
     }
     const cls=roleClassification(title,description);
-    if(!cls||!TARGET_ROLES.has(cls.role))continue;
+    if(!cls||!TARGET_ROLES.has(cls.role)){await checked(row.id);continue;}
     const storedConfidence=asNum(row.confidence);
     const sourceTitleRole=!!roleClassification(title,'');
     const hasExplicitHiringSignal=/(apply|application|now hiring|we are hiring|job description|employment|open position|current openings?)/i.test(sourceEvidence||description);
-    if(storedConfidence<88&&!(sourceTitleRole&&hasExplicitHiringSignal))continue;
+    if(storedConfidence<88&&!(sourceTitleRole&&hasExplicitHiringSignal)){await checked(row.id);continue;}
     const validThrough=clean(row.valid_through,80);
-    if(validThrough&&Number.isFinite(Date.parse(validThrough))&&Date.parse(validThrough)<Date.now()-86400000)continue;
+    if(validThrough&&Number.isFinite(Date.parse(validThrough))&&Date.parse(validThrough)<Date.now()-86400000){await checked(row.id);continue;}
     const currentState=normalizeState(row.state);
     const currentZip=clean(row.zip,20).match(/\b\d{5}\b/)?.[0]||'';
     const currentCity=normalizeCity(row.city);
@@ -1247,7 +1255,7 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
     const orgZip=clean(row.org_zip,20).match(/\b\d{5}\b/)?.[0]||'';
     const orgState=normalizeState(row.org_state);
     const orgKnown=usState(orgState)||usState(stateForZipPrefix(orgZip));
-    if(!orgKnown)continue;
+    if(!orgKnown){await checked(row.id);continue;}
     const st={code:orgKnown.code,name:orgKnown.name};
     const evidence=[title,description,sourceEvidence,clean(row.source_url,1000),clean(row.source_listing_url,1000),clean(row.org_name,220)].join(' ');
     let reason='';
@@ -1258,6 +1266,9 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
     if(currentKnown){
       reason='recovered_existing_location';
       state=currentKnown;
+      // A job on the agency's own site in the agency's state, with no city of its own, is at the agency's city:
+      // without one it shows on the state page but never counts toward a city page.
+      if(!city&&currentKnown===orgKnown.code&&sameOrgDomain(sourceUrl,row)){city=orgCity;zip=zip||orgZip;}
     }else if(orgZip&&exactToken(evidence,orgZip)){
       reason='recovered_exact_agency_zip';
       state=st.code;zip=zip||orgZip;city=city||orgCity;
@@ -1277,7 +1288,7 @@ export async function recoverRejectedJobsBatch(env:FeatureEnv,limit=120){
         }
       }
     }
-    if(!reason)continue;
+    if(!reason){await checked(row.id);continue;}
     const recoveredConfidence=Math.max(storedConfidence,sourceTitleRole?94:88);
     const update="UPDATE caregiver_jobs SET title=?,normalized_title=?,description_text=?,state=?,city=?,zip=?,role=?,roles_json=?,confidence=?,classifier_reason=?,is_published=1,publication_reason=?,location_source=CASE WHEN location_source IS NULL OR location_source='' THEN ? ELSE location_source END,updated_at=CURRENT_TIMESTAMP WHERE id=?";
     await env.DB.prepare(update).bind(title,title.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(),description,state,city,zip,cls.role,JSON.stringify(cls.roles||[cls.role]),recoveredConfidence,cls.reason,reason,reason,row.id).run();
