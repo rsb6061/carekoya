@@ -115,7 +115,7 @@ export async function createCheckout(request:Request,env:BillingEnv){
   // Already subscribed (or a card is failing): fix it in the portal instead of starting a second subscription.
   if(customer&&OPEN_STATUSES.has(clean(existing?.status,40))){
     try{
-      const portal=await stripe(env,'billing_portal/sessions',{customer,return_url:ORIGIN+'/app'});
+      const portal=await stripe(env,'billing_portal/sessions',{customer,return_url:ORIGIN+'/hiring'});
       return json({ok:true,url:portal.url});
     }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not open billing'},{status:502})}
   }
@@ -134,8 +134,8 @@ export async function createCheckout(request:Request,env:BillingEnv){
     'subscription_data[metadata][employer_id]':clean(employer.id,100),
     'subscription_data[metadata][plan]':operated?'operated':'hiring',
     'metadata[plan]':operated?'operated':'hiring',
-    success_url:ORIGIN+'/app?billing=success',
-    cancel_url:ORIGIN+'/app?billing=cancelled'
+    success_url:ORIGIN+'/hiring?billing=success',
+    cancel_url:ORIGIN+'/hiring?billing=cancelled'
   };
   if(customer)params.customer=customer;else params.customer_email=clean(employer.email,320);
   if(['1','true'].includes(clean(env.STRIPE_AUTOMATIC_TAX).toLowerCase())){
@@ -161,7 +161,7 @@ export async function createPortal(request:Request,env:BillingEnv){
   const customer=clean(row?.stripe_customer_id,100);
   if(!customer)return json({ok:false,error:'No subscription found'},{status:404});
   try{
-    const session=await stripe(env,'billing_portal/sessions',{customer,return_url:ORIGIN+'/app'});
+    const session=await stripe(env,'billing_portal/sessions',{customer,return_url:ORIGIN+'/hiring'});
     return json({ok:true,url:session.url});
   }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not open billing'},{status:502})}
 }

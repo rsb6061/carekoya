@@ -35,7 +35,7 @@ test('job page: a verified sign-in sends at once; a duplicate is reported, not r
   assert.equal(t.sent.length,1);
   assert.equal(t.sent[0].to,'owner@harbor.example');
   assert.match(t.sent[0].text,/Sam · GNA/);
-  assert.match(t.sent[0].text,/app\?tab=inbox/);
+  assert.match(t.sent[0].text,/hiring\?tab=inbox/);
   const second=await (await mod.sendProfileFromJobPage(req('/api/public/caregiver-jobs/job-1/interest',{method:'POST',body:{}}),t.env,'job-1',identity)).json();
   assert.equal(second.results[0].status,'already_sent');
   assert.equal(t.sent.length,1);

@@ -50,7 +50,7 @@ function ClaimPanel({agency,onDone,onClose}:{agency:AgencyResult;onDone?:(r:Clai
 function AgencyRow({agency,onClaim,busy}:{agency:AgencyResult;onClaim:(a:AgencyResult)=>void;busy?:boolean}){
   return <div className="agency-result">
     <div><strong>{agency.name}</strong><span>{[agency.city,agency.state,agency.providerTypes].filter(Boolean).join(' · ')}</span></div>
-    {agency.claimed?<span className="agency-result-claimed">Already on CareJoys · <a className="text-link" href="/app">Sign in</a></span>:
+    {agency.claimed?<span className="agency-result-claimed">Already on CareJoys · <a className="text-link" href="/hiring">Sign in</a></span>:
       <button className="btn secondary" disabled={busy} onClick={()=>onClaim(agency)}>{agency.domainMatch?'Link to my workspace':'This is my agency'}</button>}
   </div>;
 }

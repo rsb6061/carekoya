@@ -113,7 +113,7 @@ export function CandidateDetail({row:r,actions,templates,sender,disabled}:Detail
 
 /** The candidate in a right-side panel over the list, so the recruiter keeps their place. */
 export function CandidatePanel({onClose,onOpenPage,...props}:DetailProps&{onClose:()=>void;onOpenPage?:()=>void}){
-  return <Drawer label={props.row.name} pageUrl={'/app?candidate='+encodeURIComponent(props.row.id)} onOpenPage={onOpenPage} onClose={onClose}><CandidateDetail {...props}/></Drawer>;
+  return <Drawer label={props.row.name} pageUrl={'/hiring?candidate='+encodeURIComponent(props.row.id)} onOpenPage={onOpenPage} onClose={onClose}><CandidateDetail {...props}/></Drawer>;
 }
 
 /** The same candidate as its own page at /app?candidate=…, with a link a teammate can open. */

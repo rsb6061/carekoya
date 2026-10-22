@@ -60,7 +60,7 @@ export function landingPath(roles:Roles,next:string,last=''){
   const home=homePath(roles,last);
   if(!next||next==='/welcome')return home;
   if(next.startsWith('/admin')&&!roles.admin)return home;
-  // /app is honored without a workspace: it offers hiring setup to a new agency.
+  // /hiring is honored without a workspace: it offers hiring setup to a new agency.
   return next;
 }
 
@@ -156,7 +156,7 @@ export async function resetTestAccount(env:AccountEnv,email:string){
 }
 
 /** /api/login/code: a test address signs in with its code; `reset` first erases the account to repeat sign-up.
- *  With nowhere asked for, an agency test address opens /app (hiring setup) and a caregiver one opens /dashboard. */
+ *  With nowhere asked for, an agency test address opens /hiring (hiring setup) and a caregiver one opens /dashboard. */
 export async function verifyTestCode(request:Request,env:AccountEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
   const data=await request.json().catch(()=>null) as Record<string,unknown>|null;
@@ -167,7 +167,7 @@ export async function verifyTestCode(request:Request,env:AccountEnv){
   const code=normalizeCode(data?.code);
   if(!row||!code||await sha256Hex(code)!==row.code_hash)return json({ok:false,error:'That code isn’t right for this email.'},{status:400});
   if(data?.reset===true)await resetTestAccount(env,email);
-  const {headers,redirect,roles}=await completeSignIn(env,email,safeNext(data?.next)||(row.side==='caregiver'?'/dashboard':'/app'),cookie(request,LAST_DASHBOARD_COOKIE));
+  const {headers,redirect,roles}=await completeSignIn(env,email,safeNext(data?.next)||(row.side==='caregiver'?'/dashboard':'/hiring'),cookie(request,LAST_DASHBOARD_COOKIE));
   headers.set('content-type','application/json; charset=utf-8');
   return new Response(JSON.stringify({ok:true,redirect,roles}),{status:200,headers});
 }

@@ -10,7 +10,7 @@ const PUBLIC_PAGES=['/','/caregiver-jobs','/cna-jobs','/caregiver-jobs/maryland'
   '/gna-jobs/maryland','/gna-jobs/maryland/baltimore','/cna-classes/baltimore','/training-programs/maryland','/training-programs/'+TRAINING.slug,
   '/hire-caregivers','/hire-caregivers/maryland','/pricing','/about','/caregiver-resume','/resources/how-to-become-a-caregiver-in-maryland',
   '/resources/nurse-aide-registry-by-state','/privacy-policy','/terms-of-service','/login','/signup','/agent','/add-training-program',
-  '/jobs/'+JOBS.applyForMe,'/jobs/'+JOBS.external,'/school-dashboard','/dashboard','/app','/admin'];
+  '/jobs/'+JOBS.applyForMe,'/jobs/'+JOBS.external,'/school-dashboard','/dashboard','/hiring','/admin'];
 
 test.describe('@phone every public page', ()=>{
   for(const path of PUBLIC_PAGES)test(path, async({page})=>{
@@ -98,7 +98,7 @@ async function clickEveryButton(page:Page,path:string){
 const BUTTON_PAGES:{label:string;as?:{session:string};employer?:boolean;pages:string[]}[]=[
   {label:'signed out',pages:['/','/caregiver-jobs/maryland','/gna-jobs/maryland','/hire-caregivers','/pricing','/caregiver-resume','/login','/agent','/add-training-program','/jobs/'+JOBS.external]},
   {label:'caregiver',as:CAREGIVER,pages:['/dashboard','/dashboard/profile','/dashboard/profile/preview','/dashboard/settings','/jobs/'+JOBS.external]},
-  {label:'employer',as:EMPLOYER,employer:true,pages:['/app']},
+  {label:'employer',as:EMPLOYER,employer:true,pages:['/hiring']},
   {label:'admin',as:ADMIN,pages:['/admin']},
 ];
 for(const group of BUTTON_PAGES)test(`every button responds (${group.label})`, async({page})=>{
@@ -161,7 +161,7 @@ test('employer invites a caregiver, who says yes from the email and books an int
   const employer=await browser.newPage();
   const we=await watch(employer);
   await signIn(employer,EMPLOYER,true);
-  await employer.goto('/app');
+  await employer.goto('/hiring');
   await employer.getByRole('button',{name:'+ New job listing'}).click();
   const title='E2E invite CNA '+Date.now().toString(36);
   await employer.getByLabel('Job title').fill(title);
@@ -196,8 +196,12 @@ test('employer invites a caregiver, who says yes from the email and books an int
   await expect(caregiver.getByRole('heading',{name:title})).toBeVisible();
   await caregiver.getByRole('button',{name:'I’m interested'}).click();
   await expect(caregiver.getByRole('heading',{name:'Interest sent to employer'})).toBeVisible();
-  // With someone waiting on a reply, the dashboard opens on them.
-  await employer.goto('/app');
+  // With someone waiting on a reply, the Dashboard's first to-do is them, and Reply opens them in Candidates.
+  await employer.goto('/hiring');
+  const todo=employer.locator('.todo-item').first();
+  await expect(todo).toContainText(/waiting on your reply/);
+  await expect(todo).toContainText('Casey T.');
+  await todo.getByRole('button',{name:'Reply'}).click();
   await expect(employer.getByRole('button',{name:/^Needs your reply/})).toHaveAttribute('aria-pressed','true');
   await expect(employer.locator('.match-tile',{hasText:'Casey T.'})).toBeVisible();
   clean(we);
@@ -227,7 +231,7 @@ test('agency opens its emailed link and one click opens its dashboard', async({p
   const waiting=/to work with you/.test(await page.locator('h1').innerText());
   if(!waiting){await page.getByRole('button',{name:'CNA',exact:true}).click();await page.getByRole('button',{name:'Nights'}).click();}
   await page.getByRole('button',{name:waiting?'Open my inbox':'Start hiring faster'}).click();
-  await expect(page).toHaveURL(waiting?/\/app\?tab=candidates/:/\/app\?tab=openings/);
+  await expect(page).toHaveURL(waiting?/\/hiring\?tab=candidates/:/\/hiring$/);
   if(waiting)await expect(page.locator('.match-tile').first()).toBeVisible();
   else await expect(page.getByRole('heading',{name:'Get set up'})).toBeVisible();
   clean(w);

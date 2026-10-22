@@ -166,7 +166,7 @@ export const FUNNEL_STEPS:Step[]=[
   {key:'apply_for_me_started',label:'"Apply for me" started',table:'apply_agent_sessions',time:'started_at',where:'1=1',after:'page_views'},
   {key:'apply_for_me_finished',label:'"Apply for me" reaching the employer (submitted or handed over)',table:'apply_agent_sessions',time:'started_at',
     where:"status IN ('submitted','handoff_required','needs_answers','already_applied')",after:'apply_for_me_started'},
-  {key:'workspace_visits',label:'Employer workspace visits',table:'analytics_events',time:'created_at',where:"event_type='page_view' AND (path='/app' OR path LIKE '/app/%')",after:'page_views'},
+  {key:'workspace_visits',label:'Employer workspace visits',table:'analytics_events',time:'created_at',where:"event_type='page_view' AND (path IN ('/hiring','/app') OR path LIKE '/hiring/%' OR path LIKE '/app/%')",after:'page_views'},
   {key:'employer_signups',label:'Employer sign-ups',table:'employer_leads',time:'created_at',
     where:"COALESCE(hiring_notes,'')!='CareJoys admin account' AND "+NOT_TEST_EMAIL('email'),after:'page_views'},
   {key:'openings_created',label:'Openings created',table:'openings',time:'created_at',where:'1=1',after:'workspace_visits'},

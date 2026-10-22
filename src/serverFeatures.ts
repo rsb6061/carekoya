@@ -156,7 +156,7 @@ export async function verifyEmployerMagicLink(request:Request,env:FeatureEnv,app
   const used=await env.DB.prepare("UPDATE employer_auth_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=? AND used_at IS NULL").bind(record.id).run();
   if(asNumber(used.meta?.changes)!==1)return json({ok:false,error:'This sign-in link has already been used.'},{status:400});
   const session=await startEmployerSession(env,record.employer_id);
-  let redirect=clean(record.redirect_path,500)||'/app';
+  let redirect=clean(record.redirect_path,500)||'/hiring';
   if(record.pending_intake&&applyPendingIntake){
     try{redirect=(await applyPendingIntake(record.employer_id,JSON.parse(record.pending_intake)))||redirect}
     catch(error){console.error('pending intake failed',error)}
@@ -415,7 +415,7 @@ async function applyCandidateResponse(env:FeatureEnv,row:Record<string,unknown>,
         caregiverEmail:locked?'':clean(row.email,320),
         title:clean(row.title,200),
         location,
-        appLink:'https://carejoys.com/app',
+        appLink:'https://carejoys.com/hiring',
         hasInterviewSlots:!locked&&asNumber(slotCount?.count)>0
       });
       try{

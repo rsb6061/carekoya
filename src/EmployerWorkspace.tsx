@@ -8,7 +8,7 @@ import { AgencyJobsPanel, AgencySuggestions } from './AgencyFinder';
 import { JobsWidgetCard } from './JobsWidgetCard';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
-import { MatchList, needsReply, type DecideStage, type MatchRow } from './MatchList';
+import { MatchList, needsReply, when, type DecideStage, type MatchRow } from './MatchList';
 import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, type InboxItem } from './candidates';
 import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
 import { TalentPage, TalentPanel, reachableOpenings, type TalentActions } from './TalentPanel';
@@ -36,22 +36,38 @@ type StageFilter=''|'reply'|'contacted'|'interview'|'hired';
 const STAGE_FILTERS:[Exclude<StageFilter,''>,string,(r:MatchRow)=>boolean][]=[
   ['reply','Needs your reply',needsReply],['contacted','Invited · waiting',r=>r.stage==='contacted'],
   ['interview','Interview',r=>r.stage==='interview'],['hired','Hired',r=>r.stage==='hired']];
-const SETUP_DISMISSED_KEY='cj-workspace-setup-dismissed';
 type SetupStep={title:string;done:boolean;action:string;onAction:()=>void;disabled?:boolean;detail:string};
-/** The first-run checklist on Jobs. Done steps are ticked; the next undone one carries its button. */
-function SetupChecklist({steps,onDismiss}:{steps:SetupStep[];onDismiss:()=>void}){
-  const done=steps.filter(st=>st.done).length;
-  return <div className="settings-card setup-card workspace-setup">
-    <div className="section-heading"><div><h3>Get set up</h3><p className="job-meta">{done} of {steps.length} done. About five minutes in all.</p></div><button type="button" className="text-button" onClick={onDismiss}>Hide</button></div>
-    <ol className="setup-steps">
-      {steps.map((st,i)=><li className={'setup-step'+(st.done?' done':'')} key={st.title}>
-        <span className="setup-step-mark" aria-hidden="true">{st.done?'✓':i+1}</span>
-        <div><strong>{st.title}{st.done?<small> · done</small>:null}</strong><p className="job-meta">{st.detail}</p>
-          {!st.done&&<button type="button" className="button secondary" onClick={st.onAction} disabled={st.disabled}>{st.action}</button>}</div>
-      </li>)}
-    </ol>
+/** First-run setup on the Dashboard: one tile per step still to do. A finished step drops out, and the row goes once all are done. */
+function SetupTiles({steps}:{steps:SetupStep[]}){
+  const left=steps.filter(st=>!st.done);
+  if(!left.length)return null;
+  return <div className="setup-tiles-block">
+    <div className="section-heading"><h2>Get set up</h2><p className="job-meta">{steps.length-left.length} of {steps.length} done. About five minutes in all.</p></div>
+    <div className="setup-tiles">
+      {left.map(st=><div className="settings-card setup-tile" key={st.title}>
+        <span className="setup-step-mark" aria-hidden="true">{steps.indexOf(st)+1}</span>
+        <h3>{st.title}</h3>
+        <p className="job-meta">{st.detail}</p>
+        <button type="button" className="button secondary" onClick={st.onAction} disabled={st.disabled}>{st.action}</button>
+      </div>)}
+    </div>
   </div>;
 }
+type Todo={key:string;title:string;lines:string[];action:string;onAction:()=>void};
+/** The Dashboard's to-do list, most urgent first: who is waiting on the agency, then what's coming up, then who to invite. */
+function TodoList({todos,onListings}:{todos:Todo[];onListings:()=>void}){
+  return <div className="todo-block">
+    <div className="section-heading"><h2>To do</h2></div>
+    {todos.length?<div className="todo-list">{todos.map(t=><div className="settings-card todo-item" key={t.key}>
+      <div><h3>{t.title}</h3>{t.lines.map(l=><p className="job-meta" key={l}>{l}</p>)}</div>
+      <button type="button" className="button secondary" onClick={t.onAction}>{t.action}</button>
+    </div>)}</div>
+    :<div className="empty"><strong>You’re all caught up.</strong><div>New applicants, replies and interviews show up here.</div><div className="empty-actions"><button type="button" className="button secondary" onClick={onListings}>See your job listings</button></div></div>}
+  </div>;
+}
+const plural=(n:number,one:string,many=one+'s')=>n+' '+(n===1?one:many);
+const firstNames=(names:string[])=>names.slice(0,3).join(', ')+(names.length>3?' and '+(names.length-3)+' more':'');
+type ApplicantSummary={id:string;name:string;stage:string;showUp?:{interviewAt?:string}};
 /** This week's invitations against the workspace's cap, when the server sends one. */
 type InviteAllowance={used:number;limit:number};
 // Home care roles first for agencies, assisted living roles first for communities.
@@ -71,7 +87,7 @@ type SessionEmployer={id:string;companyName:string;contactName:string;email:stri
 /** Puts the view shown in the address bar, so a copied link opens the same page and job. */
 function showUrl(params:Record<string,string>){
   const q=new URLSearchParams(Object.entries(params).filter(([,v])=>v));
-  window.history.replaceState(null,'','/app'+(q.toString()?'?'+q.toString():''));
+  window.history.replaceState(null,'','/hiring'+(q.toString()?'?'+q.toString():''));
 }
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
@@ -123,22 +139,19 @@ export function EmployerWorkspace(){
   const [talentJobId,setTalentJobId]=useState(()=>{const q=new URLSearchParams(window.location.search);return q.get('tab')==='talent'?q.get('job')||'':''});
   const [candidateJobId,setCandidateJobId]=useState(()=>{const q=new URLSearchParams(window.location.search);return q.get('tab')==='candidates'?q.get('job')||'':''});
   const searchedJob=useRef('');
-  // A plain /app opens on Candidates → Needs your reply when someone is waiting; a link to a page opens that page.
-  const linkedPage=useRef(['tab','candidate','talent','opening'].some(k=>new URLSearchParams(window.location.search).has(k)));
-  const defaultPicked=useRef(false);
   const [firstLoadDone,setFirstLoadDone]=useState(false);
   const [inviteAllowance,setInviteAllowance]=useState<InviteAllowance|null>(null);
   const [agencyNetwork,setAgencyNetwork]=useState<AgencyNetwork>({agency:null});
-  // ?tab=jobs was the old Jobs & widget tab: the widget now lives in Settings, the crawled jobs under Job Listings.
-  const [tab,setTab]=useState<'openings'|'talent'|'pipeline'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||t==='applicants'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'||t==='jobs'?'settings':'openings'});
+  // A plain /hiring opens the Dashboard. ?tab=jobs was the old Jobs & widget tab: the widget now lives in Settings, the crawled jobs under Job Listings.
+  const [tab,setTab]=useState<'home'|'openings'|'talent'|'pipeline'|'plan'|'settings'>(()=>{const q=new URLSearchParams(window.location.search),t=q.get('tab');return t==='inbox'||t==='candidates'||t==='applicants'||q.get('candidate')?'pipeline':t==='plan'?'plan':t==='talent'?'talent':t==='settings'||t==='jobs'?'settings':t==='openings'?'openings':'home'});
   // Candidates shows one source at a time: people talking to the agency through CareJoys, or applicants from its own job posts (?tab=applicants, or ?source=posts).
   const [candidateSource,setCandidateSource]=useState<'carejoys'|'posts'>(()=>{const q=new URLSearchParams(window.location.search);return q.get('tab')==='applicants'||q.get('source')==='posts'?'posts':'carejoys'});
   // How many of the agency's own applicants (operated service) are on the list. The source switch shows once there are any, or once the agency is claimed.
   const [applicantCount,setApplicantCount]=useState(0);
   const hasApplicants=applicantCount>0;
+  const [applicantList,setApplicantList]=useState<ApplicantSummary[]>([]);
   // Settings scrolls to the applicant cards when opened from the setup checklist or the empty applicant list.
   const [settingsFocus,setSettingsFocus]=useState(()=>new URLSearchParams(window.location.search).get('tab')==='jobs'?'widget':'');
-  const [setupDismissed,setSetupDismissed]=useState(()=>{try{return localStorage.getItem(SETUP_DISMISSED_KEY)==='1'}catch{return false}});
   const [applications,setApplications]=useState<InboxItem[]>([]);
   const [licenseChecks,setLicenseChecks]=useState<Record<string,LicenseCheck>>({});
   const [loading,setLoading]=useState(false);
@@ -198,10 +211,6 @@ export function EmployerWorkspace(){
       setAgencyNetwork(network);
       const apps=network.agency&&data.approval?.approved!==false?(await api<{items:InboxItem[]}>('/api/agency/inbox').catch(()=>({items:[]}))).items||[]:[];
       setApplications(apps);
-      if(!defaultPicked.current){
-        defaultPicked.current=true;
-        if(!linkedPage.current&&mergeCandidates(p.pipeline||[],apps).some(needsReply)){setTab('pipeline');setStageFilter('reply')}
-      }
       setLicenseChecks((await api<{checks:Record<string,LicenseCheck>}>('/api/license-checks').catch(()=>({checks:{}}))).checks||{});
       setBilling(await api<any>('/api/billing').catch(()=>null));
       setSavedTemplates((await api<{templates:EmailTemplate[]}>('/api/email-templates').catch(()=>({templates:[]}))).templates||[]);
@@ -217,7 +226,7 @@ export function EmployerWorkspace(){
   useEffect(()=>{if(session)void refreshWorkspace(session.id)},[session?.id]);
   useEffect(()=>{
     if(!session)return;
-    fetch('/api/workspace/applicants',{credentials:'include'}).then(r=>r.ok?r.json():null).then((d:{applicants?:unknown[]}|null)=>setApplicantCount(d?.applicants?.length||0)).catch(()=>{});
+    fetch('/api/workspace/applicants',{credentials:'include'}).then(r=>r.ok?r.json():null).then((d:{applicants?:ApplicantSummary[]}|null)=>{setApplicantList(d?.applicants||[]);setApplicantCount(d?.applicants?.length||0)}).catch(()=>{});
   },[session?.id]);
 
   useEffect(()=>{
@@ -227,7 +236,7 @@ export function EmployerWorkspace(){
     const shouldMatch=params.get('match')==='1';
     if(!openingId||!shouldMatch||!openings.some(o=>o.id===openingId))return;
     intakeHandled.current=true;
-    window.history.replaceState({},'', '/app');
+    window.history.replaceState({},'', '/hiring');
     void runMatch(openingId);
   },[session?.id,openings.length,approvalKnown,pendingApproval]);
 
@@ -314,7 +323,7 @@ export function EmployerWorkspace(){
     setCandidateSource(source);
     showUrl({tab:'candidates',job:jobId,source:source==='posts'?'posts':''});
   }
-  function openTab(next:'openings'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next})}
+  function openTab(next:'home'|'openings'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next==='home'?'':next})}
   /** Settings, scrolled to the applicant forwarding, upload and screening cards. */
   function openApplicantSettings(){openTab('settings');setSettingsFocus('applicants')}
   /** Candidates from one source; the URL keeps the source so a reload lands on the same list. */
@@ -429,7 +438,7 @@ export function EmployerWorkspace(){
   }
 
   function closeCandidatePage(){
-    window.history.pushState(null,'','/app?tab=candidates');
+    window.history.pushState(null,'','/hiring?tab=candidates');
     setPageRowId('');setTab('pipeline');
   }
   useEffect(()=>{
@@ -521,8 +530,20 @@ export function EmployerWorkspace(){
     {title:'Add interview times',done:hasSlots,action:'Add times',onAction:()=>{if(openOpenings[0])void openInterviewSlots(openOpenings[0])},disabled:openOpenings.length===0,detail:'A few 30-minute slots a week. A caregiver who says yes books one straight away.'},
     ...(agencyNetwork.agency?[{title:'Forward your applicants',done:hasApplicants,action:'Set up forwarding',onAction:openApplicantSettings,detail:'Point Indeed and your website applicants at your CareJoys address so each one is texted and screened.'}]:[]),
   ];
-  const showSetup=!setupDismissed&&setupSteps.some(st=>!st.done);
-  function dismissSetup(){setSetupDismissed(true);try{localStorage.setItem(SETUP_DISMISSED_KEY,'1')}catch{/* private mode */}}
+  /** Candidates from the agency's own job posts, on the list the Dashboard links to. */
+  function openPosts(){openCandidates();pickCandidateSource('posts')}
+  const upcoming=everyone.filter(p=>p.stage==='interview'&&p.interview_at&&Date.parse(p.interview_at)>Date.now()).sort((a,b)=>Date.parse(a.interview_at!)-Date.parse(b.interview_at!));
+  const upcomingApplicants=applicantList.filter(a=>a.showUp?.interviewAt&&Date.parse(a.showUp.interviewAt)>Date.now()).sort((a,b)=>Date.parse(a.showUp!.interviewAt!)-Date.parse(b.showUp!.interviewAt!));
+  const newApplicants=applicantList.filter(a=>a.stage==='new');
+  const suggestedJobs=pendingApproval?[]:openJobs.map(o=>({job:o,n:suggestedFor(o.id).length})).filter(j=>j.n>0).sort((a,b)=>b.n-a.n);
+  const suggestedTotal=suggestedJobs.reduce((sum,j)=>sum+j.n,0);
+  const todos:Todo[]=[
+    ...(waitingReply.length?[{key:'reply',title:plural(waitingReply.length,'caregiver')+' waiting on your reply',lines:[firstNames(waitingReply.map(r=>r.name+(r.title?' for '+r.title:'')))],action:'Reply',onAction:()=>openCandidates('','reply')}]:[]),
+    ...(upcoming.length?[{key:'interviews',title:plural(upcoming.length,'interview')+' coming up',lines:upcoming.slice(0,3).map(r=>r.name+' · '+when(r.interview_at)+(r.title?' · '+r.title:'')),action:'See interviews',onAction:()=>openCandidates('','interview')}]:[]),
+    ...(upcomingApplicants.length?[{key:'applicant-interviews',title:plural(upcomingApplicants.length,'applicant interview')+' coming up',lines:upcomingApplicants.slice(0,3).map(a=>a.name+' · '+when(a.showUp!.interviewAt)),action:'See applicants',onAction:openPosts}]:[]),
+    ...(newApplicants.length?[{key:'applicants',title:plural(newApplicants.length,'new applicant')+' from your job posts',lines:[firstNames(newApplicants.map(a=>a.name))],action:'See applicants',onAction:openPosts}]:[]),
+    ...(suggestedTotal?[{key:'suggested',title:plural(suggestedTotal,'suggested caregiver')+' to invite',lines:suggestedJobs.slice(0,3).map(j=>j.n+' for '+j.job.title),action:'Find caregivers',onAction:()=>openFind(suggestedJobs[0].job.id)}]:[]),
+  ];
   const closedOpenings=openings.filter(o=>o.status==='closed');
   const templates=useMemo(()=>mergeTemplates(savedTemplates),[savedTemplates]);
   async function checkLicense(row:MatchRow,result:LicenseCheck['result']|''){
@@ -550,7 +571,9 @@ export function EmployerWorkspace(){
   const homeZip=String(workspace?.zip||session?.zip||'').trim().slice(0,5);
   const sender={company:workspace?.company_name||session?.companyName||'',contactName:session?.contactName||''};
   const shownTab=pageRowId||talentPageId?'':tab;
-  function leavePage(){if(pageRowId||talentPageId){window.history.pushState(null,'','/app');setPageRowId('');setTalentPageId('')}}
+  const company=workspace?.company_name||session?.companyName||'Your agency';
+  const pageTitle=pageRowId?'Candidates':talentPageId?'Find caregivers':{home:'Dashboard',openings:'Job Listings',pipeline:'Candidates',talent:'Find caregivers',plan:'Your plan',settings:'Settings'}[tab];
+  function leavePage(){if(pageRowId||talentPageId){window.history.pushState(null,'','/hiring');setPageRowId('');setTalentPageId('')}}
   const panelRow=everyone.find(p=>p.id===panelRowId)||null;
   const pageRow=everyone.find(p=>p.id===pageRowId)||null;
 
@@ -568,7 +591,8 @@ export function EmployerWorkspace(){
 
     <main className="app-wrap app-content dash-layout">
      <nav className="dash-sidenav" aria-label="Workspace">
-      <div className="dash-sidenav-label">Hiring</div>
+      <div className="dash-sidenav-org">{company}</div>
+      <button className={'dash-sidenav-item '+(shownTab==='home'?'active':'')} onClick={()=>openTab('home')}>Dashboard</button>
       <button className={'dash-sidenav-item '+(tab==='openings'?'active':'')} onClick={()=>openTab('openings')}>Job Listings</button>
       <button className={'dash-sidenav-item '+(tab==='pipeline'?'active':'')} onClick={()=>openCandidates()}>Candidates{waitingReply.length?` (${waitingReply.length} new)`:''}</button>
       <button className={'dash-sidenav-item '+(tab==='talent'?'active':'')} onClick={()=>openFind()} disabled={pendingApproval} title={pendingApproval?'Available after approval':undefined}>Find caregivers</button>
@@ -577,7 +601,7 @@ export function EmployerWorkspace(){
      </nav>
      <div className="dash-main-col">
       <section className="page-head page-head-row">
-        <div><h1>{workspace?.company_name||session.companyName||'Recruiting workspace'}</h1></div>
+        <div><div className="page-org">{company}</div><h1>{pageTitle}</h1></div>
         <div className="header-action"><button className="button" onClick={()=>openOpeningForm(null)}>+ New job listing</button></div>
       </section>
 
@@ -594,11 +618,14 @@ export function EmployerWorkspace(){
       {talentPageId&&<TalentPage id={talentPageId} zip={homeZip} actions={talentActions} onBack={()=>openFind()}/>}
 
 
-      {shownTab==='openings'&&<section className="section-block">
-        <div className="section-heading"><h2>Job Listings</h2></div>
+      {shownTab==='home'&&<section className="section-block dashboard-home">
         {results.invited+results.applied>0&&<p className="results-line" role="status"><strong>Your results on CareJoys:</strong> {[results.applied?results.applied+' applied':'',results.invited?results.invited+' invited · '+results.yes+' said yes':'',results.hired+' hired'].filter(Boolean).join(' · ')}</p>}
-        {showSetup&&<SetupChecklist steps={setupSteps} onDismiss={dismissSetup}/>}
-        {openings.length===0?(!showSetup&&<div className="empty"><strong>No job listings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create job listing</button></div></div>):
+        <SetupTiles steps={setupSteps}/>
+        <TodoList todos={todos} onListings={()=>openTab('openings')}/>
+      </section>}
+
+      {shownTab==='openings'&&<section className="section-block">
+        {openings.length===0?(<div className="empty"><strong>No job listings yet.</strong><div>Add the first job you want CareJoys to recruit for.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openOpeningForm(null)}>Create job listing</button></div></div>):
         <>{openOpenings.length===0&&<div className="empty"><strong>No open roles.</strong><div>Reopen one below or add a new job listing.</div></div>}
         <div className="job-list">{openOpenings.map((o,i)=><OpeningCard key={o.id} opening={o} tone={cardTone(i)} rows={everyone.filter(p=>p.opening_id===o.id)} suggested={suggestedFor(o.id).length} pendingApproval={pendingApproval}
           onFind={()=>void runMatch(o.id)} onCandidates={()=>openCandidates(o.id)} onSlots={()=>void openInterviewSlots(o)} onEdit={()=>openOpeningForm(o)} onClose={()=>void setOpeningStatus(o,'closed')}/>)}</div>
@@ -611,7 +638,6 @@ export function EmployerWorkspace(){
       </section>}
 
       {(billing?.enabled||billing?.operated?.available)&&shownTab==='plan'&&billing&&<section className="section-block plan-section">
-        <div className="section-heading"><h2>Your plan</h2></div>
         {billing.plan==='operated'
           ?<><p className="plan-line"><strong>CareJoys Pro</strong> · CareJoys works your applicants, with unlimited caregiver introductions.</p><div className="plan-actions"><button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Manage billing</button></div></>
           :billing.subscribed
@@ -639,9 +665,7 @@ export function EmployerWorkspace(){
             <button className="text-button" onClick={()=>void openInterviewSlots(candidateJob)}>{Number(candidateJob.available_interview_slots||0)>0?'Manage interview times ('+candidateJob.available_interview_slots+')':'Add interview times (optional)'}</button>
             {candidateJob.status==='open'&&!pendingApproval&&<button className="text-button" onClick={()=>openFind(candidateJob.id)}>Find caregivers for this job</button>}
           </div>
-        </div>:<div className="section-heading">
-          <h2>All candidates</h2>
-        </div>}
+        </div>:null}
         {!candidateJob&&(agencyNetwork.agency||hasApplicants)&&<div className="candidate-sources" role="group" aria-label="Candidates from">
           <button type="button" className={'chip'+(candidateSource==='carejoys'?' on':'')} aria-pressed={candidateSource==='carejoys'} onClick={()=>pickCandidateSource('carejoys')}>From CareJoys <strong>{viewCounts.active}</strong></button>
           <button type="button" className={'chip'+(candidateSource==='posts'?' on':'')} aria-pressed={candidateSource==='posts'} onClick={()=>pickCandidateSource('posts')}>From your job posts <strong>{applicantCount}</strong></button>
@@ -662,7 +686,6 @@ export function EmployerWorkspace(){
       </section>}
 
       {shownTab==='talent'&&<section className="section-block">
-        <div className="section-heading"><h2>Find caregivers</h2></div>
         {!talentJob?<div className="empty"><div className="empty-actions"><button className="button" onClick={()=>openOpeningForm(null)}>Add a job listing</button></div></div>:<>
         <div className="talent-job-picker">
           <label>Finding caregivers for <select aria-label="Job listing" value={talentJob.id} onChange={e=>void runMatch(e.target.value)}>{openJobs.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label>
@@ -700,14 +723,14 @@ export function EmployerWorkspace(){
         </>}
       </section>}
 
-      {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='openings'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
+      {!loading&&workspace&&pendingApproval&&!agencyNetwork.agency&&shownTab==='home'&&<AgencySuggestions onLinked={()=>void refreshWorkspace()}/>}
 
       {shownTab==='settings'&&<WorkspaceSettings agency={!!agencyNetwork.agency} applicants={agencyNetwork.agency||hasApplicants?<ApplicantIntake base="/api/workspace/applicants" section="setup" onCount={setApplicantCount}/>:null} widget={agencyNetwork.agency?<JobsWidgetCard agencyId={agencyNetwork.agency.id}/>:null} focus={settingsFocus} homeAlertQuery={homeZip&&!pendingApproval?talentParams({...EMPTY_FILTERS,zip:homeZip}).toString():''} onOpenTemplates={()=>setShowTemplates(true)}/>}
 
       {panelRow&&!pageRowId&&<CandidatePanel row={panelRow} actions={candidateActions} templates={templates} sender={sender} disabled={pendingApproval} onClose={()=>setPanelRowId('')}
-        onOpenPage={()=>{window.history.pushState(null,'','/app?candidate='+encodeURIComponent(panelRow.id));setPageRowId(panelRow.id);setPanelRowId('');window.scrollTo(0,0)}}/>}
+        onOpenPage={()=>{window.history.pushState(null,'','/hiring?candidate='+encodeURIComponent(panelRow.id));setPageRowId(panelRow.id);setPanelRowId('');window.scrollTo(0,0)}}/>}
       {talentPanel&&!talentPageId&&<TalentPanel candidate={talentPanel} actions={talentActions} onClose={()=>setTalentPanelId('')}
-        onOpenPage={()=>{window.history.pushState(null,'','/app?talent='+encodeURIComponent(talentPanel.id));setTalentPageId(talentPanel.id);setTalentPanelId('');window.scrollTo(0,0)}}/>}
+        onOpenPage={()=>{window.history.pushState(null,'','/hiring?talent='+encodeURIComponent(talentPanel.id));setTalentPageId(talentPanel.id);setTalentPanelId('');window.scrollTo(0,0)}}/>}
       {showTemplates&&<EmailTemplatesModal templates={templates} onSave={saveTemplate} onDelete={deleteTemplate} onClose={()=>setShowTemplates(false)}/>}
       {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} serviceArea={workspace?.employer_type!=='assisted_living'} pendingApproval={pendingApproval} postsJobPage={!!agencyNetwork.agency} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
 

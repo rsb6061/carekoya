@@ -622,11 +622,23 @@ describe('site-owner tags', ()=>{
     expect(html).toContain('"clarity","script","abc123xyz"');
   });
   it('never loads Clarity on signed-in pages', async()=>{
-    for(const path of ['/dashboard','/admin','/app']){
+    for(const path of ['/dashboard','/admin','/hiring']){
       const html=await (await call(path,{},{...htmlAssets,...ids})).text();
       expect(html).not.toContain('clarity.ms');
       expect(html).toContain('google-site-verification');
     }
+  });
+});
+
+describe('agency workspace address', ()=>{
+  it('moves /app links, including the ones in emails already sent, to /hiring', async()=>{
+    for(const [from,to] of [['/app','/hiring'],['/app?tab=candidates&source=posts','/hiring?tab=candidates&source=posts'],['/app/x','/hiring/x']]){
+      const res=await call(from,{redirect:'manual'});
+      expect(res.status).toBe(301);
+      expect(new URL(res.headers.get('location')!).pathname+new URL(res.headers.get('location')!).search).toBe(to);
+    }
+    // Only the workspace itself moves.
+    expect((await call('/applicants',{redirect:'manual'})).status).not.toBe(301);
   });
 });
 
@@ -1181,22 +1193,22 @@ describe('shared sign-in', ()=>{
 
   it('an agency or employer lands in the hiring workspace with the same sign-in', async()=>{
     const {body,cookie}=await signIn('pat@acme.test');
-    expect(body.redirect).toBe('/app');
+    expect(body.redirect).toBe('/hiring');
     expect(body.roles).toEqual({caregiver:false,employer:true,admin:false,school:false});
     const session=await (await call('/api/session',{headers:{cookie}})).json() as any;
     expect(session.employer.id).toBe('emp1');
   });
 
   it('a new agency lands in the hiring workspace and can set it up without a second email', async()=>{
-    const {body,cookie}=await signIn('new.owner@homecare.test','/app');
-    expect(body.redirect).toBe('/app');
+    const {body,cookie}=await signIn('new.owner@homecare.test','/hiring');
+    expect(body.redirect).toBe('/hiring');
     const account=await (await call('/api/account',{headers:{cookie}})).json() as any;
     expect(account).toMatchObject({signedIn:true,email:'new.owner@homecare.test',roles:{caregiver:false,employer:false}});
     sent.length=0;
     const res=await post('/api/employers',{companyName:'Home Care Co',contactName:'Nia',email:'new.owner@homecare.test',zip:'21201',rolesNeeded:'CNA'},{cookie});
     expect(res.status).toBe(201);
     const created=await res.json() as any;
-    expect(created.redirect).toContain('/app?opening=');
+    expect(created.redirect).toContain('/hiring?opening=');
     // No second email to the agency; the admins still hear about the new lead.
     expect(sent.filter(m=>!m.subject.startsWith('New hire form:'))).toHaveLength(0);
     expect(res.headers.get('set-cookie')).toContain('__Host-cj_session=');
@@ -1256,7 +1268,7 @@ describe('shared sign-in', ()=>{
     // No cookie on this browser, so the account's own memory decides.
     expect((await signIn('pat@acme.test')).body.redirect).toBe('/dashboard');
     await post('/api/account/last-dashboard',{kind:'app'},{cookie});
-    expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/hiring');
     await DB.prepare("DELETE FROM caregivers WHERE id='pat-cg2'").run();
     await DB.prepare("DELETE FROM account_preferences").run();
   });
@@ -1290,7 +1302,7 @@ describe('shared sign-in', ()=>{
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/dashboard');
     const agency=(await signIn('pat@acme.test')).cookie.split('; ')[0];
-    expect((await call('/',{headers:{cookie:agency+'; cj_last_dashboard=app'},redirect:'manual'})).headers.get('location')).toBe('/app');
+    expect((await call('/',{headers:{cookie:agency+'; cj_last_dashboard=app'},redirect:'manual'})).headers.get('location')).toBe('/hiring');
     // Signed out, or a stale cookie: the normal home page.
     expect((await call('/',{redirect:'manual'})).status).toBe(200);
     expect((await call('/',{headers:{cookie:'__Host-cj_account=stale'},redirect:'manual'})).status).toBe(200);
@@ -1304,7 +1316,7 @@ describe('shared sign-in', ()=>{
 
   it('an email with both roles returns to the dashboard it used last', async()=>{
     await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('pat-cg','Pat','Lee','pat@acme.test','21201','MD','CNA')").run();
-    expect((await signIn('pat@acme.test')).body.redirect).toBe('/app');
+    expect((await signIn('pat@acme.test')).body.redirect).toBe('/hiring');
     sent.length=0;
     await post('/api/login/request',{email:'pat@acme.test'});
     const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
@@ -2077,7 +2089,7 @@ describe('site monitoring', ()=>{
     // Nothing new: no email.
     expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:false,count:0});
     // A new problem inside the 30 minutes waits for the next window.
-    await report({kind:'react',message:'Minified React error #31',source:'https://carejoys.com/assets/index-AbC12345.js:2:10',path:'/app'});
+    await report({kind:'react',message:'Minified React error #31',source:'https://carejoys.com/assets/index-AbC12345.js:2:10',path:'/hiring'});
     expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:false,count:1});
     expect(sent).toHaveLength(1);
     // With no ALERT_EMAILS or ADMIN_EMAILS the owner accounts get it.
@@ -2159,7 +2171,7 @@ describe('opening follow-through', ()=>{
     expect(await sendHiringFollowups(env())).toEqual({reminders:1,nudges:1});
     expect(sent.find(m=>m.to==='fu-towson@example.com')?.subject).toBe('Still interested? Follow Care is waiting to hear from you');
     const nudge=sent.find(m=>m.to==='sam@followcare.test');
-    expect(nudge?.html).toContain('/app?candidate=');
+    expect(nudge?.html).toContain('/hiring?candidate=');
     expect(await sendHiringFollowups(env())).toEqual({reminders:0,nudges:0});
   });
 
@@ -2232,7 +2244,7 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     sent.length=0;
     const res=await post('/api/agency/claim/request',{token:'claim-token-1',needs:{roles:['CNA','HHA'],shifts:['Nights','Weekends'],count:'3–5',sources:['Indeed']}},{origin:'https://carejoys.com'});
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ok:true,redirect:'/app?tab=openings'});
+    expect(await res.json()).toEqual({ok:true,redirect:'/hiring'});
     // What they ticked on the page is their hiring profile and Always-on opening.
     expect(await DB.prepare("SELECT hiring_status,roles,shifts,requirements,roles_source FROM agency_org_hiring_profiles WHERE organization_id='org-claim1'").first())
       .toEqual({hiring_status:'hiring',roles:'CNA, HHA',shifts:'Nights, Weekends',requirements:'Needs this month: 3–5. Applicants come from: Indeed.',roles_source:'employer_confirmed'});
@@ -2308,7 +2320,7 @@ describe('agency buyer: claim, settings and pricing', ()=>{
     await sendDailyDigests(env(),1000);
     const digest=sent.find(m=>m.to==='owner@buy.test');
     expect(digest?.html).toContain('buy-app Test');
-    expect(digest?.html).toContain('/app?tab=settings');
+    expect(digest?.html).toContain('/hiring?tab=settings');
     sent.length=0;
     await sendDailyDigests(env(),1000);
     expect(sent.filter(m=>JSON.stringify(m.to).includes('owner@buy.test'))).toHaveLength(0);
@@ -2700,11 +2712,11 @@ describe('test accounts sign in with a code', ()=>{
     sent.length=0;
     const intake=await post('/api/employers',{companyName:'Test Agency',contactName:'Rebecca',email:EMAIL_ADDR,zip:'21201',rolesNeeded:'CNA'});
     const intakeBody=await intake.json() as any;
-    expect(intakeBody.redirect).toMatch(/^\/login\?email=agency-test%40carejoys.com&next=%2Fapp%3Fopening%3D/);
+    expect(intakeBody.redirect).toMatch(/^\/login\?email=agency-test%40carejoys.com&next=%2Fhiring%3Fopening%3D/);
     expect(sent).toHaveLength(0);
     const signIn=await post('/api/login/code',{email:EMAIL_ADDR,code:CODE.toLowerCase().replace(/-/g,' '),next:new URLSearchParams(intakeBody.redirect.split('?')[1]).get('next')});
     expect(signIn.status).toBe(200);
-    expect((await signIn.json() as any).redirect).toMatch(/^\/app\?opening=/);
+    expect((await signIn.json() as any).redirect).toMatch(/^\/hiring\?opening=/);
     const headers={cookie:cookieFrom(signIn),'content-type':'application/json'};
     const lead=await DB.prepare('SELECT id,is_test,approved_by FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first() as any;
     expect(lead).toMatchObject({is_test:1,approved_by:'test_account'});
@@ -2736,7 +2748,7 @@ describe('test accounts sign in with a code', ()=>{
     // Reset erases the workspace so sign-up starts over.
     const reset=await post('/api/login/code',{email:EMAIL_ADDR,code:CODE,reset:true});
     expect(reset.status).toBe(200);
-    expect((await reset.json() as any).redirect).toBe('/app');
+    expect((await reset.json() as any).redirect).toBe('/hiring');
     expect(await DB.prepare('SELECT id FROM employer_leads WHERE email=?').bind(EMAIL_ADDR).first()).toBeNull();
     expect(await DB.prepare('SELECT id FROM openings WHERE id=?').bind(id).first()).toBeNull();
   });

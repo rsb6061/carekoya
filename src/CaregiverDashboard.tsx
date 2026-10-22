@@ -120,7 +120,7 @@ export function CaregiverDashboard(){
         <a className="button" href="/caregiver-resume">I’m a caregiver</a>
         {/* An agency already has a workspace: open it rather than starting a second hiring setup. */}
         {auth.roles?.employer
-          ?<a className="button secondary" href="/app">Open your hiring workspace</a>
+          ?<a className="button secondary" href="/hiring">Open your hiring workspace</a>
           :<a className="button secondary" href="/hire-caregivers">I’m hiring caregivers</a>}
       </div>
     </div>

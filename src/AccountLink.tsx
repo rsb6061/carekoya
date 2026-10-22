@@ -44,7 +44,7 @@ export function AccountMenu(){
         {item('/dashboard/profile/preview','View my profile')}
         {item('/dashboard/profile','Edit my profile')}
       </>:!roles.employer&&!roles.school&&!roles.admin&&item(homePath(roles,lastDashboard()),'My dashboard')}
-      {roles.employer&&item('/app','Hiring workspace')}
+      {roles.employer&&item('/hiring','Hiring workspace')}
       {roles.employer&&auth.employerProfilePath&&item(auth.employerProfilePath,'View public profile')}
       {roles.school&&item('/school-dashboard','School dashboard')}
       {roles.admin&&item('/admin','Admin')}
