@@ -105,8 +105,11 @@ function stripHtml(value:unknown,max=8000){
     .trim()
     .slice(0,max);
 }
-function htmlText(html:string){
-  return stripHtml(html,12000);
+/** A page's readable text. The head, scripts and styles go first: a job board's head alone can run past the cut-off,
+ *  which used to leave nothing of the posting to read (its "Beaumont, CA" line included). */
+export function htmlText(html:string){
+  const body=html.slice(0,500000).replace(/<head\b[\s\S]*?<\/head>/i,' ').replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi,' ');
+  return stripHtml(body,12000);
 }
 function normalizeState(value:unknown){
   const s=clean(value,80);
@@ -806,6 +809,17 @@ function jobLinks(base:string,html:string){
   }
   return out;
 }
+/** The first place a page writes as its own line, "Beaumont, CA" or "Beaumont, CA - Part Time", in the agency's state.
+ *  Job boards (JazzHR, for one) put an opening's city there, so one agency's same-titled jobs in different towns stay apart. */
+export function pageCityInState(html:string,st:{code:string;name:string}){
+  const body=html.replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi,' ').replace(/<title\b[\s\S]*?<\/title>/i,' ');
+  const re=new RegExp('^\\s*([A-Za-z][A-Za-z .\'-]{1,40}?),\\s*(?:'+st.code+'|'+escapeRegex(st.name)+')\\b(?:\\s*\\d{5})?(?:\\s*[-–|·].*)?\\s*$');
+  for(const m of body.matchAll(/>([^<>]{3,120})</g)){
+    const hit=decodeHtml(m[1]).replace(/\s+/g,' ').match(re);
+    if(hit){const city=normalizeCity(hit[1]);if(city&&city.split(' ').length<=4)return city}
+  }
+  return '';
+}
 function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
   const text=htmlText(html).slice(0,12000);
   const h1=stripHtml(html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]||'',220);
@@ -815,7 +829,7 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
   const st=orgJobState(org);
   const zip=stateZipIn(text,st);
   const orgCity=clean(org.city,120);
-  const city=orgCity&&new RegExp('\\b'+escapeRegex(orgCity)+'\\b','i').test(text)?orgCity:'';
+  const city=pageCityInState(html,st)||(orgCity&&new RegExp('\\b'+escapeRegex(orgCity)+'\\b','i').test(text)?orgCity:'');
   const state=mentionsState(text,st)||zipInState(zip,st)?st.code:'';
   if(state!==st.code&&normalizeState(org.state)!==st.code)return null;
   const locationPenalty=state===st.code?0:-18;
@@ -826,7 +840,7 @@ function textJobFromPage(pageUrl:string,titleHint:string,html:string,org:Row){
 }
 /** Training classes, programs and info pages that mention CNA/HHA but are not openings (e.g. a nurse-aide-training page). */
 const ROLE_NOUN=/\b(aides?|assistants?|caregivers?|carers?|companions?(?!\s+(care|services?))|cnas?|gnas?|hhas?|chhas?|pcas?|dsps?|cmts?|med(ication)? techs?|technicians?|sitters?|attendants?|professionals?|workers?|nurses?|lpns?|rns?|associates?|specialists?|homemakers?)\b/i;
-const MARKETING_TITLE=/\b(services?|awards?|resources|near you|for (adults|seniors|families|you|your)|finding|find an?|become|becoming|careers?|opportunit(y|ies)|jobs|search|join|make a difference|enjoys|recognize|more than|owned|meet|spotlight|stor(y|ies)|celebrat\w*|application|apply|appy|start (your|an?)|why|how|what|tips|guide|blog|testimonials?|faq|events?|about|our|perfect|training|course|school|certification|classes|ceu|education|description|form|portal|registration|documents|validation|support groups?|caregiver support|program|assistance|coaching|burnout|appreciation|benefits|requirements|responsibilities|eligibility|information|notes|preferences|discounts|deals|week|referrals|click|contact|category|hire|family member|paid caregiver|competency|exchange|of the (month|year|quarter)|honou?r(ed|ee)?s?|nominat\w*)\b/i;
+const MARKETING_TITLE=/\b(open (?:[a-z]+ )?(?:positions|roles|jobs)|services?|awards?|resources|near you|for (adults|seniors|families|you|your)|finding|find an?|become|becoming|careers?|opportunit(y|ies)|jobs|search|join|make a difference|enjoys|recognize|more than|owned|meet|spotlight|stor(y|ies)|celebrat\w*|application|apply|appy|start (your|an?)|why|how|what|tips|guide|blog|testimonials?|faq|events?|about|our|perfect|training|course|school|certification|classes|ceu|education|description|form|portal|registration|documents|validation|support groups?|caregiver support|program|assistance|coaching|burnout|appreciation|benefits|requirements|responsibilities|eligibility|information|notes|preferences|discounts|deals|week|referrals|click|contact|category|hire|family member|paid caregiver|competency|exchange|of the (month|year|quarter)|honou?r(ed|ee)?s?|nominat\w*)\b/i;
 /** A page from an agency's own website reads as a service or marketing page rather than an opening
  * ("Companion Care Services", "Caregiver of the Year Award", "Caregiver Careers at ..."). */
 export function looksLikeMarketingPage(title:string){
