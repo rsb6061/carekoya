@@ -8,6 +8,7 @@ import { pullClarityInsights } from '../src/clarity';
 import { sendAgencyHiringInvites, sendAgencyHiringReinvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
+import { refreshPostedJobs } from '../src/postedJobs';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
@@ -3287,5 +3288,81 @@ describe('operated service',()=>{
       // Without the introductions price, only the operated plan can be bought.
       expect((await call('/api/billing/checkout',{method:'POST',headers:agency,body:'{}'},stripe)).status).toBe(503);
     }finally{globalThis.fetch=realFetch}
+  });
+});
+
+describe('job listings posted as CareJoys job pages',()=>{
+  const ws={cookie:'cj_session=post-session','content-type':'application/json',origin:'https://carejoys.com'};
+  const opening=(body:object)=>call('/api/openings',{method:'POST',headers:ws,body:JSON.stringify(body)});
+  const patch=(id:string,body:object)=>call('/api/openings/'+id,{method:'PATCH',headers:ws,body:JSON.stringify(body)});
+  const page=async(jobId:string)=>call('/api/public/caregiver-jobs/'+encodeURIComponent(jobId));
+  let openingId='',jobId='';
+
+  beforeAll(async()=>{
+    await DB.prepare("INSERT OR IGNORE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-post','Indeed Only Care','Lee','lee@indeedonly.test','21201','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT OR IGNORE INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('s-post','emp-post',?,?)").bind(await sha256Hex('post-session'),new Date(Date.now()+86400000).toISOString()).run();
+  });
+
+  it('posts nothing until the agency has claimed its profile',async()=>{
+    const r=await (await opening({role:'CNA',zip:'21201',title:'Unclaimed CNA'})).json() as any;
+    expect(r).toMatchObject({ok:true,jobId:null});
+    expect(await DB.prepare("SELECT COUNT(*) n FROM caregiver_jobs WHERE source_provider='carejoys' AND source_job_id=?").bind(r.id).first()).toMatchObject({n:0});
+    openingId=r.id;
+  });
+
+  it('puts a claimed agency’s listings up as job pages, including ones made before the claim',async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,claimed_employer_id) VALUES ('org-post','org-post','Indeed Only Care','indeedonly.test','lee@indeedonly.test','Baltimore','MD','21201',1,'emp-post')").run();
+    // Editing the earlier listing posts it now that the agency is claimed.
+    await patch(openingId,{role:'CNA',zip:'21201',title:'Unclaimed CNA'});
+    const r=await (await opening({role:'GNA',zip:'21201',title:'GNA weekends',payMin:18,payMax:21,shifts:'weekends',transportationRequired:true,requirements:'One year of home care.'})).json() as any;
+    expect(r.jobId).toBeTruthy();
+    jobId=r.jobId;
+    const job=(await (await page(jobId)).json() as any).job;
+    expect(job).toMatchObject({title:'GNA weekends',employerName:'Indeed Only Care',city:'Baltimore',state:'MD',payMin:18,payMax:21,payPeriod:'hour',postedOnCareJoys:true,employerOnCareJoys:true,applyForMe:false});
+    expect(job.sourceUrl).toBe('https://carejoys.com/jobs/'+jobId);
+    expect(job.description).toContain('Indeed Only Care is hiring a GNA in Baltimore, MD.');
+    expect(job.description).toContain('• Pay: $18–$21/hr');
+    expect(job.description).toContain('• A reliable car is required.');
+    const seo=await (await call('/jobs/'+jobId,{},htmlAssets)).text();
+    expect(seo).toContain('Posted on CareJoys by Indeed Only Care');
+    expect(seo).not.toContain('original employer listing');
+    const ws1=await (await call('/api/workspace',{headers:ws})).json() as any;
+    expect(ws1.openings.find((o:any)=>o.id===r.id).job_page_id).toBe(jobId);
+    expect(ws1.openings.find((o:any)=>o.id===openingId).job_page_id).toBeTruthy();
+    // Not listed again among the jobs CareJoys found on the agency's careers page.
+    expect(((await (await call('/api/agency/jobs',{headers:ws})).json()) as any).jobs).toEqual([]);
+  });
+
+  it('sends applications to the agency’s Candidates',async()=>{
+    sent.length=0;
+    await post('/api/login/request',{email:'dc@example.com'});
+    const token=decodeURIComponent(sent[0].html!.match(/signin\?token=([^"&]+)/)![1]);
+    const verified=await post('/api/login/verify',{token});
+    const cookie='__Host-cj_account='+decodeURIComponent((verified.headers.get('set-cookie')||'').match(/__Host-cj_account=([^;]+)/)![1]);
+    const applied=await (await post('/api/me/apply/'+jobId,{},{cookie})).json() as any;
+    expect(applied).toMatchObject({status:'applied',employerOnCareJoys:true});
+    expect(await DB.prepare("SELECT source,caregiver_job_id FROM agency_interests WHERE organization_id='org-post' AND caregiver_id='dc'").first()).toEqual({source:'job_apply',caregiver_job_id:jobId});
+  });
+
+  it('keeps the page in step with the listing: edits, closing, reopening, and a page the agency hid',async()=>{
+    const id=(await DB.prepare("SELECT source_job_id s FROM caregiver_jobs WHERE id=?").bind(jobId).first() as any).s;
+    await patch(id,{role:'GNA',zip:'21201',title:'GNA weekend days',payMin:19,payMax:22});
+    expect(((await (await page(jobId)).json()) as any).job).toMatchObject({title:'GNA weekend days',payMin:19});
+    await patch(id,{status:'closed'});
+    expect((await page(jobId)).status).toBe(404);
+    await patch(id,{status:'open'});
+    expect((await page(jobId)).status).toBe(200);
+    await DB.prepare("UPDATE caregiver_jobs SET is_published=0,publication_reason='hidden_by_employer' WHERE id=?").bind(jobId).run();
+    await patch(id,{role:'GNA',zip:'21201',title:'GNA weekend days'});
+    expect((await page(jobId)).status).toBe(404);
+    await DB.prepare("UPDATE caregiver_jobs SET is_published=1,publication_reason='posted_on_carejoys' WHERE id=?").bind(jobId).run();
+  });
+
+  it('stays fresh for Google while the listing is open',async()=>{
+    await DB.prepare("UPDATE caregiver_jobs SET last_seen_at=datetime('now','-30 days'),last_checked_at=datetime('now','-30 days') WHERE id=?").bind(jobId).run();
+    await refreshPostedJobs(DB as any);
+    const row=await DB.prepare("SELECT status,is_published,last_checked_at FROM caregiver_jobs WHERE id=?").bind(jobId).first() as any;
+    expect(row).toMatchObject({status:'current',is_published:1});
+    expect(Date.parse(row.last_checked_at.replace(' ','T')+'Z')).toBeGreaterThan(Date.now()-3600000);
   });
 });

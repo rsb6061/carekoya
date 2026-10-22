@@ -10,6 +10,7 @@ import { adminInbox, adminInboxUpdate, handleInboundEmail, type InboundEmailMess
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { isNationalJobsPath, jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
+import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { enrichAgencyBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
@@ -608,7 +609,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   const publicJobMatch=url.pathname.match(/^\/jobs\/([^/]+)$/);
   if(publicJobMatch&&env.DB){
     const id=decodeURIComponent(publicJobMatch[1]);
-    const job=await env.DB.prepare("SELECT id,agency_organization_id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,pay_currency,summary_text,source_url,date_posted,valid_through,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
+    const job=await env.DB.prepare("SELECT id,agency_organization_id,title,role,employer_name,city,state,zip,employment_type,pay_min,pay_max,pay_period,pay_currency,summary_text,source_url,source_provider,date_posted,valid_through,first_seen_at,last_seen_at,last_checked_at FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1").bind(id).first<Record<string,unknown>>();
     if(job){
       const title=normalizeTitle(job.title)||"Caregiver job";
       const employer=String(job.employer_name||"Care employer");
@@ -626,7 +627,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         description:trimAtWord(title+" at "+employer+(location?" in "+location:"")+(pay?", "+pay:"")+". Apply through CareJoys and reuse one caregiver profile for relevant jobs.",160),
         canonical:"/jobs/"+encodeURIComponent(id),
         ogImage:"/og/caregiver-jobs.png",
-        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(summary.lead?'<h2>About this job</h2><p>'+htmlEscape(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+htmlEscape(b)+'</li>').join('')+'</ul>':''):'')+payHtml+employerHtml+similarHtml+'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p></main>',
+        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(summary.lead?'<h2>About this job</h2><p>'+htmlEscape(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+htmlEscape(b)+'</li>').join('')+'</ul>':''):'')+payHtml+employerHtml+similarHtml+(job.source_provider==='carejoys'?'<p>Posted on CareJoys by '+htmlEscape(employer)+'.</p>':'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p>')+'</main>',
         jsonLd:[
           jobPostingJsonLd(job,context.employer?{primary_website:context.employer.website}:null),
           {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[
@@ -1095,6 +1096,7 @@ async function createIntakeOpening(env:Env,employerId:string,intake:EmployerInta
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open','employer_intake')`)
       .bind(openingId,employerId,openingName(primaryRole,inferredCity),primaryRole,inferredCity,inferredState,intake.zip,intake.payMin,intake.payMax,shift.shifts,shift.scheduleJson,intake.transportationRequired?1:0,intake.hiringNotes).run();
   }
+  await syncPostedJob(env.DB!,openingId);
   return openingId;
 }
 
@@ -1791,7 +1793,8 @@ async function getWorkspace(id:string, env:Env) {
   const workspace=await requireWorkspace(env,id);
   if(!workspace) return json({ok:false,error:"Workspace not found"},{status:404});
   const openings=await env.DB!.prepare(`SELECT o.*,
-    (SELECT COUNT(*) FROM interview_slots s WHERE s.opening_id=o.id AND s.status='available' AND datetime(s.starts_at)>datetime('now')) AS available_interview_slots
+    (SELECT COUNT(*) FROM interview_slots s WHERE s.opening_id=o.id AND s.status='available' AND datetime(s.starts_at)>datetime('now')) AS available_interview_slots,
+    (SELECT j.id FROM caregiver_jobs j WHERE j.id=o.caregiver_job_id AND j.source_provider='carejoys' AND j.is_published=1 AND j.status='current') AS job_page_id
     FROM openings o WHERE o.employer_id=? ORDER BY o.created_at DESC`).bind(id).all();
   const pipelineCount=await env.DB!.prepare("SELECT COUNT(*) AS count FROM candidate_pipeline cp JOIN openings o ON o.id=cp.opening_id WHERE o.employer_id=?").bind(id).first<{count:number}>();
   const approval=await approvalFor(env,id);
@@ -1812,7 +1815,9 @@ async function createOpening(id:string,request:Request,env:Env) {
   const shift=openingShift(data!.schedule,clean(data!.shifts,300));
   await env.DB!.prepare("INSERT INTO openings (id,employer_id,title,role,city,state,zip,pay_min,pay_max,shift_preferences,schedule_json,transportation_required,requirements,service_radius_miles,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'open')")
     .bind(openingId,id,clean(data!.title,200),clean(data!.role,80),clean(data!.city,120)||zipInfo?.city||"",clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,shift.shifts,shift.scheduleJson,data!.transportationRequired===true?1:0,clean(data!.requirements,1200),serviceRadiusMiles({service_radius_miles:data!.serviceRadiusMiles})||null).run();
-  return json({ok:true,id:openingId},{status:201});
+  // A claimed agency's listing also goes up as a public CareJoys job page (src/postedJobs.ts).
+  const jobId=await syncPostedJob(env.DB!,openingId);
+  return json({ok:true,id:openingId,jobId},{status:201});
 }
 async function matchOpening(workspaceId:string,openingId:string,env:Env,pruneStale=false) {
   const workspace=await requireWorkspace(env,workspaceId);
@@ -1894,11 +1899,13 @@ async function updateOpening(workspaceId:string,openingId:string,request:Request
   const status=clean(data?.status,20);
   if(status==="closed"){
     await env.DB!.prepare("UPDATE openings SET status='closed',closed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(openingId).run();
+    await syncPostedJob(env.DB!,openingId);
     const notified=await sendRoleClosedNotices(env,{openingId},true).catch(()=>0);
     return json({ok:true,status:"closed",notified});
   }
   if(status==="open"){
     await env.DB!.prepare("UPDATE openings SET status='open',closed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(openingId).run();
+    await syncPostedJob(env.DB!,openingId);
     return json({ok:true,status:"open"});
   }
   const error=requireFields(data,["role","zip"]);
@@ -1909,6 +1916,7 @@ async function updateOpening(workspaceId:string,openingId:string,request:Request
   await env.DB!.prepare("UPDATE openings SET title=?,role=?,city=?,state=?,zip=?,pay_min=?,pay_max=?,shift_preferences=?,schedule_json=?,transportation_required=?,requirements=?,service_radius_miles=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(clean(data!.title,200)||openingName(role,city),role,city,clean(data!.state,80)||zipInfo?.state||"",clean(data!.zip,20),Number(data!.payMin||0)||null,Number(data!.payMax||0)||null,
       shift.shifts,shift.scheduleJson,data!.transportationRequired===true?1:0,clean(data!.requirements,2000),serviceRadiusMiles({service_radius_miles:data!.serviceRadiusMiles})||null,openingId).run();
+  await syncPostedJob(env.DB!,openingId);
   // Re-rank right away, except for a closed opening or an account still waiting on approval (matching unlocks then).
   if(clean(opening.status)==="closed"||!(await approvalFor(env,workspaceId)).approved)return json({ok:true});
   return matchOpening(workspaceId,openingId,env,true);
@@ -2457,6 +2465,7 @@ export default {
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
         await runAutoApply(env).catch(error=>console.error('auto-apply failed',error));
         if(hour.getUTCHours()===DIGEST_UTC_HOUR){
+          await refreshPostedJobs(env.DB!).catch(error=>console.error('posted job refresh failed',error));
           await sendDailyDigests(env).catch(error=>console.error('daily digest failed',error));
           await sendMonthlyResults(env,hour).catch(error=>console.error('monthly results failed',error));
           await sendWeeklyApplicantReports(env,hour).catch(error=>console.error('weekly applicant report failed',error));

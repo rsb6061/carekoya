@@ -138,6 +138,8 @@ export async function resetTestAccount(env:AccountEnv,email:string){
       await db.prepare('DELETE FROM candidate_pipeline WHERE opening_id=?').bind(o.id).run();
     }
     await db.prepare('DELETE FROM interview_slots WHERE employer_id=?').bind(id).run();
+    // Job pages posted from these openings would otherwise stay up with nobody to apply to.
+    await db.prepare("UPDATE caregiver_jobs SET status='closed',is_published=0,updated_at=CURRENT_TIMESTAMP WHERE source_provider='carejoys' AND source_job_id IN (SELECT id FROM openings WHERE employer_id=?)").bind(id).run();
     await db.prepare('DELETE FROM openings WHERE employer_id=?').bind(id).run();
     await db.prepare('UPDATE agency_organizations SET claimed_employer_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE claimed_employer_id=?').bind(id).run();
     await db.prepare('UPDATE agencies SET claimed_employer_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE claimed_employer_id=?').bind(id).run();

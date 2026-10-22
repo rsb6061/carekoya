@@ -4,6 +4,7 @@ import { employerSession, publicFormGuard, sendEmployerMagicLink, type FeatureEn
 import { TEST_JOB_REASON } from './agencyFeatures';
 import { payLabel } from './jobFormat';
 import { normalizeTitle, notAJobPosting } from './jobDiscovery';
+import { POSTED_PROVIDER, syncPostedJobsForEmployer } from './postedJobs';
 
 // Self-serve agency claiming: find your agency, prove you work there, and link it to a CareJoys workspace.
 type Row=Record<string,unknown>;
@@ -93,6 +94,7 @@ async function linkAgency(env:FeatureEnv,orgId:string,employerId:string,source:s
   await env.DB!.prepare("UPDATE agencies SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND claimed_employer_id IS NULL").bind(employerId,orgId).run();
   await env.DB!.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,payload) VALUES (?,?,'agency_claim_verified',?)")
     .bind(crypto.randomUUID(),orgId,JSON.stringify({employerId,source})).run();
+  await syncPostedJobsForEmployer(env.DB!,employerId);
   return true;
 }
 
@@ -200,8 +202,8 @@ export async function agencyJobs(request:Request,env:FeatureEnv){
       (SELECT COUNT(*) FROM caregiver_job_apply_events a WHERE a.caregiver_job_id=j.id) AS apply_clicks,
       (SELECT COUNT(*) FROM analytics_events v WHERE v.event_type='page_view' AND v.path='/jobs/'||j.id) AS views,
       (SELECT COUNT(*) FROM agency_interests ai WHERE ai.caregiver_job_id=j.id) AS applicants
-    FROM caregiver_jobs j WHERE j.agency_organization_id=? AND j.status='current' AND (j.is_published=1 OR j.publication_reason IN ('hidden_by_employer',?))
-    ORDER BY j.is_published DESC,j.last_seen_at DESC LIMIT 200`).bind(org.id,TEST_JOB_REASON).all<Row>();
+    FROM caregiver_jobs j WHERE j.agency_organization_id=? AND j.status='current' AND j.source_provider!=? AND (j.is_published=1 OR j.publication_reason IN ('hidden_by_employer',?))
+    ORDER BY j.is_published DESC,j.last_seen_at DESC LIMIT 200`).bind(org.id,POSTED_PROVIDER,TEST_JOB_REASON).all<Row>();
   return json({ok:true,jobs:(rows.results||[]).map(r=>({id:r.id,title:r.title,role:r.role,city:r.city,state:r.state,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,
     sourceUrl:r.source_url,published:asNum(r.is_published)===1||r.publication_reason===TEST_JOB_REASON,hidden:r.publication_reason==='hidden_by_employer',lastSeenAt:r.last_seen_at,applyClicks:asNum(r.apply_clicks),views:asNum(r.views),applicants:asNum(r.applicants)}))});
 }

@@ -27,6 +27,8 @@ type Opening={
   pay_min?:number;pay_max?:number;shift_preferences?:string;status?:string;
   source?:string;agency_organization_id?:string;available_interview_slots?:number;
   schedule_json?:string|null;requirements?:string;transportation_required?:number;created_at?:string;service_radius_miles?:number|null;
+  /** The public CareJoys job page this listing is posted as, when it is live. */
+  job_page_id?:string|null;
 };
 type InterviewSlot={id:string;starts_at:string;duration_minutes:number;timezone:string;status:string;location?:string|null};
 type StageFilter=''|'reply'|'contacted'|'interview'|'hired';
@@ -707,7 +709,7 @@ export function EmployerWorkspace(){
       {talentPanel&&!talentPageId&&<TalentPanel candidate={talentPanel} actions={talentActions} onClose={()=>setTalentPanelId('')}
         onOpenPage={()=>{window.history.pushState(null,'','/app?talent='+encodeURIComponent(talentPanel.id));setTalentPageId(talentPanel.id);setTalentPanelId('');window.scrollTo(0,0)}}/>}
       {showTemplates&&<EmailTemplatesModal templates={templates} onSave={saveTemplate} onDelete={deleteTemplate} onClose={()=>setShowTemplates(false)}/>}
-      {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} serviceArea={workspace?.employer_type!=='assisted_living'} pendingApproval={pendingApproval} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
+      {showOpening&&<OpeningForm opening={editingOpening} roles={rolesFor(workspace?.employer_type)} serviceArea={workspace?.employer_type!=='assisted_living'} pendingApproval={pendingApproval} postsJobPage={!!agencyNetwork.agency} onSubmit={createOpening} onCancel={()=>{setShowOpening(false);setEditingOpening(null)}}/>}
 
       {slotsFor&&<div className="modal-backdrop" onMouseDown={()=>setSlotsFor(null)}><div className="modal-panel" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setSlotsFor(null)}>×</button>
@@ -822,6 +824,7 @@ function OpeningCard({opening:o,tone,rows,suggested,pendingApproval,onFind,onCan
         <button type="button" className="opening-interview-link" onClick={onSlots}>{slots>0?'Manage interview times':'Set interview times'}</button>
         <button type="button" className="opening-interview-link" onClick={onEdit}>Edit</button>
         {o.source!=='agency_profile'&&<button type="button" className="opening-interview-link" onClick={onClose}>Close, role filled</button>}
+        {o.job_page_id&&<a className="opening-interview-link" href={'/jobs/'+encodeURIComponent(o.job_page_id)} target="_blank" rel="noreferrer">View job page ↗</a>}
       </div>
     </div>
     <div className="job-card-side opening-actions">
@@ -832,8 +835,10 @@ function OpeningCard({opening:o,tone,rows,suggested,pendingApproval,onFind,onCan
   </article>;
 }
 
-function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCancel}:{
+function OpeningForm({opening,roles,serviceArea,pendingApproval,postsJobPage,onSubmit,onCancel}:{
   opening:Opening|null;roles:string[];serviceArea:boolean;pendingApproval:boolean;
+  /** A claimed agency's listings also go up as public CareJoys job pages. */
+  postsJobPage:boolean;
   onSubmit:(e:FormEvent<HTMLFormElement>)=>void;onCancel:()=>void;
 }){
   const [busy,setBusy]=useState(false);
@@ -863,6 +868,7 @@ function OpeningForm({opening,roles,serviceArea,pendingApproval,onSubmit,onCance
       <ScheduleEditor initial={parseOpeningSchedule(opening?.schedule_json)}/>
       <label>Requirements<textarea name="requirements" rows={4} defaultValue={opening?.requirements||''} placeholder="Experience, credential, schedule, client requirements..." /></label>
       <label className="check-row"><input type="checkbox" name="transportationRequired" defaultChecked={Number(opening?.transportation_required||0)===1} /><span>Reliable transportation required</span></label>
+      {postsJobPage&&opening?.source!=='agency_profile'&&opening?.source!=='agency_job'&&<p className="field-hint">This listing is also posted as a public job page on CareJoys, where caregivers can apply. Applications show in Candidates. Closing the listing takes the page down.</p>}
       <button className="button submit-button" disabled={busy}>{opening?'Save':pendingApproval?'Create job listing':'Create & match'}</button>
     </form>
   </div></div>;
