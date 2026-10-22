@@ -25,7 +25,7 @@ import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
-import { icimsJobLinks, icimsSearchUrl, icimsSitemapJobs, roleClassification, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
+import { htmlText, pageCityInState, icimsJobLinks, icimsSearchUrl, icimsSitemapJobs, roleClassification, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
 const NOW=Date.parse('2026-10-01T12:00:00Z');
 const BALTIMORE={lat:39.2946,lng:-76.6252};   // 21201
@@ -356,6 +356,17 @@ describe('job location by agency state', ()=>{
     expect(notAJobPosting('CNA - Paid Training Provided','https://a.test/jobs/cna-paid-training-4821')).toBe(false);
     expect(notAJobPosting('Home Health Aide','https://a.test/careers/home-health-aide')).toBe(false);
   });
+  it('reads a job board posting past a long head, and its own city line', ()=>{
+    const ca={code:'CA',name:'California'};
+    const page='<html><head><title>Caregiver - Families Choice Home Care</title><style>'+'x{}'.repeat(12000)+'</style><script>var a="Upland, CA"</script></head>'
+      +'<body><a>Back to Jobs</a><h2>Families Choice Home Care</h2><h1>Caregiver</h1><div class="job-attributes">Beaumont, CA - Part Time to Full Time</div>'
+      +'<p>Our office: 123 Main St</p><footer><span>Upland, CA</span></footer></body></html>';
+    expect(htmlText(page)).toContain('Beaumont, CA');
+    expect(htmlText(page)).not.toContain('x{}');
+    expect(pageCityInState(page,ca)).toBe('Beaumont');
+    expect(pageCityInState('<li>Rancho Cucamonga, California 91730</li>',ca)).toBe('Rancho Cucamonga');
+    expect(pageCityInState('<p>We serve seniors across the Inland Empire, CA and beyond.</p><li>Towson, MD</li>',ca)).toBe('');
+  });
   it('keeps service and marketing pages from agency websites off the jobs list', ()=>{
     for(const t of ['Companion Care','Companion Care Services for Adults and Seniors','Caregiver of the Year Award','Finding the Perfect Caregiver',
       'Caregiver Careers at Village Caregiving','Become a Caregiver','Caregiver Resources','Home Health Aide Services','What Does a CNA Do?','Caregiver of the Month','Honoring Our CNAs'])
@@ -363,6 +374,8 @@ describe('job location by agency state', ()=>{
     for(const t of ['Home Health Aide (HHA)','Certified Nursing Assistant','Direct Support Professional (DSP)','Live-In Caregiver','CNA - Private Duty - Baltimore (Hourly)','Caregiver Needed!','HHA Positions Available'])
       expect(looksLikeMarketingPage(t),t).toBe(false);
     expect(notAJobPosting('Companion Care','https://a.test/companion-care','generic_html')).toBe(true);
+    expect(looksLikeMarketingPage('Open Caregiver Positions')).toBe(true);
+    expect(looksLikeMarketingPage('Caregiver/CNA')).toBe(false);
     expect(notAJobPosting('Companion Care','https://boards.greenhouse.io/a/jobs/1','greenhouse')).toBe(false);
   });
 });
