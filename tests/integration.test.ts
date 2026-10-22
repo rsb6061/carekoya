@@ -13,6 +13,7 @@ import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
 import { runAutoApply } from '../src/applyAgent';
+import { sendReplyYesBatch } from '../src/replyYesOutreach';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -1650,6 +1651,74 @@ describe('agency hiring-needs invites', ()=>{
     sent.length=0;
     await sendAgencyHiringInvites(env(),50);
     expect(sent.filter(m=>m.to==='jobs@quota.test')).toHaveLength(1);
+  });
+});
+
+describe('reply-yes outreach from rebecca@', ()=>{
+  it('waits for rebecca@ routing, then emails real agencies once each in plain text, most jobs first', async()=>{
+    const org=(id:string,name:string,email:string,extra:Record<string,unknown>={})=>{
+      const row={id,organization_key:id,canonical_name:name,primary_email:email,city:'Towson',state:'MD',is_active:1,...extra};
+      const keys=Object.keys(row);
+      return DB.prepare(`INSERT INTO agency_organizations(${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`).bind(...Object.values(row)).run();
+    };
+    await org('org-ry-jobs','SUNNY DAYS HOME CARE, LLC','owner@sunnydays.test',{primary_contact_name:'Maria Lopez',sources:'google_business',provider_types:'Google listing: Home health care service'});
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES ('job-ry','org-ry-jobs','job-ry','test','https://sunnydays.test/jobs/1','HHA','HHA','Sunny Days','Towson','MD','current',1)").run();
+    await org('org-ry-license','Kind Hands Care','info@kindhands.test',{sources:'maryland_license'});
+    await org('org-ry-same-email','Kind Hands Care East','info@kindhands.test',{sources:'maryland_license'});
+    await org('org-ry-roofer','Perma-Tech Roofing Supply','info@roofer.test',{sources:'google_business',provider_types:'Google listing: Home health care service'});
+    await org('org-ry-recent','Recent Care','office@recent.test',{sources:'maryland_license'});
+    await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email) VALUES ('ev-ry-recent','org-ry-recent','hiring_needs_invite','office@recent.test')").run();
+    sent.length=0;
+    expect(await sendReplyYesBatch(env(),50)).toMatchObject({sent:0,waitingForRouting:true});
+    expect(sent).toHaveLength(0);
+    // A reply to rebecca@ reaching the Worker proves the routing rule exists.
+    await DB.prepare("INSERT INTO email_messages(id,direction,mailbox,from_email,subject,kind,status) VALUES ('em-ry-proof','inbound','rebecca@carejoys.com','rebecca@gmail.test','Re: [Test] Quick question','reply','new')").run();
+    await sendReplyYesBatch(env(),50);
+    const to=sent.map(m=>m.to);
+    expect(to[0]).toBe('owner@sunnydays.test');
+    expect(to.filter(t=>t==='info@kindhands.test')).toHaveLength(1);
+    expect(to).not.toContain('info@roofer.test');
+    expect(to).not.toContain('office@recent.test');
+    const first=sent[0] as any;
+    expect(first.from).toBe('Rebecca Myers <rebecca@carejoys.com>');
+    expect(first.replyTo).toBe('rebecca@carejoys.com');
+    expect(first.html).toBeUndefined();
+    expect(first.text).toContain('Hi Maria,');
+    expect(first.text).toContain('do caregiver applicants go quiet before Sunny Days Home Care can call them back?');
+    expect(first.text).toContain('reply "yes"');
+    expect(first.headers?.['List-Unsubscribe']).toBeTruthy();
+    expect(['Quick question about Sunny Days Home Care','Your caregiver applicants']).toContain(first.subject);
+    sent.length=0;
+    await sendReplyYesBatch(env(),50);
+    expect(sent.map(m=>m.to).filter(t=>t==='owner@sunnydays.test'||t==='info@kindhands.test')).toHaveLength(0);
+  });
+});
+
+describe('Rebecca\'s mail from the admin console', ()=>{
+  const admin=(path:string,body?:unknown)=>call(path,body===undefined?{headers:{authorization:'Bearer t0ken'}}:{method:'POST',headers:{authorization:'Bearer t0ken','content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify(body)},{ADMIN_TOKEN:'t0ken',INBOUND_FORWARD_TO:'rebecca@gmail.test'});
+  // The replies-to-hello@ tests below count every recorded message, so these leave none behind.
+  afterAll(async()=>{await DB.prepare("DELETE FROM email_messages WHERE direction='outbound' OR id IN ('em-hello-q','em-ry-proof')").run()});
+  it('saves a draft, then sends it from rebecca@ with a copy to the owner inbox', async()=>{
+    const saved=await (await admin('/api/admin/mail/drafts',{to:'Owner@Tuparan.test',subject:'Checking in',text:'Hi, quick note.'})).json() as any;
+    expect(saved.ok).toBe(true);
+    let mail=await (await admin('/api/admin/mail')).json() as any;
+    expect(mail.drafts.map((d:any)=>d.to)).toContain('owner@tuparan.test');
+    sent.length=0;
+    const res=await admin('/api/admin/mail/send',{to:'owner@tuparan.test',subject:'Checking in',text:'Hi, quick note, edited.',draftId:saved.id});
+    expect(res.status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({from:'Rebecca Myers <rebecca@carejoys.com>',to:'owner@tuparan.test',bcc:'rebecca@gmail.test',text:'Hi, quick note, edited.'});
+    mail=await (await admin('/api/admin/mail')).json() as any;
+    expect(mail.drafts.map((d:any)=>d.id)).not.toContain(saved.id);
+    expect(mail.sent.find((d:any)=>d.id===saved.id)?.text).toBe('Hi, quick note, edited.');
+  });
+  it('answers a recorded reply in the same thread, from the address it was sent to', async()=>{
+    await DB.prepare("INSERT INTO email_messages(id,direction,mailbox,from_email,subject,snippet,message_id,kind,status) VALUES ('em-hello-q','inbound','hello@carejoys.com','gina@families.test','Question','How much is it?','<abc123@mail.test>','reply','new')").run();
+    sent.length=0;
+    expect((await admin('/api/admin/mail/send',{to:'gina@families.test',subject:'Re: Question',text:'Free for the first month.',inReplyToId:'em-hello-q'})).status).toBe(200);
+    expect(sent[0]).toMatchObject({from:'Rebecca at CareJoys <hello@carejoys.com>',replyTo:'hello@carejoys.com',headers:{'In-Reply-To':'<abc123@mail.test>',References:'<abc123@mail.test>'}});
+    expect((await DB.prepare("SELECT status FROM email_messages WHERE id='em-hello-q'").first() as any).status).toBe('handled');
+    expect((await admin('/api/admin/mail/send',{to:'not-an-email',subject:'x',text:'y'})).status).toBe(400);
   });
 });
 

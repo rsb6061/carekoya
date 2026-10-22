@@ -5,10 +5,11 @@ import { accountSession } from './accountAuth';
 import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
 import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
+import { replyYesCounts } from './replyYesOutreach';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -146,7 +147,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
         // Same pacing as the hourly cron in worker.ts: the daily cap spread over 24 runs.
         perHour:Math.min(hiringCap,Math.max(1,Math.ceil(hiringCap/24))),
         today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly',
-        reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')}},
+        reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')},
+        replyYes:{on:String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes',...await replyYesCounts(env as never)}},
       generalBulk:{enabled:on(env.OUTREACH_ENABLED)},
       reactivationReminders:{enabled:on(env.REACTIVATION_REMINDER_ENABLED),sent:num(reminders,'sent')},
       agencyInboxAlerts:{claimedLast24h:num(inboxAlerts,'claimed'),unclaimedLast24h:num(inboxAlerts,'unclaimed'),

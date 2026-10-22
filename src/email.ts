@@ -18,6 +18,7 @@ export type EmailBinding = {
     html?: string;
     text?: string;
     replyTo?: string;
+    bcc?: string | string[];
     attachments?: EmailAttachment[];
     headers?: Record<string,string>;
   }): Promise<EmailSendResult>;

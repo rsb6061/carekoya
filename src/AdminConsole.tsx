@@ -16,7 +16,8 @@ type Overview={
     caregiverSignups:Array<{source:string}&Count>;
     workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
     outreachChannels:{
-      agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string;reinvite?:{mode:string;today:number;total:number}};
+      agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string;reinvite?:{mode:string;today:number;total:number};
+        replyYes?:{on:boolean;today:number;total:number;replies:number;routingLive:boolean}};
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
@@ -199,12 +200,12 @@ export function AdminConsole(){
      <div className="dash-main-col">
       <div className="page-head page-head-row admin-page-heading">
         <div><h1>{{
-          overview:'Your business at a glance',replies:'Replies to hello@',employers:'Employer approvals & accounts',applicants:'Agency applicants',
+          overview:'Your business at a glance',replies:'Replies and your email',employers:'Employer approvals & accounts',applicants:'Agency applicants',
           caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
         <p>{{
           overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
-          replies:'Every email to hello@carejoys.com, matched to the lead it came from. Each one is also forwarded to your inbox.',
+          replies:'Every email to hello@ and rebecca@carejoys.com, matched to the lead it came from. Each one is also forwarded to your inbox.',
           employers:'Review new employers before giving them access to candidate profiles.',
           applicants:'Upload and work each agency’s own applicants. They stay that agency’s and never join caregiver matching.',
           caregivers:'Track worker profiles, recruiting campaigns and application activity.',
@@ -335,13 +336,17 @@ export function AdminConsole(){
   <div className="section-heading"><h2>What's actually sending</h2>
     <p>Separate outbound channels with independent schedules and caps. A disabled bulk campaign does not stop hourly agency hiring invitations.</p></div>
   <div className="admin-stat-grid">
-    <Stat label="Agency hiring invites" value={oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'+(oc.agencyHiring.reinvite?.mode?' · re-sending the new copy to '+(oc.agencyHiring.reinvite.mode==='openers'?'agencies that opened the old one':'every agency that got the old one')+': '+oc.agencyHiring.reinvite.today+' today, '+oc.agencyHiring.reinvite.total+' so far':oc.agencyHiring.reinvite?.total?' · '+oc.agencyHiring.reinvite.total+' re-sent the new copy':'')}/>
+    <Stat label="Agency hiring invites" value={oc.agencyHiring.replyYes?.on?'Replaced':oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.replyYes?.on?'The reply-yes email from rebecca@ goes out instead, inside this cap of '+oc.agencyHiring.cap+' a day · '+oc.agencyHiring.total+' styled invites sent before the switch':oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'+(oc.agencyHiring.reinvite?.mode?' · re-sending the new copy to '+(oc.agencyHiring.reinvite.mode==='openers'?'agencies that opened the old one':'every agency that got the old one')+': '+oc.agencyHiring.reinvite.today+' today, '+oc.agencyHiring.reinvite.total+' so far':oc.agencyHiring.reinvite?.total?' · '+oc.agencyHiring.reinvite.total+' re-sent the new copy':'')}/>
+    {oc.agencyHiring.replyYes?.on&&<Stat label="Reply-yes email from rebecca@" value={oc.agencyHiring.replyYes.routingLive?'Sending':'Waiting'} sub={oc.agencyHiring.replyYes.routingLive
+      ?oc.agencyHiring.replyYes.today+' sent today, '+oc.agencyHiring.replyYes.total+' in total, out of the hiring invite cap · '+oc.agencyHiring.replyYes.replies+' replied'
+      :'Starts once mail to rebecca@ reaches CareJoys. Add the Email Routing rule, then send yourself a test below and reply to it.'}/>}
     <Stat label="Agency inbox alerts" value={oc.agencyInboxAlerts.unclaimedEnabled?'On':'Claimed only'} sub={oc.agencyInboxAlerts.claimedLast24h+' to claimed agencies, '+oc.agencyInboxAlerts.unclaimedLast24h+' to unclaimed in the last 24 hours · hourly, at most one per agency a day'}/>
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
     <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>
     <Stat label="Weekly job emails to caregivers" value={oc.weeklyDigest.enabled?'On':'Off'} sub={oc.weeklyDigest.verified+' of '+oc.weeklyDigest.subscribed+' opted-in caregivers verified · '+oc.weeklyDigest.sentLast7Days+' sent in the last 7 days'}/>
     <Stat label="Training-school invitations" value={oc.schools.mode==='automatic'?'On':'Manual'} sub={oc.schools.today+' of '+oc.schools.cap+' sent today · '+oc.schools.intros+' recorded introductions'}/>
   </div>
+  {oc.agencyHiring.replyYes?.on&&<ReplyYesTest/>}
   <div className="admin-info-note">Each channel has its own switch. Turning off general bulk outreach does not stop agency hiring invites or reminders. Agency inbox alerts always go to agencies that claimed their page; unclaimed agencies get them only while general bulk outreach is on. School invitations have their own switch and daily cap. Weekly job emails go only to caregivers who opted in and verified their email.</div>
 </section>
 <section className="section-block admin-school-outreach">
@@ -480,16 +485,17 @@ function JobSites(){
   </section>;
 }
 
-type InboxMessage={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce'|'intake';bouncedEmail:string;
+type InboxMessage={id:string;mailbox?:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce'|'intake';bouncedEmail:string;
   lead:{type:string;id:string;name:string}|null;status:'new'|'handled';forwarded:boolean;createdAt:string};
 const REPLY_KINDS={reply:'Replies',unsubscribe:'Unsubscribes',auto_reply:'Out of office',bounce:'Bounces',intake:'Applicant emails'} as const;
 const LEAD_LABELS:Record<string,string>={employer:'Employer',agency:'Agency or facility',school:'School',training_program:'Training program',applicant:'Agency applicant',caregiver:'Caregiver'};
 
-/** Mail to hello@ recorded by the Worker. Unsubscribes and hard bounces are already suppressed; replies wait for "Done". */
+/** Mail to hello@ and rebecca@ recorded by the Worker. Unsubscribes and hard bounces are already suppressed; replies wait for "Done" or an answer. */
 function InboxReplies(){
   const [kind,setKind]=useState<keyof typeof REPLY_KINDS>('reply');
   const [data,setData]=useState<{messages:InboxMessage[];counts:Record<string,{total:number;open:number}>}|null>(null);
   const [error,setError]=useState('');
+  const [replying,setReplying]=useState('');
   async function load(k=kind){
     try{setData(await api('/api/admin/inbox?kind='+k));setError('')}catch(e){setError(e instanceof Error?e.message:'Could not load replies')}
   }
@@ -498,14 +504,14 @@ function InboxReplies(){
     await api('/api/admin/inbox/'+encodeURIComponent(m.id),{method:'POST',body:JSON.stringify({status:m.status==='new'?'handled':'new'})}).catch(()=>null);
     await load();
   }
-  return <section className="section-block">
+  return <><RebeccaMail/><section className="section-block">
     <div className="admin-date-row">
       {(Object.keys(REPLY_KINDS) as Array<keyof typeof REPLY_KINDS>).map(k=><button key={k} className={'nav-button '+(kind===k?'active':'')} onClick={()=>setKind(k)}>
         {REPLY_KINDS[k]}{data?.counts[k]?.[k==='reply'?'open':'total']?' · '+data.counts[k][k==='reply'?'open':'total']:''}</button>)}
     </div>
     {error&&<div className="notice">{error}</div>}
     {data&&!data.messages.length&&<div className="settings-card"><div className="job-meta">
-      {kind==='reply'?'No replies yet. They show up here once hello@ is routed to the carejoys Worker in Cloudflare Email Routing.':'None yet.'}</div></div>}
+      {kind==='reply'?'No replies yet. Mail to hello@ and rebecca@ shows up here once that address is routed to the carejoys Worker in Cloudflare Email Routing.':'None yet.'}</div></div>}
     <div style={{display:'grid',gap:12}}>
       {data?.messages.map(m=><div className="settings-card" key={m.id} style={{opacity:m.status==='handled'&&m.kind==='reply'?.6:1}}>
         <div className="modal-kicker">{m.lead?(LEAD_LABELS[m.lead.type]||m.lead.type)+' · '+m.lead.name:'No matching lead'} · {new Date(m.createdAt.replace(' ','T')+'Z').toLocaleString()}</div>
@@ -514,10 +520,102 @@ function InboxReplies(){
         {m.snippet&&<p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:'8px 0'}}>{m.snippet.slice(0,600)}{m.snippet.length>600?'…':''}</p>}
         <div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
           {m.kind==='reply'&&<button className="button secondary" onClick={()=>void mark(m)}>{m.status==='new'?'Done':'Mark not done'}</button>}
-          <a className="text-button" style={{margin:0,width:'auto'}} href={'mailto:'+m.fromEmail+'?subject='+encodeURIComponent(/^re:/i.test(m.subject)?m.subject:'Re: '+m.subject)}>Reply</a>
+          <button className="text-button" style={{margin:0,width:'auto'}} onClick={()=>setReplying(replying===m.id?'':m.id)}>{replying===m.id?'Close reply':'Reply'}</button>
           {!m.forwarded&&<span className="job-meta">Not forwarded to your inbox</span>}
         </div>
+        {replying===m.id&&<MailComposer to={m.fromEmail} subject={/^re:/i.test(m.subject)?m.subject:'Re: '+(m.subject||'')} inReplyToId={m.id}
+          quote={m.snippet} quoteFrom={(m.fromName||m.fromEmail)+' · '+new Date(m.createdAt.replace(' ','T')+'Z').toLocaleString()}
+          from={m.mailbox==='hello@carejoys.com'?'hello@carejoys.com':'rebecca@carejoys.com'} onDone={()=>{setReplying('');void load()}}/>}
       </div>)}
     </div>
+  </section></>;
+}
+
+type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string;leadName?:string};
+
+/** One email from Rebecca: a reply (with the message it answers quoted under it) or a new note, sent by CareJoys from rebecca@. */
+function MailComposer({to:initialTo='',subject:initialSubject='',text:initialText='',draftId:initialDraft='',inReplyToId='',quote='',quoteFrom='',from='rebecca@carejoys.com',onDone}:
+  {to?:string;subject?:string;text?:string;draftId?:string;inReplyToId?:string;quote?:string;quoteFrom?:string;from?:string;onDone:()=>void}){
+  const [to,setTo]=useState(initialTo),[subject,setSubject]=useState(initialSubject),[text,setText]=useState(initialText);
+  const [draftId,setDraftId]=useState(initialDraft);
+  const [state,setState]=useState<''|'saving'|'sending'|'saved'>('');
+  const [error,setError]=useState('');
+  const quoted=quote?'\n\nOn '+quoteFrom+' wrote:\n'+quote.split('\n').map(l=>'> '+l).join('\n'):'';
+  async function save(){
+    setState('saving');setError('');
+    try{const r=await api<{id:string}>('/api/admin/mail/drafts',{method:'POST',body:JSON.stringify({id:draftId,to,subject,text,inReplyToId})});setDraftId(r.id);setState('saved')}
+    catch(e){setError(e instanceof Error?e.message:'Could not save the draft');setState('')}
+  }
+  async function send(event:FormEvent){
+    event.preventDefault();
+    setState('sending');setError('');
+    try{await api('/api/admin/mail/send',{method:'POST',body:JSON.stringify({to,subject,text:text+quoted,draftId,inReplyToId})});setState('');onDone()}
+    catch(e){setError(e instanceof Error?e.message:'The email did not send');setState('')}
+  }
+  async function discard(){
+    if(draftId)await api('/api/admin/mail/drafts',{method:'POST',body:JSON.stringify({id:draftId,discard:true})}).catch(()=>null);
+    onDone();
+  }
+  return <form className="settings-card" style={{display:'grid',gap:10,marginTop:10}} onSubmit={send}>
+    <div className="job-meta">From Rebecca Myers &lt;{from}&gt;. A copy goes to your inbox.</div>
+    <label style={{display:"grid",gap:4,fontWeight:600,fontSize:14}}>To<input className="pipeline-select" style={{width:"100%",fontWeight:400}} type="email" required value={to} onChange={e=>setTo(e.target.value)}/></label>
+    <label style={{display:"grid",gap:4,fontWeight:600,fontSize:14}}>Subject<input className="pipeline-select" style={{width:"100%",fontWeight:400}} required value={subject} onChange={e=>setSubject(e.target.value)}/></label>
+    <label style={{display:"grid",gap:4,fontWeight:600,fontSize:14}}>Message<textarea className="pipeline-select" style={{width:"100%",fontWeight:400,minHeight:180,height:"auto",fontFamily:"inherit",lineHeight:1.5}} required rows={8} value={text} onChange={e=>setText(e.target.value)}/></label>
+    {quote&&<div className="job-meta" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>Their message is quoted under yours.</div>}
+    {error&&<div className="notice">{error}</div>}
+    <div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
+      <button className="button" disabled={state==='sending'}>{state==='sending'?'Sending…':'Send'}</button>
+      <button type="button" className="button secondary" onClick={()=>void save()} disabled={state==='saving'}>{state==='saving'?'Saving…':state==='saved'?'Draft saved':'Save draft'}</button>
+      <button type="button" className="text-button" style={{margin:0,width:'auto'}} onClick={()=>void discard()}>{draftId?'Discard draft':'Cancel'}</button>
+    </div>
+  </form>;
+}
+
+/** Drafts and sent mail from rebecca@, and a button to write a new email. */
+function RebeccaMail(){
+  const [data,setData]=useState<{drafts:MailDraft[];sent:MailDraft[]}|null>(null);
+  const [open,setOpen]=useState('');
+  const [showSent,setShowSent]=useState(false);
+  async function load(){try{setData(await api('/api/admin/mail'))}catch{/* the inbox below still works */}}
+  useEffect(()=>{void load()},[]);
+  const done=()=>{setOpen('');void load()};
+  return <section className="section-block">
+    <div className="section-heading"><h2>Your email</h2><p>Sent by CareJoys from rebecca@carejoys.com, never from your Gmail. Answer a reply below, or write a new email here.</p></div>
+    <div className="empty-actions" style={{justifyContent:'flex-start'}}>
+      <button className="button secondary" onClick={()=>setOpen(open==='new'?'':'new')}>{open==='new'?'Close':'Write an email'}</button>
+      {!!data?.sent.length&&<button className="text-button" style={{margin:0,width:'auto'}} onClick={()=>setShowSent(!showSent)}>{showSent?'Hide sent':'Sent · '+data.sent.length}</button>}
+    </div>
+    {open==='new'&&<MailComposer onDone={done}/>}
+    {!!data?.drafts.length&&<div style={{display:'grid',gap:12,marginTop:12}}>
+      <div className="modal-kicker">Drafts · {data.drafts.length}</div>
+      {data.drafts.map(d=>open===d.id
+        ?<MailComposer key={d.id} to={d.to} subject={d.subject} text={d.text} draftId={d.id} inReplyToId={d.inReplyToId} onDone={done}/>
+        :<div className="settings-card" key={d.id}>
+          <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to||'(no recipient)'} · {d.subject||'(no subject)'}</div>
+          <p className="job-meta" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{d.text.slice(0,240)}{d.text.length>240?'…':''}</p>
+          <button className="button secondary" onClick={()=>setOpen(d.id)}>Edit and send</button>
+        </div>)}
+    </div>}
+    {showSent&&<div style={{display:'grid',gap:12,marginTop:12}}>
+      {data?.sent.map(d=><div className="settings-card" key={d.id}>
+        <div className="modal-kicker">{new Date(d.updatedAt.replace(' ','T')+'Z').toLocaleString()}{d.leadName?' · '+d.leadName:''}</div>
+        <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to} · {d.subject}</div>
+        <p className="job-meta" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{d.text.slice(0,240)}{d.text.length>240?'…':''}</p>
+      </div>)}
+    </div>}
   </section>;
+}
+
+/** Sends the admin the reply-yes note from rebecca@. Replying to it proves rebecca@ reaches CareJoys, which starts the sending. */
+function ReplyYesTest(){
+  const [state,setState]=useState('');
+  async function send(){
+    setState('Sending…');
+    try{const r=await api<{result:{to:string}}>('/api/admin/reply-yes/test',{method:'POST',body:'{}'});setState('Sent to '+r.result.to+'. Reply to it from that inbox.')}
+    catch(e){setState(e instanceof Error?e.message:'Test send failed')}
+  }
+  return <div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center',marginTop:12}}>
+    <button className="button secondary" onClick={()=>void send()}>Send me the reply-yes email</button>
+    {state&&<span className="job-meta">{state}</span>}
+  </div>;
 }

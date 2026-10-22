@@ -165,7 +165,7 @@ export function classifyEmail(p:ParsedEmail):{kind:ReplyKind;bouncedEmail:string
     ||/^(automatic reply|auto(matic)?[- ]?reply|out of (the )?office|ooo\b|away from (the )?office|i am out of the office)/i.test(p.subject))
     return {kind:'auto_reply',bouncedEmail:'',hardBounce:false};
   const own=replyText(p.text).slice(0,400);
-  if(UNSUBSCRIBE.test(own)||/^\s*(unsubscribe|remove)\b/i.test(p.subject))return {kind:'unsubscribe',bouncedEmail:'',hardBounce:false};
+  if(UNSUBSCRIBE.test(own)||/^\s*stop\s*[.!]*\s*$/i.test(own.split(/\n\s*\n/)[0]||'')||/^\s*(unsubscribe|remove)\b/i.test(p.subject))return {kind:'unsubscribe',bouncedEmail:'',hardBounce:false};
   return {kind:'reply',bouncedEmail:'',hardBounce:false};
 }
 
@@ -261,10 +261,10 @@ const KINDS=['reply','unsubscribe','auto_reply','bounce','intake'];
 export async function adminInbox(env:InboundEnv,url:URL){
   if(!env.DB)return json({ok:false,error:'Database unavailable'},{status:503});
   const kind=KINDS.includes(url.searchParams.get('kind')||'')?url.searchParams.get('kind'):'';
-  const rows=(await env.DB.prepare(`SELECT id,from_email,from_name,subject,snippet,kind,bounced_email,lead_type,lead_id,lead_name,status,forwarded,created_at
+  const rows=(await env.DB.prepare(`SELECT id,mailbox,from_email,from_name,subject,snippet,kind,bounced_email,lead_type,lead_id,lead_name,status,forwarded,created_at
     FROM email_messages WHERE direction='inbound' ${kind?'AND kind=?':''} ORDER BY created_at DESC LIMIT 100`).bind(...(kind?[kind]:[])).all<Row>()).results||[];
   const counts=(await env.DB.prepare("SELECT kind,COUNT(*) AS total,SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) AS open FROM email_messages WHERE direction='inbound' GROUP BY kind").all<Row>()).results||[];
-  return json({ok:true,messages:rows.map(r=>({id:r.id,fromEmail:r.from_email,fromName:r.from_name||'',subject:r.subject||'',snippet:r.snippet||'',kind:r.kind,
+  return json({ok:true,messages:rows.map(r=>({id:r.id,mailbox:r.mailbox||'',fromEmail:r.from_email,fromName:r.from_name||'',subject:r.subject||'',snippet:r.snippet||'',kind:r.kind,
     bouncedEmail:r.bounced_email||'',lead:r.lead_type?{type:r.lead_type,id:r.lead_id,name:r.lead_name||''}:null,status:r.status,forwarded:!!r.forwarded,createdAt:r.created_at})),
     counts:Object.fromEntries(KINDS.map(k=>{const c=counts.find(r=>r.kind===k);return [k,{total:Number(c?.total||0),open:Number(c?.open||0)}]}))});
 }
