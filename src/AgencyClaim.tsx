@@ -53,7 +53,7 @@ export function AgencyClaim(){
     try{
       const needs={roles,shifts,count,sources};
       const data=await api<{redirect:string}>('/api/agency/claim/request',{method:'POST',body:JSON.stringify({token,turnstileToken,needs})});
-      window.location.assign(data.redirect||'/app');
+      window.location.assign(data.redirect||'/hiring');
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not open your dashboard.');
       setStatus('ready');
@@ -96,7 +96,7 @@ export function AgencyClaim(){
 
       {agency.claimed?<>
         <div className="notice">This agency is already linked to a CareJoys workspace. Sign in to continue.</div>
-        <a className="btn" href="/login?next=/app">Sign in to CareJoys</a>
+        <a className="btn" href="/login?next=/hiring">Sign in to CareJoys</a>
       </>:<>
         <p className="activation-intro">This link was sent to {agency.name}’s email, so one click opens your dashboard. Your first month is free.</p>
         <TurnstileField onToken={setTurnstileToken}/>

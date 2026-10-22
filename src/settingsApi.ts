@@ -175,7 +175,7 @@ export async function sendDailyDigests(env:BillingEnv,limit=100){
     if(!fresh.length&&!waiting.length&&!interviews.length)continue;
     const to=clean(e.email,320).toLowerCase();
     if(!emailValid(to))continue;
-    const mail=dailyDigestEmail({company:clean(e.company_name,200),fresh,waiting,interviews,link:ORIGIN+'/app?tab=candidates',settingsLink:ORIGIN+'/app?tab=settings'});
+    const mail=dailyDigestEmail({company:clean(e.company_name,200),fresh,waiting,interviews,link:ORIGIN+'/hiring?tab=candidates',settingsLink:ORIGIN+'/hiring?tab=settings'});
     try{await env.EMAIL.send({from:FROM,to,subject:mail.subject,html:mail.html,text:mail.text});sent++}catch{}
   }
   return {sent};
@@ -214,7 +214,7 @@ export async function sendMonthlyResults(env:FeatureEnv,now=new Date(),limit=100
     if(!invited&&!yes&&!applied&&!hired&&!views)continue;
     const recipients=clean(e.email,320).toLowerCase();
     if(!emailValid(recipients))continue;
-    const mail=monthlyResultsEmail({company:clean(e.company_name,200),month:MONTHS[start.getUTCMonth()],views,applied,invited,yes,hired,link:ORIGIN+'/app'});
+    const mail=monthlyResultsEmail({company:clean(e.company_name,200),month:MONTHS[start.getUTCMonth()],views,applied,invited,yes,hired,link:ORIGIN+'/hiring'});
     try{await env.EMAIL.send({from:FROM,to:recipients,subject:mail.subject,html:mail.html,text:mail.text});sent++}catch{}
   }
   return {sent};
@@ -243,7 +243,7 @@ export async function forwardToAts(env:BillingEnv,limit=50){
       if(Number(claimed.meta?.changes||0)!==1)continue;
       const mail=atsForwardEmail({company:clean(e.company_name,200),title:clean(r.title,200),source:r.kind==='application'?'Applied from '+sourceOf(r.source)+' (CareJoys)':'Said yes to a CareJoys invitation',note:clean(r.note,1000),
         caregiver:{name:nameOf(r),email:clean(r.email,320),phone:clean(r.phone,40),city:clean(r.city,120),state:clean(r.state,20),zip:clean(r.zip,10),role:clean(r.role,80),certifications:clean(r.certifications,300)},
-        link:ORIGIN+'/app?tab=candidates'});
+        link:ORIGIN+'/hiring?tab=candidates'});
       try{await env.EMAIL.send({from:FROM,to,replyTo:clean(r.email,320)||undefined,subject:mail.subject,html:mail.html,text:mail.text});sent++}
       catch{await env.DB.prepare(`UPDATE ${table} SET ats_forwarded_at=NULL WHERE id=?`).bind(r.id).run()}
     }

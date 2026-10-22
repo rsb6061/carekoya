@@ -17,7 +17,7 @@ export function EmployerAuth(){
     if(!token){setStatus('error');setMessage('This sign-in link is missing.');return;}
     post('/api/auth/verify',{token}).then((body)=>{
       setStatus('success');
-      window.setTimeout(()=>window.location.replace(body.redirect||'/app'),450);
+      window.setTimeout(()=>window.location.replace(body.redirect||'/hiring'),450);
     }).catch(err=>{
       setMessage(err instanceof Error?err.message:'This sign-in link is invalid.');
       setStatus('error');
@@ -29,7 +29,7 @@ export function EmployerAuth(){
       <div className="activation-kicker">CareJoys employer access</div>
       {status==='loading'&&<><h1>Signing you in…</h1><p>Verifying your secure CareJoys link.</p></>}
       {status==='success'&&<><div className="success-mark">✓</div><h1>You’re signed in.</h1><p>Opening your recruiting workspace now.</p></>}
-      {status==='error'&&<><h1>This link can’t be used.</h1><p>{message}</p><a className="btn" href="/app">Request a new sign-in link</a></>}
+      {status==='error'&&<><h1>This link can’t be used.</h1><p>{message}</p><a className="btn" href="/hiring">Request a new sign-in link</a></>}
     </div>
   </div>;
 }

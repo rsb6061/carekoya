@@ -80,9 +80,8 @@ export function WorkspaceSettings({agency,applicants,widget,focus='',homeAlertQu
     const on=form.get('smsAlerts')==='on';
     await save({smsAlerts:on,smsAlertPhone:String(form.get('smsAlertPhone')||'').trim()},on?'We’ll text you when a caregiver says yes.':'Texts are off. You’ll still get the email.');
   }
-  if(!settings)return <section className="section-block"><div className="section-heading"><h2>Settings</h2></div>{notice?<div className="alert-status alert-error">{notice.text}</div>:<p className="job-meta">Loading…</p>}</section>;
+  if(!settings)return <section className="section-block">{notice?<div className="alert-status alert-error">{notice.text}</div>:<p className="job-meta">Loading…</p>}</section>;
   return <section className="section-block workspace-settings">
-    <div className="section-heading"><h2>Settings</h2></div>
     {notice&&<div className={'alert-status workspace-alert'+(notice.tone==='ok'?'':' alert-error')} role="status">{notice.tone==='ok'?'✓ ':''}{notice.text}</div>}
 
     <div className="settings-card">

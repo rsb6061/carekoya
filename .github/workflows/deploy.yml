@@ -181,7 +181,7 @@ jobs:
           ROBOTS=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/robots.txt)
           echo "$ROBOTS" | grep -q 'User-agent: OAI-SearchBot'
           echo "$ROBOTS" | grep -q 'Sitemap: https://carejoys.com/sitemap.xml'
-          APP_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/app)
+          APP_HTML=$(curl --connect-timeout 3 --max-time 15 --fail-with-body --retry 3 --retry-delay 1 https://carejoys.com/hiring)
           echo "$APP_HTML" | grep -q 'name="robots" content="noindex,nofollow"'
           echo "Pilot caregiver training organization routes:"
           for SLUG in             it-works-learning-center             top-knowledge-healthcare-institute             caroline-center             cambridge-nursing-assistant-academy             vision-allied-health-institute             baltimore-city-community-college             care-xpert-academy             heritage-care             dominion-academy             beacon-institute

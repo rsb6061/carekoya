@@ -7,11 +7,11 @@ export const LAST_DASHBOARD_COOKIE='cj_last_dashboard';
 export function homePath(roles:DashboardRoles|null,last=''){
   if(!roles)return '/dashboard';
   if(last==='admin'&&roles.admin)return '/admin';
-  if(last==='app'&&roles.employer)return '/app';
+  if(last==='app'&&roles.employer)return '/hiring';
   if(last==='me'&&roles.caregiver)return '/dashboard';
   if(last==='school'&&roles.school)return '/school-dashboard';
   if(roles.admin)return '/admin';
-  if(roles.employer)return '/app';
+  if(roles.employer)return '/hiring';
   if(roles.school&&!roles.caregiver)return '/school-dashboard';
   // Caregivers, and brand-new emails: /dashboard builds a caregiver profile and offers hiring setup instead.
   return '/dashboard';

@@ -141,7 +141,7 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
   if(workEmail&&emailMatchesAgencyDomain(workEmail,org)){
     const employerId=await employerForEmail(env,workEmail,orgName);
     await recordPendingClaim(env,orgId,workEmail,employerId,'work_email_domain');
-    await sendEmployerMagicLink(env,employerId,'/app?tab=hiring');
+    await sendEmployerMagicLink(env,employerId,'/hiring?tab=hiring');
     return json({ok:true,sentTo:maskEmail(workEmail),message:'Check '+maskEmail(workEmail)+' for a secure link. Clicking it links '+orgName+' to your workspace.'});
   }
 
@@ -149,7 +149,7 @@ export async function startAgencyClaim(request:Request,env:AgencyClaimEnv){
   if(emailValid(onFile)){
     const employerId=await employerForEmail(env,onFile,orgName);
     await recordPendingClaim(env,orgId,onFile,employerId,'email_on_file');
-    await sendEmployerMagicLink(env,employerId,'/app?tab=hiring');
+    await sendEmployerMagicLink(env,employerId,'/hiring?tab=hiring');
     return json({ok:true,sentTo:maskEmail(onFile),message:'We sent a secure link to the email on '+orgName+'’s public record ('+maskEmail(onFile)+'). Whoever opens it can manage the agency on CareJoys.'});
   }
 

@@ -174,7 +174,7 @@ test('employer onboarding from Hire caregivers', async({page})=>{
 test('employer workspace: create an opening and view matches', async({page})=>{
   const w=await watch(page);
   await signIn(page,EMPLOYER,true);
-  await page.goto('/app');
+  await page.goto('/hiring');
   await page.getByRole('button',{name:'+ New job listing'}).click();
   await page.getByLabel('Job title').fill('E2E CNA weekends');
   const modal=page.locator('.modal-panel');
@@ -183,7 +183,7 @@ test('employer workspace: create an opening and view matches', async({page})=>{
   await modal.getByRole('button',{name:/Create (& match|job listing)/}).click();
   await expect(page.locator('.modal-panel')).toHaveCount(0);
   // Create & match goes straight to Find caregivers for the new job, with the seeded Baltimore CNA suggested first.
-  await expect(page).toHaveURL(/\/app\?tab=talent&job=/);
+  await expect(page).toHaveURL(/\/hiring\?tab=talent&job=/);
   const picker=page.getByLabel('Job listing');
   await expect(picker.locator('option:checked')).toHaveText('E2E CNA weekends');
   await expect(page.getByRole('heading',{name:'Suggested for this job'})).toBeVisible();
@@ -196,10 +196,10 @@ test('employer workspace: create an opening and view matches', async({page})=>{
   await expect(card.getByText(/^[1-9]\d* suggested · 0 invited · 0 said yes$/)).toBeVisible();
   await card.getByRole('button',{name:'Candidates'}).click();
   await expect(page.getByRole('heading',{name:'Candidates for E2E CNA weekends'})).toBeVisible();
-  await expect(page).toHaveURL(/\/app\?tab=candidates&job=/);
+  await expect(page).toHaveURL(/\/hiring\?tab=candidates&job=/);
   // The link to Find caregivers for a job opens that job.
   const url=new URL(page.url());
-  await page.goto('/app?tab=talent&job='+url.searchParams.get('job'));
+  await page.goto('/hiring?tab=talent&job='+url.searchParams.get('job'));
   await expect(page.getByLabel('Job listing').locator('option:checked')).toHaveText('E2E CNA weekends');
   clean(w);
 });
@@ -207,7 +207,7 @@ test('employer workspace: create an opening and view matches', async({page})=>{
 test('employer finds caregivers: suggested first, then nearby, profile panel', async({page})=>{
   const w=await watch(page);
   await signIn(page,EMPLOYER,true);
-  await page.goto('/app');
+  await page.goto('/hiring');
   await page.locator('.dash-sidenav').getByRole('button',{name:'Find caregivers'}).click();
   await expect(page.getByRole('heading',{name:'Find caregivers'})).toBeVisible();
   await expect(page.getByLabel('Job listing').locator('option:checked')).toHaveText('E2E CNA weekends');
@@ -224,11 +224,11 @@ test('employer finds caregivers: suggested first, then nearby, profile panel', a
   await expect(far.getByText('Lives too far from your job listings')).toBeVisible();
   await far.getByRole('button',{name:'View profile'}).click();
   const panel=page.getByRole('dialog',{name:'Dana F.'});
-  await expect(panel.getByRole('link',{name:'View full profile'})).toHaveAttribute('href',/\/app\?talent=/);
+  await expect(panel.getByRole('link',{name:'View full profile'})).toHaveAttribute('href',/\/hiring\?talent=/);
   await expect(panel.getByText('Lives too far from your job listings')).toBeVisible();
   // "View full profile" opens the caregiver's own page in place.
   await panel.getByRole('link',{name:'View full profile'}).click();
-  await expect(page).toHaveURL(/\/app\?talent=/);
+  await expect(page).toHaveURL(/\/hiring\?talent=/);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'Dana F.'})).toBeVisible();
   // New-caregiver emails are a setting, not a button on the search.

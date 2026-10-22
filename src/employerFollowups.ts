@@ -66,7 +66,7 @@ export async function sendHiringFollowups(env:FollowupEnv,limit=40){
     const claimed=await env.DB.prepare("UPDATE candidate_pipeline SET employer_nudged_at=CURRENT_TIMESTAMP WHERE id=? AND employer_nudged_at IS NULL").bind(r.id).run();
     if(Number(claimed.meta?.changes||0)!==1)continue;
     const mail=employerInterestNudgeEmail({recipientName:clean(r.contact_name,120).split(/\s+/)[0]||'there',caregiverName:publicName(r.first_name,r.last_name,r.display_name),title:clean(r.title,200),
-      appLink:'https://carejoys.com/app?candidate='+encodeURIComponent(clean(r.id,100))});
+      appLink:'https://carejoys.com/hiring?candidate='+encodeURIComponent(clean(r.id,100))});
     try{const sent=await env.EMAIL.send({from:FROM,to:clean(r.employer_email,320),subject:mail.subject,html:mail.html,text:mail.text});await log(env,r.caregiver_id,r.opening_id,'employer_interest_nudge',r.id,sent.messageId);nudges++}
     catch{await log(env,r.caregiver_id,r.opening_id,'employer_interest_nudge_failed',r.id)}
   }

@@ -176,7 +176,7 @@ export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|
     const employer=await env.DB.prepare("SELECT email,contact_name FROM employer_leads WHERE id=? AND status!='disabled'").bind(claimedBy).first<Row>();
     to=clean(employer?.email,320).toLowerCase();
     eventType='interest_notify';
-    body=agencyInterestNotifyEmail({recipientName:clean(employer?.contact_name,120).split(/\s+/)[0]||'',agencyName,items:previews,count:previews.length,link:ORIGIN+'/app?tab=inbox'});
+    body=agencyInterestNotifyEmail({recipientName:clean(employer?.contact_name,120).split(/\s+/)[0]||'',agencyName,items:previews,count:previews.length,link:ORIGIN+'/hiring?tab=inbox'});
   }else{
     to=clean(org.primary_email,320).toLowerCase();
     if(!emailLooksValid(to))return 'skipped';

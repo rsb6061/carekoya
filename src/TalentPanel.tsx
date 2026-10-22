@@ -13,7 +13,7 @@ export type TalentActions={
   disabled?:boolean;
 };
 
-const talentPageUrl=(id:string)=>'/app?talent='+encodeURIComponent(id);
+const talentPageUrl=(id:string)=>'/hiring?talent='+encodeURIComponent(id);
 
 /** The job listings a caregiver lives close enough to take, judged from each job's location, not the searched ZIP. */
 export const reachableOpenings=(c:TalentCandidate,openings:TalentOpening[])=>
@@ -30,7 +30,7 @@ function InviteToOpening({candidate,actions}:{candidate:TalentCandidate;actions:
   useEffect(()=>{if(!options.some(o=>o.id===openingId))setOpeningId(options[0]?.id||'')},[options.map(o=>o.id).join()]);
   // Already applied to the agency, or lives beyond their own commute: nothing to invite them to.
   if(spots.some(s=>s.applied))return null;
-  if(!actions.openings.length)return <a className="button secondary" href="/app?tab=openings">Add a job listing to invite</a>;
+  if(!actions.openings.length)return <a className="button secondary" href="/hiring?tab=openings">Add a job listing to invite</a>;
   if(!reachable.length)return <span className="job-meta">Lives too far from your job listings</span>;
   if(!options.length)return null;
   const go=async()=>{setBusy(true);try{await actions.onInvite(candidate,openingId)}finally{setBusy(false)}};

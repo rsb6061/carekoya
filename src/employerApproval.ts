@@ -63,8 +63,8 @@ export async function approveEmployer(env:ApprovalEnv,employerId:string,approved
   if(!clean(e.approved_at,40)){
     await env.DB!.prepare('UPDATE employer_leads SET approved_at=CURRENT_TIMESTAMP,approved_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(approvedBy||'admin',employerId).run();
     if(env.EMAIL)await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(e.email,320),subject:'You’re approved on CareJoys',
-      text:`Hi ${clean(e.contact_name,80)||'there'},\n\nYour CareJoys account is approved. You can now search caregivers and see your matches:\nhttps://carejoys.com/app\n\nCareJoys`,
-      html:`<p>Hi ${clean(e.contact_name,80).replace(/[<>&]/g,'')||'there'},</p><p>Your CareJoys account is approved. You can now search caregivers and see your matches.</p><p><a href="https://carejoys.com/app">Open CareJoys</a></p>`}).catch(()=>null);
+      text:`Hi ${clean(e.contact_name,80)||'there'},\n\nYour CareJoys account is approved. You can now search caregivers and see your matches:\nhttps://carejoys.com/hiring\n\nCareJoys`,
+      html:`<p>Hi ${clean(e.contact_name,80).replace(/[<>&]/g,'')||'there'},</p><p>Your CareJoys account is approved. You can now search caregivers and see your matches.</p><p><a href="https://carejoys.com/hiring">Open CareJoys</a></p>`}).catch(()=>null);
   }
   return json({ok:true});
 }

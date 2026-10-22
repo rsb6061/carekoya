@@ -263,6 +263,7 @@ function careJoysRobots(){
 Allow: /
 Disallow: /api/
 Disallow: /app
+Disallow: /hiring
 Disallow: /auth
 Disallow: /activate
 Disallow: /respond
@@ -273,6 +274,7 @@ User-agent: GPTBot
 Allow: /
 Disallow: /api/
 Disallow: /app
+Disallow: /hiring
 Disallow: /auth
 Disallow: /activate
 Disallow: /respond
@@ -822,7 +824,9 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/login"||url.pathname==="/signup"){
     return seoAsset(request,env,{title:(url.pathname==="/login"?"Sign in":"Create your account")+" | CareJoys",description:"Sign in to CareJoys with an email link or Google.",canonical:url.pathname,robots:"noindex,follow"});
   }
-  if(url.pathname.startsWith("/app")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")||url.pathname.startsWith("/book/")){
+  // The agency workspace moved from /app to /hiring (2026-10-22); links in emails already sent keep working.
+  if(url.pathname==="/app"||url.pathname.startsWith("/app/"))return Response.redirect(new URL("/hiring"+url.pathname.slice(4)+url.search,url).toString(),301);
+  if(url.pathname==="/hiring"||url.pathname.startsWith("/hiring/")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")||url.pathname.startsWith("/book/")){
     return seoAsset(request,env,{title:"CareJoys",description:"CareJoys caregiver recruiting and placement workflow.",canonical:url.pathname,robots:"noindex,nofollow"});
   }
   if(url.pathname==="/schools/maryland")return Response.redirect(SEO_ORIGIN+"/training-programs/maryland",301);
@@ -1023,28 +1027,28 @@ async function handleEmployer(request: Request, env: Env) {
       employerId=crypto.randomUUID();
       await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
         .bind(employerId,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
-      redirect="/app?opening="+encodeURIComponent(await createIntakeOpening(env,employerId,intake))+"&match=1";
+      redirect="/hiring?opening="+encodeURIComponent(await createIntakeOpening(env,employerId,intake))+"&match=1";
       await alertNewEmployerLead(env,email,intake);
     }
     const session=await startEmployerSession(env,employerId);
-    return json({ok:true,email,outOfArea,redirect:redirect||"/app"},{status:201,headers:{"Set-Cookie":employerSessionCookie(session)}});
+    return json({ok:true,email,outOfArea,redirect:redirect||"/hiring"},{status:201,headers:{"Set-Cookie":employerSessionCookie(session)}});
   }
   // CareJoys' own test addresses get no email: they go on to sign in with their test code.
   const testLogin=await isTestLogin(env,email);
   const codeSignIn=(next:string)=>json({ok:true,email,outOfArea,redirect:"/login?"+new URLSearchParams({email,next}).toString()},{status:201});
   if(existing){
-    if(testLogin) return codeSignIn("/app");
+    if(testLogin) return codeSignIn("/hiring");
     // Anyone can type an existing employer's email, so nothing changes on that account until the emailed link is clicked.
-    await sendEmployerMagicLink(env,existing.id,"/app",{kind:"employer_intake",...intake});
+    await sendEmployerMagicLink(env,existing.id,"/hiring",{kind:"employer_intake",...intake});
     return json({ok:true,checkEmail:true,email,outOfArea},{status:201});
   }
   const id=crypto.randomUUID();
   await env.DB.prepare("INSERT INTO employer_leads (id,company_name,contact_name,email,phone,zip,roles_needed,hiring_notes,employer_type,status) VALUES (?,?,?,?,?,?,?,?,NULLIF(?,''),'active')")
     .bind(id,intake.companyName,intake.contactName,email,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,intake.employerType||"").run();
   const openingId=await createIntakeOpening(env,id,intake);
-  if(testLogin) return codeSignIn("/app?opening="+encodeURIComponent(openingId)+"&match=1");
+  if(testLogin) return codeSignIn("/hiring?opening="+encodeURIComponent(openingId)+"&match=1");
   await alertNewEmployerLead(env,email,intake);
-  await sendEmployerMagicLink(env,id,"/app?opening="+encodeURIComponent(openingId)+"&match=1");
+  await sendEmployerMagicLink(env,id,"/hiring?opening="+encodeURIComponent(openingId)+"&match=1");
   return json({ok:true,checkEmail:true,email,openingId,outOfArea},{status:201});
 }
 
@@ -1117,7 +1121,7 @@ async function applyPendingEmployerIntake(env:Env,employerId:string,raw:Record<s
   await env.DB.prepare("UPDATE employer_leads SET company_name=COALESCE(NULLIF(?,''),company_name),contact_name=COALESCE(NULLIF(?,''),contact_name),phone=COALESCE(NULLIF(?,''),phone),zip=COALESCE(NULLIF(?,''),zip),roles_needed=COALESCE(NULLIF(?,''),roles_needed),hiring_notes=?,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?")
     .bind(intake.companyName,intake.contactName,intake.phone,intake.zip,intake.rolesNeeded,intake.hiringNotes,employerId).run();
   const openingId=await createIntakeOpening(env,employerId,intake);
-  return "/app?opening="+encodeURIComponent(openingId)+"&match=1";
+  return "/hiring?opening="+encodeURIComponent(openingId)+"&match=1";
 }
 async function getPublicTrainingProgram(slug:string,env:Env){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
@@ -1686,7 +1690,7 @@ async function talentAlerts(request:Request,env:Env,workspaceId:string,alertId?:
 async function turnOffTalentAlert(url:URL,env:Env){
   const token=clean(url.searchParams.get("token"),200);
   if(token&&env.DB)await env.DB.prepare("DELETE FROM talent_alerts WHERE off_token=?").bind(token).run();
-  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert turned off</title><body style="font-family:Arial,sans-serif;background:#ffffff;color:#191e49;padding:48px 20px;text-align:center"><h1 style="font-weight:600">This alert is off.</h1><p>You won't get emails for this search anymore. <a href="/app?tab=talent">Open Find caregivers</a></p></body>`,{headers:{'content-type':'text/html; charset=utf-8'}});
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alert turned off</title><body style="font-family:Arial,sans-serif;background:#ffffff;color:#191e49;padding:48px 20px;text-align:center"><h1 style="font-weight:600">This alert is off.</h1><p>You won't get emails for this search anymore. <a href="/hiring?tab=talent">Open Find caregivers</a></p></body>`,{headers:{'content-type':'text/html; charset=utf-8'}});
 }
 /**
  * Daily: for each saved search, caregivers who joined since the last check and live within commuting range (or the
@@ -1706,7 +1710,7 @@ async function sendTalentAlerts(env:Env,limit=200){
     if(fresh.length){
       const people=fresh.slice(0,5).map(r=>{const p=talentCandidate(r.c,r.distanceMiles);return {name:String(p.name),detail:[p.role,[p.city,p.state].filter(Boolean).join(', '),distanceLabel(p.distanceMiles)].filter(Boolean).join(' · ')}});
       const message=talentAlertEmail({recipientName:clean(alert.contact_name,120),label:clean(alert.label,300),count:fresh.length,people,
-        link:'https://carejoys.com/app?tab=talent&'+q.toString(),offLink:'https://carejoys.com/talent-alert/off?token='+encodeURIComponent(clean(alert.off_token,200))});
+        link:'https://carejoys.com/hiring?tab=talent&'+q.toString(),offLink:'https://carejoys.com/talent-alert/off?token='+encodeURIComponent(clean(alert.off_token,200))});
       try{
         await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to:clean(alert.email,320),subject:message.subject,html:message.html,text:message.text});
         await env.DB.prepare("UPDATE talent_alerts SET last_sent_at=CURRENT_TIMESTAMP WHERE id=?").bind(alert.id).run();

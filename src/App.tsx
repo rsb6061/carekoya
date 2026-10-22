@@ -67,7 +67,7 @@ function routePage(path:string){
   if (path.startsWith('/school/')) return <SchoolProgramPage />;
   if (path.startsWith('/privacy-policy')) return <LegalPage kind="privacy" />;
   if (path.startsWith('/terms-of-service')) return <LegalPage kind="terms" />;
-  if (path.startsWith('/app')) return <EmployerWorkspace />;
+  if (path === '/hiring' || path.startsWith('/hiring/')) return <EmployerWorkspace />;
   if (path === '/dashboard' || path.startsWith('/dashboard/')) return <CaregiverDashboard />;
   if (path.startsWith('/admin')) return <AdminConsole />;
   if (path === '/login' || path === '/signup') return <LoginPage />;

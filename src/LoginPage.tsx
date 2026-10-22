@@ -81,7 +81,7 @@ function TestCodeForm({email,next,onBack}:{email:string;next:string;onBack:()=>v
     setBusy(true);setError('');
     try{
       const body=await post<{redirect?:string}>('/api/login/code',{email,code,reset,next,turnstileToken});
-      window.location.replace(body.redirect||'/app');
+      window.location.replace(body.redirect||'/hiring');
     }catch(e){setBusy(false);setTurnstileToken('');setAttempt(a=>a+1);setError(e instanceof Error?e.message:'Could not sign in.')}
   }
   return <div className="login-card">

@@ -327,8 +327,8 @@ export async function requestAgencyClaim(request:Request,env:FeatureEnv,accountC
   const headers=new Headers({'content-type':'application/json; charset=utf-8','cache-control':'no-store','Set-Cookie':employerSessionCookie(session)});
   const account=accountCookie?await accountCookie(employerId):null;
   if(account)headers.append('Set-Cookie',account);
-  // Caregivers already waiting open Candidates; otherwise Applicants, where forwarding their own applicants works on day one.
-  return new Response(JSON.stringify({ok:true,redirect:waiting?'/app?tab=candidates':'/app?tab=openings'}),{status:200,headers});
+  // Caregivers already waiting open Candidates; otherwise the Dashboard, whose setup tiles start with a job listing and forwarding applicants.
+  return new Response(JSON.stringify({ok:true,redirect:waiting?'/hiring?tab=candidates':'/hiring'}),{status:200,headers});
 }
 
 export async function getAgencyNetwork(request:Request,env:FeatureEnv){
