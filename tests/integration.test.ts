@@ -5,7 +5,7 @@ import { unsubscribeLink } from '../src/emailPreferences';
 import { runOutreach } from '../src/outreach';
 import { runDataForSeoJobs } from '../src/dataforseo';
 import { pullClarityInsights } from '../src/clarity';
-import { sendAgencyHiringInvites, sendAgencyHiringReinvites, friendlyAgencyName, sendFacilityPilotInvites } from '../src/agencyFeatures';
+import { sendAgencyHiringInvites, sendAgencyHiringReinvites, friendlyAgencyName, sendFacilityPilotInvites, recheckAgencyEmailBatch } from '../src/agencyFeatures';
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
@@ -3481,5 +3481,26 @@ describe('job listings posted as CareJoys job pages',()=>{
     const row=await DB.prepare("SELECT status,is_published,last_checked_at FROM caregiver_jobs WHERE id=?").bind(jobId).first() as any;
     expect(row).toMatchObject({status:'current',is_published:1});
     expect(Date.parse(row.last_checked_at.replace(' ','T')+'Z')).toBeGreaterThan(Date.now()-3600000);
+  });
+});
+
+describe('agency email recheck', ()=>{
+  it('reads the Contact page of agencies crawled without an email, once each', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_website,city,state,is_active,last_enriched_at) VALUES ('org-mail','org-mail','Mail Care','mailcare.test','https://mailcare.test/','Las Vegas','NV',1,'2026-10-01 00:00:00')").run();
+    const original=globalThis.fetch;
+    const seen:string[]=[];
+    globalThis.fetch=(async(url:string)=>{
+      seen.push(String(url));
+      const html=String(url).endsWith('/contact')?'<p>Email us: office@mailcare.test</p>':'<a href="/contact">Contact</a>';
+      return new Response(html,{headers:{'content-type':'text/html'}});
+    }) as any;
+    try{
+      await recheckAgencyEmailBatch(env(),5);
+      const looks=seen.filter(u=>u.includes('mailcare.test')).length;
+      await recheckAgencyEmailBatch(env(),5);
+      expect(seen.filter(u=>u.includes('mailcare.test')).length).toBe(looks);
+    }finally{globalThis.fetch=original}
+    expect(seen).toContain('https://mailcare.test/contact');
+    expect(await DB.prepare("SELECT primary_email FROM agency_organizations WHERE id='org-mail'").first()).toEqual({primary_email:'office@mailcare.test'});
   });
 });

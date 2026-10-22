@@ -3,6 +3,7 @@ import { unsubscribeLink } from './emailPreferences';
 import { employerSession, employerSessionCookie, publicFormGuard, startEmployerSession, type FeatureEnv } from './serverFeatures';
 import { waitingInterestPreviews } from './agencyInbox';
 import { DEFAULT_COMMUTE_MILES } from './geo';
+import { sourcingRankSql } from './sourcingPriorities';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -38,7 +39,7 @@ async function fetchText(url:string,ms=7000){
     if(!res.ok)return null;
     const type=res.headers.get('content-type')||'';
     if(!type.includes('text/html')&&!type.includes('text/plain'))return null;
-    return {url:res.url,text:(await res.text()).slice(0,750000)};
+    return {url:res.url||url,text:(await res.text()).slice(0,750000)};
   }catch{return null}finally{clearTimeout(timer)}
 }
 function htmlText(html:string){
@@ -68,11 +69,50 @@ function findCareerUrl(base:string,html:string){
   }
   return '';
 }
+/** Cloudflare's email protection writes addresses as hex XOR-ed with the first byte (data-cfemail="..."). */
+function cfEmails(html:string){
+  const out:string[]=[];
+  for(const m of html.matchAll(/(?:data-cfemail=["']|\/cdn-cgi\/l\/email-protection#)([0-9a-f]{4,})/gi)){
+    const hex=m[1],key=parseInt(hex.slice(0,2),16);
+    let s='';
+    for(let i=2;i+1<hex.length;i+=2)s+=String.fromCharCode(parseInt(hex.slice(i,i+2),16)^key);
+    out.push(s);
+  }
+  return out.join(' ');
+}
 /** A contact address on the agency's own domain; third-party addresses (widgets, builders) are ignored. */
 export function siteEmail(html:string,domain:string){
-  for(const m of html.matchAll(/(?:mailto:)?([a-z0-9._%+-]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+))/gi)){
+  for(const m of (html+' '+cfEmails(html)).matchAll(/(?:mailto:)?([a-z0-9._%+-]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+))/gi)){
     const email=m[1].toLowerCase(),host=m[2].toLowerCase();
     if(host===domain||host.endsWith('.'+domain))return email;
+  }
+  return '';
+}
+/** Up to two Contact or About pages on the agency's own site, from its links or the usual paths. */
+export function contactPageUrls(base:string,html:string){
+  const urls:string[]=[];
+  let host='';
+  try{host=new URL(base).host}catch{return urls}
+  for(const m of html.matchAll(/href=["']([^"'#]+)["']/gi)){
+    if(!/(contact|about)/i.test(m[1]))continue;
+    try{
+      const u=new URL(m[1],base);
+      if(/^https?:$/.test(u.protocol)&&u.host===host&&!urls.includes(u.toString()))urls.push(u.toString());
+    }catch{}
+    if(urls.length>=2)return urls;
+  }
+  for(const path of ['/contact-us','/contact']){
+    if(urls.length>=2)break;
+    const u=new URL(path,base).toString();
+    if(!urls.includes(u))urls.push(u);
+  }
+  return urls;
+}
+async function contactPageEmail(home:{url:string;text:string},domain:string){
+  for(const url of contactPageUrls(home.url,home.text)){
+    const page=await fetchText(url,5000);
+    const email=page?siteEmail(page.text,domain):'';
+    if(email)return email;
   }
   return '';
 }
@@ -121,12 +161,12 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
     const signal=hiringSignal(body,roles);
     const finalCareer=career?.url||careerUrl||'';
     // Agencies found through NPI or Google listings have no email yet; take one from their own site.
-    const email=clean(row.primary_email,320)?'':siteEmail(home.text,domain)||(career?siteEmail(career.text,domain):'');
+    const email=clean(row.primary_email,320)?'':siteEmail(home.text,domain)||(career?siteEmail(career.text,domain):'')||await contactPageEmail(home,domain);
     await env.DB.prepare(`UPDATE agency_organizations SET
       primary_email=CASE WHEN coalesce(primary_email,'')='' AND ?!='' THEN ? ELSE primary_email END,
       primary_website=?,primary_careers_url=?,website_source=CASE WHEN website_source='google_business' THEN website_source ELSE 'email_domain' END,
       careers_source=?,inferred_roles=?,current_hiring_signal=?,hiring_signal_source=?,
-      hiring_signal_checked_at=CURRENT_TIMESTAMP,last_enriched_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      hiring_signal_checked_at=CURRENT_TIMESTAMP,last_enriched_at=CURRENT_TIMESTAMP,email_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
       WHERE id=?`)
       .bind(email,email,home.url,finalCareer,finalCareer?'site_careers_page':'site_homepage',roles.join(', '),signal,finalCareer?'careers_page':'website',row.id).run();
     const hp=await env.DB.prepare("SELECT employer_confirmed_at FROM agency_org_hiring_profiles WHERE organization_id=?").bind(row.id).first<Row>();
@@ -143,6 +183,35 @@ export async function enrichAgencyBatch(env:FeatureEnv,limit=30){
     enriched++;
   }
   return {processed:(rows.results||[]).length,enriched};
+}
+
+/**
+ * Agencies crawled before Contact and About pages were read, with no email yet: each gets one look at those pages,
+ * the priority SEO cities first. Hourly, and through a partial index, so a run reads only the ~24k agencies still waiting.
+ */
+export async function recheckAgencyEmailBatch(env:FeatureEnv,limit=60){
+  if(!env.DB)return {checked:0,found:0};
+  const rows=(await env.DB.prepare(`SELECT id,primary_domain,primary_website FROM agency_organizations
+    INDEXED BY idx_agency_orgs_email_recheck
+    WHERE email_checked_at IS NULL AND COALESCE(primary_email,'')='' AND last_enriched_at IS NOT NULL
+      AND is_active=1 AND COALESCE(is_test,0)=0 AND COALESCE(primary_domain,'')!=''
+      AND COALESCE(website_source,'') NOT IN ('invalid_email_domain','email_domain_unreachable')
+    ORDER BY ${sourcingRankSql('state','city')}, id
+    LIMIT ?`).bind(limit).all<Row>()).results||[];
+  let found=0;
+  // Eight sites at a time keeps a batch to a couple of minutes even when sites are slow.
+  for(let i=0;i<rows.length;i+=8){
+    await Promise.all(rows.slice(i,i+8).map(async row=>{
+      const domain=safeDomain(clean(row.primary_domain,200));
+      const site=clean(row.primary_website,500);
+      const home=domain?(site&&/^https?:/.test(site)?await fetchText(site,5000):null)||await fetchText('https://'+domain+'/',5000):null;
+      const email=home&&domain?await contactPageEmail(home,domain).catch(()=>''):'';
+      if(email)found++;
+      await env.DB!.prepare(`UPDATE agency_organizations SET email_checked_at=CURRENT_TIMESTAMP,
+        primary_email=CASE WHEN COALESCE(primary_email,'')='' AND ?!='' THEN ? ELSE primary_email END WHERE id=?`).bind(email,email,row.id).run();
+    }));
+  }
+  return {checked:rows.length,found};
 }
 
 // Agency matches use real distance: the caregiver must live within reach of the agency's ZIP, where reach is the

@@ -23,7 +23,7 @@ import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
 import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
 import { stateForZipPrefix } from '../src/usStates';
-import { siteEmail } from '../src/agencyFeatures';
+import { siteEmail, contactPageUrls } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
 import { htmlText, pageCityInState, icimsJobLinks, icimsSearchUrl, icimsSitemapJobs, roleClassification, rotatingWindow, locationStringParts, looksLikeMarketingPage, mentionsOtherStates, mentionsState, normalizeCity, notAJobPosting, publicationDecision, canonicalJobIdentity } from '../src/jobDiscovery';
 
@@ -289,6 +289,14 @@ describe('national agency helpers', ()=>{
     expect(siteEmail('<a href="mailto:Jobs@SunriseCare.com">x</a> sentry@wixpress.com','sunrisecare.com')).toBe('jobs@sunrisecare.com');
     expect(siteEmail('logo@2x.png support@wix.com','sunrisecare.com')).toBe('');
     expect(siteEmail('hr@mail.sunrisecare.com','sunrisecare.com')).toBe('hr@mail.sunrisecare.com');
+    // Cloudflare email protection hides the address as XOR-ed hex.
+    expect(siteEmail('<a href="/cdn-cgi/l/email-protection" data-cfemail="422b2c242d0231372c302b3127212330276c212d2f">[email&#160;protected]</a>','sunrisecare.com')).toBe('info@sunrisecare.com');
+  });
+
+  it('finds Contact and About pages on the agency site only', () => {
+    expect(contactPageUrls('https://sunrisecare.com/','<a href="/about-us">About</a><a href="https://facebook.com/contact">x</a><a href="contact.html">Contact</a>'))
+      .toEqual(['https://sunrisecare.com/about-us','https://sunrisecare.com/contact.html']);
+    expect(contactPageUrls('https://sunrisecare.com/','<a href="/services">x</a>')).toEqual(['https://sunrisecare.com/contact-us','https://sunrisecare.com/contact']);
   });
 });
 
