@@ -1,6 +1,6 @@
 import { hourlyPayFloor } from './payPreferences';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, sendLoginLink, startGoogleSignIn, verifyLogin, verifyTestCode, isTestLogin } from './accountAuth';
-import { talentAlertEmail, type EmailBinding } from './email';
+import { setMailingAddress, talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
@@ -73,6 +73,8 @@ interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   DB?: D1Database;
   EMAIL?: EmailBinding;
+  /** Postal address printed at the foot of outreach emails (US anti-spam law). Set it as a secret so deploys keep it. */
+  MAILING_ADDRESS?: string;
   /** Booking page (Calendly, Cal.com…) shown after the /hire-caregivers form. Only https links are used. */
   EMPLOYER_CALL_URL?: string;
   TURNSTILE_SITE_KEY?: string;
@@ -2432,6 +2434,7 @@ async function edgeCached(request:Request,ctx:WorkerCtx|undefined,handle:()=>Pro
 
 export default {
   async fetch(request:Request,env:Env,ctx?:WorkerCtx):Promise<Response>{
+    setMailingAddress(env.MAILING_ADDRESS);
     env=withoutTestMail(env);
     try{return await edgeCached(request,ctx,()=>handleRequest(request,env,ctx))}
     catch(error){
@@ -2442,9 +2445,11 @@ export default {
   },
   // Mail to hello@carejoys.com, once its Email Routing rule says "Send to a Worker": forwarded on, then recorded.
   async email(message:InboundEmailMessage,env:Env){
+    setMailingAddress(env.MAILING_ADDRESS);
     await handleInboundEmail(message,env);
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
+    setMailingAddress(env.MAILING_ADDRESS);
     env=withoutTestMail(env);
     // Awaiting the work keeps the run alive for the cron's full 15 minutes; waitUntil records its outcome.
     const work=(async()=>{

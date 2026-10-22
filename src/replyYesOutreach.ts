@@ -3,7 +3,7 @@
 // AGENCY_OUTREACH_EMAIL is "reply_yes", shares that invite's daily cap, and sends nothing until a message to
 // rebecca@carejoys.com has reached the Worker: proof the Email Routing rule exists, so replies are recorded.
 import { unsubscribeLink } from './emailPreferences';
-import type { EmailBinding } from './email';
+import { mailingAddressLine, type EmailBinding } from './email';
 
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<{success:boolean;meta?:Record<string,unknown>}>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
@@ -40,7 +40,7 @@ export function replyYesEmail(input:{contactName:string;agencyName:string;varian
       `Quick question: do caregiver applicants go quiet before ${agency} can call them back?`,
       `I run CareJoys. We answer every new applicant within 30 minutes, ask your screening questions, and book the ones who fit into your interview times. Every Monday you get a list of who applied and who showed up.`,
       `If that would help, reply "yes" and I'll set it up for you. The first month is free.`,
-      `Rebecca Myers\nCareJoys · carejoys.com`,
+      `Rebecca Myers\nCareJoys · carejoys.com`+(mailingAddressLine()?'\n'+mailingAddressLine():''),
       `Not for you? Reply "stop", or unsubscribe: ${input.unsubscribeLink}`
     ].join('\n\n')
   };
