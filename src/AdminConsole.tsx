@@ -40,7 +40,7 @@ type Overview={
 type AdminSection='overview'|'replies'|'employers'|'applicants'|'caregivers'|'jobs'|'outreach'|'advanced';
 // The admin's left nav, grouped by what the owner does: watch, answer and approve first; then the two sides of the market; then growth and tools.
 const ADMIN_NAV:{label:string;items:[AdminSection,string][]}[]=[
-  {label:'Today',items:[['overview','Overview'],['replies','Replies'],['employers','Employers']]},
+  {label:'Today',items:[['overview','Overview'],['replies','Inbox'],['employers','Employers']]},
   {label:'Marketplace',items:[['caregivers','Caregivers'],['jobs','Jobs']]},
   {label:'Growth',items:[['applicants','Applicants'],['outreach','Outreach']]},
   {label:'Tools',items:[['advanced','Advanced']]},
@@ -200,12 +200,12 @@ export function AdminConsole(){
      <div className="dash-main-col">
       <div className="page-head page-head-row admin-page-heading">
         <div><h1>{{
-          overview:'Your business at a glance',replies:'Replies and your email',employers:'Employer approvals & accounts',applicants:'Agency applicants',
+          overview:'Your business at a glance',replies:'Inbox',employers:'Employer approvals & accounts',applicants:'Agency applicants',
           caregivers:'Caregiver growth',jobs:'Job coverage & applications',outreach:'Agency & school outreach',advanced:'Advanced operations'
         }[section]}</h1>
         <p>{{
           overview:'Start with anything that needs attention. The numbers below describe real activity, not projected hires.',
-          replies:'Every email to hello@ and rebecca@carejoys.com, matched to the lead it came from. Each one is also forwarded to your inbox.',
+          replies:'Email to hello@ and rebecca@carejoys.com, one conversation per person. Everything you send goes from rebecca@ (or hello@ when answering mail sent there), with a copy to your Gmail.',
           employers:'Review new employers before giving them access to candidate profiles.',
           applicants:'Upload and work each agency’s own applicants. They stay that agency’s and never join caregiver matching.',
           caregivers:'Track worker profiles, recruiting campaigns and application activity.',
@@ -485,53 +485,105 @@ function JobSites(){
   </section>;
 }
 
-type InboxMessage={id:string;mailbox?:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:'reply'|'unsubscribe'|'auto_reply'|'bounce'|'intake';bouncedEmail:string;
-  lead:{type:string;id:string;name:string}|null;status:'new'|'handled';forwarded:boolean;createdAt:string};
-const REPLY_KINDS={reply:'Replies',unsubscribe:'Unsubscribes',auto_reply:'Out of office',bounce:'Bounces',intake:'Applicant emails'} as const;
+type ConversationMessage={id:string;direction:'inbound'|'outbound';mailbox:string;subject:string;text:string;status:string;createdAt:string;outreach?:boolean};
+type Conversation={email:string;name:string;lead:{type:string;id:string;name:string}|null;messages:ConversationMessage[];needsReply:boolean;replied:boolean;lastAt:string};
+type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string};
+type AutomaticMail={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:string;bouncedEmail:string;createdAt:string};
+const AUTOMATIC_KINDS:Record<string,string>={unsubscribe:'Unsubscribed',auto_reply:'Out of office',bounce:'Bounced',intake:'Applicant email'};
 const LEAD_LABELS:Record<string,string>={employer:'Employer',agency:'Agency or facility',school:'School',training_program:'Training program',applicant:'Agency applicant',caregiver:'Caregiver'};
+const INBOX_TABS={needs:'Needs reply',all:'All',sent:'Sent',drafts:'Drafts'} as const;
+const mailTime=(at:string)=>new Date(at.replace(' ','T')+'Z').toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 
-/** Mail to hello@ and rebecca@ recorded by the Worker. Unsubscribes and hard bounces are already suppressed; replies wait for "Done" or an answer. */
+/**
+ * One inbox for mail to hello@ and rebecca@: a conversation per person with their messages and Rebecca's together.
+ * Needs reply holds anyone whose last message hasn't been answered or marked Done. Unsubscribes, out-of-office
+ * replies, bounces and applicant emails are handled on arrival, so they sit folded away under Automatic.
+ */
 function InboxReplies(){
-  const [kind,setKind]=useState<keyof typeof REPLY_KINDS>('reply');
-  const [data,setData]=useState<{messages:InboxMessage[];counts:Record<string,{total:number;open:number}>}|null>(null);
+  const [data,setData]=useState<{conversations:Conversation[];drafts:MailDraft[];automatic:AutomaticMail[]}|null>(null);
+  const [tab,setTab]=useState<keyof typeof INBOX_TABS|''>('');
+  const [open,setOpen]=useState('');
+  const [writing,setWriting]=useState('');
   const [error,setError]=useState('');
-  const [replying,setReplying]=useState('');
-  async function load(k=kind){
-    try{setData(await api('/api/admin/inbox?kind='+k));setError('')}catch(e){setError(e instanceof Error?e.message:'Could not load replies')}
+  async function load(){
+    try{
+      const next=await api<{conversations:Conversation[];drafts:MailDraft[];automatic:AutomaticMail[]}>('/api/admin/conversations');
+      setData(next);setError('');
+      setTab(t=>t||(next.conversations.some(c=>c.needsReply)?'needs':'all'));
+    }catch(e){setError(e instanceof Error?e.message:'Could not load your inbox')}
   }
-  useEffect(()=>{void load(kind)},[kind]);
-  async function mark(m:InboxMessage){
-    await api('/api/admin/inbox/'+encodeURIComponent(m.id),{method:'POST',body:JSON.stringify({status:m.status==='new'?'handled':'new'})}).catch(()=>null);
+  useEffect(()=>{void load()},[]);
+  async function mark(c:Conversation){
+    await api('/api/admin/conversations/status',{method:'POST',body:JSON.stringify({email:c.email,status:c.needsReply?'handled':'new'})}).catch(()=>null);
     await load();
   }
-  return <><RebeccaMail/><section className="section-block">
-    <div className="admin-date-row">
-      {(Object.keys(REPLY_KINDS) as Array<keyof typeof REPLY_KINDS>).map(k=><button key={k} className={'nav-button '+(kind===k?'active':'')} onClick={()=>setKind(k)}>
-        {REPLY_KINDS[k]}{data?.counts[k]?.[k==='reply'?'open':'total']?' · '+data.counts[k][k==='reply'?'open':'total']:''}</button>)}
+  const done=()=>{setWriting('');void load()};
+  const conversations=(data?.conversations||[]).filter(c=>tab==='needs'?c.needsReply:tab==='sent'?c.replied:true);
+  const needs=data?.conversations.filter(c=>c.needsReply).length||0;
+  const latestInbound=(c:Conversation)=>[...c.messages].reverse().find(m=>m.direction==='inbound');
+  return <section className="section-block">
+    <div className="admin-date-row" style={{alignItems:'center'}}>
+      {(Object.keys(INBOX_TABS) as Array<keyof typeof INBOX_TABS>).map(k=><button key={k} className={'nav-button '+(tab===k?'active':'')} onClick={()=>{setTab(k);setOpen('')}}>
+        {INBOX_TABS[k]}{k==='needs'&&needs?' · '+needs:k==='drafts'&&data?.drafts.length?' · '+data.drafts.length:''}</button>)}
+      <button className="button" style={{marginLeft:'auto'}} onClick={()=>setWriting(writing==='new'?'':'new')}>{writing==='new'?'Close':'Write an email'}</button>
     </div>
+    {writing==='new'&&<MailComposer onDone={done}/>}
     {error&&<div className="notice">{error}</div>}
-    {data&&!data.messages.length&&<div className="settings-card"><div className="job-meta">
-      {kind==='reply'?'No replies yet. Mail to hello@ and rebecca@ shows up here once that address is routed to the carejoys Worker in Cloudflare Email Routing.':'None yet.'}</div></div>}
-    <div style={{display:'grid',gap:12}}>
-      {data?.messages.map(m=><div className="settings-card" key={m.id} style={{opacity:m.status==='handled'&&m.kind==='reply'?.6:1}}>
-        <div className="modal-kicker">{m.lead?(LEAD_LABELS[m.lead.type]||m.lead.type)+' · '+m.lead.name:'No matching lead'} · {new Date(m.createdAt.replace(' ','T')+'Z').toLocaleString()}</div>
-        <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{m.fromName?m.fromName+' · ':''}{m.fromEmail}</div>
-        <div className="job-meta" style={{overflowWrap:'anywhere'}}>{m.subject||'(no subject)'}{m.bouncedEmail?' · bounced: '+m.bouncedEmail:''}</div>
-        {m.snippet&&<p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:'8px 0'}}>{m.snippet.slice(0,600)}{m.snippet.length>600?'…':''}</p>}
-        <div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
-          {m.kind==='reply'&&<button className="button secondary" onClick={()=>void mark(m)}>{m.status==='new'?'Done':'Mark not done'}</button>}
-          <button className="text-button" style={{margin:0,width:'auto'}} onClick={()=>setReplying(replying===m.id?'':m.id)}>{replying===m.id?'Close reply':'Reply'}</button>
-          {!m.forwarded&&<span className="job-meta">Not forwarded to your inbox</span>}
-        </div>
-        {replying===m.id&&<MailComposer to={m.fromEmail} subject={/^re:/i.test(m.subject)?m.subject:'Re: '+(m.subject||'')} inReplyToId={m.id}
-          quote={m.snippet} quoteFrom={(m.fromName||m.fromEmail)+' · '+new Date(m.createdAt.replace(' ','T')+'Z').toLocaleString()}
-          from={m.mailbox==='hello@carejoys.com'?'hello@carejoys.com':'rebecca@carejoys.com'} onDone={()=>{setReplying('');void load()}}/>}
-      </div>)}
-    </div>
-  </section></>;
+    {tab==='drafts'?<div style={{display:'grid',gap:12,marginTop:12}}>
+      {data&&!data.drafts.length&&<div className="settings-card"><div className="job-meta">No drafts.</div></div>}
+      {data?.drafts.map(d=>writing===d.id
+        ?<MailComposer key={d.id} to={d.to} subject={d.subject} text={d.text} draftId={d.id} inReplyToId={d.inReplyToId} onDone={done}/>
+        :<button className="settings-card" key={d.id} style={{textAlign:'left',cursor:'pointer',font:'inherit',color:'inherit'}} onClick={()=>setWriting(d.id)}>
+          <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to||'(no recipient)'}</div>
+          <div className="job-meta" style={{overflowWrap:'anywhere'}}>{d.subject||'(no subject)'} · {d.text.slice(0,140)}</div>
+        </button>)}
+    </div>:<div style={{display:'grid',gap:8,marginTop:12}}>
+      {data&&!conversations.length&&<div className="settings-card"><div className="job-meta">
+        {tab==='needs'?'Nothing waiting on you.':tab==='sent'?'You haven\'t answered anyone yet.':'No email yet. Mail to hello@ and rebecca@carejoys.com shows up here.'}</div></div>}
+      {conversations.map(c=>{
+        const last=c.messages[c.messages.length-1];
+        const expanded=open===c.email;
+        const reply=latestInbound(c);
+        return <div className="settings-card" key={c.email} style={{padding:0,overflow:'hidden'}}>
+          <button onClick={()=>setOpen(expanded?'':c.email)} style={{display:'grid',gridTemplateColumns:'1fr auto',gap:'2px 12px',width:'100%',textAlign:'left',padding:'14px 18px',background:'none',border:0,cursor:'pointer',font:'inherit',color:'inherit'}}>
+            <span style={{fontWeight:c.needsReply?700:500,overflowWrap:'anywhere'}}>{c.needsReply&&<span aria-label="Needs reply" style={{display:'inline-block',width:8,height:8,borderRadius:4,background:'var(--accent, #d6246e)',marginRight:8,verticalAlign:'middle'}}/>}
+              {c.lead?.name||c.name||c.email}{c.messages.length>1?<span className="job-meta"> · {c.messages.length}</span>:null}</span>
+            <span className="job-meta" style={{whiteSpace:'nowrap'}}>{mailTime(c.lastAt)}</span>
+            <span className="job-meta" style={{gridColumn:'1 / -1',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              {last.direction==='outbound'?'You: ':''}{last.subject?last.subject+' · ':''}{last.text.replace(/\s+/g,' ').slice(0,160)}</span>
+          </button>
+          {expanded&&<div style={{padding:'0 18px 16px',display:'grid',gap:10}}>
+            <div className="job-meta" style={{overflowWrap:'anywhere'}}>{c.name&&c.name!==c.lead?.name?c.name+' · ':''}{c.email}{c.lead?' · '+(LEAD_LABELS[c.lead.type]||c.lead.type):''}</div>
+            {c.messages.map(m=><div key={m.id} style={{borderLeft:'3px solid '+(m.direction==='inbound'?'var(--accent, #d6246e)':'var(--line, #e3e1ea)'),paddingLeft:12}}>
+              <div className="modal-kicker">{m.direction==='inbound'?(c.name||c.email):m.outreach?'Your outreach note':'You'} · {m.mailbox} · {mailTime(m.createdAt)}</div>
+              {m.subject&&<div style={{fontWeight:600,overflowWrap:'anywhere'}}>{m.subject}</div>}
+              <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:'4px 0 0'}}>{m.text}</p>
+            </div>)}
+            {writing===c.email
+              ?<MailComposer to={c.email} subject={reply?(/^re:/i.test(reply.subject)?reply.subject:'Re: '+reply.subject):''} inReplyToId={reply?.id||''}
+                quote={reply?.text||''} quoteFrom={(c.name||c.email)+' · '+(reply?mailTime(reply.createdAt):'')}
+                from={reply?.mailbox==='hello@carejoys.com'?'hello@carejoys.com':'rebecca@carejoys.com'} onDone={done}/>
+              :<div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
+                <button className="button" onClick={()=>setWriting(c.email)}>Reply</button>
+                {reply&&<button className="button secondary" onClick={()=>void mark(c)}>{c.needsReply?'Done, no reply needed':'Mark as needing a reply'}</button>}
+              </div>}
+          </div>}
+        </div>;
+      })}
+    </div>}
+    {!!data?.automatic.length&&<details style={{marginTop:20}}>
+      <summary className="job-meta" style={{cursor:'pointer'}}>Automatic · {data.automatic.length} (unsubscribes, out of office, bounces and applicant emails, already handled)</summary>
+      <div style={{display:'grid',gap:8,marginTop:10}}>
+        {data.automatic.map(m=><div className="settings-card" key={m.id} style={{padding:'10px 16px'}}>
+          <div className="job-meta">{AUTOMATIC_KINDS[m.kind]||m.kind} · {mailTime(m.createdAt)}</div>
+          <div style={{overflowWrap:'anywhere'}}>{m.fromName?m.fromName+' · ':''}{m.fromEmail}{m.bouncedEmail?' · bounced: '+m.bouncedEmail:''}</div>
+          <div className="job-meta" style={{overflowWrap:'anywhere'}}>{m.subject||'(no subject)'}</div>
+        </div>)}
+      </div>
+    </details>}
+  </section>;
 }
 
-type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string;leadName?:string};
 
 /** One email from Rebecca: a reply (with the message it answers quoted under it) or a new note, sent by CareJoys from rebecca@. */
 function MailComposer({to:initialTo='',subject:initialSubject='',text:initialText='',draftId:initialDraft='',inReplyToId='',quote='',quoteFrom='',from='rebecca@carejoys.com',onDone}:
@@ -571,40 +623,6 @@ function MailComposer({to:initialTo='',subject:initialSubject='',text:initialTex
   </form>;
 }
 
-/** Drafts and sent mail from rebecca@, and a button to write a new email. */
-function RebeccaMail(){
-  const [data,setData]=useState<{drafts:MailDraft[];sent:MailDraft[]}|null>(null);
-  const [open,setOpen]=useState('');
-  const [showSent,setShowSent]=useState(false);
-  async function load(){try{setData(await api('/api/admin/mail'))}catch{/* the inbox below still works */}}
-  useEffect(()=>{void load()},[]);
-  const done=()=>{setOpen('');void load()};
-  return <section className="section-block">
-    <div className="section-heading"><h2>Your email</h2><p>Sent by CareJoys from rebecca@carejoys.com, never from your Gmail. Answer a reply below, or write a new email here.</p></div>
-    <div className="empty-actions" style={{justifyContent:'flex-start'}}>
-      <button className="button secondary" onClick={()=>setOpen(open==='new'?'':'new')}>{open==='new'?'Close':'Write an email'}</button>
-      {!!data?.sent.length&&<button className="text-button" style={{margin:0,width:'auto'}} onClick={()=>setShowSent(!showSent)}>{showSent?'Hide sent':'Sent · '+data.sent.length}</button>}
-    </div>
-    {open==='new'&&<MailComposer onDone={done}/>}
-    {!!data?.drafts.length&&<div style={{display:'grid',gap:12,marginTop:12}}>
-      <div className="modal-kicker">Drafts · {data.drafts.length}</div>
-      {data.drafts.map(d=>open===d.id
-        ?<MailComposer key={d.id} to={d.to} subject={d.subject} text={d.text} draftId={d.id} inReplyToId={d.inReplyToId} onDone={done}/>
-        :<div className="settings-card" key={d.id}>
-          <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to||'(no recipient)'} · {d.subject||'(no subject)'}</div>
-          <p className="job-meta" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{d.text.slice(0,240)}{d.text.length>240?'…':''}</p>
-          <button className="button secondary" onClick={()=>setOpen(d.id)}>Edit and send</button>
-        </div>)}
-    </div>}
-    {showSent&&<div style={{display:'grid',gap:12,marginTop:12}}>
-      {data?.sent.map(d=><div className="settings-card" key={d.id}>
-        <div className="modal-kicker">{new Date(d.updatedAt.replace(' ','T')+'Z').toLocaleString()}{d.leadName?' · '+d.leadName:''}</div>
-        <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to} · {d.subject}</div>
-        <p className="job-meta" style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{d.text.slice(0,240)}{d.text.length>240?'…':''}</p>
-      </div>)}
-    </div>}
-  </section>;
-}
 
 /** Sends the admin the reply-yes note from rebecca@. Replying to it proves rebecca@ reaches CareJoys, which starts the sending. */
 function ReplyYesTest(){
