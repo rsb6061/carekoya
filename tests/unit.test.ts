@@ -970,4 +970,14 @@ describe('careers page lookup', ()=>{
     expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/careers/',title:'Careers'}],org)).toBe('https://devotedhomecareagency.com/careers/');
     expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/about/',title:'About'}],org)).toBe('');
   });
+  it('goes on past a Google hiccup and stops for our account', async()=>{
+    const {careersLookupRetryable}=await import('../src/careersLookup');
+    expect(careersLookupRetryable(200,40101)).toBe(true); // Internal SE Server Error
+    expect(careersLookupRetryable(200,50000)).toBe(true);
+    expect(careersLookupRetryable(200,40000)).toBe(true); // one bad request, not the account
+    expect(careersLookupRetryable(401,40100)).toBe(false);
+    expect(careersLookupRetryable(200,40200)).toBe(false); // payment required
+    expect(careersLookupRetryable(200,40204)).toBe(false);
+    expect(careersLookupRetryable(undefined,0)).toBe(false);
+  });
 });
