@@ -16,6 +16,7 @@ import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verif
 import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesOutreach';
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
+import { lookupCareersPagesBatch } from './careersLookup';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -105,6 +106,7 @@ interface Env {
   FREE_CONTACTS?: string;
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
+  CAREERS_LOOKUP_DAILY_USD?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
   GOOGLE_SITE_VERIFICATION?: string;
@@ -2507,6 +2509,8 @@ export default {
         await recheckAgencyEmailBatch(env,60).catch(error=>console.error('agency email recheck failed',error));
         // One page per posting: copies of a chain posting saved under each of its facilities come down, before the scans run out the time.
         await reconcileSharedPostingsBatch(env,300).catch(error=>console.error('shared posting sweep failed',error));
+        // Paid careers-page searches for agencies the scanner found nothing for, capped per day; their scans follow below.
+        await lookupCareersPagesBatch(env).catch(error=>console.error('careers lookup failed',error));
         await discoverAgencyJobsBatch(env,48).catch(()=>null);
         await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
         await enrichAgencyBatch(env,30);

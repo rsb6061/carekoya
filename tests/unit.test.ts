@@ -957,3 +957,17 @@ describe('job supply alarm', ()=>{
     expect(out[3]).toContain('workday');
   });
 });
+describe('careers page lookup', ()=>{
+  const org={id:'o1',canonical_name:'Devoted Home Care Agency',city:'Laurel',state:'MD',primary_website:'https://devotedhomecareagency.com/',primary_domain:'devotedhomecareagency.com'};
+  it('takes the agency\'s own careers page or its named job board, never another agency\'s board', async()=>{
+    const {careersUrlFromResults,careersQuery}=await import('../src/careersLookup');
+    expect(careersQuery(org)).toBe('Devoted Home Care Agency Laurel MD careers jobs');
+    expect(careersUrlFromResults([
+      {type:'organic',url:'https://www.indeed.com/cmp/Devoted-Home-Care/jobs',title:'Devoted Home Care jobs'},
+      {type:'organic',url:'https://bright-care.careerplug.com/jobs',title:'Bright Care careers'},
+      {type:'organic',url:'https://devoted.careerplug.com/jobs',title:'Devoted Home Care Agency - Careers'},
+    ],org)).toBe('https://devoted.careerplug.com/jobs');
+    expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/careers/',title:'Careers'}],org)).toBe('https://devotedhomecareagency.com/careers/');
+    expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/about/',title:'About'}],org)).toBe('');
+  });
+});
