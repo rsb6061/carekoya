@@ -1,6 +1,6 @@
 // One email to an agency that claimed its CareJoys profile but hasn't posted a job, two days after the claim.
 // A posted opening becomes a public job page (src/postedJobs.ts), the only way an agency that posts only on Indeed
-// gets CareJoys jobs. Off until FIRST_JOB_NUDGE_ENABLED=true; each agency gets it once (agency_outreach_events
+// gets CareJoys jobs. Sends while FIRST_JOB_NUDGE_ENABLED=true (Rebecca approved 2026-10-23); each agency gets it once (agency_outreach_events
 // 'first_job_nudge'), and the first send is copied to hello@carejoys.com.
 import { firstJobNudgeEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
