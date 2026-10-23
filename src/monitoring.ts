@@ -3,6 +3,7 @@
 //    uncaught Worker exceptions land in the same table. New problems are emailed from the five-minute cron.
 // 2. A daily funnel alarm (15:41 UTC cron) emails when a step that normally happens, given the traffic before it,
 //    dropped to zero over the last 24 hours, or when Clarity saw rage clicks or clicks that hit an error.
+//    The same email covers job supply: live postings, new postings, sites scanned and each job board, against the last week.
 // 3. The click-through test in e2e/ runs the real flows in a browser before every deploy.
 import type { EmailBinding } from './email';
 
@@ -231,13 +232,74 @@ export async function clarityClickProblems(env:MonitorEnv){
   return out;
 }
 
-/** 15:41 UTC daily: one email if any funnel step dropped to zero or Clarity saw broken clicks; nothing otherwise. */
+// ---- Daily job supply alarm ----
+
+export type SupplySnapshot={day:string;live_pages:number;unique_postings:number;new_postings:number;sites_scanned:number;by_provider:Record<string,number>};
+// Every job comes from the scanner, so a job board changing its layout or blocking the Worker shows up here first.
+const SUPPLY_DROP=0.2;
+const PROVIDER_DROP=0.5;
+const PROVIDER_MIN=100;
+
+/** Today's live job supply, counted by unique posting (a chain posting copied to several agencies counts once). */
+export async function jobSupplySnapshot(db:DB):Promise<SupplySnapshot>{
+  const live="status='current' AND is_published=1";
+  const totals=await db.prepare(`SELECT COUNT(*) AS pages,COUNT(DISTINCT source_url) AS postings,
+      COUNT(DISTINCT CASE WHEN datetime(first_seen_at)>=datetime('now','-1 day') THEN source_url END) AS fresh
+    FROM caregiver_jobs WHERE ${live}`).first<{pages:number;postings:number;fresh:number}>();
+  const providers=(await db.prepare(`SELECT source_provider AS p,COUNT(DISTINCT source_url) AS n FROM caregiver_jobs WHERE ${live} GROUP BY source_provider`)
+    .all<{p:string;n:number}>()).results||[];
+  const scans=await db.prepare("SELECT COUNT(*) AS n FROM agency_job_scan_state WHERE datetime(last_scanned_at)>=datetime('now','-1 day')").first<{n:number}>();
+  return {day:new Date().toISOString().slice(0,10),live_pages:Number(totals?.pages||0),unique_postings:Number(totals?.postings||0),
+    new_postings:Number(totals?.fresh||0),sites_scanned:Number(scans?.n||0),
+    by_provider:Object.fromEntries(providers.map(r=>[clean(r.p,40)||'unknown',Number(r.n||0)]))};
+}
+/** What looks wrong today against the average of the days before (needs at least 3 of them). */
+export function supplyFindings(today:SupplySnapshot,before:SupplySnapshot[]){
+  if(before.length<3)return [];
+  const avg=(f:(s:SupplySnapshot)=>number)=>before.reduce((t,s)=>t+f(s),0)/before.length;
+  const out:string[]=[];
+  const postings=avg(s=>s.unique_postings);
+  if(postings>0&&today.unique_postings<postings*(1-SUPPLY_DROP))
+    out.push(`Live jobs fell to ${today.unique_postings} unique postings, from about ${Math.round(postings)} a day over the last ${before.length} days.`);
+  const fresh=avg(s=>s.new_postings);
+  if(fresh>=20&&today.new_postings===0)out.push(`No new postings were found in the last 24 hours (usually about ${Math.round(fresh)} a day).`);
+  const scanned=avg(s=>s.sites_scanned);
+  if(scanned>=100&&today.sites_scanned<scanned*(1-SUPPLY_DROP*2))
+    out.push(`The scanner looked at ${today.sites_scanned} agency sites in the last 24 hours (usually about ${Math.round(scanned)}).`);
+  const names=new Set(before.flatMap(s=>Object.keys(s.by_provider)));
+  for(const name of names){
+    const usual=avg(s=>s.by_provider[name]||0),now=today.by_provider[name]||0;
+    if(usual>=PROVIDER_MIN&&now<usual*(1-PROVIDER_DROP))out.push(`Jobs from ${name} fell to ${now}, from about ${Math.round(usual)}. Its job boards may have changed or started blocking the scanner.`);
+  }
+  return out;
+}
+/** Saves today's snapshot and returns what dropped. */
+export async function checkJobSupply(env:MonitorEnv){
+  const db=env.DB!;
+  const today=await jobSupplySnapshot(db);
+  const rows=(await db.prepare("SELECT day,live_pages,unique_postings,new_postings,sites_scanned,by_provider_json FROM job_supply_snapshots WHERE day<? ORDER BY day DESC LIMIT 7")
+    .bind(today.day).all<Row>()).results||[];
+  const before=rows.map(r=>{let by:Record<string,number>={};try{by=JSON.parse(String(r.by_provider_json||'{}'))}catch{}
+    return {day:String(r.day),live_pages:Number(r.live_pages||0),unique_postings:Number(r.unique_postings||0),new_postings:Number(r.new_postings||0),sites_scanned:Number(r.sites_scanned||0),by_provider:by}});
+  await db.prepare(`INSERT INTO job_supply_snapshots(day,live_pages,unique_postings,new_postings,sites_scanned,by_provider_json) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(day) DO UPDATE SET live_pages=excluded.live_pages,unique_postings=excluded.unique_postings,new_postings=excluded.new_postings,sites_scanned=excluded.sites_scanned,by_provider_json=excluded.by_provider_json`)
+    .bind(today.day,today.live_pages,today.unique_postings,today.new_postings,today.sites_scanned,JSON.stringify(today.by_provider)).run();
+  return {today,findings:supplyFindings(today,before)};
+}
+
+/** 15:41 UTC daily: one email if any funnel step dropped to zero Clarity saw broken clicks or job supply dropped; nothing otherwise. */
 export async function runDailyMonitor(env:MonitorEnv){
-  if(!env.DB)return {sent:false,findings:[],clicks:[]};
+  if(!env.DB)return {sent:false,findings:[],clicks:[],supply:[]};
   const {findings}=await evaluateFunnel(env);
   const clicks=await clarityClickProblems(env);
-  if(!findings.length&&!clicks.length)return {sent:false,findings,clicks};
+  const supply=(await checkJobSupply(env).catch(error=>{console.error('job supply check failed',error);return null}))?.findings||[];
+  if(!findings.length&&!clicks.length&&!supply.length)return {sent:false,findings,clicks,supply};
   const lines:string[]=[];
+  if(supply.length){
+    lines.push('Job supply dropped:','');
+    for(const s of supply)lines.push('• '+s);
+    lines.push('');
+  }
   if(findings.length){
     lines.push('These CareJoys steps had zero in the last 24 hours, though the traffic before them says some were due:','');
     for(const f of findings)lines.push(`• ${f.label}: 0 (${f.because}).`);
@@ -249,9 +311,9 @@ export async function runDailyMonitor(env:MonitorEnv){
     lines.push('',`Recordings: https://clarity.microsoft.com/projects/view/${clean(env.CLARITY_PROJECT_ID,40)||'ysz8riafaj'}/dashboard`,'');
   }
   lines.push('Site errors reported by browsers: https://carejoys.com/api/admin/monitoring (sign in as an admin).');
-  const subject=findings.length?`CareJoys alert: ${findings.map(f=>f.label.replace(/"/g,'')).join(', ')} dropped to zero`:'CareJoys alert: visitors struggling with clicks';
-  const result=await sendAlert(env,'daily_funnel',subject.slice(0,180),lines,[...findings.map(f=>f.key),...clicks].join(' | '));
-  return {...result,findings,clicks};
+  const subject=findings.length?`CareJoys alert: ${findings.map(f=>f.label.replace(/"/g,'')).join(', ')} dropped to zero`:supply.length?'CareJoys alert: job supply dropped':'CareJoys alert: visitors struggling with clicks';
+  const result=await sendAlert(env,'daily_funnel',subject.slice(0,180),lines,[...findings.map(f=>f.key),...supply,...clicks].join(' | '));
+  return {...result,findings,clicks,supply};
 }
 
 /** Admin JSON: recent errors with stacks, today's funnel numbers, and the alerts that went out. */

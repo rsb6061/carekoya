@@ -910,3 +910,50 @@ describe('job scanning priorities', ()=>{
     expect(sql).not.toContain('?');
   });
 });
+describe('one page per shared posting', ()=>{
+  const row=(id:string,org:string,city:string,state:string,extra:Record<string,unknown>={})=>({id,org_name:org,org_city:city,org_state:state,
+    source_url:'https://pacs.wd108.myworkdayjobs.com/job/Homewood-Assisted-Living/Caregiver-Med-Tech_JR181268',title:'Caregiver Med Tech',
+    city,state,location_source:'agency_careers_page',first_seen_at:'2026-10-10 00:00:00',is_chain:0,claimed_employer_id:null,...extra});
+  it('matches the facility named in the posting URL', async()=>{
+    const {orgNameMatch}=await import('../src/jobDiscovery');
+    const url='https://pacs.wd108.myworkdayjobs.com/job/Homewood-Assisted-Living/Caregiver-Med-Tech_JR181268';
+    expect(orgNameMatch('Homewood Assisted Living',url,'Caregiver Med Tech')).toBe(1);
+    expect(orgNameMatch('Yuba City Post Acute',url,'Caregiver Med Tech')).toBe(0);
+    expect(orgNameMatch('Sunrise of River Forest','https://x.wd12.myworkdayjobs.com/job/Willowbrook-IL---Sunrise-of-Willowbrook/Caregiver_JR1','Caregiver')).toBeLessThan(0.5);
+  });
+  it('keeps the copy at the named facility when each copy borrowed its agency\'s city', async()=>{
+    const {pickSharedPostingOwner}=await import('../src/jobDiscovery');
+    const out=pickSharedPostingOwner([row('a','Yuba City Post Acute','Yuba City','CA'),row('b','Homewood Assisted Living','Homewood','IL'),row('c','Skylake Post Acute','Thornton','CO')]);
+    expect(out).toEqual({keep:'b',drop:['a','c']});
+  });
+  it('takes every copy down when the location was borrowed and no facility is named', async()=>{
+    const {pickSharedPostingOwner}=await import('../src/jobDiscovery');
+    const out=pickSharedPostingOwner([row('a','Yuba City Post Acute','Yuba City','CA'),row('c','Skylake Post Acute','Thornton','CO')]);
+    expect(out).toEqual({keep:null,drop:['a','c']});
+  });
+  it('with the location from the posting, prefers the agency in that city', async()=>{
+    const {pickSharedPostingOwner}=await import('../src/jobDiscovery');
+    const at=(id:string,org:string,oc:string,os:string)=>row(id,org,'Austin','TX',{org_city:oc,org_state:os,location_source:'source',source_url:'https://x.myworkdayjobs.com/job/Austin-TX/CNA_JR2',title:'CNA'});
+    expect(pickSharedPostingOwner([at('a','Brightview Dallas','Dallas','TX'),at('b','Brightview North','Austin','TX'),at('c','Brightview Ohio','Akron','OH')]).keep).toBe('b');
+  });
+  it('keeps one copy when every copy is in the same place', async()=>{
+    const {pickSharedPostingOwner}=await import('../src/jobDiscovery');
+    expect(pickSharedPostingOwner([row('a','At Home Healthcare','Atlanta','GA'),row('b','At Home Healthcare Atlanta - Adult Care','Atlanta','GA')]).drop).toHaveLength(1);
+  });
+});
+describe('job supply alarm', ()=>{
+  const snap=(day:string,postings:number,fresh=50,scanned=5000,by:Record<string,number>={workday:900,icims:500})=>({day,live_pages:postings*3,unique_postings:postings,new_postings:fresh,sites_scanned:scanned,by_provider:by});
+  it('stays quiet on a normal day and without enough history', async()=>{
+    const {supplyFindings}=await import('../src/monitoring');
+    const before=[snap('2026-10-20',4400),snap('2026-10-21',4300),snap('2026-10-22',4500)];
+    expect(supplyFindings(snap('2026-10-23',4350),before)).toEqual([]);
+    expect(supplyFindings(snap('2026-10-23',100),before.slice(0,2))).toEqual([]);
+  });
+  it('flags a drop in postings, no new postings, a stalled scanner and a job board going dark', async()=>{
+    const {supplyFindings}=await import('../src/monitoring');
+    const before=[snap('2026-10-20',4400),snap('2026-10-21',4300),snap('2026-10-22',4500)];
+    const out=supplyFindings(snap('2026-10-23',3000,0,1000,{workday:100,icims:500}),before);
+    expect(out).toHaveLength(4);
+    expect(out[3]).toContain('workday');
+  });
+});
