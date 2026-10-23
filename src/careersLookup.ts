@@ -60,8 +60,9 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
     const cost=Number(task?.cost??body?.cost)||0;
     spent+=cost;
     if(!res?.ok||task?.status_code!==20000){
-      // Credentials or balance: stop for this run, and leave the agency to be searched again.
-      console.error('careers lookup failed',task?.status_message||body?.status_message||res?.status);
+      // Credentials or balance: stop for this run, and leave the agency to be searched again. Noted in outreach_runs, where admins can see it.
+      const why=String(task?.status_message||body?.status_message||res?.status||'no response').slice(0,300);
+      await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'careers_lookup_failed','hourly',?)").bind(crypto.randomUUID(),why).run().catch(()=>null);
       break;
     }
     searched++;

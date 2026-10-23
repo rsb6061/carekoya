@@ -2510,10 +2510,11 @@ export default {
         // scan row, so they run hourly rather than every five minutes.
         // One look at the Contact and About pages of agencies crawled before those pages were read, before the scans can run out the time.
         await recheckAgencyEmailBatch(env,60).catch(error=>console.error('agency email recheck failed',error));
-        // One page per posting: copies of a chain posting saved under each of its facilities come down, before the scans run out the time.
-        await reconcileSharedPostingsBatch(env,300).catch(error=>console.error('shared posting sweep failed',error));
-        // Paid careers-page searches for agencies the scanner found nothing for, capped per day; their scans follow below.
+        // Paid careers-page searches for agencies the scanner found nothing for, capped per day; their scans follow below. Before the
+        // shared-posting sweep, which can use up the run while its backlog lasts.
         await lookupCareersPagesBatch(env).catch(error=>console.error('careers lookup failed',error));
+        // One page per posting: copies of a chain posting saved under each of its facilities come down, before the scans run out the time.
+        await reconcileSharedPostingsBatch(env,150).catch(error=>console.error('shared posting sweep failed',error));
         await discoverAgencyJobsBatch(env,48).catch(()=>null);
         await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
         await enrichAgencyBatch(env,30);
