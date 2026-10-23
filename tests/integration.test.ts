@@ -9,6 +9,7 @@ import { sendAgencyHiringInvites, sendAgencyHiringReinvites, friendlyAgencyName,
 import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor } from '../src/monitoring';
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
+import { sendFirstJobNudges } from '../src/firstJobNudge';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
@@ -3541,5 +3542,24 @@ describe('agency email recheck', ()=>{
     }finally{globalThis.fetch=original}
     expect(seen).toContain('https://mailcare.test/contact');
     expect(await DB.prepare("SELECT primary_email FROM agency_organizations WHERE id='org-mail'").first()).toEqual({primary_email:'office@mailcare.test'});
+  });
+});
+
+describe('first job nudge', ()=>{
+  it('emails a claimed agency with no jobs once, two days after the claim, only when switched on', async()=>{
+    await DB.prepare("INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-nudge','Maple Care LLC','Jo Lee','jo@maplecare.test','21204','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,claimed_employer_id) VALUES ('org-nudge','org-nudge','Maple Care LLC','Towson','MD',1,'emp-nudge')").run();
+    await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,created_at) VALUES ('ev-nudge','org-nudge','agency_claim_verified',datetime('now','-3 days'))").run();
+    expect(await sendFirstJobNudges(env())).toEqual({sent:0,failed:0});
+    const before=sent.length;
+    expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true'}))).toEqual({sent:1,failed:0});
+    const mail=sent[before];
+    expect(mail.to).toBe('jo@maplecare.test');
+    expect(mail.subject).toBe('Post your first caregiver job on CareJoys');
+    expect(mail.html).toContain('Hi Jo,');
+    expect(mail.html).toContain('Maple Care on CareJoys');
+    expect(mail.html).toContain('Unsubscribe');
+    expect(mail.headers?.['List-Unsubscribe']).toBeTruthy();
+    expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true'}))).toEqual({sent:0,failed:0});
   });
 });

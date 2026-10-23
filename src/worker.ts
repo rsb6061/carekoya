@@ -17,6 +17,7 @@ import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesO
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch } from './careersLookup';
+import { sendFirstJobNudges } from './firstJobNudge';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -107,6 +108,7 @@ interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
   CAREERS_LOOKUP_DAILY_USD?: string;
+  FIRST_JOB_NUDGE_ENABLED?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
   GOOGLE_SITE_VERIFICATION?: string;
@@ -2521,6 +2523,8 @@ export default {
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
+        // One "post your first job" email to agencies that claimed two days ago without posting. No-op until FIRST_JOB_NUDGE_ENABLED=true.
+        await sendFirstJobNudges(env).catch(error=>console.error('first job nudge failed',error));
         // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.
