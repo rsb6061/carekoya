@@ -950,6 +950,76 @@ async function reconcileOrgDuplicates(env:FeatureEnv,orgId:string){
     }
   }
 }
+// Words every facility of a chain shares, so they can't tell which facility a posting belongs to.
+const GENERIC_ORG_WORDS=new Set(['post','acute','rehab','rehabilitation','health','healthcare','care','center','centre','senior','seniors','living','assisted','memory','home','homes','services','service','nursing','skilled','community','communities','residence','residences','village','manor','place','the','of','and','at','a','an','llc','inc','co','corp','group','agency','in','on','for','by','medical','hospice','inn','house','suites','lodge','gardens','garden']);
+function orgNameTokens(name:string){
+  return [...new Set(name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ').split(' ').filter(w=>w.length>=3&&!GENERIC_ORG_WORDS.has(w)))];
+}
+/** Share of an agency's distinctive name words found in the posting's URL and title (Workday puts the facility in the path). */
+export function orgNameMatch(orgName:string,sourceUrl:string,title:string){
+  const tokens=orgNameTokens(orgName);
+  if(!tokens.length)return 0;
+  let path='';
+  try{const u=new URL(sourceUrl);path=decodeURIComponent(u.pathname+' '+u.search)}catch{path=sourceUrl}
+  const text=' '+(path+' '+title).toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ';
+  return tokens.filter(t=>text.includes(' '+t+' ')).length/tokens.length;
+}
+const POSTING_LOCATIONS=new Set(['source','zip']);
+/**
+ * One posting (same source URL) saved under several agencies: every facility of a chain links to the chain's whole
+ * job board, so each "found" every posting. Keeps the copy at the facility the posting names, or at the agency in
+ * the posting's own city. When the location was borrowed from each agency and no name matches, nobody knows where the
+ * job is, so no copy stays up. Returns the id to keep (or null) and the ids to take down.
+ */
+export function pickSharedPostingOwner(rows:Row[]){
+  const place=(r:Row)=>(clean(r.city,120)+'|'+clean(r.state,20)).toLowerCase();
+  const scored=rows.map(r=>{
+    const name=orgNameMatch(clean(r.org_name,220),clean(r.source_url,1000),clean(r.title,220));
+    const fromPosting=POSTING_LOCATIONS.has(clean(r.location_source,40));
+    const sameCity=clean(r.org_city,120).toLowerCase()===clean(r.city,120).toLowerCase()&&clean(r.org_state,20).toUpperCase()===clean(r.state,20).toUpperCase();
+    const sameState=clean(r.org_state,20).toUpperCase()===clean(r.state,20).toUpperCase();
+    return {r,name:name>=0.5?name:0,fromPosting,place:sameCity?2:sameState?1:0,claimed:clean(r.claimed_employer_id,100)?1:0,chain:asNum(r.is_chain)?1:0};
+  });
+  const onePlace=new Set(rows.map(place)).size===1;
+  const eligible=scored.filter(s=>s.fromPosting||s.name>0||onePlace);
+  eligible.sort((a,b)=>b.claimed-a.claimed||b.name-a.name||Number(b.fromPosting)-Number(a.fromPosting)||b.place-a.place||b.chain-a.chain||
+    clean(a.r.first_seen_at,40).localeCompare(clean(b.r.first_seen_at,40))||clean(a.r.id,80).localeCompare(clean(b.r.id,80)));
+  const keep=eligible.length?clean(eligible[0].r.id,80):null;
+  return {keep,drop:rows.map(r=>clean(r.id,80)).filter(id=>id!==keep)};
+}
+const SHARED_POSTING_COLUMNS=`j.id,j.source_url,j.title,j.city,j.state,j.location_source,j.first_seen_at,
+  ao.canonical_name AS org_name,ao.city AS org_city,ao.state AS org_state,ao.is_chain,ao.claimed_employer_id`;
+async function reconcileSharedPostings(env:FeatureEnv,urls:string[]){
+  if(!env.DB)return 0;
+  let dropped=0;
+  for(const url of urls){
+    const rows=(await env.DB.prepare(`SELECT ${SHARED_POSTING_COLUMNS} FROM caregiver_jobs j JOIN agency_organizations ao ON ao.id=j.agency_organization_id
+      WHERE j.source_url=? AND j.status='current' AND j.is_published=1`).bind(url).all<Row>()).results||[];
+    if(rows.length<2)continue;
+    const {drop}=pickSharedPostingOwner(rows);
+    for(const id of drop){
+      await env.DB.prepare('UPDATE caregiver_jobs SET status="duplicate",is_published=0,publication_reason="shared_posting",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(id).run();
+      dropped++;
+    }
+  }
+  return dropped;
+}
+/** After an agency's scan: any posting it shares with another agency keeps only one copy. */
+async function reconcileOrgSharedPostings(env:FeatureEnv,orgId:string){
+  if(!env.DB)return 0;
+  const rows=(await env.DB.prepare(`SELECT DISTINCT j.source_url FROM caregiver_jobs j
+    WHERE j.agency_organization_id=? AND j.status='current' AND j.is_published=1 AND j.source_provider!='carejoys'
+      AND EXISTS (SELECT 1 FROM caregiver_jobs o WHERE o.source_url=j.source_url AND o.agency_organization_id!=j.agency_organization_id AND o.status='current' AND o.is_published=1)`).bind(orgId).all<Row>()).results||[];
+  return reconcileSharedPostings(env,rows.map(r=>clean(r.source_url,1000)).filter(Boolean));
+}
+/** Hourly sweep for copies saved before reconcileOrgSharedPostings existed. */
+export async function reconcileSharedPostingsBatch(env:FeatureEnv,limit=300){
+  if(!env.DB)return {urls:0,dropped:0};
+  const rows=(await env.DB.prepare(`SELECT source_url FROM caregiver_jobs WHERE status='current' AND is_published=1 AND source_provider!='carejoys' AND source_url IS NOT NULL
+    GROUP BY source_url HAVING COUNT(DISTINCT agency_organization_id)>1 LIMIT ?`).bind(limit).all<Row>()).results||[];
+  const urls=rows.map(r=>clean(r.source_url,1000)).filter(Boolean);
+  return {urls:urls.length,dropped:await reconcileSharedPostings(env,urls)};
+}
 async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   if(!env.DB)return {seen:0,published:0,rejected:0,jobLinksSeen:0,provider:'none',status:'no_db'};
   let listing=clean(org.primary_careers_url,1000);
@@ -1214,6 +1284,7 @@ async function discoverJobsForOrg(env:FeatureEnv,org:Row){
   let published=0;
   for(const job of unique.values())if(await saveDiscoveredJob(env,org,job))published++;
   await reconcileOrgDuplicates(env,clean(org.id,100));
+  await reconcileOrgSharedPostings(env,clean(org.id,100));
   // A chain's scan sees one rotating slice of its postings, so they get longer before counting as gone.
   // Jobs the agency posted on CareJoys aren't on its careers page; they stay up while the listing is open.
   await env.DB.prepare('UPDATE caregiver_jobs SET status="stale",is_published=0,updated_at=CURRENT_TIMESTAMP WHERE agency_organization_id=? AND status="current" AND source_provider!="carejoys" AND datetime(last_seen_at)<datetime("now",?)').bind(org.id,chain?'-21 days':'-7 days').run();
