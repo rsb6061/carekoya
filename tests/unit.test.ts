@@ -970,6 +970,14 @@ describe('careers page lookup', ()=>{
     expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/careers/',title:'Careers'}],org)).toBe('https://devotedhomecareagency.com/careers/');
     expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/about/',title:'About'}],org)).toBe('');
   });
+  it('never takes a board because a job title shares words with the agency, and cuts a posting back to its board', async()=>{
+    const {careersUrlFromResults}=await import('../src/careersLookup');
+    const practice={id:'o2',canonical_name:'Pulmonary Medicine by Integrative Pulmonary Associates',city:'Las Vegas',state:'NV'};
+    expect(careersUrlFromResults([{type:'organic',url:'https://jeffersonhealth.wd5.myworkdayjobs.com/en-US/thomasjeffersonexternal/job/sleep---pulmonary-medicine-physician_req-0029717-1/apply/autofillWithResume',title:'Sleep - Pulmonary Medicine Physician'}],practice)).toBe('');
+    const sunrise={id:'o3',canonical_name:'Sunrise Senior Living of Towson',city:'Towson',state:'MD'};
+    expect(careersUrlFromResults([{type:'organic',url:'https://sunriseseniorliving.wd1.myworkdayjobs.com/en-US/Sunrise/job/Towson-MD/Caregiver_R123?src=g',title:'Caregiver'}],sunrise)).toBe('https://sunriseseniorliving.wd1.myworkdayjobs.com/en-US/Sunrise');
+    expect(careersUrlFromResults([{type:'organic',url:'https://recruiting.paylocity.com/Recruiting/Jobs/Details/3391870',title:'Caregiver - Sunrise of Towson'}],sunrise)).toBe('');
+  });
   it('goes on past a Google hiccup and stops for our account', async()=>{
     const {careersLookupRetryable}=await import('../src/careersLookup');
     expect(careersLookupRetryable(200,40101)).toBe(true); // Internal SE Server Error
