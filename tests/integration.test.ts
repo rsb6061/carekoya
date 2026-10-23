@@ -10,6 +10,7 @@ import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
 import { sendFirstJobNudges } from '../src/firstJobNudge';
+import { sendStillLookingEmails } from '../src/publicDirectory';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
 import { recordSmsConsent, twilioSignature } from '../src/sms';
@@ -876,6 +877,28 @@ describe('audit fixes: SEO responses', ()=>{
     expect(await md.text()).toContain('CNA - Day Shift');
     const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
     expect(hub.total).toBeGreaterThan(0);
+  });
+  it('job lists say when each job was posted and checked, and filter by hours and pay', async()=>{
+    await DB.prepare("UPDATE caregiver_jobs SET date_posted='Posted 3 Days Ago',employment_type='Full time, Part time' WHERE id='job-test'").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,employment_type,date_posted,status,is_published) VALUES ('job-prn','org-test','job-prn','test','https://sunrisecare.test/jobs/prn','HHA Per Diem','HHA','Sunrise Home Care','Baltimore','MD','21201','Per diem','2026-01-02','current',1)").run();
+    const html=await (await call('/caregiver-jobs/maryland',{},htmlAssets)).text();
+    // Workday's relative date is read against the day CareJoys last saw the job (today, in this test).
+    expect(html).toContain('CNA - Day Shift</a> — Sunrise Home Care · Baltimore, MD · $18–$22/hr <small>Posted 3 days ago · Checked today</small>');
+    expect(html).toContain('<a href="/caregiver-jobs/maryland?hours=part-time">Part-time</a>');
+    // Filtered views are the reader's own, not pages for Google.
+    const partTime=await call('/caregiver-jobs/maryland?hours=part-time',{},htmlAssets);
+    const ptHtml=await partTime.text();
+    expect(ptHtml).toContain('<meta name="robots" content="noindex,follow"');
+    expect(ptHtml).toContain('CNA - Day Shift');
+    expect(ptHtml).not.toContain('HHA Per Diem');
+    const api=await (await call('/api/public/jobs-hub?state=MD&hours=per-diem')).json() as any;
+    expect(api.jobs.map((j:any)=>j.id)).toEqual(['job-prn']);
+    expect(api.jobs[0].datePosted).toBe('2026-01-02');
+    const paid=await (await call('/api/public/jobs-national?pay=shown')).json() as any;
+    expect(paid.jobs.map((j:any)=>j.id)).toContain('job-test');
+    expect(paid.jobs.map((j:any)=>j.id)).not.toContain('job-prn');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-prn'").run();
+    await DB.prepare("UPDATE caregiver_jobs SET date_posted=NULL,employment_type=NULL WHERE id='job-test'").run();
   });
   it('GNA jobs and Baltimore CNA classes pages list Maryland jobs and programs', async()=>{
     const add=(id:string,role:string,city:string,zip:string)=>DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,?,?,'Sunrise Home Care',?,'MD',?,'current',1)")
@@ -3563,5 +3586,114 @@ describe('first job nudge', ()=>{
     expect(mail.html).toContain('Unsubscribe');
     expect(mail.headers?.['List-Unsubscribe']).toBeTruthy();
     expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true'}))).toEqual({sent:0,failed:0});
+  });
+});
+
+describe('public caregiver directory', ()=>{
+  const headers={'content-type':'application/json'};
+  const listed=(id:string,zip:string,extra:Record<string,unknown>={})=>addCaregiver(id,zip,{public_listing:1,public_listing_at:recent,bio:'Hospice and dementia care. Text 410-555-0100.',desired_wage:'$18+/hr',certifications:'CPR',...extra});
+  beforeAll(async()=>{
+    await listed('dir-1','21201');
+    // Opted in but not shown: not looking, unverified, confirmed too long ago, no yes at all, a test account, and a ZIP nobody knows.
+    await listed('dir-notlooking','21201',{work_status:'not_looking'});
+    await listed('dir-unverified','21201',{auth0_email_verified:0});
+    await listed('dir-stale','21201',{last_confirmed_at:new Date(Date.now()-40*86400000).toISOString()});
+    await addCaregiver('dir-noyes','21201');
+    await listed('dir-test','21201',{is_test:1});
+    await listed('dir-nozip','00000');
+    await listed('dir-tx','75201');
+  });
+  it('lists only caregivers who said yes, verified, and confirmed within 30 days, and shows no contact details', async()=>{
+    const api=await (await call('/api/public/caregivers?state=MD&city=baltimore')).json() as any;
+    expect(api.cards.map((c:any)=>c.id)).toEqual(['dir-1']);
+    expect(api.cards[0].name).toBe('dir-1 T.');
+    expect(api.cards[0].zipArea).toBe('212xx');
+    expect(api.cards[0].bio).not.toContain('410-555');
+    expect(JSON.stringify(api.cards[0])).not.toContain('example.com');
+    const national=await (await call('/api/public/caregivers')).json() as any;
+    expect(national.states.map((s:any)=>[s.code,s.count])).toEqual([['MD',1],['TX',1]]);
+  });
+  it('renders the pages, noindex until five are listed, with a 302 for an empty city and 410 after a listing ends', async()=>{
+    const city=await (await call('/caregivers/maryland/baltimore',{},htmlAssets)).text();
+    expect(city).toContain('<h1>Caregivers looking for work in Baltimore, MD</h1>');
+    expect(city).toContain('<a href="/caregiver/dir-1">dir-1 T.</a> · Verified email · Confirmed ');
+    expect(city).toContain('<meta name="robots" content="noindex,follow"');
+    expect(city).toContain('<link rel="canonical" href="https://carejoys.com/caregivers/maryland/baltimore" />');
+    expect(city).not.toContain('dir-1@example.com');
+    const state=await (await call('/caregivers/maryland',{},htmlAssets)).text();
+    expect(state).toContain('<a href="/caregivers/maryland/baltimore">Caregivers in Baltimore</a> (1)');
+    expect((await call('/caregivers/maryland/nowhere',{},htmlAssets)).headers.get('location')).toBe('/caregivers/maryland');
+    expect((await call('/caregivers/md',{},htmlAssets)).status).toBe(404);
+    const profile=await call('/caregiver/dir-1',{},htmlAssets);
+    expect(profile.status).toBe(200);
+    expect(await profile.text()).toContain('<meta name="robots" content="noindex,follow"');
+    // Five listed caregivers make the city page worth indexing and put it in the sitemap.
+    for(const n of [2,3,4,5])await listed('dir-'+n,'21201');
+    const indexed=await (await call('/caregivers/maryland/baltimore',{},htmlAssets)).text();
+    expect(indexed).toContain('5 caregivers in Baltimore, MD listed in the last 30 days.');
+    expect(indexed).not.toContain('noindex');
+    const sitemap=await (await call('/sitemaps/locations.xml')).text();
+    expect(sitemap).toContain('https://carejoys.com/caregivers/maryland/baltimore<');
+    expect(sitemap).toContain('https://carejoys.com/caregivers/maryland<');
+    expect(sitemap).not.toContain('/caregivers/texas<');
+    // The caregiver turns the listing off: their page answers 410, and their old card is gone.
+    await DB.prepare("UPDATE caregivers SET public_listing=0 WHERE id='dir-1'").run();
+    expect((await call('/caregiver/dir-1',{},htmlAssets)).status).toBe(410);
+    expect((await call('/api/public/caregivers/dir-1')).status).toBe(410);
+    expect((await call('/api/public/caregivers/dir-never')).status).toBe(404);
+    expect((await call('/api/public/caregivers/dir-noyes/photo')).status).toBe(404);
+  });
+  it('records the signup choice and lets the caregiver change it from the dashboard', async()=>{
+    const no=await call('/api/caregiver-resume',{method:'POST',headers,body:JSON.stringify({firstName:'Opt',lastName:'Out',email:'opt-out@example.com',zip:'21201',role:'CNA',publicListing:false})});
+    expect(no.status).toBe(201);
+    const yes=await call('/api/caregiver-resume',{method:'POST',headers,body:JSON.stringify({firstName:'Opt',lastName:'In',email:'opt-in@example.com',zip:'21201',role:'CNA',publicListing:true})});
+    const {id}=await yes.json() as any;
+    expect(await DB.prepare("SELECT public_listing,public_listing_source FROM caregivers WHERE email='opt-out@example.com'").first()).toEqual({public_listing:0,public_listing_source:'caregiver_signup'});
+    expect(await DB.prepare('SELECT public_listing FROM caregivers WHERE id=?').bind(id).first()).toEqual({public_listing:1});
+    // Signed in by email link; the API explains why a yes isn't shown yet.
+    sent.length=0;
+    await call('/api/login/request',{method:'POST',headers,body:JSON.stringify({email:'opt-in@example.com'})});
+    const token=decodeURIComponent(sent.at(-1)!.html!.match(/token=([^"&]+)/)![1]);
+    const verify=await call('/api/login/verify',{method:'POST',headers,body:JSON.stringify({token})});
+    const cookie=(verify.headers.get('set-cookie')||'').match(/__Host-cj_account=[^;]+/)![0];
+    // Signing in verified the email and confirmed they are looking, so the yes now shows.
+    const shown=await (await call('/api/me/public-listing',{headers:{cookie}})).json() as any;
+    expect(shown.optedIn).toBe(true);
+    expect(shown.listed).toBe(true);
+    expect(shown.pageUrl).toBe('/caregivers/maryland/baltimore');
+    expect(shown.card.name).toBe('Opt I.');
+    // Saying they are not looking takes the card down and the API says why.
+    await DB.prepare("UPDATE caregivers SET work_status='not_looking' WHERE id=?").bind(id).run();
+    const hidden=await (await call('/api/me/public-listing',{headers:{cookie}})).json() as any;
+    expect(hidden.listed).toBe(false);
+    expect(hidden.reasons.join(' ')).toContain('not looking');
+    const off=await (await call('/api/me/public-listing',{method:'POST',headers:{cookie,...headers,origin:'https://carejoys.com'},body:JSON.stringify({listed:false})})).json() as any;
+    expect(off.optedIn).toBe(false);
+    expect(off.listed).toBe(false);
+  });
+  it('asks "still looking?" after two weeks, once per confirmation, and a tap answers it', async()=>{
+    const old=new Date(Date.now()-15*86400000).toISOString();
+    await listed('dir-ask','21201',{last_confirmed_at:old});
+    await DB.prepare("INSERT INTO email_suppressions(email,reason) VALUES ('dir-quiet@example.com','unsubscribe')").run();
+    await listed('dir-quiet','21201',{last_confirmed_at:old});
+    sent.length=0;
+    // dir-stale (confirmed 40 days ago, listing lapsed) is asked too; dir-quiet unsubscribed.
+    expect(await sendStillLookingEmails(env())).toEqual({sent:2,failed:0});
+    expect(sent.map(m=>m.to).sort()).toEqual(['dir-ask@example.com','dir-stale@example.com']);
+    const ask=sent.find(m=>m.to==='dir-ask@example.com')!;
+    expect(ask.subject).toBe('Still looking for caregiver work?');
+    expect(ask.headers?.['List-Unsubscribe']).toBeTruthy();
+    // Not again while the question is open.
+    expect(await sendStillLookingEmails(env())).toEqual({sent:0,failed:0});
+    const yes=ask.html!.match(/href="([^"]*\/api\/still-looking\?t=[^"]*&amp;a=yes)"/)![1].replace(/&amp;/g,'&').replace('https://carejoys.com','');
+    const answered=await call(yes);
+    expect(answered.status).toBe(200);
+    expect(await answered.text()).toContain('still listed');
+    const row=await DB.prepare("SELECT work_status,still_looking_token_hash,datetime(last_confirmed_at)>datetime('now','-1 day') AS fresh FROM caregivers WHERE id='dir-ask'").first() as any;
+    expect(row.work_status).toBe('actively_looking');
+    expect(row.still_looking_token_hash).toBeNull();
+    expect(row.fresh).toBe(1);
+    expect((await call(yes)).status).toBe(410);
+    expect(await DB.prepare("SELECT source FROM availability_events WHERE caregiver_id='dir-ask' ORDER BY confirmed_at DESC LIMIT 1").first()).toEqual({source:'still_looking_email'});
   });
 });

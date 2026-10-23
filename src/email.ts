@@ -400,6 +400,31 @@ export function firstJobNudgeEmail(input:{contactName:string;agencyName:string;c
   };
 }
 
+/** "Still looking?" to a caregiver on the public directory, two weeks after they last confirmed. Two one-tap links. */
+export function stillLookingEmail(firstName:string,yesLink:string,noLink:string){
+  const P='font-size:16px;line-height:1.6;color:#5b5f7e';
+  return {
+    subject:'Still looking for caregiver work?',
+    html:shell('Still looking for work?',`
+      <p style="${P}">Hi ${esc(firstName||'there')},</p>
+      <p style="${P}">Your CareJoys profile is listed for employers near you. So they only see people who are actually available, we check in every couple of weeks. One tap keeps you listed:</p>
+      <p style="margin:26px 0"><a href="${esc(yesLink)}" style="display:inline-block;background:#b8368f;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Yes, I’m still looking</a></p>
+      <p style="${P}">Found something? <a href="${esc(noLink)}" style="color:#b8368f">Take me off the list</a>. You can come back any time from your dashboard.</p>
+      <p style="${P}">If we don’t hear from you, your listing pauses on its own in about two weeks. Nothing is deleted.</p>`),
+    text:`Hi ${firstName||'there'},
+
+Your CareJoys profile is listed for employers near you. So they only see people who are actually available, we check in every couple of weeks.
+
+Yes, I'm still looking: ${yesLink}
+
+Take me off the list: ${noLink}
+
+If we don't hear from you, your listing pauses on its own in about two weeks. Nothing is deleted.
+
+CareJoys · carejoys.com`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 // The postal address US anti-spam law asks for in outreach mail: the MAILING_ADDRESS secret, set per run by the Worker.
 let mailingAddress='';

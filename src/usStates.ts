@@ -33,6 +33,17 @@ export function parseJobsHubPath(pathname:string){
   return {state,citySlug:m[3]?slugify(decodeURIComponent(m[3])):'',cna:m[1]==='cna'};
 }
 
+/** `/caregivers`, `/caregivers/{state}` and `/caregivers/{state}/{city}`: the public caregiver directory. */
+export const directoryPath=(state?:UsState|null,citySlug='')=>'/caregivers'+(state?'/'+state.slug+(citySlug?'/'+citySlug:''):'');
+export function parseDirectoryPath(pathname:string){
+  const m=pathname.match(/^\/caregivers(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/);
+  if(!m)return null;
+  if(!m[1])return {state:null,citySlug:''};
+  const state=usState(decodeURIComponent(m[1]));
+  if(!state||slugify(decodeURIComponent(m[1]))!==state.slug)return null;
+  return {state,citySlug:m[2]?slugify(decodeURIComponent(m[2])):''};
+}
+
 /** `/caregiver-jobs` or `/cna-jobs`, the all-states jobs pages. */
 export const isNationalJobsPath=(pathname:string)=>/^\/(caregiver|cna)-jobs\/?$/.test(pathname);
 export const isCnaJobsPath=(pathname:string)=>/^\/cna-jobs(\/|$)/.test(pathname);

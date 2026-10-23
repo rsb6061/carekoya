@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { TOP_CITIES, isCnaJobsPath, isNationalJobsPath, jobsHubPath, parseJobsHubPath, stateForZipPrefix, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
-import { payLabel, pillLabel } from './jobFormat';
+import { HOURS_FILTERS, freshnessLine, hoursFilter, payLabel, pillLabel, type HoursFilter } from './jobFormat';
 import './styles.css';
 
 // Serves /caregiver-jobs (all states), every /caregiver-jobs/{state}[/{city}] hub, and /join/{referral}.
 export type PublicCaregiverJob={
   id:string;title:string;role:string;employerName:string;city?:string;state?:string;zip?:string;
   employmentType?:string;payMin?:number|null;payMax?:number|null;payPeriod?:string;distanceMiles?:number|null;
+  /** Posted and last-checked stamps, so every card can say how fresh the listing is. */
+  datePosted?:string|null;firstSeenAt?:string|null;lastSeenAt?:string|null;lastCheckedAt?:string|null;
   /** Set where the list knows how a job is applied to: on CareJoys, or only on the employer's own site. */
   applyForMe?:boolean;employerOnCareJoys?:boolean;
 };
@@ -51,6 +53,7 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
             {employmentPills(job.employmentType).map(type=><span className="pill" key={type}>{type}</span>)}
             {pay&&<span className="pill">{pay}</span>}
           </div>
+          {freshnessLine(job)&&<div className="meta job-freshness">{freshnessLine(job)}</div>}
         </div>
         <div className="public-job-actions">
           <a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>
@@ -59,6 +62,30 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
       </article>;
     })}
   </div>;
+}
+
+type ListFilters={hours:HoursFilter|'';payShown:boolean};
+const readFilters=(params:URLSearchParams):ListFilters=>({hours:hoursFilter(params.get('hours')),payShown:params.get('pay')==='shown'});
+const filterQuery=(f:ListFilters)=>({hours:f.hours,pay:f.payShown?'shown':''});
+
+/** How often you want to work, and whether the job says what it pays. Filtered views are not indexed; they are the reader's own. */
+function HoursFilters({filters,onChange}:{filters:ListFilters;onChange:(next:ListFilters)=>void}){
+  const chip=(label:string,active:boolean,next:ListFilters)=><button type="button" className={'hub-filter '+(active?'active':'')} aria-pressed={active} onClick={()=>onChange(next)} key={label}>{label}</button>;
+  return <div className="hub-filter-groups">
+    <nav className="hub-filters" aria-label="Hours">
+      {chip('All hours',!filters.hours,{...filters,hours:''})}
+      {HOURS_FILTERS.map(h=>chip(h.label,filters.hours===h.slug,{...filters,hours:h.slug}))}
+    </nav>
+    <nav className="hub-filters" aria-label="Pay">
+      {chip('Pay shown',filters.payShown,{...filters,payShown:!filters.payShown})}
+    </nav>
+  </div>;
+}
+
+/** "38 current part-time openings with pay shown" */
+function countLine(total:number,filters:ListFilters,noun='opening'){
+  const hours=HOURS_FILTERS.find(h=>h.slug===filters.hours)?.label.toLowerCase();
+  return total+' current '+(hours?hours+' ':'')+noun+(total===1?'':'s')+(filters.payShown?' with pay shown':'');
 }
 
 /** Two kinds of job, each with its own pages: every caregiver job, or only the ones a CNA can apply to. */
@@ -109,6 +136,8 @@ function NationalJobsPage(){
   const q=(params.get('q')||'').trim();
   const zip=(q.match(/^(\d{5})(?:-\d{4})?$/)||[])[1]||'';
   const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
+  const [filters,setFiltersState]=useState<ListFilters>(readFilters(params));
+  const setFilters=(next:ListFilters)=>{setFiltersState(next);setPage(1)};
   const [data,setData]=useState<National|null>(null);
   const [loading,setLoading]=useState(true);
   const [near,setNear]=useState<PublicCaregiverJob[]|null>(null);
@@ -117,10 +146,12 @@ function NationalJobsPage(){
     setLoading(true);
     const p=new URLSearchParams({page:String(page)});
     if(cna)p.set('cna','1');
+    if(filters.hours)p.set('hours',filters.hours);
+    if(filters.payShown)p.set('pay','shown');
     fetch('/api/public/jobs-national?'+p.toString())
       .then(r=>r.json()).then((d:any)=>{if(Array.isArray(d?.jobs))setData(d)}).catch(()=>{}).finally(()=>setLoading(false));
-    syncQuery({q,page:page>1?String(page):''});
-  },[cna,page]);
+    syncQuery({q,page:page>1?String(page):'',...filterQuery(filters)});
+  },[cna,page,filters.hours,filters.payShown]);
 
   useEffect(()=>{
     if(!zip)return;
@@ -175,9 +206,11 @@ function NationalJobsPage(){
           <p>Open a job on CareJoys, then apply with the same reusable profile.</p>
         </div></div>
         <RoleFilters cna={cna} cnaHref="/cna-jobs" allHref="/caregiver-jobs"/>
+        <HoursFilters filters={filters} onChange={setFilters}/>
+        {data&&(filters.hours||filters.payShown)&&<p className="meta hub-count">{countLine(data.total,filters)}</p>}
         {loading&&!data
           ?<div className="empty"><strong>Loading current openings…</strong></div>
-          :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {noun} yet.</strong></div>}
+          :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {noun}{filters.hours||filters.payShown?' match these filters':' yet'}.</strong></div>}
         {data&&<Pager page={data.page} pages={data.pages} onChange={setPage}/>}
       </div></section>
 
@@ -214,6 +247,8 @@ function StateJobsPage(){
   const cna=!!parsed?.cna;
   const params=new URLSearchParams(window.location.search);
   const [page,setPage]=useState(Math.max(1,Number(params.get('page')||1)||1));
+  const [filters,setFiltersState]=useState<ListFilters>(readFilters(params));
+  const setFilters=(next:ListFilters)=>{setFiltersState(next);setPage(1)};
   const [program,setProgram]=useState<{name:string;city?:string;state?:string;zip?:string;providerType?:string}|null>(null);
   const [hub,setHub]=useState<Hub|null>(null);
   const [jobsLoading,setJobsLoading]=useState(!referralSlug);
@@ -233,13 +268,15 @@ function StateJobsPage(){
     const q=new URLSearchParams({state:state.code,page:String(page)});
     if(citySlug)q.set('city',citySlug);
     if(cna)q.set('cna','1');
+    if(filters.hours)q.set('hours',filters.hours);
+    if(filters.payShown)q.set('pay','shown');
     fetch('/api/public/jobs-hub?'+q.toString())
       .then(r=>r.json())
       .then((data:any)=>{if(Array.isArray(data?.jobs))setHub(data)})
       .catch(()=>{})
       .finally(()=>setJobsLoading(false));
-    syncQuery({page:page>1?String(page):''});
-  },[referralSlug,state.code,citySlug,cna,page]);
+    syncQuery({page:page>1?String(page):'',...filterQuery(filters)});
+  },[referralSlug,state.code,citySlug,cna,page,filters.hours,filters.payShown]);
 
   const place=hub?.city?hub.city+', '+state.code:state.name;
   const area=hub?.metro?'the '+hub.metro.name+' area':place;
@@ -276,14 +313,17 @@ function StateJobsPage(){
           <div>
             <div className="modal-kicker">Current openings</div>
             <h2>Current {noun} in {area}</h2>
-            <p>{hub?.total?hub.total+' current opening'+(hub.total===1?'':'s')+', verified from care-employer career pages. ':'Verified from care-employer career pages. '}Open a job on CareJoys, then apply with the same reusable profile.</p>
+            <p>{hub?.total?countLine(hub.total,filters)+', verified from care-employer career pages and removed when the employer takes them down. ':'Verified from care-employer career pages. '}Open a job on CareJoys, then apply with the same reusable profile.</p>
           </div>
         </div>
 
         <RoleFilters cna={cna} cnaHref={jobsHubPath(state,citySlug,true)} allHref={jobsHubPath(state,citySlug)}/>
+        <HoursFilters filters={filters} onChange={setFilters}/>
 
         {jobsLoading&&!hub
           ?<div className="empty"><strong>Loading current openings…</strong></div>
+          :hub&&hub.jobs.length===0&&(filters.hours||filters.payShown)
+            ?<div className="empty"><strong>No current {noun} in {place} match these filters.</strong><div><button type="button" className="text-button" onClick={()=>setFilters({hours:'',payShown:false})}>Show all {noun}</button></div></div>
           :!hub||hub.jobs.length===0
             ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs in {place} now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed, or <a className="text-link" href="/caregiver-jobs">browse jobs in other states</a>.</div></div>
             :<JobList jobs={hub.jobs}/>}

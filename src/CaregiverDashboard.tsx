@@ -10,6 +10,7 @@ import { ProfilePhotoSection } from './ProfilePhotoSection';
 import { IntroVideoSection } from './IntroVideoSection';
 import { CaregiverProfileEditor, PROFILE_ITEMS, profileGaps, type CaregiverProfileData } from './CaregiverProfile';
 import { TalentCard, type TalentCandidate } from './TalentCard';
+import { CaregiverCard, type PublicCaregiverCard } from './CaregiverDirectory';
 import { CaregiverInviteControls, type HiddenAgency } from './CaregiverInviteControls';
 import { lockedYesText } from './caregiverProtectionRules';
 import { JobList, applyWhere, type PublicCaregiverJob } from './CaregiverJobsHub';
@@ -57,6 +58,16 @@ export function CaregiverDashboard(){
   const [hideChoice,setHideChoice]=useState<boolean|null>(null);
   const [notice,setNotice]=useState('');
   const [autoChoice,setAutoChoice]=useState<boolean|null>(null);
+  // The public directory listing: its own yes, separate from being findable by signed-in employers.
+  type Listing={listed:boolean;optedIn:boolean;photo:boolean;hasPhoto:boolean;reasons:string[];card:PublicCaregiverCard;pageUrl:string;profileUrl:string};
+  const [listing,setListing]=useState<Listing|null>(null);
+  useEffect(()=>{if(!auth.isAuthenticated)return;fetch('/api/me/public-listing').then(r=>r.json()).then((r:Listing&{ok?:boolean})=>{if(r.ok)setListing(r)}).catch(()=>{})},[auth.isAuthenticated]);
+  async function updateListing(change:{listed?:boolean;photo?:boolean}){
+    setBusy('listing');
+    try{const r=await api<Listing>('/api/me/public-listing',{method:'POST',body:JSON.stringify(change)});setListing(r);
+      setNotice(change.listed===false?'Your public listing is off.':change.listed===true?(r.listed?'You’re listed. Employers near you can find you.':'Saved. '+(r.reasons[0]||'')):change.photo?'Your photo is shown on your listing.':'Your photo is off your listing.');
+    }catch(e){setNotice(e instanceof Error?e.message:'Could not save.')}finally{setBusy('')}
+  }
   const [alerts,setAlerts]=useState<boolean|null>(null);
   useEffect(()=>{if(!auth.isAuthenticated)return;fetch('/api/me/job-alerts').then(r=>r.json()).then((r:{emailEnabled?:boolean})=>setAlerts(!!r.emailEnabled)).catch(()=>setAlerts(null))},[auth.isAuthenticated]);
   async function updateAlerts(enabled:boolean){setBusy('alerts');try{await api('/api/me/job-alerts',{method:'POST',body:JSON.stringify({emailEnabled:enabled})});setAlerts(enabled);setNotice(enabled?'Weekly job emails enabled.':'Weekly job emails turned off.')}catch(e){setNotice(e instanceof Error?e.message:'Could not update alerts.')}finally{setBusy('')}}
@@ -183,6 +194,15 @@ export function CaregiverDashboard(){
         <section className="section-block" id="visibility">
           <div className="section-heading"><h2>Profile visibility</h2><p>{hiddenProfile?'Employers can’t find you or invite you right now.':'Employers can find you and invite you to jobs.'}</p></div>
           <label className="check-row"><input type="checkbox" checked={hiddenProfile} disabled={!!busy} onChange={e=>{const hide=e.target.checked;setHideChoice(hide);void act('avail','/api/me/availability',{workStatus:hide?'not_looking':'actively_looking'},hide?'Your profile is hidden from employers.':'You’re shown to employers again.').finally(()=>setHideChoice(null))}} /><span>Hide my profile from employers</span></label>
+        </section>
+        <section className="section-block" id="public-listing">
+          <div className="section-heading"><h2>Public listing</h2><p>{listing?.listed?<>You’re listed on <a className="text-link" href={listing.pageUrl}>the caregiver directory</a>, so employers near you can find you without signing in.</>:'A public card lets employers near you find you. It shows your first name, role, area, pay floor and availability. Never your contact details, last name or exact ZIP.'}</p></div>
+          {listing&&<>
+            <label className="check-row"><input type="checkbox" checked={listing.optedIn} disabled={!!busy} onChange={e=>void updateListing({listed:e.target.checked})} /><span>List my profile so local employers can find me</span></label>
+            {listing.optedIn&&listing.hasPhoto&&<label className="check-row"><input type="checkbox" checked={listing.photo} disabled={!!busy} onChange={e=>void updateListing({photo:e.target.checked})} /><span>Show my photo on the listing</span></label>}
+            {listing.optedIn&&!listing.listed&&listing.reasons.length>0&&<div className="notice">Not shown yet: {listing.reasons.join(' ')}</div>}
+            {listing.optedIn&&<details className="listing-preview"><summary>Preview my public card</summary><div className="jobs caregiver-public-job-list"><CaregiverCard card={listing.card} invite={false} full/></div></details>}
+          </>}
         </section>
         <section className="section-block" id="auto-apply">
           <div className="section-heading"><h2>Auto-apply</h2><p>CareJoys applies to your best new matches for you. If an employer’s form asks something only you can answer, we skip that job.</p></div>

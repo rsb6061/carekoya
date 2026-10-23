@@ -1,7 +1,7 @@
 import type { FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, rowGeo, zipGeoJoin } from './geo';
 import { decodeHtml, normalizeTitle } from './jobDiscovery';
-import { descriptionBlocks, normalizePay, payLabel } from './jobFormat';
+import { HOURS_FILTERS, descriptionBlocks, normalizePay, parsePostedDate, payLabel, type HoursFilter } from './jobFormat';
 import { employerProfilePath } from './employerProfilePath';
 import { US_STATES, jobsHubPath, parseJobsHubPath, slugify, usState, type UsState } from './usStates';
 
@@ -84,7 +84,7 @@ const isoDate=(value:unknown)=>{
 export function jobPostingJsonLd(job:Row,org:Row|null){
   const id=clean(job.id,200);
   const url=SEO_ORIGIN+'/jobs/'+encodeURIComponent(id);
-  const posted=isoDate(job.date_posted)||isoDate(job.first_seen_at)||isoDate(job.last_seen_at)||new Date();
+  const posted=parsePostedDate(job.date_posted,job.last_seen_at)||isoDate(job.first_seen_at)||isoDate(job.last_seen_at)||new Date();
   const checked=isoDate(job.last_checked_at)||isoDate(job.last_seen_at)||posted;
   const sourceValid=isoDate(job.valid_through);
   const validThrough=sourceValid&&sourceValid.getTime()>Date.now()?sourceValid:new Date(checked.getTime()+30*86400000);
@@ -210,8 +210,19 @@ function withMetros<T extends {slug:string;count:number}>(rows:T[],totals:{metro
   return [...rows.filter(r=>!slugs.has(r.slug)),...totals.filter(t=>t.count>0).map(make)].sort((a,b)=>b.count-a.count);
 }
 
+/** Hours and pay filters shared by every jobs list: "?hours=part-time" and "?pay=shown". */
+export type JobListFilters={hours?:HoursFilter|'';payShown?:boolean};
+export function jobFilterSql(f:JobListFilters|undefined){
+  let sql='';const args:unknown[]=[];
+  const hours=f?.hours?HOURS_FILTERS.find(h=>h.slug===f.hours):null;
+  if(hours){sql+=" AND lower(COALESCE(employment_type,'')) LIKE ?";args.push(hours.sql)}
+  if(f?.payShown)sql+=' AND (pay_min IS NOT NULL OR pay_max IS NOT NULL)';
+  return {sql,args};
+}
+export const JOB_LIST_COLUMNS='id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type,date_posted,first_seen_at,last_seen_at,last_checked_at';
+
 /** One page of a state (or city) jobs hub plus the cities worth linking to. */
-export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:string;role?:string;page?:number;cna?:boolean}){
+export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:string;role?:string;page?:number;cna?:boolean}&JobListFilters){
   const empty={jobs:[] as Row[],total:0,city:'',cities:[] as {city:string;slug:string;count:number}[],page:1,pages:1,metro:null as Metro|null,places:[] as {city:string;slug:string;count:number}[]};
   if(!env.DB)return empty;
   const cnaOnly=opts.cna?' AND '+CNA_JOB_SQL:'';
@@ -236,10 +247,11 @@ export async function jobsHub(env:FeatureEnv,opts:{state:UsState;citySlug?:strin
   else if(city){where+=' AND lower(city)=lower(?)';args.push(city)}
   where+=cnaOnly;
   if(opts.role){where+=' AND (lower(role)=lower(?) OR lower(COALESCE(roles_json,\'\')) LIKE lower(?))';args.push(opts.role,'%"'+opts.role+'"%')}
+  const filters=jobFilterSql(opts);where+=filters.sql;args.push(...filters.args);
   const total=asNum((await env.DB.prepare('SELECT COUNT(*) AS count FROM caregiver_jobs WHERE '+where).bind(...args).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
   const page=Math.min(pages,Math.max(1,Math.floor(opts.page||1)));
-  const jobs=((await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${where}
+  const jobs=((await env.DB.prepare(`SELECT ${JOB_LIST_COLUMNS} FROM caregiver_jobs WHERE ${where}
     ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ? OFFSET ?`)
     .bind(...args,JOBS_PER_PAGE,(page-1)*JOBS_PER_PAGE).all<Row>()).results||[]);
   // A metro page lists the places it covers so each suburb page stays one click away.
@@ -277,7 +289,7 @@ const roleWhere=(role:string)=>role?" AND (lower(role)=lower(?) OR lower(COALESC
 const roleArgs=(role:string)=>role?[role,'%"'+role+'"%']:[];
 
 /** `/caregiver-jobs` (or `/cna-jobs` with `cna`): every state with current jobs, the busiest cities, and the newest jobs nationwide. */
-export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:number;cna?:boolean}={}){
+export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:number;cna?:boolean}&JobListFilters={}){
   const cna=!!opts.cna;
   // /cna-jobs is itself the CNA filter, so a role there would only narrow it to nothing.
   const role=cna?'':clean(opts.role,40);
@@ -294,12 +306,13 @@ export async function nationalJobsHub(env:FeatureEnv,opts:{role?:string;page?:nu
     .filter((c):c is {state:UsState;city:string;slug:string;count:number}=>!!c.state&&!!c.slug&&!metros.some(t=>t.metro.state===c.state?.code&&t.metro.slug===c.slug)),
     ...metros.flatMap(t=>{const state=usState(t.metro.state);return state?[{state,city:t.metro.name,slug:t.metro.slug,count:t.count}]:[]})]
     .sort((a,b)=>b.count-a.count).slice(0,30);
-  const total=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}`).bind(...roleArgs(role)).first<Row>())?.count);
+  const filters=jobFilterSql(opts);
+  const total=asNum((await env.DB.prepare(`SELECT COUNT(*) AS count FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}${filters.sql}`).bind(...roleArgs(role),...filters.args).first<Row>())?.count);
   const pages=Math.max(1,Math.ceil(total/JOBS_PER_PAGE));
   const page=Math.min(pages,Math.max(1,Math.floor(opts.page||1)));
-  const jobs=((await env.DB.prepare(`SELECT id,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,employment_type FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}
+  const jobs=((await env.DB.prepare(`SELECT ${JOB_LIST_COLUMNS} FROM caregiver_jobs WHERE ${PUBLISHED}${only}${roleWhere(role)}${filters.sql}
     ORDER BY CASE WHEN date_posted IS NULL OR date_posted='' THEN 1 ELSE 0 END,date_posted DESC,last_seen_at DESC LIMIT ? OFFSET ?`)
-    .bind(...roleArgs(role),JOBS_PER_PAGE,(page-1)*JOBS_PER_PAGE).all<Row>()).results||[]);
+    .bind(...roleArgs(role),...filters.args,JOBS_PER_PAGE,(page-1)*JOBS_PER_PAGE).all<Row>()).results||[]);
   return {jobs,total,states,cities,page,pages};
 }
 

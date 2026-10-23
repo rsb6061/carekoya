@@ -2,7 +2,7 @@ import { Suspense, useEffect } from 'react';
 import { named } from './lazyPage';
 import { JobDrawer } from './JobDrawer';
 import { HomeHero, HomeMatchesSection } from './HomeHero';
-import { isNationalJobsPath, parseJobsHubPath } from './usStates';
+import { isNationalJobsPath, parseDirectoryPath, parseJobsHubPath } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { useCaregiverAuth } from './caregiverAuth';
 import { homePath, lastDashboard } from './dashboardHome';
@@ -15,6 +15,7 @@ const CandidateResponse=named(()=>import('./CandidateResponse'),'CandidateRespon
 const LegalPage=named(()=>import('./LegalPage'),'LegalPage');
 const AgencyClaim=named(()=>import('./AgencyClaim'),'AgencyClaim');
 const CaregiverJobsHub=named(()=>import('./CaregiverJobsHub'),'CaregiverJobsHub');
+const CaregiverDirectory=named(()=>import('./CaregiverDirectory'),'CaregiverDirectory');
 const SchoolProgramPage=named(()=>import('./SchoolPortal'),'SchoolProgramPage');
 const SchoolAuth=named(()=>import('./SchoolPortal'),'SchoolAuth');
 const SchoolDashboard=named(()=>import('./SchoolPortal'),'SchoolDashboard');
@@ -59,6 +60,7 @@ function routePage(path:string){
   if (path === '/agent') return <AgentSetupPage />;
   if (path.startsWith('/agency')) return <AgencyClaim />;
   if (isNationalJobsPath(path) || parseJobsHubPath(path) || path.startsWith('/join/')) return <CaregiverJobsHub />;
+  if (parseDirectoryPath(path) || /^\/caregiver\/[^/]+\/?$/.test(path)) return <CaregiverDirectory />;
   if (path.startsWith('/training-programs/maryland') || path.startsWith('/schools/maryland')) return <MarylandSchoolsPage />;
   if (path.startsWith('/training-programs/')) return <TrainingOrganizationPage />;
   if (path.startsWith('/employers/')) return <EmployerProfilePage />;
