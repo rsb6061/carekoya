@@ -120,3 +120,14 @@ export async function sendReplyYesTest(env:ReplyYesEnv,to:string){
   await env.EMAIL.send({from:REBECCA_FROM,replyTo:REBECCA_EMAIL,to,subject:'[Test] '+body.subject,text:body.text});
   return {to,subject:'[Test] '+body.subject};
 }
+
+/** Agency outreach send window, UTC hours inclusive: 9am-5pm US Eastern daylight time (8am-4pm in winter). */
+export const OUTREACH_FIRST_UTC_HOUR=13;
+export const OUTREACH_LAST_UTC_HOUR=21;
+
+/** How many agency emails one hourly run may send: the daily cap spread over the send window, and none outside it.
+ *  Replaces the old cap/24 spread, which sent most of the day's emails overnight US time (Rebecca, 2026-10-23). */
+export function outreachSlice(cap:number,utcHour:number){
+  if(cap<=0||utcHour<OUTREACH_FIRST_UTC_HOUR||utcHour>OUTREACH_LAST_UTC_HOUR)return 0;
+  return Math.ceil(cap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1));
+}

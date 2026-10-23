@@ -754,7 +754,7 @@ describe('pay preferences and verified caregiver availability',()=>{
     const body=await res.json() as any;
     expect(body.funnel.outreachChannels.agencyHiring.enabled).toBe(true);
     expect(body.funnel.outreachChannels.agencyHiring.cap).toBe(20);
-    expect(body.funnel.outreachChannels.agencyHiring.perHour).toBe(1);
+    expect(body.funnel.outreachChannels.agencyHiring.perHour).toBe(3);
     expect(body.funnel.outreachChannels.agencyInboxAlerts.unclaimedEnabled).toBe(false);
     expect(body.funnel.outreachChannels.weeklyDigest.enabled).toBe(true);
     expect(typeof body.funnel.outreachChannels.reactivationReminders.sent).toBe('number');

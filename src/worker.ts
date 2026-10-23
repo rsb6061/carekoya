@@ -13,7 +13,7 @@ import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurs
 import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
-import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesOutreach';
+import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice } from './replyYesOutreach';
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch } from './careersLookup';
@@ -2633,17 +2633,18 @@ export default {
             const sent=await sendFacilityPilotInvites(env,hour.getUTCHours()>=FACILITY_PILOT_UTC_HOUR?FACILITY_PILOT_DAILY_BATCH-pilot.today:0,pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
             pilotToday=pilot.today+(sent?.sent||0);
           }
-          const slice=Math.max(1,Math.ceil(cap/24));
+          // US working hours only, so the day's cap lands while agencies read mail (src/replyYesOutreach.ts).
+          const slice=outreachSlice(cap,hour.getUTCHours());
           const resent=await hiringReinviteCounts(env);
           const replyYes=await replyYesCounts(env);
           const left=cap-counts.today-resent.today-replyYes.today-pilotToday;
           if(String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes'){
             // Rebecca's plain-text reply-yes note replaces the styled invite (2026-10-22). It waits for rebecca@'s routing rule.
-            if(replyYes.routingLive)await sendReplyYesBatch(env,Math.min(slice,left)).catch(error=>console.error('reply-yes outreach failed',error));
+            if(replyYes.routingLive&&slice>0)await sendReplyYesBatch(env,Math.min(slice,left)).catch(error=>console.error('reply-yes outreach failed',error));
           }else{
             // Re-sends of the new copy to agencies that got the old one come first, out of the same daily cap, while AGENCY_HIRING_REINVITE is set.
-            const again=await sendAgencyHiringReinvites(env,Math.min(slice,left),env.AGENCY_HIRING_REINVITE||'').catch(()=>null);
-            await sendAgencyHiringInvites(env,Math.min(slice,left-(again?.sent||0)),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
+            const again=slice>0?await sendAgencyHiringReinvites(env,Math.min(slice,left),env.AGENCY_HIRING_REINVITE||'').catch(()=>null):null;
+            if(slice>0)await sendAgencyHiringInvites(env,Math.min(slice,left-(again?.sent||0)),counts.total===0?'hello@carejoys.com':'').catch(()=>null);
           }
         }catch(error){console.error('agency outreach failed',error)}
         // New sites (never scanned) first, then sites that failed three days ago. Both read every organization or
