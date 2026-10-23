@@ -2097,6 +2097,15 @@ describe('site monitoring', ()=>{
     expect(await alertNewClientErrors(env())).toMatchObject({sent:true,count:1});
     expect(sent[1].to).toContain('myersrebeccal@gmail.com');
   });
+  it('emails a request that never reached CareJoys only once it happens again', async()=>{
+    await DB.prepare("UPDATE monitor_alerts SET created_at=datetime('now','-31 minutes')").run();
+    sent.length=0;
+    await report({kind:'api',message:'GET /api/config did not reach CareJoys (Load failed)',path:'/'});
+    expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:false,count:0});
+    await report({kind:'api',message:'GET /api/config did not reach CareJoys (Load failed)',path:'/jobs'});
+    expect(await alertNewClientErrors(env({ALERT_EMAILS:'alerts@carejoys.test'}))).toMatchObject({sent:true,count:1});
+    expect((sent[0] as any).text).toContain('GET /api/config did not reach CareJoys (Load failed) (2 times');
+  });
   it('daily funnel alarm fires only when a step that was due dropped to zero', async()=>{
     const add=async(table:string,type:string,daysAgo:number,n:number)=>{
       for(let i=0;i<n;i++){

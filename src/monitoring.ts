@@ -32,6 +32,9 @@ const KINDS=new Set(['error','rejection','react','api','api_slow','server']);
 const NOISE=/^Script error\.?$|did not reach CareJoys \(fetch error\)|returned [6-9]\d\d$|Object Not Found Matching Id:\d+, MethodName:\w+, ParamCount:\d+|ResizeObserver loop|chrome-extension:|moz-extension:|safari(-web)?-extension:|__gCrWeb|webkit\.messageHandlers|Non-Error promise rejection captured|instantSearchSDKJSBridgeClearHighlight|Can't find variable: (gmo|_AutofillCallbackHandler)/i;
 const NEW_FINGERPRINTS_PER_DAY=200;
 const ERROR_EMAIL_EVERY_MINUTES=30;
+// A request that never reached CareJoys once is usually one visitor's phone losing signal. It stays on the monitoring
+// page, but only emails once it happens again; a real outage repeats within minutes.
+const NETWORK_FAILURE_MIN_COUNT=2;
 
 async function sha(value:string){
   const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));
@@ -129,7 +132,8 @@ const KIND_LABEL:Record<string,string>={error:'JavaScript crash',rejection:'Java
 export async function alertNewClientErrors(env:MonitorEnv){
   if(!env.DB)return {sent:false,count:0};
   const pending=(await env.DB.prepare(`SELECT fingerprint,kind,message,source,first_path,last_path,count,first_seen_at,last_seen_at,alerted_at FROM client_errors
-    WHERE alerted_at IS NULL OR (datetime(last_seen_at)>datetime(alerted_at) AND datetime(alerted_at)<=datetime('now','-1 day'))
+    WHERE (alerted_at IS NULL OR (datetime(last_seen_at)>datetime(alerted_at) AND datetime(alerted_at)<=datetime('now','-1 day')))
+      AND NOT (kind='api' AND message LIKE '% did not reach CareJoys (%' AND count<${NETWORK_FAILURE_MIN_COUNT})
     ORDER BY last_seen_at DESC LIMIT 20`).all<Row>()).results||[];
   if(!pending.length)return {sent:false,count:0};
   const recent=await env.DB.prepare(`SELECT 1 AS hit FROM monitor_alerts WHERE kind='client_errors' AND datetime(created_at)>datetime('now',?) LIMIT 1`)
