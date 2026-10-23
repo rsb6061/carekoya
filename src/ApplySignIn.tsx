@@ -7,7 +7,8 @@ import { loginPath, useCaregiverAuth } from './caregiverAuth';
 // upload a resume and fill in what it didn't cover. Signing in from here always leads to a caregiver profile;
 // employers sign up from /hire-caregivers instead.
 
-export function ApplySignIn({jobTitle,next,onGuest}:{jobTitle:string;next:string;onGuest:()=>void}){
+// finishOn names an employer CareJoys can't send the application to, so the caregiver knows before signing in.
+export function ApplySignIn({jobTitle,next,onGuest,finishOn=''}:{jobTitle:string;next:string;onGuest:()=>void;finishOn?:string}){
   const auth=useCaregiverAuth();
   const [email,setEmail]=useState('');
   const [turnstileToken,setTurnstileToken]=useState('');
@@ -44,7 +45,9 @@ export function ApplySignIn({jobTitle,next,onGuest}:{jobTitle:string;next:string
   return <div className="apply-signin">
     <div className="modal-kicker">Apply on CareJoys</div>
     <h2>{jobTitle}</h2>
-    <p className="apply-signin-sub">Free for caregivers. Sign in, add your resume, and we’ll fill in the rest.</p>
+    <p className="apply-signin-sub">{finishOn
+      ?<>Free for caregivers. Sign in and add your resume once; it’s ready for every job. {finishOn} takes applications on their own site, so you’ll finish there.</>
+      :'Free for caregivers. Sign in, add your resume, and we’ll fill in the rest.'}</p>
     {auth.googleAvailable&&<>
       <button type="button" className="apply-google" onClick={()=>void auth.loginGoogle({next})}><GoogleMark/>Continue with Google</button>
       <div className="apply-or"><span>or continue with email</span></div>

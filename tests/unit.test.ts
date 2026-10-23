@@ -971,3 +971,35 @@ describe('careers page lookup', ()=>{
     expect(careersUrlFromResults([{type:'organic',url:'https://devotedhomecareagency.com/about/',title:'About'}],org)).toBe('');
   });
 });
+
+describe('apply links', ()=>{
+  it('builds Workday posting links with the board site name', async ()=>{
+    const {workdayPostingUrl}=await import('../src/jobDiscovery');
+    expect(workdayPostingUrl('sunrisegroup.wd108.myworkdayjobs.com','Careers','/job/3719-Lemos/Direct-Support-Professional_R-1056'))
+      .toBe('https://sunrisegroup.wd108.myworkdayjobs.com/Careers/job/3719-Lemos/Direct-Support-Professional_R-1056');
+  });
+  it('flags links that cannot open a posting', async ()=>{
+    const {applyUrlProblem}=await import('../src/applyLinkCheck');
+    expect(applyUrlProblem('https://sunrisegroup.wd108.myworkdayjobs.com/job/3719-Lemos/DSP_R-1056')).toBe('workday_missing_site');
+    expect(applyUrlProblem('https://x.wd1.myworkdayjobs.com/en-US/job/Town/CNA_R-1')).toBe('workday_missing_site');
+    expect(applyUrlProblem('https://community.workday.com/invalid-url')).toBe('invalid_page');
+    expect(applyUrlProblem('not a url')).toBe('bad_url');
+    expect(applyUrlProblem('https://x.wd1.myworkdayjobs.com/Careers/job/Town/CNA_R-1')).toBe('');
+    expect(applyUrlProblem('https://x.wd1.myworkdayjobs.com/en-US/External/job/Town/CNA_R-1')).toBe('');
+    expect(applyUrlProblem('https://careers-acme.icims.com/jobs/123/cna/job')).toBe('');
+  });
+  it('checks Workday postings through the job API', async ()=>{
+    const {workdayPostingApi}=await import('../src/applyLinkCheck');
+    expect(workdayPostingApi('https://erickson.wd108.myworkdayjobs.com/en-US/External/job/Catonsville/CNA_R-9'))
+      .toBe('https://erickson.wd108.myworkdayjobs.com/wday/cxs/erickson/External/job/Catonsville/CNA_R-9');
+    expect(workdayPostingApi('https://erickson.wd108.myworkdayjobs.com/job/Catonsville/CNA_R-9')).toBeNull();
+    expect(workdayPostingApi('https://boards.greenhouse.io/acme/jobs/1')).toBeNull();
+  });
+  it('keeps a job with a broken link off the site', async ()=>{
+    const {publicationDecision}=await import('../src/jobDiscovery');
+    const job={sourceProvider:'workday',sourceJobId:'R-1',sourceUrl:'https://x.wd1.myworkdayjobs.com/job/Naples/CNA_R-1',sourceListingUrl:'',title:'CNA',role:'CNA',city:'Naples',state:'FL',zip:'34104',
+      employmentType:'',payMin:null,payMax:null,descriptionText:'',classifierReason:'',confidence:96,datePosted:'',validThrough:''};
+    expect(publicationDecision(job as any).reason).toBe('dead_apply_link');
+    expect(publicationDecision({...job,sourceUrl:'https://x.wd1.myworkdayjobs.com/Careers/job/Naples/CNA_R-1'} as any).publish).toBe(true);
+  });
+});

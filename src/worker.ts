@@ -18,6 +18,7 @@ import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft,
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch } from './careersLookup';
 import { sendFirstJobNudges } from './firstJobNudge';
+import { checkApplyLinksBatch } from './applyLinkCheck';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -996,7 +997,10 @@ async function handleHealth(env: Env) {
         (SELECT COUNT(*) ${LIVE} AND valid_through IS NOT NULL AND valid_through!='' AND valid_through<date('now')) AS past_valid_through,
         (SELECT COALESCE(SUM(c-1),0) FROM (SELECT COUNT(*) AS c ${LIVE} GROUP BY agency_organization_id,lower(title),lower(COALESCE(city,'')) HAVING c>1)) AS duplicate_listings,
         (SELECT COUNT(*) ${LIVE} AND (description_text LIKE '%<p>%' OR description_text LIKE '%<br%' OR description_text LIKE '%&amp;%' OR description_text LIKE '%&#%')) AS html_in_description,
-        (SELECT COUNT(*) ${LIVE} AND COALESCE(length(description_text),0)<80) AS short_description`).first<Record<string,unknown>>();
+        (SELECT COUNT(*) ${LIVE} AND COALESCE(length(description_text),0)<80) AS short_description,
+        (SELECT COUNT(*) ${LIVE} AND (source_url LIKE 'https://%.myworkdayjobs.com/job/%' OR source_url LIKE '%/invalid-url%')) AS broken_apply_link,
+        (SELECT COUNT(*) FROM caregiver_jobs WHERE status='current' AND publication_reason='dead_apply_link') AS taken_down_dead_link,
+        (SELECT COUNT(*) ${LIVE} AND (link_checked_at IS NULL OR link_checked_at<datetime('now','-7 days'))) AS link_not_checked_7_days`).first<Record<string,unknown>>();
     return json({ ok:true, service:"carejoys", database:"ready", tables:(tables.results||[]).map(r=>r.name), jobQuality, counts:{caregivers:Number(caregiverCount?.count||0), duplicateCaregiverEmails:Number(duplicateCaregiverEmails?.count||0), profilePhotos:Number(profilePhotoCount?.count||0), employers:Number(employerCount?.count||0), schools:Number(schoolCount?.count||0), agencies:Number(agencyCount?.count||0), matchableAgencies:Number(matchableAgencyCount?.count||0), agencyOrganizations:Number(agencyOrgCount?.count||0), agencyMatches:Number(agencyMatchCount?.count||0), agencyDomains:Number(agencyDomainCount?.count||0), enrichedAgencies:Number(enrichedAgencyCount?.count||0), publishedCaregiverJobs:Number(caregiverJobCount?.count||0), rejectedCaregiverJobs:Number(rejectedJobCount?.count||0), missingMarylandCaregiverJobs:Number(missingMarylandJobCount?.count||0), scannedJobSources:Number(scannedJobSourceCount?.count||0), eligibleJobSources:Number(eligibleJobSourceCount?.count||0), unscannedJobSources:Number(unscannedJobSourceCount?.count||0), discoveredCareersUrls:Number(discoveredCareersUrlCount?.count||0), trainingPrograms:Number(trainingProgramCount?.count||0), schoolReferralLinks:Number(referralLinkCount?.count||0), schoolOutreachSent:Number(schoolOutreachCount?.count||0), claimedTrainingPrograms:Number(claimedProgramCount?.count||0)}, jobScanSummary:jobScanRows.results||[], jobScanSamples:jobScanSamples.results||[], jobSourceProviderCandidates:jobSourceProviderCandidates.results||[], jobPublicationReasons:jobPublicationReasons.results||[], timestamp:new Date().toISOString() });
   } catch (error) {
     return json({ ok:false, service:"carejoys", database:"error", error:error instanceof Error?error.message:"Database check failed" }, { status:500 });
@@ -2463,6 +2467,8 @@ export default {
         await alertNewClientErrors(env).catch(error=>console.error('error alert failed',error));
         // Its own failures are recorded on the job row, so they never block the job crawler below.
         await runDataForSeoJobs(env).catch(()=>null);
+        // Apply links of live jobs, oldest check first; a dead one comes down. Before the scanner, which can use up the run.
+        await checkApplyLinksBatch(env,30).catch(error=>console.error('apply link check failed',error));
         // Only sites whose next look is due, picked through an index. D1 bills every row a query reads, and the
         // full ordered list (discoverAgencyJobsBatch) read ~330k rows a run, so that one runs hourly below.
         await discoverDueAgencyJobsBatch(env,48).catch(()=>null);

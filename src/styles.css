@@ -734,3 +734,5 @@ body .check-row{font-size:15px!important}
 .profile-section .resume-card{margin-top:14px}
 .browse-all-jobs{margin:16px 0 0}
 .footer .footer-cities{flex-basis:100%;gap:6px 16px;font-size:13px}
+.apply-finish-note{font-size:14px;line-height:1.5;color:var(--muted);margin:12px 0}
+a.submit-button{display:block;text-align:center;text-decoration:none}
