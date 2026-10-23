@@ -57,6 +57,11 @@ const CHECK_CONCURRENCY=5;
  */
 export async function checkApplyLinksBatch(env:FeatureEnv,limit=40){
   if(!env.DB)return {checked:0,dead:0};
+  // Links whose shape alone says they can't work come down at once, without waiting their turn in the queue
+  // (e.g. rows a scan from an older deploy wrote). Same patterns as applyUrlProblem.
+  await env.DB.prepare(`UPDATE caregiver_jobs SET is_published=0,publication_reason='dead_apply_link',link_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+    WHERE is_published=1 AND status='current' AND (source_url LIKE 'https://%.myworkdayjobs.com/job/%' OR source_url LIKE 'https://%.myworkdayjobs.com/__-__/job/%'
+      OR source_url LIKE '%community.workday.com%' OR source_url LIKE '%/invalid-url%')`).run();
   const rows=(await env.DB.prepare(`SELECT id,source_url FROM caregiver_jobs
     WHERE is_published=1 AND status='current' AND source_provider!='carejoys'
     ORDER BY link_checked_at ASC LIMIT ?`).bind(limit).all<Row>()).results||[];
