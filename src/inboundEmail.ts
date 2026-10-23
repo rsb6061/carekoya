@@ -1,11 +1,14 @@
 // Mail to hello@carejoys.com, routed to the Worker by Cloudflare Email Routing ("Send to a Worker").
-// Every message is forwarded to the owner's inbox first, untouched, so reading mail works exactly as before;
-// then it is recorded in email_messages, matched to a lead, and unsubscribes and hard bounces are suppressed.
+// Every message is forwarded to the owner's inbox untouched, except an unsubscribe ("Stop", "remove me"): that one is
+// handled here, so it never lands in her inbox. Each message is recorded in email_messages and matched to a lead, and
+// unsubscribes and hard bounces are suppressed. An unsubscribe also suppresses the agency address the outreach went to,
+// since a staff member often answers mail sent to a shared info@ box.
 // Nothing here sends mail to anyone but the forward.
 // Mail to an agency's apply+<key>@carejoys.com address is different: it is a job board's applicant notification, read
 // into that agency's applicant list (src/applicantEmailIntake.ts) and forwarded only when it can't be read.
 import { intakeKeyOf, receiveApplicantEmail } from './applicantEmailIntake';
 import type { ApplicantDb } from './applicants';
+import { isFreeMail } from './employerApproval';
 
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<{success:boolean;meta?:Record<string,unknown>}>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
@@ -194,23 +197,41 @@ async function suppress(db:DB,email:string,reason:'unsubscribe'|'bounce'){
   await db.prepare("INSERT OR IGNORE INTO email_suppressions(email,reason,source) VALUES (?,?,'email_reply')").bind(email,reason).run();
 }
 
-/** The Worker's email() handler. Forwarding never depends on the recording that follows it. */
+/**
+ * Addresses at the sender's own company domain that CareJoys emails: outreach recipients and agency primary emails.
+ * "Stop" from aimee@agency.com answers outreach sent to info@agency.com, so both are suppressed. Never for Gmail-style domains.
+ */
+export async function sameDomainRecipients(db:DB,email:string){
+  const domain=email.split('@')[1]||'';
+  if(!domain||OWN_DOMAIN.test(email)||isFreeMail(email))return [];
+  const like='%@'+domain.replace(/[%_\\]/g,'\\$&');
+  const rows=(await db.prepare(`SELECT recipient_email AS email FROM agency_outreach_events WHERE lower(recipient_email) LIKE ? ESCAPE '\\'
+    UNION SELECT lower(trim(primary_email)) FROM agency_organizations WHERE lower(trim(primary_email)) LIKE ? ESCAPE '\\'`).bind(like,like).all<{email:string}>()).results||[];
+  return [...new Set(rows.map(r=>clean(r.email,320).toLowerCase()).filter(e=>e.endsWith('@'+domain)&&e!==email))];
+}
+
+/** The Worker's email() handler. A message that can't be read is still forwarded; only a read unsubscribe is held back. */
 export async function handleInboundEmail(message:InboundEmailMessage,env:InboundEnv){
   const intakeKey=intakeKeyOf(message.to);
   if(intakeKey)return handleApplicantEmail(message,env,intakeKey);
-  const target=await forwardTarget(env);
+  let parsed:ParsedEmail|null=null;
+  try{parsed=parseEmail(await readRaw(message.raw))}
+  catch(error){console.error('inbound email parse failed',error)}
+  const fromEmail=parsed?.fromEmail||clean(message.from,320).toLowerCase();
+  const own=OWN_DOMAIN.test(fromEmail);
+  const classified=parsed&&!own?classifyEmail({...parsed,fromEmail}):null;
+  // Unsubscribes are recorded and suppressed below and show on /admin's inbox, so they don't need to reach Gmail.
+  const skipForward=classified?.kind==='unsubscribe'&&!!env.DB;
+  const target=skipForward?'':await forwardTarget(env);
   let forwarded=false;
   if(target){
     try{await message.forward(target);forwarded=true}
     catch(error){console.error('inbound forward failed',error)}
-  }else console.error('inbound email: no INBOUND_FORWARD_TO or admin address to forward to');
-  if(!env.DB)return;
+  }else if(!skipForward)console.error('inbound email: no INBOUND_FORWARD_TO or admin address to forward to');
+  // CareJoys' own mail (copies of outreach, alerts) is already on record where it was sent.
+  if(!env.DB||!parsed||!classified)return;
   try{
-    const parsed=parseEmail(await readRaw(message.raw));
-    const fromEmail=parsed.fromEmail||clean(message.from,320).toLowerCase();
-    // CareJoys' own mail (copies of outreach, alerts) is already on record where it was sent.
-    if(OWN_DOMAIN.test(fromEmail))return;
-    const {kind,bouncedEmail,hardBounce}=classifyEmail({...parsed,fromEmail});
+    const {kind,bouncedEmail,hardBounce}=classified;
     const leadEmail=kind==='bounce'?bouncedEmail:fromEmail;
     const lead=await matchLead(env.DB,leadEmail);
     const snippet=(kind==='bounce'?parsed.report||parsed.text:replyText(parsed.text)||parsed.text).trim().slice(0,2000);
@@ -219,7 +240,10 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
       .bind(crypto.randomUUID(),clean(message.to,320).toLowerCase(),fromEmail,clean(parsed.fromName,200),clean(parsed.subject,300),snippet,clean(parsed.messageId,500),clean(parsed.inReplyTo,500),
         kind,bouncedEmail,lead?.type??null,lead?.id??null,lead?.name??null,kind==='reply'?'new':'handled',forwarded?1:0).run();
     if(!res.meta?.changes)return;
-    if(kind==='unsubscribe')await suppress(env.DB,fromEmail,'unsubscribe');
+    if(kind==='unsubscribe'){
+      await suppress(env.DB,fromEmail,'unsubscribe');
+      for(const email of await sameDomainRecipients(env.DB,fromEmail))await suppress(env.DB,email,'unsubscribe');
+    }
     if(kind==='bounce'&&hardBounce)await suppress(env.DB,bouncedEmail,'bounce');
   }catch(error){console.error('inbound email record failed',error)}
 }
