@@ -739,3 +739,20 @@ body .check-row{font-size:15px!important}
 .hub-count{margin:0 0 14px}
 .job-freshness{margin-top:8px;font-size:13px}
 .caregiver-public-job-list li small,.job-freshness{color:var(--muted)}
+.caregiver-card{align-items:flex-start}
+.caregiver-card-main{min-width:0;flex:1 1 auto}
+.caregiver-card-head{display:flex;gap:14px;align-items:center}
+.caregiver-card-head h3{margin:0}
+.caregiver-card-photo{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:0 0 auto;background:var(--lavender)}
+.caregiver-card-initial{display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:var(--blue)}
+.caregiver-card-bio{margin:12px 0 0;font-size:14px;line-height:1.55;white-space:pre-line}
+.caregiver-card-facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:12px 0 0;font-size:13px}
+.caregiver-card-facts dt{color:var(--muted)}
+.caregiver-card-facts dd{margin:0}
+.caregiver-card-fresh{margin-top:10px;font-size:13px}
+.pill-good{background:#e9f7ef;border-color:#cdebd8;color:#1d6b3c}
+.listing-consent{margin-top:10px}
+.listing-preview{margin-top:12px}
+.listing-preview summary{cursor:pointer;color:var(--blue);font-weight:600}
+.caregiver-card-own{margin-top:14px;font-size:14px}
+.campaign-form-title{margin:0 0 12px}

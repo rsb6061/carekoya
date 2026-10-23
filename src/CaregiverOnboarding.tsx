@@ -74,6 +74,8 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
   const [emailAlerts]=useState(true);
   // Unticked until they tick it: text consent is optional and never assumed.
   const [smsConsent,setSmsConsent]=useState(false);
+  // "List my profile": on by default for a new profile, since being found is the point; the sentence beside it says what is shown.
+  const [publicListing,setPublicListing]=useState(true);
   // What employers check first, ticked once here so applications can reuse it (src/checklist.ts).
   const [checklist,setChecklist]=useState<string[]>([]);
   // A signed-in caregiver's saved profile, so applying never asks again for what CareJoys already has. undefined = still checking.
@@ -244,6 +246,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
         jobAlertsEmailOptIn:emailAlerts,
         availability:hasAvailability({days,liveIn})?{days,liveIn}:undefined,
         smsConsent:smsConsent&&!!form.phone.trim(),
+        publicListing,
         checklist,
         funnelVisitorId:workerVisitorId(),
         turnstileToken,
@@ -473,6 +476,7 @@ export function CaregiverOnboarding({referralSlug='',targetJobId='',compact=fals
           </fieldset>
           <label>Transportation<select value={form.transportation} onChange={e=>patch('transportation',e.target.value)}><option value="">Select</option><option value="own_car">Own car</option><option value="reliable_transportation">Reliable transportation</option><option value="public_transit">Public transit</option><option value="other">Other</option></select></label>
         </div>}
+        <label className="check-row listing-consent"><input type="checkbox" checked={publicListing} onChange={e=>setPublicListing(e.target.checked)}/><span><strong>List my profile so local employers can find me.</strong> <small>Shows your first name, role, area, pay floor and availability on <a href="/caregivers" target="_blank" rel="noopener">carejoys.com/caregivers</a>. Never your contact details, last name or exact ZIP. Hide it any time from your dashboard.</small></span></label>
         {form.phone.trim()&&<label className="check-row sms-consent"><input type="checkbox" checked={smsConsent} onChange={e=>setSmsConsent(e.target.checked)}/><span><strong>{SMS_LABEL}</strong> <small>{SMS_FINE_PRINT}</small></span></label>}
         {!auth.isAuthenticated&&<TurnstileField onToken={setTurnstileToken}/>}
         </>}
