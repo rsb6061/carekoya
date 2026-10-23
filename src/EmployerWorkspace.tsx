@@ -240,6 +240,16 @@ export function EmployerWorkspace(){
     void runMatch(openingId);
   },[session?.id,openings.length,approvalKnown,pendingApproval]);
 
+  // The "post your first job" email links to ?tab=openings&new=1, which opens the new job form.
+  useEffect(()=>{
+    if(!session||!approvalKnown||pendingApproval)return;
+    const params=new URLSearchParams(window.location.search);
+    if(params.get('new')!=='1')return;
+    params.delete('new');
+    window.history.replaceState({},'','/hiring'+(params.toString()?'?'+params.toString():''));
+    openOpeningForm(null);
+  },[session?.id,approvalKnown,pendingApproval]);
+
   async function searchTalent(e?:FormEvent,chosen=filters){
     e?.preventDefault();
     if(pendingApproval)return;

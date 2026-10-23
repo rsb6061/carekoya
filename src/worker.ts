@@ -17,6 +17,7 @@ import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest } from './replyYesO
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch } from './careersLookup';
+import { sendFirstJobNudges } from './firstJobNudge';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -107,6 +108,8 @@ interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
   CAREERS_LOOKUP_DAILY_USD?: string;
+  FIRST_JOB_NUDGE_ENABLED?: string;
+  FIRST_JOB_NUDGE_SINCE?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
   GOOGLE_SITE_VERIFICATION?: string;
@@ -2507,10 +2510,11 @@ export default {
         // scan row, so they run hourly rather than every five minutes.
         // One look at the Contact and About pages of agencies crawled before those pages were read, before the scans can run out the time.
         await recheckAgencyEmailBatch(env,60).catch(error=>console.error('agency email recheck failed',error));
-        // One page per posting: copies of a chain posting saved under each of its facilities come down, before the scans run out the time.
-        await reconcileSharedPostingsBatch(env,300).catch(error=>console.error('shared posting sweep failed',error));
-        // Paid careers-page searches for agencies the scanner found nothing for, capped per day; their scans follow below.
+        // Paid careers-page searches for agencies the scanner found nothing for, capped per day; their scans follow below. Before the
+        // shared-posting sweep, which can use up the run while its backlog lasts.
         await lookupCareersPagesBatch(env).catch(error=>console.error('careers lookup failed',error));
+        // One page per posting: copies of a chain posting saved under each of its facilities come down, before the scans run out the time.
+        await reconcileSharedPostingsBatch(env,150).catch(error=>console.error('shared posting sweep failed',error));
         await discoverAgencyJobsBatch(env,48).catch(()=>null);
         await retryFailedAgencyJobSourcesBatch(env,24).catch(()=>null);
         await enrichAgencyBatch(env,30);
@@ -2521,6 +2525,8 @@ export default {
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
+        // One "post your first job" email to agencies that claimed two days ago without posting. Only claims since FIRST_JOB_NUDGE_SINCE.
+        await sendFirstJobNudges(env).catch(error=>console.error('first job nudge failed',error));
         // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.

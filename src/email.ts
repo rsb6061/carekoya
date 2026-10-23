@@ -378,6 +378,28 @@ export function facilityPilotEmail(input:{contactName:string;facilityName:string
   };
 }
 
+/** Once, two days after an agency claims its profile without posting a job (Rebecca approves the copy before it sends). */
+export function firstJobNudgeEmail(input:{contactName:string;agencyName:string;city:string;listedJobs:number;link:string}) {
+  const P='font-size:16px;line-height:1.6;color:#5b5f7e';
+  const near=input.city?`near ${input.city}`:'near you';
+  const lines=[
+    `Thanks for claiming ${input.agencyName} on CareJoys.`,
+    `Post an opening and it becomes a job page that caregivers ${near} can find and apply to. Applications come straight to your inbox, and we suggest caregivers who fit the role, shifts and pay.`,
+    // Only agencies whose careers-page jobs CareJoys already lists are told so.
+    ...(input.listedJobs>0?[`We already show ${input.listedJobs===1?'one opening':input.listedJobs+' openings'} from your careers page. Jobs you post only on Indeed don’t reach us, so add those here.`]:[]),
+    `It takes about two minutes: role, ZIP, pay and shifts.`
+  ];
+  return {
+    subject:`Post your first caregiver job on CareJoys`,
+    html:shell('Post your first job',`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      ${lines.map(l=>`<p style="${P}">${esc(l)}</p>`).join('\n      ')}
+      <p style="margin:26px 0"><a href="${esc(input.link)}" style="display:inline-block;background:#b8368f;color:#fff;text-decoration:none;border-radius:999px;padding:14px 22px;font-weight:700">Post a job</a></p>
+      <p style="${P}">Rebecca<br>CareJoys</p>`),
+    text:`Hi ${input.contactName||'there'},\n\n${lines.join('\n\n').replace(/’/g,"'")}\n\nPost a job: ${input.link}\n\nRebecca\nCareJoys`
+  };
+}
+
 /** Adds a visible unsubscribe footer to a bulk/outreach email. Pair with `unsubscribeHeaders` from emailPreferences. */
 // The postal address US anti-spam law asks for in outreach mail: the MAILING_ADDRESS secret, set per run by the Worker.
 let mailingAddress='';
