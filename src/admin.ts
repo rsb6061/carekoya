@@ -5,7 +5,7 @@ import { accountSession } from './accountAuth';
 import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
 import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
-import { replyYesCounts } from './replyYesOutreach';
+import { OUTREACH_FIRST_UTC_HOUR, OUTREACH_LAST_UTC_HOUR, replyYesCounts } from './replyYesOutreach';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
@@ -144,8 +144,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     agencyClaims:{teasersSent:num(agencies,'teasers_sent'),teasersOpened:num(agencies,'teasers_opened'),claimsRequested:num(agencies,'claims_requested'),claimed:num(agencies,'claimed')},
     outreachChannels:{
       agencyHiring:{enabled:on(env.AGENCY_HIRING_INVITES_ENABLED),cap:hiringCap,
-        // Same pacing as the hourly cron in worker.ts: the daily cap spread over 24 runs.
-        perHour:Math.min(hiringCap,Math.max(1,Math.ceil(hiringCap/24))),
+        // Same pacing as the hourly cron in worker.ts: the daily cap spread over the US working-hours window.
+        perHour:Math.min(hiringCap,Math.ceil(hiringCap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1))),
         today:num(invites,'today'),total:num(invites,'total'),schedule:'hourly',
         reinvite:{mode:String(env.AGENCY_HIRING_REINVITE||'').toLowerCase(),today:num(reinvites,'today'),total:num(reinvites,'total')},
         replyYes:{on:String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes',...await replyYesCounts(env as never)}},

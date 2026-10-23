@@ -82,15 +82,17 @@
     // Raised from 20 to 60 a day (Rebecca approved 2026-10-19).
     "AGENCY_HIRING_INVITE_DAILY_CAP": "60",
     // "openers" or "all": re-send the new invite (PR #154 copy) to agencies that only saw the old one. Blank is off.
-    "AGENCY_HIRING_REINVITE": "openers",
+    // Off 2026-10-23: the reply-yes note is the only agency email now.
+    "AGENCY_HIRING_REINVITE": "",
     // "reply_yes": agency outreach is Rebecca's plain-text reply-yes note from rebecca@ instead of the styled invite and
     // its re-sends (Rebecca chose this 2026-10-22, every state, most jobs first). It sends nothing until rebecca@ is routed
     // to this Worker in Cloudflare Email Routing; the same daily cap applies.
     "AGENCY_OUTREACH_EMAIL": "reply_yes",
-    // Facility outreach pilot: sends only to facilities marked in agency_organizations.outreach_pilot, inside the cap above. Off until Rebecca approves the list.
-    "FACILITY_PILOT_ENABLED": "true",
-    // School outreach is an independent daily channel (no more than 5 per hourly run).
-    "SCHOOL_OUTREACH_ENABLED": "true",
+    // Facility outreach pilot: sends only to facilities marked in agency_organizations.outreach_pilot, inside the cap above.
+    // Off 2026-10-23: Rebecca wants one agency campaign (the reply-yes note) at 60 a day; the pilot's 100 went out 11-12 Oct.
+    "FACILITY_PILOT_ENABLED": "false",
+    // School outreach is an independent daily channel (no more than 5 per hourly run). Rebecca put schools on hold 2026-10-23.
+    "SCHOOL_OUTREACH_ENABLED": "false",
     "SCHOOL_OUTREACH_DAILY_CAP": "15",
     // Twilio SMS to candidates (src/sms.ts). Credentials are secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
     // TWILIO_MESSAGING_SERVICE_SID); nothing is texted until this is "true" and the toll-free number is verified.
