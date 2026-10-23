@@ -32,6 +32,15 @@ export function careersUrlFromResults(items:Row[],org:Row){
   return '';
 }
 
+/** A failed search worth trying again later: anything but our account (HTTP 401/402/403, codes 401xx/402xx) or no response. Google
+ * having a moment (40101 "Internal SE Server Error") and DataForSEO's own 5xxxx are the usual cases. */
+export function careersLookupRetryable(httpStatus:number|undefined,code:number){
+  if(!httpStatus)return false;
+  if(httpStatus===401||httpStatus===402||httpStatus===403)return false;
+  if(code>=40100&&code<40300&&code!==40101)return false;
+  return true;
+}
+
 export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN){
   const cap=Number(env.CAREERS_LOOKUP_DAILY_USD||0);
   if(!env.DB||!(cap>0)||!clean(env.DATAFORSEO_LOGIN)||!clean(env.DATAFORSEO_PASSWORD))return {searched:0,found:0,spent:0};
@@ -45,7 +54,7 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
       AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_careers_url,'')=''
     ORDER BY ${sourcingRankSql('ao.state','ao.city')},ao.id LIMIT ?`).bind(limit).all<Row>()).results||[];
   const auth='Basic '+btoa(clean(env.DATAFORSEO_LOGIN,320)+':'+clean(env.DATAFORSEO_PASSWORD,320));
-  let searched=0,found=0;
+  let searched=0,found=0,failures=0;
   for(const org of orgs){
     if(spent>=cap)break;
     const id=clean(org.id,100),query=careersQuery(org);
@@ -60,11 +69,16 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
     const cost=Number(task?.cost??body?.cost)||0;
     spent+=cost;
     if(!res?.ok||task?.status_code!==20000){
-      // Credentials or balance: stop for this run, and leave the agency to be searched again. Noted in outreach_runs, where admins can see it.
-      const why=String(task?.status_message||body?.status_message||res?.status||'no response').slice(0,300);
+      // Noted in outreach_runs, where admins can see it. Credentials, balance or no response: stop for this run. Google
+      // failing one search (40101 "Internal SE Server Error", 5xxxx) is passing: leave the agency for a later run and go on,
+      // unless three searches in a row fail.
+      const code=Number(task?.status_code||body?.status_code||0);
+      const why=`${code||res?.status||'no response'} ${String(task?.status_message||body?.status_message||'').slice(0,280)}`.trim();
       await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'careers_lookup_failed','hourly',?)").bind(crypto.randomUUID(),why).run().catch(()=>null);
-      break;
+      if(!careersLookupRetryable(res?.status,code)||++failures>=3)break;
+      continue;
     }
+    failures=0;
     searched++;
     const url=careersUrlFromResults(task.result?.[0]?.items||[],org);
     await env.DB.prepare('INSERT OR REPLACE INTO careers_lookups(organization_id,status,query,found_url,cost) VALUES (?,?,?,?,?)')
