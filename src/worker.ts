@@ -8,7 +8,7 @@ import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
 import { adminInbox, adminInboxUpdate, handleInboundEmail, type InboundEmailMessage } from './inboundEmail';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
-import { isNationalJobsPath, jobsHubPath, parseJobsHubPath, slugify, usState } from './usStates';
+import { directoryPath, isNationalJobsPath, jobsHubPath, parseDirectoryPath, parseJobsHubPath, slugify, usState, type UsState } from './usStates';
 import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurseAideRegistries';
 import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
@@ -18,6 +18,7 @@ import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft,
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch } from './careersLookup';
 import { sendFirstJobNudges } from './firstJobNudge';
+import { DIRECTORY_MIN_LISTED, LISTING_MAX_AGE_DAYS, directoryHub, directoryLocations, answerStillLooking, myPublicListing, publicCaregiverPhoto, publicCaregiverProfile, saveListingChoice, sendStillLookingEmails, wasListed, type PublicCaregiverCard } from './publicDirectory';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
 import { agencyInterestResume, getAgencyInbox, updateAgencyInterest, sendProfileFromJobPage, getInterestConfirmation, confirmInterestRequest, notifyAgenciesOfInterestsBatch } from './agencyInbox';
 import { handleMcp, mcpServerCard, MCP_PATH } from './mcp';
@@ -236,6 +237,11 @@ async function careJoysChildSitemap(env:Env,name:string){
     for(const c of cities)entries.push({url:SEO_ORIGIN+jobsHubPath(c.state,c.slug),lastmod:c.lastmod});
     for(const s of cnaStates)entries.push({url:SEO_ORIGIN+jobsHubPath(s.state,'',true),lastmod:s.lastmod});
     for(const c of cnaCities)entries.push({url:SEO_ORIGIN+jobsHubPath(c.state,c.slug,true),lastmod:c.lastmod});
+    // Public caregiver directory pages, only where enough caregivers are listed.
+    const directory=await directoryLocations(env);
+    if(directory.states.length)entries.push({url:SEO_ORIGIN+directoryPath()});
+    for(const s of directory.states)entries.push({url:SEO_ORIGIN+directoryPath(s.state)});
+    for(const c of directory.cities)entries.push({url:SEO_ORIGIN+directoryPath(c.state,c.slug)});
     return sitemapXml(entries);
   }
   if(name==="training"){
@@ -322,6 +328,7 @@ CareJoys supports CNA, GNA, HHA, PCA, caregiver and related direct-care roles.
 - Hire caregivers in Maryland: https://carejoys.com/hire-caregivers/maryland
 - Caregiver jobs (search by city, state or ZIP): https://carejoys.com/caregiver-jobs
 - CNA jobs (only jobs a CNA or GNA can apply to): https://carejoys.com/cna-jobs, https://carejoys.com/cna-jobs/{state} and https://carejoys.com/cna-jobs/{state}/{city}
+- Caregivers looking for work, by state and city (public profiles caregivers chose to list; first name, role, area, availability; no contact details): https://carejoys.com/caregivers/{state}/{city}
 - Caregiver jobs by state and city: https://carejoys.com/caregiver-jobs/{state} and https://carejoys.com/caregiver-jobs/{state}/{city} (for example /caregiver-jobs/virginia)
 - Hire caregivers by state: https://carejoys.com/hire-caregivers/{state}
 - Individual caregiver jobs: https://carejoys.com/jobs/{job-id}
@@ -396,6 +403,78 @@ async function seoAsset(request:Request,env:Env,meta:SeoMeta){
 function pricingHtml(env:Env){
   const free=freeContacts(env);
   return '<h2>Pricing</h2><p>Searching and matching caregivers is free.'+(free?' Your first '+free+' caregiver contact'+(free===1?' is':'s are')+' free.':'')+' Contacting more caregivers after that needs a monthly CareJoys subscription.</p>';
+}
+
+/** One public caregiver card as HTML, for the directory and profile pages Google reads. */
+function caregiverCardHtml(card:PublicCaregiverCard,link=true){
+  const facts=[card.role,card.certifications.join(', '),[card.city,card.state].filter(Boolean).join(', ')+(card.zipArea?' ('+card.zipArea+')':''),
+    card.payFloor?'$'+card.payFloor+'+/hr':'',card.hours.join(', ')||card.shifts,card.yearsExperience?card.yearsExperience+' years':''].filter(Boolean);
+  const name=link?'<a href="/caregiver/'+encodeURIComponent(card.id)+'">'+htmlEscape(card.name)+'</a>':htmlEscape(card.name);
+  return '<li>'+name+(card.verifiedEmail?' · Verified email':'')+' · '+htmlEscape(card.availability)+'<br>'+htmlEscape(facts.join(' · '))
+    +(card.careSettings.length?'<br>Worked in: '+htmlEscape(card.careSettings.join(', ')):'')
+    +(card.bio?'<br>'+htmlEscape(trimAtWord(card.bio,240)):'')+'</li>';
+}
+
+/** /caregivers, /caregivers/{state} and /caregivers/{state}/{city}: the public caregiver directory. */
+async function directoryPage(request:Request,env:Env,url:URL,where:{state:UsState|null;citySlug:string}){
+  const page=Math.max(1,Math.floor(Number(url.searchParams.get("page")||1))||1);
+  const data=await directoryHub(env,{state:where.state,citySlug:where.citySlug,page});
+  // A city nobody is listed in opens its state page; an unknown state is a 404 (parseDirectoryPath already rejected it).
+  if(where.citySlug&&!data.city)return new Response(null,{status:302,headers:{location:directoryPath(where.state)}});
+  const state=where.state;
+  const place=state?(data.city?data.city+", "+state.code:state.name):"";
+  const path=directoryPath(state,data.city?where.citySlug:"");
+  const canonical=path+(data.page>1?"?page="+data.page:"");
+  const indexable=state?data.total>=DIRECTORY_MIN_LISTED:data.states.some(s=>s.count>=DIRECTORY_MIN_LISTED);
+  const cards=data.cards.map(c=>caregiverCardHtml(c)).join("");
+  const cityLinks=state&&!data.city?data.cities.map(c=>'<li><a href="'+directoryPath(state,c.slug)+'">Caregivers in '+htmlEscape(c.city)+'</a> ('+c.count+')</li>').join(""):"";
+  const stateLinks=!state?data.states.map(s=>'<li><a href="'+directoryPath(s.state)+'">Caregivers in '+htmlEscape(s.state.name)+'</a> ('+s.count+')</li>').join(""):"";
+  const pager=data.pages>1?'<nav aria-label="Pages">'+(data.page>1?'<a href="'+path+(data.page>2?"?page="+(data.page-1):"")+'">Previous</a> ':'')+'Page '+data.page+' of '+data.pages+(data.page<data.pages?' <a href="'+path+'?page='+(data.page+1)+'">Next</a>':'')+'</nav>':'';
+  const h1=state?"Caregivers looking for work in "+htmlEscape(place):"Caregivers looking for work near you";
+  const crumbs='<p><a href="/">CareJoys</a> › '+(state?'<a href="/caregivers">Caregivers</a> › '+(data.city?'<a href="'+directoryPath(state)+'">'+htmlEscape(state.name)+'</a> › '+htmlEscape(data.city):htmlEscape(state.name)):'Caregivers')+'</p>';
+  const countLine=state?'<p>'+(data.total?data.total+' caregiver'+(data.total===1?'':'s')+' in '+htmlEscape(place)+' listed in the last '+LISTING_MAX_AGE_DAYS+' days.':'No caregivers are listed in '+htmlEscape(place)+' yet.')+' Each one chose to be listed, verified their email and confirmed they are looking.</p>':'';
+  const jobsLink=state?'<p><a href="'+jobsHubPath(state,data.city?where.citySlug:'')+'">Caregiver jobs in '+htmlEscape(place)+'</a> · <a href="/hire-caregivers'+(state.code==='MD'?'/maryland':'')+'">Hire caregivers</a></p>':'';
+  return seoAsset(request,env,{
+    title:fitTitle(state?(data.page>1?"Caregivers in "+place+", Page "+data.page:"CNAs & Caregivers Looking for Work in "+place):"Caregivers Looking for Work Near You"),
+    description:trimAtWord((state?(data.total?data.total+" caregivers, CNAs and aides in "+place+" who are looking for work now. ":"Caregivers in "+place+" who are looking for work. "):"Browse caregivers, CNAs and home health aides who are looking for work, by state and city. ")+"Each listed caregiver verified their email and confirmed their availability in the last "+LISTING_MAX_AGE_DAYS+" days. Employers invite them free on CareJoys.",160),
+    canonical,
+    robots:indexable?undefined:"noindex,follow",
+    ogImage:"/og/hire-caregivers.png",
+    snapshot:'<main>'+crumbs+'<h1>'+h1+'</h1><p>Caregivers, CNAs, GNAs, HHAs and PCAs who chose to list their profile. Employers see a first name, role, area and availability; contact details come only after the caregiver says yes to an invitation.</p>'+countLine
+      +(cards?'<ul>'+cards+'</ul>'+pager:'')
+      +(cityLinks?'<h2>Caregivers by city</h2><ul>'+cityLinks+'</ul>':'')+(stateLinks?'<h2>Caregivers by state</h2><ul>'+stateLinks+'</ul>':'')
+      +'<h2>Are you a caregiver?</h2><p><a href="/caregiver-jobs'+(state?'/'+state.slug:'')+'#caregiver-profile">Get listed free</a>: one profile, resume optional. You choose whether it is listed, and you can hide it any time.</p>'
+      +'<h2>Hiring?</h2><p><a href="/hire-caregivers">Invite caregivers to interview</a>. Your first introductions are free; an introduction counts only when the caregiver says yes.</p>'+jobsLink+'</main>',
+    jsonLd:{"@context":"https://schema.org","@graph":[
+      {"@type":"CollectionPage","url":SEO_ORIGIN+canonical,"name":state?"Caregivers in "+place:"Caregivers looking for work","isPartOf":{"@id":SEO_ORIGIN+"/#website"}},
+      {"@type":"BreadcrumbList","itemListElement":[
+        {"@type":"ListItem","position":1,"name":"CareJoys","item":SEO_ORIGIN+"/"},
+        {"@type":"ListItem","position":2,"name":"Caregivers","item":SEO_ORIGIN+"/caregivers"},
+        ...(state?[{"@type":"ListItem","position":3,"name":state.name,"item":SEO_ORIGIN+directoryPath(state)}]:[]),
+        ...(state&&data.city?[{"@type":"ListItem","position":4,"name":data.city,"item":SEO_ORIGIN+directoryPath(state,where.citySlug)}]:[])
+      ]}
+    ]}
+  });
+}
+
+/** /caregiver/{id}: one listed caregiver's public card. Never indexed; a listing that ended answers 410. */
+async function caregiverProfilePage(request:Request,env:Env,id:string){
+  const card=await publicCaregiverProfile(env,id);
+  if(!card){
+    const gone=await wasListed(env,id);
+    return seoAsset(request,env,{status:gone?410:404,title:(gone?"This caregiver is no longer listed":"Page not found")+" | CareJoys",description:"Browse caregivers who are looking for work now.",canonical:"/caregivers",robots:"noindex,follow",
+      snapshot:'<main><h1>'+(gone?'This caregiver is no longer listed.':'Page not found')+'</h1><p><a href="/caregivers">Browse caregivers looking for work</a></p></main>'});
+  }
+  const state=usState(card.state);
+  const place=[card.city,card.state].filter(Boolean).join(", ");
+  return seoAsset(request,env,{
+    title:fitTitle(card.name+": "+(card.role||"Caregiver")+" in "+place),
+    description:trimAtWord(card.name+" is a "+(card.role||"caregiver")+" in "+place+" looking for work. "+card.availability+". Invite them to interview on CareJoys.",160),
+    canonical:"/caregiver/"+encodeURIComponent(card.id),
+    robots:"noindex,follow",
+    ogImage:"/og/hire-caregivers.png",
+    snapshot:'<main><p><a href="/">CareJoys</a> › <a href="/caregivers">Caregivers</a>'+(state?' › <a href="'+directoryPath(state)+'">'+htmlEscape(state.name)+'</a>'+(card.citySlug?' › <a href="'+directoryPath(state,card.citySlug)+'">'+htmlEscape(card.city)+'</a>':''):'')+'</p><h1>'+htmlEscape(card.name)+'</h1><ul>'+caregiverCardHtml(card,false)+'</ul><p><a href="/hire-caregivers">Invite to interview</a></p></main>'
+  });
 }
 
 async function publicSeoPage(request:Request,url:URL,env:Env){
@@ -543,6 +622,10 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
       ]}
     });
   }
+  const directory=parseDirectoryPath(url.pathname);
+  if(directory)return directoryPage(request,env,url,directory);
+  const profileMatch=url.pathname.match(/^\/caregiver\/([^/]+)\/?$/);
+  if(profileMatch)return caregiverProfilePage(request,env,decodeURIComponent(profileMatch[1]));
   const hub=parseJobsHubPath(url.pathname);
   if(hub){
     // /caregiver-jobs/... lists every caregiver job; /cna-jobs/... only jobs a CNA or GNA can apply to.
@@ -1301,6 +1384,8 @@ async function handleCaregiver(request: Request, env: Env) {
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
   // Text opt-in from the signup checkbox; unticked changes nothing here.
   await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
+  // "List my profile" from the signup form: a stated yes or no is kept; a form without the box leaves it as it was.
+  if(typeof data!.publicListing==="boolean")await saveListingChoice(env,id,{listed:data!.publicListing},"caregiver_signup");
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare("SELECT * FROM caregivers WHERE id=? LIMIT 1").bind(id).first<Record<string,unknown>>();
@@ -1411,6 +1496,8 @@ async function handleCaregiverResume(request:Request,env:Env,ctx?:WorkerCtx){
   await setInitialJobAlertOptIn(env,id,data!.jobAlertsEmailOptIn);
   // Text opt-in from the signup checkbox; unticked changes nothing here.
   await saveCaregiverSmsConsent(env,request,{caregiverId:id,consent:data!.smsConsent?true:undefined,source:"caregiver_signup"});
+  // "List my profile" from the signup form: a stated yes or no is kept; a form without the box leaves it as it was.
+  if(typeof data!.publicListing==="boolean")await saveListingChoice(env,id,{listed:data!.publicListing},"caregiver_signup");
   if(!existedBefore)await linkWorkerSignup(env,id,data!.funnelVisitorId);
   const agencyResult=await scoreCaregiverAgainstAgencies(env,id);
   const caregiver=await env.DB.prepare(`SELECT c.*,zg.lat AS geo_lat,zg.lng AS geo_lng FROM caregivers c ${zipGeoJoin("c")} WHERE c.id=? LIMIT 1`).bind(id).first<Record<string,unknown>>();
@@ -1525,6 +1612,25 @@ async function getNationalJobs(url:URL,env:Env){
     cities:data.cities.map(c=>({city:c.city,slug:c.slug,state:c.state.code,stateSlug:c.state.slug,count:c.count})),
     jobs:data.jobs.map(publicHubJob)
   },{headers:{"cache-control":"public,max-age=300"}});
+}
+
+/** `/api/public/caregivers?state=&city=&page=`: the public directory, one page at a time. */
+async function getPublicCaregivers(url:URL,env:Env){
+  const state=usState(url.searchParams.get("state"));
+  if(url.searchParams.get("state")&&!state)return json({ok:false,error:"Unknown state"},{status:400});
+  const citySlug=slugify(clean(url.searchParams.get("city"),120));
+  const data=await directoryHub(env,{state,citySlug,page:Number(url.searchParams.get("page")||1)});
+  return json({ok:true,state:state?{code:state.code,name:state.name,slug:state.slug}:null,city:data.city,total:data.total,page:data.page,pages:data.pages,
+    minListed:DIRECTORY_MIN_LISTED,maxAgeDays:LISTING_MAX_AGE_DAYS,
+    states:data.states.map(s=>({code:s.state.code,name:s.state.name,slug:s.state.slug,count:s.count})),
+    cities:data.cities,cards:data.cards
+  },{headers:{"cache-control":"public,max-age=300"}});
+}
+
+async function getPublicCaregiver(env:Env,id:string){
+  const card=await publicCaregiverProfile(env,id);
+  if(!card)return json({ok:false,error:"This caregiver is not listed",gone:await wasListed(env,id)},{status:await wasListed(env,id)?410:404});
+  return json({ok:true,card,maxAgeDays:LISTING_MAX_AGE_DAYS},{headers:{"cache-control":"public,max-age=300"}});
 }
 
 async function getPublicJobContext(id:string,env:Env){
@@ -2133,6 +2239,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="POST"&&meApply) return applyWithProfile(env,identity,decodeURIComponent(meApply[1]));
       if(request.method==="GET"&&url.pathname==="/api/me/employer-view") return myEmployerView(env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/invite-pause") return updateInvitePause(request,env,identity);
+      if(url.pathname==="/api/me/public-listing"&&(request.method==="GET"||request.method==="POST")) return myPublicListing(request,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/hidden-agencies") return updateHiddenAgency(request,env,identity);
       if(request.method==="GET"&&url.pathname==="/api/me/agency-search") return searchAgenciesToHide(url,env,identity);
       if(request.method==="POST"&&url.pathname==="/api/me/profile") return updateCaregiverProfile(request,env,identity,(id)=>matchCaregiverToOpenings(env,id,"caregiver_profile"));
@@ -2228,6 +2335,12 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
     if(request.method==="GET"&&url.pathname==="/api/public/jobs-hub") return getJobsHub(url,env);
     if(request.method==="GET"&&url.pathname==="/api/public/jobs-national") return getNationalJobs(url,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/caregivers") return getPublicCaregivers(url,env);
+    const publicCaregiverPhotoMatch=url.pathname.match(/^\/api\/public\/caregivers\/([^/]+)\/photo$/);
+    if(request.method==="GET"&&publicCaregiverPhotoMatch) return publicCaregiverPhoto(env,decodeURIComponent(publicCaregiverPhotoMatch[1]));
+    const publicCaregiverMatch=url.pathname.match(/^\/api\/public\/caregivers\/([^/]+)$/);
+    if(request.method==="GET"&&publicCaregiverMatch) return getPublicCaregiver(env,decodeURIComponent(publicCaregiverMatch[1]));
+    if(request.method==="GET"&&url.pathname==="/api/still-looking") return answerStillLooking(url,env);
     let publicJobContext=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/context$/);
     if(request.method==="GET"&&publicJobContext) return getPublicJobContext(decodeURIComponent(publicJobContext[1]),env);
     let publicJob=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)$/);
@@ -2573,6 +2686,8 @@ export default {
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
         // Saved Find caregivers searches: one email per search when new caregivers nearby match it.
         await sendTalentAlerts(env).catch(error=>console.error("talent alerts failed",error));
+        // "Still looking?" to caregivers on the public directory, two weeks after they last confirmed.
+        await sendStillLookingEmails(env,50).catch(error=>console.error("still looking emails failed",error));
         // Clean-ups for rows saved before a rule changed. Each reads all of caregiver_jobs, so once a day, not every five minutes; last, since
         // recovering rejected jobs re-fetches their pages.
         await normalizeExistingJobsBatch(env,100).catch(()=>null);

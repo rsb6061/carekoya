@@ -8,6 +8,7 @@ import { clean, emailLink, signIn, watch } from './helpers';
 
 const PUBLIC_PAGES=['/','/caregiver-jobs','/cna-jobs','/caregiver-jobs/maryland','/caregiver-jobs/maryland/baltimore','/cna-jobs/maryland',
   '/gna-jobs/maryland','/gna-jobs/maryland/baltimore','/cna-classes/baltimore','/training-programs/maryland','/training-programs/'+TRAINING.slug,
+  '/caregivers','/caregivers/maryland','/caregivers/maryland/baltimore','/caregiver/'+CAREGIVER.id,
   '/hire-caregivers','/hire-caregivers/maryland','/pricing','/about','/caregiver-resume','/resources/how-to-become-a-caregiver-in-maryland',
   '/resources/nurse-aide-registry-by-state','/privacy-policy','/terms-of-service','/login','/signup','/agent','/add-training-program',
   '/jobs/'+JOBS.applyForMe,'/jobs/'+JOBS.external,'/school-dashboard','/dashboard','/hiring','/admin'];

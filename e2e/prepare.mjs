@@ -22,6 +22,8 @@ INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,
 INSERT INTO caregivers(id,first_name,last_name,email,phone,zip,state,city,role,certifications,work_status,last_confirmed_at,source,is_active,auth0_email_verified,shift_preferences,desired_wage,travel_distance_miles)
   VALUES (${q(CAREGIVER.id)},'Casey','Tester',${q(CAREGIVER.email)},'4105550100','21201','MD','Baltimore','CNA','CNA','actively_looking',CURRENT_TIMESTAMP,'organic',1,1,'days','18',25),
          ('e2e-far','Dana','Faraway','dana.far@example.test','','90001','CA','Los Angeles','HHA','HHA','actively_looking',CURRENT_TIMESTAMP,'organic',1,1,'part_time, full_time','50',25);
+-- Casey chose the public directory, so /caregivers/maryland/baltimore and /caregiver/e2e-caregiver have a card.
+UPDATE caregivers SET public_listing=1,public_listing_at=CURRENT_TIMESTAMP,public_listing_source='e2e' WHERE id=${q(CAREGIVER.id)};
 INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES
   ('e2e-s1',${q(CAREGIVER.email)},${q(hash(CAREGIVER.session))},${later}),
   ('e2e-s2',${q(NEW_CAREGIVER.email)},${q(hash(NEW_CAREGIVER.session))},${later}),
