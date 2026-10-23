@@ -109,6 +109,7 @@ interface Env {
   DATAFORSEO_PASSWORD?: string;
   CAREERS_LOOKUP_DAILY_USD?: string;
   FIRST_JOB_NUDGE_ENABLED?: string;
+  FIRST_JOB_NUDGE_SINCE?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
   GOOGLE_SITE_VERIFICATION?: string;
@@ -2523,7 +2524,7 @@ export default {
         // One reminder per unanswered invitation and one nudge per interested caregiver left waiting, both after 2 days.
         await sendHiringFollowups(env).catch(error=>console.error('hiring follow-ups failed',error));
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
-        // One "post your first job" email to agencies that claimed two days ago without posting. No-op until FIRST_JOB_NUDGE_ENABLED=true.
+        // One "post your first job" email to agencies that claimed two days ago without posting. Only claims since FIRST_JOB_NUDGE_SINCE.
         await sendFirstJobNudges(env).catch(error=>console.error('first job nudge failed',error));
         // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));

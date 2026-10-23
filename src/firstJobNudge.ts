@@ -1,7 +1,8 @@
 // One email to an agency that claimed its CareJoys profile but hasn't posted a job, two days after the claim.
 // A posted opening becomes a public job page (src/postedJobs.ts), the only way an agency that posts only on Indeed
 // gets CareJoys jobs. Off until FIRST_JOB_NUDGE_ENABLED=true; each agency gets it once (agency_outreach_events
-// 'first_job_nudge'), and the first send is copied to hello@carejoys.com.
+// 'first_job_nudge'), and the first send is copied to hello@carejoys.com. Only claims verified on or after
+// FIRST_JOB_NUDGE_SINCE count: the agencies that claimed before it were already pitched by Rebecca.
 import { firstJobNudgeEmail, withUnsubscribe } from './email';
 import { unsubscribeLink } from './emailPreferences';
 import { friendlyAgencyName } from './agencyFeatures';
@@ -9,7 +10,7 @@ import { friendlyAgencyName } from './agencyFeatures';
 import type { FeatureEnv } from './serverFeatures';
 
 type Row=Record<string,unknown>;
-export type FirstJobNudgeEnv=FeatureEnv&{FIRST_JOB_NUDGE_ENABLED?:string};
+export type FirstJobNudgeEnv=FeatureEnv&{FIRST_JOB_NUDGE_ENABLED?:string;FIRST_JOB_NUDGE_SINCE?:string};
 
 const FROM='CareJoys <hello@carejoys.com>';
 const LINK='https://carejoys.com/hiring?tab=openings&new=1';
@@ -21,11 +22,11 @@ export async function sendFirstJobNudges(env:FirstJobNudgeEnv,limit=10){
       (SELECT COUNT(*) FROM caregiver_jobs j WHERE j.agency_organization_id=ao.id AND j.status='current' AND j.is_published=1) AS listed_jobs
     FROM agency_organizations ao JOIN employer_leads e ON e.id=ao.claimed_employer_id
     WHERE COALESCE(ao.is_test,0)=0 AND COALESCE(e.is_test,0)=0 AND e.email LIKE '%@%'
-      AND EXISTS (SELECT 1 FROM agency_outreach_events v WHERE v.organization_id=ao.id AND v.event_type='agency_claim_verified' AND datetime(v.created_at)<=datetime('now','-2 days'))
+      AND EXISTS (SELECT 1 FROM agency_outreach_events v WHERE v.organization_id=ao.id AND v.event_type='agency_claim_verified' AND datetime(v.created_at)<=datetime('now','-2 days') AND datetime(v.created_at)>=datetime(?))
       AND NOT EXISTS (SELECT 1 FROM agency_outreach_events n WHERE n.organization_id=ao.id AND n.event_type IN ('first_job_nudge','first_job_nudge_failed'))
       AND NOT EXISTS (SELECT 1 FROM openings o WHERE o.employer_id=ao.claimed_employer_id AND COALESCE(o.source,'') NOT IN ('agency_profile','agency_job'))
       AND NOT EXISTS (SELECT 1 FROM email_suppressions s WHERE lower(s.email)=lower(e.email))
-    LIMIT ?`).bind(limit).all<Row>()).results||[];
+    LIMIT ?`).bind(clean(env.FIRST_JOB_NUDGE_SINCE,40)||'1970-01-01',limit).all<Row>()).results||[];
   const firstEver=!(await env.DB.prepare("SELECT 1 FROM agency_outreach_events WHERE event_type='first_job_nudge' LIMIT 1").first());
   let sent=0,failed=0,copyTo=firstEver?'hello@carejoys.com':'';
   for(const r of rows){

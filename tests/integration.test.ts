@@ -3551,6 +3551,8 @@ describe('first job nudge', ()=>{
     await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,claimed_employer_id) VALUES ('org-nudge','org-nudge','Maple Care LLC','Towson','MD',1,'emp-nudge')").run();
     await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,created_at) VALUES ('ev-nudge','org-nudge','agency_claim_verified',datetime('now','-3 days'))").run();
     expect(await sendFirstJobNudges(env())).toEqual({sent:0,failed:0});
+    // A claim before the start date was pitched already.
+    expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true',FIRST_JOB_NUDGE_SINCE:new Date().toISOString().slice(0,10)}))).toEqual({sent:0,failed:0});
     const before=sent.length;
     expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true'}))).toEqual({sent:1,failed:0});
     const mail=sent[before];

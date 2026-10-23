@@ -68,8 +68,10 @@
     "OUTREACH_ENABLED": "false",
     // Paid DataForSEO searches for careers pages the scanner could not find (src/careersLookup.ts), in dollars per UTC day. "0" turns it off.
     "CAREERS_LOOKUP_DAILY_USD": "0.25",
-    // "Post your first job" email, once, to agencies that claimed two days ago without posting (src/firstJobNudge.ts). Copy approved 2026-10-23; held off while Rebecca decides whether the 3 claimed agencies should get it.
-    "FIRST_JOB_NUDGE_ENABLED": "false",
+    // "Post your first job" email, once, to agencies that claimed two days ago without posting (src/firstJobNudge.ts). Rebecca approved 2026-10-23 for
+    // claims from then on; the 3 agencies that claimed earlier were already pitched, so FIRST_JOB_NUDGE_SINCE leaves them out.
+    "FIRST_JOB_NUDGE_ENABLED": "true",
+    "FIRST_JOB_NUDGE_SINCE": "2026-10-23 15:40:00",
     "REACTIVATION_DAILY_CAP": "50",
     // One reminder (15:41 UTC cron) to legacy caregivers who got the first email and never confirmed; each gets it once. Rebecca approved 2026-10-08.
     "REACTIVATION_REMINDER_ENABLED": "true",
