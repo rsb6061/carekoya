@@ -21,7 +21,8 @@ import { certificationsLabel, distanceLabel, profileTags, shiftsLabel, wageLabel
 import { inUs, locationMatchesZip, matchesTalentFilters, sortTalent } from '../src/talentSearch';
 import { dailyCap, outreachEnabled, remainingToday } from '../src/outreach';
 import { adminEmails, adminFromRequest, secretsMatch } from '../src/admin';
-import { withUnsubscribe, caregiverActivationEmail } from '../src/email';
+import { withUnsubscribe, caregiverActivationEmail, setMailingAddress } from '../src/email';
+import { replyYesEmail } from '../src/replyYesOutreach';
 import { stateForZipPrefix } from '../src/usStates';
 import { siteEmail, contactPageUrls } from '../src/agencyFeatures';
 import { allowedApplyNavigation, applyProfileFromCaregiver, applyStartUrl, classifyApplicationQuestion, detectApplyProvider, jobSiteName } from '../src/applyAgentRules';
@@ -176,6 +177,17 @@ describe('email', ()=>{
     expect(msg.html).toContain('https://carejoys.com/api/unsubscribe?token=y');
     expect(msg.html.indexOf('Unsubscribe')).toBeLessThan(msg.html.lastIndexOf('</div>'));
     expect(msg.text).toContain('Unsubscribe: https://carejoys.com/api/unsubscribe?token=y');
+    expect(msg.text).not.toContain('CareJoys · 1');
+  });
+  it('prints the mailing address under the unsubscribe link and the reply-yes signature', ()=>{
+    setMailingAddress('  123 Main St,\n Baltimore, MD 21201 ');
+    try{
+      const msg=withUnsubscribe(caregiverActivationEmail('Ana','https://carejoys.com/activate?token=x'),'https://carejoys.com/api/unsubscribe?token=y');
+      expect(msg.text).toContain('Unsubscribe: https://carejoys.com/api/unsubscribe?token=y\nCareJoys · 123 Main St, Baltimore, MD 21201');
+      expect(msg.html).toContain('<br>CareJoys · 123 Main St, Baltimore, MD 21201</p>');
+      const note=replyYesEmail({contactName:'Dana',agencyName:'Brightway Home Care',variant:'a',unsubscribeLink:'https://carejoys.com/u'});
+      expect(note.text).toContain('Rebecca Myers\nCareJoys · carejoys.com\n123 Main St, Baltimore, MD 21201\n\nNot for you?');
+    }finally{setMailingAddress('')}
   });
 });
 

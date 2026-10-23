@@ -59,6 +59,8 @@
       ]
     }
   ],
+  // Keeps variables set in the Cloudflare dashboard (MAILING_ADDRESS) through each deploy.
+  "keep_vars": true,
   "vars": {
     // Booking page (Calendly, Cal.com…) for the "Book a call" button after the /hire-caregivers form. Empty hides the button.
     "EMPLOYER_CALL_URL": "https://calendly.com/myersrebeccal/30min",
