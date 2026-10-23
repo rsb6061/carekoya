@@ -22,12 +22,13 @@ const NOT_AN_AGENCY=/\b(walmart|kroger|king soopers|fred meyer|qfc|cvs|walgreens
 export function careersQuery(org:Row){
   return [clean(org.canonical_name,160),clean(org.city,80),clean(org.state,20),'careers jobs'].filter(Boolean).join(' ');
 }
-/** The first organic result that is the agency's own careers page or its job board. */
+/** The first organic result that is the agency's own careers page or its job board (a posting is cut back to its board). */
 export function careersUrlFromResults(items:Row[],org:Row){
   for(const item of items){
     if(clean(item.type,20)!=='organic')continue;
     const url=clean(item.url,1000);
-    if(url&&agencyCareersResult(url,clean(item.title,300),org))return url;
+    const board=url?agencyCareersResult(url,clean(item.title,300),org):'';
+    if(board)return board;
   }
   return '';
 }

@@ -503,14 +503,30 @@ async function probeCommonCareerPage(base:string){
   }
   return null;
 }
+/** A job board URL cut back from one posting to the board itself (Workday .../job/..., Paylocity .../Details/..., apply pages). */
+export function atsBoardUrl(url:string){
+  try{
+    const u=new URL(url);
+    u.search='';u.hash='';
+    u.pathname=u.pathname.replace(/\/(job|jobs|posting|postings|details|apply|opening|openings)\/.*$/i,'').replace(/\/apply(\/.*)?$/i,'').replace(/\/\d{4,}(\/.*)?$/,'')||'/';
+    return u.toString();
+  }catch{return url}
+}
 /**
- * A search result that is this agency's careers page: on its own site with a careers-like path, or a job board
- * (ATS) whose URL or result title names the agency, so another agency's board is never taken for its own.
+ * A search result that is this agency's careers page: on its own site with a careers-like path, or a job board (ATS)
+ * whose own address (host or board path, never the posting's title: a job title names the work, not the employer)
+ * carries a distinctive word of the agency's name. Returns the URL to scan, cut back to the board, or ''.
  */
 export function agencyCareersResult(url:string,title:string,org:Row){
-  if(!/^https?:/i.test(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))return false;
-  if(atsInfo(url))return orgNameMatch(clean(org.canonical_name,220),url,title)>=0.5;
-  return /(career|jobs?|employment|join|work-with-us|open-positions|opportunit)/i.test(url);
+  if(!/^https?:/i.test(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))return '';
+  if(!atsInfo(url))return /(career|jobs?|employment|join|work-with-us|open-positions|opportunit)/i.test(url)?url:'';
+  const board=atsBoardUrl(url);
+  const tokens=orgNameTokens(clean(org.canonical_name,220));
+  let host='',path='';
+  try{const u=new URL(board);host=u.hostname.toLowerCase();path=decodeURIComponent(u.pathname).toLowerCase().replace(/[^a-z0-9]+/g,' ')}catch{return ''}
+  const named=tokens.some(t=>(t.length>=4&&host.includes(t))||(' '+path+' ').includes(' '+t+' '));
+  void title;
+  return named?board:'';
 }
 function searchResultLinks(base:string,html:string,org:Row){
   const out:string[]=[];
