@@ -18,7 +18,7 @@ export type PublicCaregiverJob={
 /** Under Apply: whether CareJoys sends the application or the employer's own site takes it. */
 export function applyWhere(job:{applyForMe?:boolean;employerOnCareJoys?:boolean}){
   if(job.applyForMe===undefined&&job.employerOnCareJoys===undefined)return '';
-  return job.employerOnCareJoys||job.applyForMe?'Applies through CareJoys':'Applies on the employer’s site';
+  return job.employerOnCareJoys||job.applyForMe?'Applies through CareJoys':'You finish on the employer’s site';
 }
 type Hub={total:number;page:number;pages:number;city:string;cities:{city:string;slug:string;count:number}[];metro?:{name:string;area:string}|null;cna?:boolean;sibling?:number;cnaPageMinJobs?:number;jobs:PublicCaregiverJob[]};
 type National={total:number;page:number;pages:number;jobs:PublicCaregiverJob[];
@@ -56,7 +56,7 @@ export function JobList({jobs}:{jobs:PublicCaregiverJob[]}){
           {freshnessLine(job)&&<div className="meta job-freshness">{freshnessLine(job)}</div>}
         </div>
         <div className="public-job-actions">
-          {job.employerOnCareJoys||job.applyForMe?<a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>:<a className="btn job-apply-primary" href={href}>View job</a>}
+          <a className="btn job-apply-primary" href={href+'#apply'}>Apply</a>
           {applyWhere(job)&&<span className="apply-where">{applyWhere(job)}</span>}
         </div>
       </article>;

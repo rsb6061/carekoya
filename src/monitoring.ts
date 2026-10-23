@@ -291,14 +291,33 @@ export async function checkJobSupply(env:MonitorEnv){
   return {today,findings:supplyFindings(today,before)};
 }
 
+/** Apply links that can't work: any live one with a known-broken shape (should be none), or a day with many taken down. */
+export async function applyLinkFindings(db:NonNullable<MonitorEnv['DB']>){
+  const r=await db.prepare(`SELECT
+    (SELECT COUNT(*) FROM caregiver_jobs WHERE is_published=1 AND status='current' AND (source_url LIKE 'https://%.myworkdayjobs.com/job/%' OR source_url LIKE '%/invalid-url%')) AS broken_live,
+    (SELECT COUNT(*) FROM caregiver_jobs WHERE status='current' AND publication_reason='dead_apply_link' AND updated_at>=datetime('now','-1 day')) AS taken_down`).first<Row>();
+  const out:string[]=[];
+  const broken=Number(r?.broken_live||0),down=Number(r?.taken_down||0);
+  if(broken>0)out.push(`${broken} live job pages have an apply link that can't work (Workday link without its board name, or an invalid-url page).`);
+  if(down>=DEAD_LINK_ALERT)out.push(`${down} job pages were taken down for dead apply links in the last day; a job site may have changed its links.`);
+  return out;
+}
+const DEAD_LINK_ALERT=50;
+
 /** 15:41 UTC daily: one email if any funnel step dropped to zero Clarity saw broken clicks or job supply dropped; nothing otherwise. */
 export async function runDailyMonitor(env:MonitorEnv){
   if(!env.DB)return {sent:false,findings:[],clicks:[],supply:[]};
   const {findings}=await evaluateFunnel(env);
   const clicks=await clarityClickProblems(env);
   const supply=(await checkJobSupply(env).catch(error=>{console.error('job supply check failed',error);return null}))?.findings||[];
-  if(!findings.length&&!clicks.length&&!supply.length)return {sent:false,findings,clicks,supply};
+  const links=await applyLinkFindings(env.DB).catch(error=>{console.error('apply link check failed',error);return [] as string[]});
+  if(!findings.length&&!clicks.length&&!supply.length&&!links.length)return {sent:false,findings,clicks,supply};
   const lines:string[]=[];
+  if(links.length){
+    lines.push('Apply links:','');
+    for(const l of links)lines.push('• '+l);
+    lines.push('');
+  }
   if(supply.length){
     lines.push('Job supply dropped:','');
     for(const s of supply)lines.push('• '+s);
@@ -315,8 +334,8 @@ export async function runDailyMonitor(env:MonitorEnv){
     lines.push('',`Recordings: https://clarity.microsoft.com/projects/view/${clean(env.CLARITY_PROJECT_ID,40)||'ysz8riafaj'}/dashboard`,'');
   }
   lines.push('Site errors reported by browsers: https://carejoys.com/api/admin/monitoring (sign in as an admin).');
-  const subject=findings.length?`CareJoys alert: ${findings.map(f=>f.label.replace(/"/g,'')).join(', ')} dropped to zero`:supply.length?'CareJoys alert: job supply dropped':'CareJoys alert: visitors struggling with clicks';
-  const result=await sendAlert(env,'daily_funnel',subject.slice(0,180),lines,[...findings.map(f=>f.key),...supply,...clicks].join(' | '));
+  const subject=findings.length?`CareJoys alert: ${findings.map(f=>f.label.replace(/"/g,'')).join(', ')} dropped to zero`:supply.length?'CareJoys alert: job supply dropped':links.length?'CareJoys alert: broken apply links':'CareJoys alert: visitors struggling with clicks';
+  const result=await sendAlert(env,'daily_funnel',subject.slice(0,180),lines,[...findings.map(f=>f.key),...supply,...links,...clicks].join(' | '));
   return {...result,findings,clicks,supply};
 }
 

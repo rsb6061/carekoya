@@ -3,6 +3,7 @@ import { type FeatureEnv } from './serverFeatures';
 import { boundingBox, haversineMiles, lookupZip, rowGeo, zipGeoJoin, MAX_SEARCH_MILES } from './geo';
 import { US_STATES, stateForZipPrefix, usState } from './usStates';
 import { detectApplyProvider } from './applyAgentRules';
+import { applyUrlProblem } from './applyLinkCheck';
 import { sourcingRankSql } from './sourcingPriorities';
 
 type Row=Record<string,unknown>;
@@ -707,8 +708,13 @@ function workdayEndpoint(listingUrl:string){
     const tenant=host.split('.')[0];
     const site=parts.find(part=>!/^([a-z]{2}-[A-Z]{2}|[a-z]{2})$/.test(part))||'';
     if(!site||!tenant)return null;
-    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(site)+'/jobs',host};
+    return {url:'https://'+host+'/wday/cxs/'+encodeURIComponent(tenant)+'/'+encodeURIComponent(site)+'/jobs',host,site};
   }catch{return null}
+}
+/** A posting's public page. The API's externalPath ("/job/...") leaves out the board's site name, and without it
+ * Workday answers "The URL you have provided is invalid". */
+export function workdayPostingUrl(host:string,site:string,externalPath:string){
+  return 'https://'+host+'/'+encodeURIComponent(site)+'/'+externalPath.replace(/^\/+/,'');
 }
 // Workday's job API returns at most 20 postings a request.
 const WORKDAY_PAGE=20;
@@ -732,7 +738,7 @@ async function workdayJobs(listingUrl:string,searchTerms:string[]=[''],pagesPerT
     if(!cls)return null;
     const loc=locationStringParts(clean(job.locationsText,300));
     const externalPath=clean(job.externalPath,1000);
-    const sourceUrl=externalPath?new URL(externalPath,'https://'+endpoint.host).toString():listingUrl;
+    const sourceUrl=externalPath?workdayPostingUrl(endpoint.host,endpoint.site,externalPath):listingUrl;
     return {
       sourceProvider:'workday',
       sourceJobId:clean(job.jobReqId||job.id||externalPath,160),
@@ -889,6 +895,8 @@ export function publicationDecision(job:DiscoveredJob,org?:Row){
   const explicit=!!usState(normalizeState(job.state))||!!stateForZipPrefix(job.zip);
   const notExpired=!job.validThrough||!Number.isFinite(Date.parse(job.validThrough))||Date.parse(job.validThrough)>=Date.now()-86400000;
   if(!job.sourceUrl||!job.title)return {publish:false,reason:'missing_source_or_title'};
+  // A link that can't open the posting never goes live; checkApplyLinksBatch catches the ones that die later.
+  if(job.sourceProvider!=='carejoys'&&applyUrlProblem(job.sourceUrl))return {publish:false,reason:'dead_apply_link'};
   const zipState=job.zip?stateForZipPrefix(job.zip):'';
   const stated=usState(normalizeState(job.state));
   if(stated&&zipState&&zipState!==stated.code)return {publish:false,reason:'state_zip_mismatch'};
@@ -941,7 +949,7 @@ async function saveDiscoveredJob(env:FeatureEnv,org:Row,input:DiscoveredJob){
   const decision=publicationDecision(normalizedJob,org);
   const publish=decision.publish?1:0;
   const id='job_'+key.slice(0,28);
-  const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,publication_reason,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN 0 ELSE excluded.is_published END,publication_reason=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN \'hidden_by_employer\' ELSE excluded.publication_reason END,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
+  const sql='INSERT INTO caregiver_jobs (id,agency_organization_id,dedupe_key,source_provider,source_job_id,source_url,source_listing_url,title,normalized_title,role,roles_json,employer_name,city,state,zip,location_source,employment_type,pay_min,pay_max,pay_period,description_text,classifier_reason,confidence,date_posted,valid_through,canonical_fingerprint,status,is_published,publication_reason,last_seen_at,last_checked_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"current",?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(dedupe_key) DO UPDATE SET source_url=excluded.source_url,source_listing_url=excluded.source_listing_url,title=excluded.title,normalized_title=excluded.normalized_title,role=excluded.role,roles_json=excluded.roles_json,employer_name=excluded.employer_name,city=excluded.city,state=excluded.state,zip=excluded.zip,location_source=excluded.location_source,employment_type=excluded.employment_type,pay_min=excluded.pay_min,pay_max=excluded.pay_max,pay_period=excluded.pay_period,description_text=excluded.description_text,classifier_reason=excluded.classifier_reason,confidence=excluded.confidence,date_posted=excluded.date_posted,valid_through=excluded.valid_through,canonical_fingerprint=excluded.canonical_fingerprint,status="current",is_published=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' OR (caregiver_jobs.publication_reason=\'dead_apply_link\' AND caregiver_jobs.source_url=excluded.source_url) THEN 0 ELSE excluded.is_published END,publication_reason=CASE WHEN caregiver_jobs.publication_reason=\'hidden_by_employer\' THEN \'hidden_by_employer\' WHEN caregiver_jobs.publication_reason=\'dead_apply_link\' AND caregiver_jobs.source_url=excluded.source_url THEN \'dead_apply_link\' ELSE excluded.publication_reason END,last_seen_at=CURRENT_TIMESTAMP,last_checked_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP';
   await env.DB.prepare(sql).bind(
     id,org.id,key,normalizedJob.sourceProvider,normalizedJob.sourceJobId||null,normalizedJob.sourceUrl,normalizedJob.sourceListingUrl,
     title,normalizedTitle,cls.role,JSON.stringify(roles),clean(org.canonical_name,220),city,state,zip,locationSource,employmentType,

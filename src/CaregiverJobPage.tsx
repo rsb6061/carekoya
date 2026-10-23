@@ -101,8 +101,8 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
     void fetch('/api/public/caregiver-jobs/'+encodeURIComponent(job.id)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
   }
 
-  // CareJoys can't apply for this job (employer not on CareJoys, job site Apply for me doesn't support), so the
-  // Apply button is the link to the employer's own application.
+  // CareJoys can't send this application (employer not on CareJoys, job site Apply for me doesn't support). Apply with
+  // CareJoys still builds the caregiver's profile, and says up front that they finish on the employer's site.
   const externalOnly=!!job&&!job.employerOnCareJoys&&!job.applyForMe;
   function startApplying(){setApplyOpen(true)}
 
@@ -132,12 +132,10 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
             {payText&&<span className="pill">{payText}</span>}
           </div>
           <div className="job-detail-actions">
-            {externalOnly
-              ?<a className="btn job-apply-primary" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Apply on {job.employerName}’s site ↗</a>
-              :<button className="btn job-apply-primary" onClick={startApplying}>{applicationSent?'Applied ✓':'Apply'}</button>}
-            {!externalOnly&&!job.postedOnCareJoys&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
+            <button className="btn job-apply-primary" onClick={startApplying}>{applicationSent?'Applied ✓':'Apply with CareJoys'}</button>
+            {!job.postedOnCareJoys&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
           </div>
-          {!applicationSent&&<p className="apply-where">{externalOnly?(leaving?'Opened in a new tab. Finish your application there; this page stays here.':'Opens the employer’s application in a new tab'):'Applies through CareJoys'}</p>}
+          {!applicationSent&&<p className="apply-where">{leaving?'Opened in a new tab. Finish your application there; this page stays here.':externalOnly?`Free CareJoys profile, then you finish on ${job.employerName||'the employer'}’s site`:'Applies through CareJoys'}</p>}
           <div className="job-detail-source">{job.postedOnCareJoys?`Posted on CareJoys by ${job.employerName}.`:<>CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</>}</div>
         </section>
 
@@ -158,12 +156,12 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
       </div>
     </main>
 
-    {applyOpen&&!externalOnly&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
+    {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
       <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
         {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
-        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} next={'/jobs/'+encodeURIComponent(job.id)+'#apply'} onGuest={()=>setGuest(true)}/>
-        :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite}/>
+        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} finishOn={externalOnly?job.employerName||'the employer':''} next={'/jobs/'+encodeURIComponent(job.id)+'#apply'} onGuest={()=>setGuest(true)}/>
+        :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite} leaving={leaving}/>
         :<CaregiverOnboarding
           compact
           targetJobId={job.id}
@@ -180,9 +178,9 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
 }
 
 
-function ApplyWithProfile({job,profile,hasResume,applicationSent,applying,error,onApply,onEmployerSite}:{
+function ApplyWithProfile({job,profile,hasResume,applicationSent,applying,error,onApply,onEmployerSite,leaving}:{
   job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;applicationSent:boolean;applying:boolean;error:string;
-  onApply:()=>void;onEmployerSite:()=>void;
+  onApply:()=>void;onEmployerSite:()=>void;leaving:boolean;
 }){
   const [agentActive,setAgentActive]=useState(false);
   const [agentSubmitted,setAgentSubmitted]=useState(false);
@@ -217,9 +215,10 @@ function ApplyWithProfile({job,profile,hasResume,applicationSent,applying,error,
     <div className="apply-profile-head"><strong>Applying as</strong><a className="text-link" href="/dashboard/profile">Edit</a></div>
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     {error&&<div className="notice">{error}</div>}
+    {!job.employerOnCareJoys&&!agent&&<p className="apply-finish-note">{employer} takes applications on their own site, and CareJoys can’t send this one for you yet. Your profile is saved; finish your application there.</p>}
     {agent}
     {job.employerOnCareJoys
       ?<button className={agent?'text-button apply-profile-only':'btn submit-button'} onClick={onApply} disabled={applying}>{applying?'Sending…':agent?'Just send my CareJoys profile instead':'Send my application'}</button>
-      :!agent&&<button className="btn submit-button" onClick={onEmployerSite}>Apply on {employer}’s site</button>}
+      :!agent&&<a className="btn submit-button" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={onEmployerSite}>{leaving?'Opened in a new tab ✓':'Finish on '+employer+'’s site ↗'}</a>}
   </div>;
 }
