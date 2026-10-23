@@ -503,6 +503,15 @@ async function probeCommonCareerPage(base:string){
   }
   return null;
 }
+/**
+ * A search result that is this agency's careers page: on its own site with a careers-like path, or a job board
+ * (ATS) whose URL or result title names the agency, so another agency's board is never taken for its own.
+ */
+export function agencyCareersResult(url:string,title:string,org:Row){
+  if(!/^https?:/i.test(url)||badCareerUrl(url)||!orgOrAtsUrl(url,org))return false;
+  if(atsInfo(url))return orgNameMatch(clean(org.canonical_name,220),url,title)>=0.5;
+  return /(career|jobs?|employment|join|work-with-us|open-positions|opportunit)/i.test(url);
+}
 function searchResultLinks(base:string,html:string,org:Row){
   const out:string[]=[];
   const seen=new Set<string>();

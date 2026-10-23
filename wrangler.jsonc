@@ -66,6 +66,8 @@
     "EMPLOYER_CALL_URL": "https://calendly.com/myersrebeccal/30min",
     // Outreach crons send nothing until this is "true". Caps are emails per UTC day.
     "OUTREACH_ENABLED": "false",
+    // Paid DataForSEO searches for careers pages the scanner could not find (src/careersLookup.ts), in dollars per UTC day. "0" turns it off.
+    "CAREERS_LOOKUP_DAILY_USD": "0.5",
     "REACTIVATION_DAILY_CAP": "50",
     // One reminder (15:41 UTC cron) to legacy caregivers who got the first email and never confirmed; each gets it once. Rebecca approved 2026-10-08.
     "REACTIVATION_REMINDER_ENABLED": "true",
