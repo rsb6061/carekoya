@@ -734,3 +734,8 @@ body .check-row{font-size:15px!important}
 .profile-section .resume-card{margin-top:14px}
 .browse-all-jobs{margin:16px 0 0}
 .footer .footer-cities{flex-basis:100%;gap:6px 16px;font-size:13px}
+.hub-filter-groups{display:flex;flex-wrap:wrap;gap:0 18px;align-items:center}
+.hub-filter-groups .hub-filters{margin-bottom:12px}
+.hub-count{margin:0 0 14px}
+.job-freshness{margin-top:8px;font-size:13px}
+.caregiver-public-job-list li small,.job-freshness{color:var(--muted)}

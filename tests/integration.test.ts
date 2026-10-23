@@ -877,6 +877,28 @@ describe('audit fixes: SEO responses', ()=>{
     const hub=await (await call('/api/public/jobs-hub?state=MD')).json() as any;
     expect(hub.total).toBeGreaterThan(0);
   });
+  it('job lists say when each job was posted and checked, and filter by hours and pay', async()=>{
+    await DB.prepare("UPDATE caregiver_jobs SET date_posted='Posted 3 Days Ago',employment_type='Full time, Part time' WHERE id='job-test'").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,employment_type,date_posted,status,is_published) VALUES ('job-prn','org-test','job-prn','test','https://sunrisecare.test/jobs/prn','HHA Per Diem','HHA','Sunrise Home Care','Baltimore','MD','21201','Per diem','2026-01-02','current',1)").run();
+    const html=await (await call('/caregiver-jobs/maryland',{},htmlAssets)).text();
+    // Workday's relative date is read against the day CareJoys last saw the job (today, in this test).
+    expect(html).toContain('CNA - Day Shift</a> — Sunrise Home Care · Baltimore, MD · $18–$22/hr <small>Posted 3 days ago · Checked today</small>');
+    expect(html).toContain('<a href="/caregiver-jobs/maryland?hours=part-time">Part-time</a>');
+    // Filtered views are the reader's own, not pages for Google.
+    const partTime=await call('/caregiver-jobs/maryland?hours=part-time',{},htmlAssets);
+    const ptHtml=await partTime.text();
+    expect(ptHtml).toContain('<meta name="robots" content="noindex,follow"');
+    expect(ptHtml).toContain('CNA - Day Shift');
+    expect(ptHtml).not.toContain('HHA Per Diem');
+    const api=await (await call('/api/public/jobs-hub?state=MD&hours=per-diem')).json() as any;
+    expect(api.jobs.map((j:any)=>j.id)).toEqual(['job-prn']);
+    expect(api.jobs[0].datePosted).toBe('2026-01-02');
+    const paid=await (await call('/api/public/jobs-national?pay=shown')).json() as any;
+    expect(paid.jobs.map((j:any)=>j.id)).toContain('job-test');
+    expect(paid.jobs.map((j:any)=>j.id)).not.toContain('job-prn');
+    await DB.prepare("DELETE FROM caregiver_jobs WHERE id='job-prn'").run();
+    await DB.prepare("UPDATE caregiver_jobs SET date_posted=NULL,employment_type=NULL WHERE id='job-test'").run();
+  });
   it('GNA jobs and Baltimore CNA classes pages list Maryland jobs and programs', async()=>{
     const add=(id:string,role:string,city:string,zip:string)=>DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES (?,'org-test',?,'test',?,?,?,'Sunrise Home Care',?,'MD',?,'current',1)")
       .bind(id,id,'https://sunrisecare.test/jobs/'+id,role+' Evenings',role,city,zip).run();

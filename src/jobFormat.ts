@@ -103,3 +103,77 @@ export function tidyTitle(value:string){
   }
   return t;
 }
+
+const DAY=86400000;
+// D1's CURRENT_TIMESTAMP is "YYYY-MM-DD HH:MM:SS" in UTC with no zone marker.
+const parseStamp=(value:unknown)=>{
+  const s=String(value??'').trim();
+  if(!s)return null;
+  const t=Date.parse(/^\d{4}-\d{2}-\d{2} \d/.test(s)?s.replace(' ','T')+'Z':s);
+  return Number.isFinite(t)?new Date(t):null;
+};
+
+/**
+ * When a job was posted. Career pages give dates in every shape: ISO, "10/20/2026", "October 12, 2026 at…",
+ * and Workday's relative "Posted 10 Days Ago" or "Posted 30+ Days Ago", which only means something next to
+ * the day CareJoys read it (`seenAt`). Returns null when nothing usable is stored.
+ */
+export function parsePostedDate(datePosted:unknown,seenAt?:unknown):Date|null{
+  const raw=String(datePosted??'').trim();
+  if(!raw)return null;
+  const seen=parseStamp(seenAt)||new Date();
+  const rel=raw.toLowerCase().replace(/^posted\s+/,'').replace(/^on\s+/,'');
+  if(/^today$/.test(rel))return seen;
+  if(/^yesterday$/.test(rel))return new Date(seen.getTime()-DAY);
+  const ago=rel.match(/^(\d+)\+?\s*(day|week|month|hour|minute)s?\s*ago$/);
+  if(ago){
+    const n=Number(ago[1]);
+    const unit=ago[2]==='week'?7*DAY:ago[2]==='month'?30*DAY:ago[2]==='day'?DAY:0;  // hours and minutes ago are today
+    return new Date(seen.getTime()-n*unit);
+  }
+  const us=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(us)return new Date(Date.UTC(Number(us[3]),Number(us[1])-1,Number(us[2])));
+  const parsed=parseStamp(raw.replace(/\s+at\s+.*$/i,''));
+  if(!parsed)return null;
+  // A date in the future or before the web existed is a scrape error, not a posting date.
+  if(parsed.getTime()>seen.getTime()+DAY||parsed.getUTCFullYear()<2000)return null;
+  return parsed;
+}
+
+export type JobDates={datePosted?:unknown;firstSeenAt?:unknown;lastSeenAt?:unknown;lastCheckedAt?:unknown};
+
+/** The posted date (falling back to when CareJoys first saw the job) and when it was last confirmed live. */
+export function jobDates(job:JobDates){
+  const posted=parsePostedDate(job.datePosted,job.lastSeenAt)||parseStamp(job.firstSeenAt)||parseStamp(job.lastSeenAt);
+  const checked=parseStamp(job.lastCheckedAt)||parseStamp(job.lastSeenAt);
+  return {posted,checked};
+}
+
+/** "today", "yesterday", "3 days ago", "2 weeks ago", "3 months ago". */
+export function agoLabel(date:Date,now=new Date()){
+  const days=Math.max(0,Math.floor((now.getTime()-date.getTime())/DAY));
+  if(days===0)return 'today';
+  if(days===1)return 'yesterday';
+  if(days<14)return days+' days ago';
+  if(days<60)return Math.floor(days/7)+' weeks ago';
+  if(days<365)return Math.floor(days/30)+' months ago';
+  return 'over a year ago';
+}
+
+/** "Posted 3 days ago · Checked today": the line under every job card that says how fresh the listing is. */
+export function freshnessLine(job:JobDates,now=new Date()){
+  const {posted,checked}=jobDates(job);
+  const parts:string[]=[];
+  if(posted)parts.push('Posted '+agoLabel(posted,now));
+  if(checked)parts.push('Checked '+agoLabel(checked,now));
+  return parts.join(' · ');
+}
+
+/** The hours filter on the job pages: a stored employment_type like "Full time, Part time" matches each of its parts. */
+export const HOURS_FILTERS=[
+  {slug:'full-time',label:'Full-time',sql:'%full time%'},
+  {slug:'part-time',label:'Part-time',sql:'%part time%'},
+  {slug:'per-diem',label:'Per diem',sql:'%per diem%'},
+] as const;
+export type HoursFilter=typeof HOURS_FILTERS[number]['slug'];
+export const hoursFilter=(value:unknown):HoursFilter|''=>HOURS_FILTERS.find(h=>h.slug===String(value||'').toLowerCase())?.slug||'';
