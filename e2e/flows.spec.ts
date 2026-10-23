@@ -76,6 +76,12 @@ test('@phone a job opens in a side panel over the list, with Apply inside it', a
   const panel=page.getByRole('dialog',{name:'Job details'});
   await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
   await expect(page).toHaveURL(/\/caregiver-jobs\/maryland\?job=/);
+  await page.getByRole('button',{name:'Close job'}).click();
+  await expect(panel).toHaveCount(0);
+  // The list's View job opens the panel too, without the apply box on top of it.
+  await page.locator('article.job',{has:page.getByRole('link',{name:'CNA - Day Shift'})}).first().getByRole('link',{name:'View job'}).click();
+  await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
+  await expect(page.locator('.caregiver-apply-modal')).toHaveCount(0);
   await panel.getByRole('button',{name:'Apply with CareJoys'}).click();
   await expect(page.getByText('Apply on CareJoys')).toBeVisible();
   await page.getByRole('button',{name:'Close',exact:true}).click();
