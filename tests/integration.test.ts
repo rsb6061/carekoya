@@ -3297,6 +3297,24 @@ describe('replies to hello@',()=>{
     expect((await DB.prepare("SELECT COUNT(*) AS n FROM email_messages WHERE from_email='hello@carejoys.com'").first() as any).n).toBe(0);
   });
 
+  it('keeps a "Stop" reply out of the forwarded inbox and suppresses the agency address the outreach went to',async()=>{
+    await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email) VALUES ('org-stop','org-stop','Stay Home','Info@StayHome.test')").run();
+    await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email) VALUES ('org-other','org-other','Other','info@other.test')").run();
+    forwards.length=0;
+    const stop=raw('Aimee <aimee@stayhome.test>','Re: Quick question','Stop\n\nAimee Hamrick, Program Coordinator\n\nOn Fri Rebecca wrote:\n> reply yes','s1@stayhome.test');
+    await worker.email(message(stop,'aimee@stayhome.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(forwards).toEqual([]);
+    const rows=(await DB.prepare("SELECT email FROM email_suppressions WHERE email IN ('aimee@stayhome.test','info@stayhome.test','info@other.test') ORDER BY email").all()).results;
+    expect(rows).toEqual([{email:'aimee@stayhome.test'},{email:'info@stayhome.test'}]);
+    expect((await DB.prepare("SELECT kind,forwarded FROM email_messages WHERE message_id='<s1@stayhome.test>'").first() as any)).toEqual({kind:'unsubscribe',forwarded:0});
+    // A free-mail sender only suppresses itself, never everyone at gmail.
+    await worker.email(message(raw('pat@gmail.com','Re: hi','unsubscribe','s2@gmail.com'),'pat@gmail.com') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect((await DB.prepare("SELECT COUNT(*) AS n FROM email_suppressions WHERE email LIKE '%@gmail.com'").first() as any).n).toBe(1);
+    // Ordinary replies still forward.
+    await worker.email(message(raw('aimee@stayhome.test','Re: hi','Actually, tell me more','s3@stayhome.test'),'aimee@stayhome.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(forwards).toEqual(['owner@gmail.test']);
+  });
+
   it('still records the message when forwarding fails',async()=>{
     const failing={...message(raw('x@facility.test','Hi','Hello','f1@facility.test'),'x@facility.test'),forward:async()=>{throw new Error('unverified')}};
     await worker.email(failing as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
