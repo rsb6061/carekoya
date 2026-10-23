@@ -9,6 +9,11 @@ const SLOW_MS=20000;
 const SLOW_OK=/^\/api\/(me\/apply-agent|admin)\//;
 let sent=0;
 const seen=new Set<string>();
+// Leaving the page, switching apps or locking the phone cancels the page's requests, which Safari reports as
+// "Load failed" and Chrome as "Failed to fetch". Those aren't CareJoys bugs, so a failed request waits a moment and
+// is reported only if the page is still open and showing.
+const LEAVE_GRACE_MS=1500;
+let leftAt=0;
 
 type Report={kind:'error'|'rejection'|'react'|'api'|'api_slow';message:string;source?:string;stack?:string};
 
@@ -44,6 +49,8 @@ function apiPath(input:RequestInfo|URL){
 }
 
 export function installErrorReporter(){
+  window.addEventListener('pagehide',()=>{leftAt=Date.now()});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')leftAt=Date.now()});
   window.addEventListener('error',event=>{
     // Failed <img>/<script> loads also fire 'error' but carry no message; only real script errors count.
     if(!event.message)return;
@@ -64,14 +71,19 @@ export function installErrorReporter(){
     if(!path)return original(input,init);
     const method=(init?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
     const slow=SLOW_OK.test(path)?0:window.setTimeout(()=>reportClientError({kind:'api_slow',message:`${method} ${path} still waiting after ${SLOW_MS/1000}s`}),SLOW_MS);
+    const startedAt=Date.now();
     try{
       const response=await original(input,init);
       if(response.status>=500)reportClientError({kind:'api',message:`${method} ${path} returned ${response.status}`});
       return response;
     }catch(error){
       // The visitor going offline or leaving the page is not a CareJoys bug.
-      if(!(error instanceof Error&&error.name==='AbortError')&&navigator.onLine!==false)
-        reportClientError({kind:'api',message:`${method} ${path} did not reach CareJoys (${error instanceof Error?error.message:String(error)})`});
+      if(!(error instanceof Error&&error.name==='AbortError')&&navigator.onLine!==false){
+        const message=`${method} ${path} did not reach CareJoys (${error instanceof Error?error.message:String(error)})`;
+        window.setTimeout(()=>{
+          if(leftAt<startedAt&&document.visibilityState!=='hidden'&&navigator.onLine!==false)reportClientError({kind:'api',message});
+        },LEAVE_GRACE_MS);
+      }
       throw error;
     }finally{if(slow)window.clearTimeout(slow)}
   };
