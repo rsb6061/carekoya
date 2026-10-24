@@ -68,6 +68,7 @@
     "OUTREACH_ENABLED": "false",
     // Paid DataForSEO searches for careers pages the scanner could not find (src/careersLookup.ts), in dollars per UTC day. "0" turns it off.
     "CAREERS_LOOKUP_DAILY_USD": "0.25",
+    "CAREERS_LOOKUP_BOOST_USD": "5",
     // "Post your first job" email, once, to agencies that claimed two days ago without posting (src/firstJobNudge.ts). Rebecca approved 2026-10-23 for
     // claims from then on; the 3 agencies that claimed earlier were already pitched, so FIRST_JOB_NUDGE_SINCE leaves them out.
     "FIRST_JOB_NUDGE_ENABLED": "true",

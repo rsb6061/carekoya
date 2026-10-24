@@ -10,7 +10,7 @@ import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
 import { sendFirstJobNudges } from '../src/firstJobNudge';
-import { lookupCareersPagesBatch } from '../src/careersLookup';
+import { lookupCareersPagesBatch, lookupCareersPagesBoost } from '../src/careersLookup';
 import { sendStillLookingEmails } from '../src/publicDirectory';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
@@ -3611,6 +3611,28 @@ describe('careers page lookup order', ()=>{
     expect(asked.map(q=>q.split(' ')[0])).toEqual(['cl-sd1','cl-bak','cl-bk','cl-sd2']);
     const rows=(await DB.prepare("SELECT organization_id FROM careers_lookups WHERE organization_id LIKE 'cl-%' ORDER BY organization_id").all()).results.map((r:any)=>r.organization_id);
     expect(rows).toEqual(['cl-bak','cl-bk','cl-sd1','cl-sd2']);
+  });
+  it('the one-time run takes target cities only, on its own budget, and ends when the budget is spent', async()=>{
+    for(const [id,city,state] of [['cl-phx','Phoenix','AZ'],['cl-chi','Chicago','IL'],['cl-sea','Seattle','WA']]){
+      await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active) VALUES (?,?,?,?,?,1)").bind(id,id,id+' Home Care',city,state).run();
+      await DB.prepare("INSERT INTO agency_job_scan_state(organization_id,last_status) VALUES (?,'fetch_failed')").bind(id).run();
+    }
+    const asked:string[]=[];
+    const realFetch=globalThis.fetch;
+    globalThis.fetch=(async(_url:any,init:any)=>{
+      asked.push(JSON.parse(init.body)[0].keyword.split(' ')[0]);
+      return new Response(JSON.stringify({tasks:[{status_code:20000,cost:0.002,result:[{items:[]}]}]}),{status:200});
+    }) as any;
+    try{
+      const boost=env({DATAFORSEO_LOGIN:'u',DATAFORSEO_PASSWORD:'p',CAREERS_LOOKUP_DAILY_USD:'1',CAREERS_LOOKUP_BOOST_USD:'0.004'});
+      expect(await lookupCareersPagesBoost(boost,10)).toEqual({searched:2,found:0,spent:0.004});
+      // Baltimore and Boise are not target cities; the budget is spent, so the next run does nothing.
+      expect(asked).toEqual(['cl-phx','cl-chi']);
+      expect(await lookupCareersPagesBoost(boost,10)).toEqual({searched:0,found:0,spent:0.004});
+      expect(await lookupCareersPagesBoost(env({DATAFORSEO_LOGIN:'u',DATAFORSEO_PASSWORD:'p'}),10)).toEqual({searched:0,found:0,spent:0});
+    }finally{globalThis.fetch=realFetch}
+    const budgets=(await DB.prepare("SELECT budget,COUNT(*) AS n,ROUND(SUM(cost),3) AS spent FROM careers_lookups WHERE organization_id LIKE 'cl-%' GROUP BY budget ORDER BY budget").all()).results;
+    expect(budgets).toEqual([{budget:'boost',n:2,spent:0.004},{budget:'daily',n:4,spent:0.008}]);
   });
 });
 

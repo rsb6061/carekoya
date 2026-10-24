@@ -16,7 +16,7 @@ import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verif
 import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice } from './replyYesOutreach';
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
-import { lookupCareersPagesBatch } from './careersLookup';
+import { lookupCareersPagesBatch, lookupCareersPagesBoost } from './careersLookup';
 import { sendFirstJobNudges } from './firstJobNudge';
 import { checkApplyLinksBatch } from './applyLinkCheck';
 import { DIRECTORY_MIN_LISTED, LISTING_MAX_AGE_DAYS, directoryHub, directoryLocations, answerStillLooking, myPublicListing, publicCaregiverPhoto, publicCaregiverProfile, saveListingChoice, sendStillLookingEmails, wasListed, type PublicCaregiverCard } from './publicDirectory';
@@ -110,6 +110,7 @@ interface Env {
   DATAFORSEO_LOGIN?: string;
   DATAFORSEO_PASSWORD?: string;
   CAREERS_LOOKUP_DAILY_USD?: string;
+  CAREERS_LOOKUP_BOOST_USD?: string;
   FIRST_JOB_NUDGE_ENABLED?: string;
   FIRST_JOB_NUDGE_SINCE?: string;
   CLARITY_PROJECT_ID?: string;
@@ -2603,6 +2604,8 @@ export default {
         await runDataForSeoJobs(env).catch(()=>null);
         // Apply links of live jobs, oldest check first; a dead one comes down. Before the scanner, which can use up the run.
         await checkApplyLinksBatch(env,30).catch(error=>console.error('apply link check failed',error));
+        // The one-time careers-page search through the short cities, on its own budget; a dozen searches a run.
+        await lookupCareersPagesBoost(env).catch(error=>console.error('careers boost failed',error));
         // Only sites whose next look is due, picked through an index. D1 bills every row a query reads, and the
         // full ordered list (discoverAgencyJobsBatch) read ~330k rows a run, so that one runs hourly below.
         await discoverDueAgencyJobsBatch(env,48).catch(()=>null);

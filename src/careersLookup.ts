@@ -12,11 +12,13 @@ import { CAREERS_LOOKUP_TARGETS, sourcingRankSql } from './sourcingPriorities';
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<unknown>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
 type DB={prepare(query:string):Statement};
-export type CareersLookupEnv={DB?:DB;DATAFORSEO_LOGIN?:string;DATAFORSEO_PASSWORD?:string;CAREERS_LOOKUP_DAILY_USD?:string};
+export type CareersLookupEnv={DB?:DB;DATAFORSEO_LOGIN?:string;DATAFORSEO_PASSWORD?:string;CAREERS_LOOKUP_DAILY_USD?:string;CAREERS_LOOKUP_BOOST_USD?:string};
+type Budget='daily'|'boost';
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const ENDPOINT='https://api.dataforseo.com/v3/serp/google/organic/live/regular';
 const PER_RUN=20;
+const BOOST_PER_RUN=12;
 // Google listings that are a store, pharmacy or hospital rather than a caregiver employer with its own job board.
 const NOT_AN_AGENCY=/\b(walmart|kroger|king soopers|fred meyer|qfc|cvs|walgreens|rite aid|pharmacy|hospital|va medical|veterans affairs)\b/i;
 
@@ -43,10 +45,24 @@ export function careersLookupRetryable(httpStatus:number|undefined,code:number){
   return true;
 }
 
+/** The hourly run under the daily cap: target cities first, then everyone. */
 export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN){
-  const cap=Number(env.CAREERS_LOOKUP_DAILY_USD||0);
+  return runLookups(env,'daily',Number(env.CAREERS_LOOKUP_DAILY_USD||0),limit);
+}
+/**
+ * The one-time run through the target cities only, every five minutes, on its own budget: CAREERS_LOOKUP_BOOST_USD is the
+ * total it may ever spend (Rebecca approved $5 on 2026-10-24), so it ends on its own when the cities are done or the
+ * money is. Raising the number buys another run; 0 or unset turns it off. The daily cap is not touched.
+ */
+export async function lookupCareersPagesBoost(env:CareersLookupEnv,limit=BOOST_PER_RUN){
+  return runLookups(env,'boost',Number(env.CAREERS_LOOKUP_BOOST_USD||0),limit);
+}
+
+async function runLookups(env:CareersLookupEnv,budget:Budget,cap:number,limit:number){
   if(!env.DB||!(cap>0)||!clean(env.DATAFORSEO_LOGIN)||!clean(env.DATAFORSEO_PASSWORD))return {searched:0,found:0,spent:0};
-  const today=await env.DB.prepare("SELECT COALESCE(SUM(cost),0) AS spent FROM careers_lookups WHERE looked_up_at>=date('now')").first<{spent:number}>();
+  const today=await env.DB.prepare(budget==='daily'
+    ?"SELECT COALESCE(SUM(cost),0) AS spent FROM careers_lookups WHERE budget='daily' AND looked_up_at>=date('now')"
+    :"SELECT COALESCE(SUM(cost),0) AS spent FROM careers_lookups WHERE budget='boost'").first<{spent:number}>();
   let spent=Number(today?.spent||0);
   if(spent>=cap)return {searched:0,found:0,spent};
   // One agency per target city in turn (nth within its city), then everyone else in the scanning order.
@@ -58,7 +74,8 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
       FROM agency_job_scan_state scan JOIN agency_organizations ao ON ao.id=scan.organization_id
       LEFT JOIN careers_lookups cl ON cl.organization_id=ao.id
       WHERE scan.last_status IN ('no_job_board_found','fetch_failed') AND cl.organization_id IS NULL
-        AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_careers_url,'')='')
+        AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_careers_url,'')=''
+        ${budget==='boost'?`AND ${cityRank}<${others}`:''})
     ORDER BY CASE WHEN city_rank<${others} THEN nth ELSE 1000000000 END,city_rank,scan_rank,id LIMIT ?`).bind(limit).all<Row>()).results||[];
   const auth='Basic '+btoa(clean(env.DATAFORSEO_LOGIN,320)+':'+clean(env.DATAFORSEO_PASSWORD,320));
   let searched=0,found=0,failures=0;
@@ -66,7 +83,7 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
     if(spent>=cap)break;
     const id=clean(org.id,100),query=careersQuery(org);
     if(NOT_AN_AGENCY.test(clean(org.canonical_name,220))){
-      await env.DB.prepare("INSERT OR REPLACE INTO careers_lookups(organization_id,status,query,cost) VALUES (?,'skipped',?,0)").bind(id,query).run();
+      await env.DB.prepare("INSERT OR REPLACE INTO careers_lookups(organization_id,status,query,cost,budget) VALUES (?,'skipped',?,0,?)").bind(id,query,budget).run();
       continue;
     }
     const res=await fetch(ENDPOINT,{method:'POST',headers:{authorization:auth,'content-type':'application/json'},
@@ -81,15 +98,15 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
       // unless three searches in a row fail.
       const code=Number(task?.status_code||body?.status_code||0);
       const why=`${code||res?.status||'no response'} ${String(task?.status_message||body?.status_message||'').slice(0,280)}`.trim();
-      await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'careers_lookup_failed','hourly',?)").bind(crypto.randomUUID(),why).run().catch(()=>null);
+      await env.DB.prepare("INSERT INTO outreach_runs(id,kind,trigger,note) VALUES (?,'careers_lookup_failed',?,?)").bind(crypto.randomUUID(),budget==='boost'?'boost':'hourly',why).run().catch(()=>null);
       if(!careersLookupRetryable(res?.status,code)||++failures>=3)break;
       continue;
     }
     failures=0;
     searched++;
     const url=careersUrlFromResults(task.result?.[0]?.items||[],org);
-    await env.DB.prepare('INSERT OR REPLACE INTO careers_lookups(organization_id,status,query,found_url,cost) VALUES (?,?,?,?,?)')
-      .bind(id,url?'found':'not_found',query,url||null,cost).run();
+    await env.DB.prepare('INSERT OR REPLACE INTO careers_lookups(organization_id,status,query,found_url,cost,budget) VALUES (?,?,?,?,?,?)')
+      .bind(id,url?'found':'not_found',query,url||null,cost,budget).run();
     if(!url)continue;
     found++;
     await env.DB.prepare('UPDATE agency_organizations SET primary_careers_url=?,careers_source="serp_lookup",updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(url,id).run();
