@@ -100,7 +100,8 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
       (SELECT COUNT(*) FROM agency_teaser_tokens t WHERE ${since('t.opened_at')} AND ${humanOpen()}) AS teasers_opened,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claim_requested_at')}) AS claims_requested,
       (SELECT COUNT(*) FROM agency_teaser_tokens WHERE ${since('claimed_at')}) AS claimed`).first<Row>();
-  const jobApplies=await db.prepare(`SELECT event_type,COUNT(*) AS count FROM caregiver_job_apply_events WHERE ${since('created_at')} GROUP BY event_type ORDER BY count DESC`).all<Row>();
+  const jobApplies=await db.prepare(`SELECT event_type,COUNT(*) AS count FROM caregiver_job_apply_events WHERE ${since('created_at')} GROUP BY event_type
+    ORDER BY CASE event_type WHEN 'apply_page_opened' THEN 0 WHEN 'apply_signed_in' THEN 1 WHEN 'profile_completed' THEN 2 WHEN 'carejoys_applied' THEN 3 WHEN 'external_redirect_clicked' THEN 4 ELSE 5 END,count DESC`).all<Row>();
   const pageViews=await db.prepare(`SELECT COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')}`).first<Row>();
   const topPaths=await db.prepare(`SELECT path,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY path ORDER BY count DESC LIMIT 12`).all<Row>();
   const topSources=await db.prepare(`SELECT COALESCE(NULLIF(utm_source,''),NULLIF(referrer_host,''),'direct') AS source,COUNT(*) AS count FROM analytics_events WHERE event_type='page_view' AND ${since('created_at')} GROUP BY 1 ORDER BY count DESC LIMIT 12`).all<Row>();

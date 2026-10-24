@@ -35,28 +35,20 @@ function employmentPills(value?:string){
 
 export function CaregiverJobPage(){
   const id=decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1]||'');
-  return <JobDetail id={id} startApply={window.location.hash==='#apply'}/>;
+  // Older #apply links (emails, the server snapshot, sign-in returns) land on the apply page instead.
+  if(window.location.hash==='#apply'){window.location.replace(applyPath(id));return null}
+  return <JobDetail id={id}/>;
 }
 
-/**
- * One job: the /jobs/:id page, or (embedded) the side panel that job lists open it in (JobDrawer.tsx),
- * so a caregiver can read and apply without leaving the list.
- */
-export function JobDetail({id,startApply=false,embedded=false}:{id:string;startApply?:boolean;embedded?:boolean}){
+/** Applying happens on its own page, opened in a new tab, so the caregiver's job list stays where they left it. */
+export const applyPath=(id:string)=>'/apply/'+encodeURIComponent(id);
+
+/** The job, and what the signed-in caregiver has already sent, for the job page and the apply page. */
+function useJobAndMe(id:string){
   const [job,setJob]=useState<Job|null>(null);
   const [loading,setLoading]=useState(true);
-  const [applyOpen,setApplyOpen]=useState(startApply);
-  const [context,setContext]=useState<JobContext|null>(null);
-  const [leaving,setLeaving]=useState(false);
   const auth=useCaregiverAuth();
   const [me,setMe]=useState<MyProfile|null>(null);
-  const [applying,setApplying]=useState(false);
-  const [applyError,setApplyError]=useState('');
-  const [applied,setApplied]=useState<ApplyResult|null>(null);
-  // Apply starts with sign-in; "Apply without signing in" skips it for this visit.
-  const [guest,setGuest]=useState(false);
-
-  // A signed-in caregiver with a profile applies in one click; everyone else uploads a resume first.
   useEffect(()=>{
     if(!auth.isAuthenticated){setMe(null);return}
     (async()=>{
@@ -65,46 +57,53 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
     })().catch(()=>{});
   },[auth.isAuthenticated]);
   useEffect(()=>{
-    if(!auth.isAuthenticated||!job?.id||!me?.caregiver)return;
-    void fetch('/api/me/worker-activity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:job.id})}).catch(()=>{});
-  },[auth.isAuthenticated,job?.id,!!me?.caregiver]);
-  const profile=me?.caregiver||null;
-  // No saving: a job is applied to only when the application reached the employer (on CareJoys, or Apply for me submitted).
-  const applicationSent=(!!applied&&applied.status!=='not_sent')||!!me?.applications?.some(a=>a.jobId===id);
-
-  async function applyWithProfile(){
-    if(!job)return;
-    setApplying(true);setApplyError('');
-    try{
-      const res=await fetch('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-      const body=await res.json() as ApplyResult&{error?:string};
-      if(!res.ok)throw new Error(body.error||'Could not send your application.');
-      setApplied(body);
-    }catch(error){setApplyError(error instanceof Error?error.message:'Could not send your application.')}
-    finally{setApplying(false)}
-  }
-
-  useEffect(()=>{
     fetch('/api/public/caregiver-jobs/'+encodeURIComponent(id))
       .then(async r=>{const body=await r.json();if(!r.ok)throw new Error(body.error||'Job not found');return body})
       .then((body:any)=>setJob(body.job))
       .catch(()=>setJob(null))
       .finally(()=>setLoading(false));
+  },[id]);
+  return {job,loading,auth,me};
+}
+
+// The employer's own application opens in a new tab (a real link, so no popup blocker), and the click is recorded
+// so CareJoys can count it.
+function recordEmployerSiteClick(jobId:string){recordApplyStep(jobId,'')}
+
+/** One step of applying, counted for the admin Jobs tab: '' is the click out to the employer's own site. */
+function recordApplyStep(jobId:string,step:''|'apply_page_opened'|'apply_signed_in'){
+  void fetch('/api/public/caregiver-jobs/'+encodeURIComponent(jobId)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(step?{step}:{}),keepalive:true}).catch(()=>{});
+}
+
+/**
+ * One job: the /jobs/:id page, or (embedded) the side panel that job lists open it in (JobDrawer.tsx),
+ * so a caregiver can read and apply without leaving the list.
+ */
+export function JobDetail({id,embedded=false}:{id:string;embedded?:boolean}){
+  const {job,loading,auth,me}=useJobAndMe(id);
+  const [context,setContext]=useState<JobContext|null>(null);
+  const [leaving,setLeaving]=useState(false);
+
+  useEffect(()=>{
+    if(!auth.isAuthenticated||!job?.id||!me?.caregiver)return;
+    void fetch('/api/me/worker-activity',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jobId:job.id})}).catch(()=>{});
+  },[auth.isAuthenticated,job?.id,!!me?.caregiver]);
+  // No saving: a job is applied to only when the application reached the employer (on CareJoys, or Apply for me submitted).
+  const applicationSent=!!me?.applications?.some(a=>a.jobId===id);
+
+  useEffect(()=>{
     fetch('/api/public/caregiver-jobs/'+encodeURIComponent(id)+'/context').then(r=>r.ok?r.json():null).then((body:any)=>{if(body?.ok)setContext(body)}).catch(()=>{});
   },[id]);
 
-  // The employer's own application opens in a new tab (a real link, so no popup blocker), and the click is
-  // recorded so CareJoys can count it. CareJoys stays open behind it with the job still showing.
   function applyOnEmployerSite(){
     if(!job)return;
     setLeaving(true);
-    void fetch('/api/public/caregiver-jobs/'+encodeURIComponent(job.id)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});
+    recordEmployerSiteClick(job.id);
   }
 
   // CareJoys can't send this application (employer not on CareJoys, job site Apply for me doesn't support). Apply with
   // CareJoys still builds the caregiver's profile, and says up front that they finish on the employer's site.
   const externalOnly=!!job&&!job.employerOnCareJoys&&!job.applyForMe;
-  function startApplying(){setApplyOpen(true)}
 
   if(loading)return <main className="job-detail-shell"><div className="wrap"><div className="empty">Loading job…</div></div></main>;
   if(!job)return <main className="job-detail-shell"><div className="wrap">{!embedded&&<a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a>}<div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
@@ -132,7 +131,7 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
             {payText&&<span className="pill">{payText}</span>}
           </div>
           <div className="job-detail-actions">
-            <button className="btn job-apply-primary" onClick={startApplying}>{applicationSent?'Applied ✓':'Apply with CareJoys'}</button>
+            <a className="btn job-apply-primary" href={applyPath(job.id)} target="_blank" rel="noopener">{applicationSent?'Applied ✓':'Apply with CareJoys'}</a>
             {!job.postedOnCareJoys&&<a className="text-button job-apply-direct" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow" onClick={applyOnEmployerSite}>Or apply on {job.employerName}’s site ↗</a>}
           </div>
           {!applicationSent&&<p className="apply-where">{leaving?'Opened in a new tab. Finish your application there; this page stays here.':externalOnly?`Free CareJoys profile, then you finish on ${job.employerName||'the employer'}’s site`:'Applies through CareJoys'}</p>}
@@ -156,27 +155,84 @@ export function JobDetail({id,startApply=false,embedded=false}:{id:string;startA
       </div>
     </main>
 
-    {applyOpen&&<div className="modal-backdrop" onMouseDown={()=>setApplyOpen(false)}>
-      <div className="modal-panel caregiver-apply-modal" onMouseDown={e=>e.stopPropagation()}>
-        <button className="modal-close" onClick={()=>setApplyOpen(false)} aria-label="Close">×</button>
-        {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
-        :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} finishOn={externalOnly?job.employerName||'the employer':''} next={'/jobs/'+encodeURIComponent(job.id)+'#apply'} onGuest={()=>setGuest(true)}/>
-        :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite} leaving={leaving}/>
-        :<CaregiverOnboarding
-          compact
-          targetJobId={job.id}
-          heading="Upload your resume to apply"
-          subheading={job.employerOnCareJoys
-            ?'We’ll read it, ask only for anything missing, then send your application to '+job.employerName+'.'
-            :'We’ll read it, ask only for anything missing, then send you to '+job.employerName+' to finish the application.'}
-        />}
-      </div>
-    </div>}
-
     {!embedded&&<SiteFooter/>}
   </div>;
 }
 
+
+/**
+ * /apply/:id, opened in a new tab from a job's Apply with CareJoys: sign in, a resume and the few missing fields, then
+ * the application goes to the employer, or (when CareJoys can't send it) the caregiver finishes on the employer's site.
+ * Every caregiver builds a CareJoys profile on the way.
+ */
+export function ApplyPage(){
+  const id=decodeURIComponent(window.location.pathname.split('/').filter(Boolean)[1]||'');
+  const {job,loading,auth,me}=useJobAndMe(id);
+  const [leaving,setLeaving]=useState(false);
+  const [applying,setApplying]=useState(false);
+  const [applyError,setApplyError]=useState('');
+  const [applied,setApplied]=useState<ApplyResult|null>(null);
+  // Apply starts with sign-in; "Apply without signing in" skips it for this visit.
+  const [guest,setGuest]=useState(false);
+  const profile=me?.caregiver||null;
+  const applicationSent=(!!applied&&applied.status!=='not_sent')||!!me?.applications?.some(a=>a.jobId===id);
+  // Counted once per visit: the page opened, then (now or after sign-in) a signed-in caregiver on it.
+  const jobFound=!!job?.id;
+  useEffect(()=>{if(jobFound)recordApplyStep(id,'apply_page_opened')},[id,jobFound]);
+  useEffect(()=>{if(jobFound&&auth.isAuthenticated)recordApplyStep(id,'apply_signed_in')},[id,jobFound,auth.isAuthenticated]);
+
+  async function applyWithProfile(){
+    if(!job)return;
+    setApplying(true);setApplyError('');
+    try{
+      const res=await fetch('/api/me/apply/'+encodeURIComponent(job.id),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+      const body=await res.json() as ApplyResult&{error?:string};
+      if(!res.ok)throw new Error(body.error||'Could not send your application.');
+      setApplied(body);
+    }catch(error){setApplyError(error instanceof Error?error.message:'Could not send your application.')}
+    finally{setApplying(false)}
+  }
+  function applyOnEmployerSite(){
+    if(!job)return;
+    setLeaving(true);
+    recordEmployerSiteClick(job.id);
+  }
+
+  if(loading)return <main className="job-detail-shell"><div className="wrap"><div className="empty">Loading job…</div></div></main>;
+  if(!job)return <main className="job-detail-shell"><div className="wrap"><a className="text-link" href="/caregiver-jobs">← Caregiver jobs</a><div className="empty"><strong>This job is no longer available.</strong></div></div></main>;
+  const externalOnly=!job.employerOnCareJoys&&!job.applyForMe;
+  const state=usState(job.state||'');
+  const where=[job.city,job.state].filter(Boolean).join(', ');
+  const payText=payLabel(job);
+
+  return <div>
+    <SiteHeader jobsHref={state?jobsHubPath(state):'/caregiver-jobs'} hireButton={false}/>
+    <main className="job-detail-shell apply-page">
+      <div className="wrap apply-page-wrap">
+        <div className="apply-page-job">
+          <div className="modal-kicker">Applying to</div>
+          <h1>{job.title}</h1>
+          <div className="job-detail-employer">{[job.employerName,where,payText].filter(Boolean).join(' · ')}</div>
+          <a className="text-link" href={'/jobs/'+encodeURIComponent(job.id)}>Job details</a>
+        </div>
+        <section className="job-detail-card apply-page-card">
+          {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
+          :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} finishOn={externalOnly?job.employerName||'the employer':''} next={applyPath(job.id)} onGuest={()=>setGuest(true)}/>
+          :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite} leaving={leaving}/>
+          :<CaregiverOnboarding
+            compact
+            targetJobId={job.id}
+            heading="Upload your resume to apply"
+            subheading={job.employerOnCareJoys
+              ?'We’ll read it, ask only for anything missing, then send your application to '+job.employerName+'.'
+              :'We’ll read it, ask only for anything missing, then send you to '+job.employerName+' to finish the application.'}
+          />}
+        </section>
+      </div>
+    </main>
+    <SiteFooter/>
+  </div>;
+}
 
 function ApplyWithProfile({job,profile,hasResume,applicationSent,applying,error,onApply,onEmployerSite,leaving}:{
   job:Job;profile:NonNullable<MyProfile['caregiver']>;hasResume:boolean;applicationSent:boolean;applying:boolean;error:string;

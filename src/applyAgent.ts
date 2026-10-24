@@ -301,7 +301,7 @@ export async function runAutoApply(env:ApplyEnv,maxBrowserRuns=3){
       if(!match.employerOnCareJoys&&!(match.applyForMe&&env.BROWSER))continue;
       if(!match.employerOnCareJoys&&browserRuns>=maxBrowserRuns)continue;
       // Each job once: never one they applied to, saved, or that auto-apply already tried.
-      const seen=await db.prepare(`SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=?
+      const seen=await db.prepare(`SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=? AND event_type NOT IN ('apply_page_opened','apply_signed_in')
         UNION SELECT 1 FROM apply_agent_sessions WHERE caregiver_id=? AND caregiver_job_id=? LIMIT 1`).bind(caregiverId,jobId,caregiverId,jobId).first();
       if(seen)continue;
       // Never an agency they hid their profile from.

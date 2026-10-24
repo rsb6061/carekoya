@@ -51,6 +51,7 @@ const caregiverSourceLabel=(source:string)=>({
   legacy_carekoya:'Imported legacy caregivers',resume_upload:'Resume signups',organic:'Direct caregiver signups',school_referral:'School referrals'
 } as Record<string,string>)[source]||source.replace(/_/g,' ');
 const applicationEventLabel=(event:string)=>({
+  apply_page_opened:'Apply page opened',apply_signed_in:'Signed in on the apply page',profile_completed:'Profile saved while applying',
   external_redirect_clicked:'Clicked external application',carejoys_applied:'Applied through CareJoys',
   apply_started:'Application started',apply_completed:'Application submitted'
 } as Record<string,string>)[event]||event.replace(/_/g,' ');
@@ -321,7 +322,7 @@ export function AdminConsole(){
       </>}
       {section==='jobs'&&<>
         <section className="section-block">
-          <div className="section-heading"><h2>Caregiver applications</h2><p>Actions tracked on job listings during this reporting period. These are not confirmed hires.</p></div>
+          <div className="section-heading"><h2>Caregiver applications</h2><p>Each apply step during this reporting period, in order: apply page opened, signed in, profile saved, then sent through CareJoys or out to the employer’s site. These are not confirmed hires.</p></div>
           <div className="admin-stat-grid">
             {f.jobApplies.length?f.jobApplies.map(a=><Stat key={a.event_type} label={applicationEventLabel(a.event_type)} value={a.count}/>):<Stat label="Tracked job actions" value={0}/>}
           </div>

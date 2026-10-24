@@ -1434,6 +1434,14 @@ describe('shared sign-in', ()=>{
     expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys])).toEqual([['job-claimed',true,true]]);
   });
 
+  it('counts each step on the apply page, and only the known ones', async()=>{
+    const step=(body:object)=>post('/api/public/caregiver-jobs/job-open/apply',body);
+    for(const body of [{step:'apply_page_opened'},{step:'apply_signed_in'},{step:'carejoys_applied'},{}])expect((await step(body)).status).toBe(200);
+    const rows=(await DB.prepare("SELECT event_type,COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_job_id='job-open' GROUP BY event_type ORDER BY event_type").all()).results;
+    // An unknown step is never stored as itself: it counts as the employer-site click it always was.
+    expect(rows).toEqual([{event_type:'apply_page_opened',n:1},{event_type:'apply_signed_in',n:1},{event_type:'external_redirect_clicked',n:2}]);
+  });
+
   it('stores the resume file and only starts Apply for me where it can', async()=>{
     await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-paylocity','org-open','job-paylocity','test','https://recruiting.paylocity.com/Recruiting/Jobs/Details/1','HHA Days','HHA','Bay Home Care','Baltimore','MD','21201','current',1)").run();
     expect(((await (await call('/api/public/caregiver-jobs/job-paylocity')).json()) as any).job.applyForMe).toBe(true);

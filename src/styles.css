@@ -261,7 +261,12 @@ a{color:inherit;text-decoration:none}
 .job-detail-source{font-size:12px;line-height:1.5;color:#8a8ca3;margin-top:16px}
 .job-description-section{padding:32px 0 0}
 .job-description-section p{white-space:pre-line;color:var(--muted);line-height:1.7}
-.caregiver-apply-modal{width:min(680px,calc(100vw - 32px))}
+.apply-page-wrap{max-width:720px}
+.apply-page-job{margin:0 0 20px}
+.apply-page-job h1{font-family:var(--display);font-size:clamp(30px,4vw,40px);line-height:1.1;font-weight:600;letter-spacing:-.03em;margin:4px 0 8px}
+.apply-page-job .job-detail-employer{margin-bottom:8px}
+.apply-page-card h2{font-family:var(--display);font-size:28px;line-height:1.15;font-weight:600;letter-spacing:-.02em;margin:0 0 8px}
+@media (max-width:640px){.apply-page-card{padding:20px}}
 .caregiver-public-job-list .job h3 a:hover{text-decoration:underline;text-underline-offset:3px}
 
 @media(max-width:760px){
