@@ -291,7 +291,11 @@ function collectJobPostingObjects(value:unknown,out:any[]=[]){
   for(const child of Object.values(obj))collectJobPostingObjects(child,out);
   return out;
 }
-function parseJsonLdJobs(html:string,pageUrl:string){
+function absoluteUrl(raw:string,base:string){
+  if(!raw)return '';
+  try{return new URL(raw,base).toString()}catch{return ''}
+}
+export function parseJsonLdJobs(html:string,pageUrl:string){
   const rawJobs:any[]=[];
   const re=/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   for(const match of html.matchAll(re)){
@@ -310,7 +314,8 @@ function parseJsonLdJobs(html:string,pageUrl:string){
     return {
       sourceProvider:'jsonld',
       sourceJobId:clean(identifier,200),
-      sourceUrl:clean(job.url,1000)||pageUrl,
+      // Some sites give a path ("/jobs/…"), which is only a link relative to the page it came from.
+      sourceUrl:absoluteUrl(clean(job.url,1000),pageUrl)||pageUrl,
       sourceListingUrl:pageUrl,
       title,role:cls.role,city:loc.city,state:loc.state,zip:loc.zip,
       employmentType:Array.isArray(job.employmentType)?job.employmentType.join(', '):clean(job.employmentType,120),
