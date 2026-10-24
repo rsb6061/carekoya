@@ -10,6 +10,7 @@ import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
 import { sendFirstJobNudges } from '../src/firstJobNudge';
+import { lookupCareersPagesBatch } from '../src/careersLookup';
 import { sendStillLookingEmails } from '../src/publicDirectory';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
 import { AGENCY_SMS_CONSENT_TEXT, SMS_CONSENT_TEXT } from '../src/smsConsent';
@@ -3586,6 +3587,30 @@ describe('first job nudge', ()=>{
     expect(mail.html).toContain('Unsubscribe');
     expect(mail.headers?.['List-Unsubscribe']).toBeTruthy();
     expect(await sendFirstJobNudges(env({FIRST_JOB_NUDGE_ENABLED:'true'}))).toEqual({sent:0,failed:0});
+  });
+});
+
+describe('careers page lookup order', ()=>{
+  it('takes one agency per short city in turn before the rest, and pays per search', async()=>{
+    const orgs:[string,string,string][]=[['cl-sd1','San Diego','CA'],['cl-sd2','San Diego','CA'],['cl-bak','Bakersfield','CA'],['cl-bk','Brooklyn','NY'],['cl-balt','Baltimore','MD'],['cl-else','Boise','ID']];
+    for(const [id,city,state] of orgs){
+      await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,primary_website,primary_domain) VALUES (?,?,?,?,?,1,?,?)").bind(id,id,id+' Home Care',city,state,`https://${id}.test/`,`${id}.test`).run();
+      await DB.prepare("INSERT INTO agency_job_scan_state(organization_id,last_status) VALUES (?,'no_job_board_found')").bind(id).run();
+    }
+    const asked:string[]=[];
+    const realFetch=globalThis.fetch;
+    globalThis.fetch=(async(_url:any,init:any)=>{
+      asked.push(JSON.parse(init.body)[0].keyword);
+      return new Response(JSON.stringify({tasks:[{status_code:20000,cost:0.002,result:[{items:[]}]}]}),{status:200});
+    }) as any;
+    try{
+      const run=await lookupCareersPagesBatch(env({DATAFORSEO_LOGIN:'u',DATAFORSEO_PASSWORD:'p',CAREERS_LOOKUP_DAILY_USD:'1'}),4);
+      expect(run).toEqual({searched:4,found:0,spent:0.008});
+    }finally{globalThis.fetch=realFetch}
+    // San Diego, Bakersfield and New York (Brooklyn) each get one before San Diego's second; Baltimore and Boise wait.
+    expect(asked.map(q=>q.split(' ')[0])).toEqual(['cl-sd1','cl-bak','cl-bk','cl-sd2']);
+    const rows=(await DB.prepare("SELECT organization_id FROM careers_lookups WHERE organization_id LIKE 'cl-%' ORDER BY organization_id").all()).results.map((r:any)=>r.organization_id);
+    expect(rows).toEqual(['cl-bak','cl-bk','cl-sd1','cl-sd2']);
   });
 });
 

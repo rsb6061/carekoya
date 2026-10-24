@@ -4,9 +4,10 @@
 // result found becomes the agency's careers URL and the agency is scanned again within the hour.
 //
 // Paid: DataForSEO reports each search's cost, and the hourly run stops for the day at CAREERS_LOOKUP_DAILY_USD
-// (0 or unset turns it off). Each agency is searched once. Agencies in the priority cities go first.
+// (0 or unset turns it off). Each agency is searched once. The cities whose job pages are short go first, one agency
+// per city in turn (CAREERS_LOOKUP_TARGETS), then the scanning order.
 import { agencyCareersResult } from './jobDiscovery';
-import { sourcingRankSql } from './sourcingPriorities';
+import { CAREERS_LOOKUP_TARGETS, sourcingRankSql } from './sourcingPriorities';
 
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<unknown>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
@@ -48,12 +49,17 @@ export async function lookupCareersPagesBatch(env:CareersLookupEnv,limit=PER_RUN
   const today=await env.DB.prepare("SELECT COALESCE(SUM(cost),0) AS spent FROM careers_lookups WHERE looked_up_at>=date('now')").first<{spent:number}>();
   let spent=Number(today?.spent||0);
   if(spent>=cap)return {searched:0,found:0,spent};
-  const orgs=(await env.DB.prepare(`SELECT ao.id,ao.canonical_name,ao.city,ao.state,ao.primary_website,ao.primary_domain
-    FROM agency_job_scan_state scan JOIN agency_organizations ao ON ao.id=scan.organization_id
-    LEFT JOIN careers_lookups cl ON cl.organization_id=ao.id
-    WHERE scan.last_status IN ('no_job_board_found','fetch_failed') AND cl.organization_id IS NULL
-      AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_careers_url,'')=''
-    ORDER BY ${sourcingRankSql('ao.state','ao.city')},ao.id LIMIT ?`).bind(limit).all<Row>()).results||[];
+  // One agency per target city in turn (nth within its city), then everyone else in the scanning order.
+  const cityRank=sourcingRankSql('ao.state','ao.city',CAREERS_LOOKUP_TARGETS),others=CAREERS_LOOKUP_TARGETS.length;
+  const orgs=(await env.DB.prepare(`SELECT id,canonical_name,city,state,primary_website,primary_domain FROM (
+      SELECT ao.id,ao.canonical_name,ao.city,ao.state,ao.primary_website,ao.primary_domain,
+        ${cityRank} AS city_rank,ROW_NUMBER() OVER (PARTITION BY ${cityRank} ORDER BY ao.id) AS nth,
+        ${sourcingRankSql('ao.state','ao.city')} AS scan_rank
+      FROM agency_job_scan_state scan JOIN agency_organizations ao ON ao.id=scan.organization_id
+      LEFT JOIN careers_lookups cl ON cl.organization_id=ao.id
+      WHERE scan.last_status IN ('no_job_board_found','fetch_failed') AND cl.organization_id IS NULL
+        AND ao.is_active=1 AND COALESCE(ao.is_test,0)=0 AND COALESCE(ao.primary_careers_url,'')='')
+    ORDER BY CASE WHEN city_rank<${others} THEN nth ELSE 1000000000 END,city_rank,scan_rank,id LIMIT ?`).bind(limit).all<Row>()).results||[];
   const auth='Basic '+btoa(clean(env.DATAFORSEO_LOGIN,320)+':'+clean(env.DATAFORSEO_PASSWORD,320));
   let searched=0,found=0,failures=0;
   for(const org of orgs){
