@@ -127,7 +127,15 @@ export const OUTREACH_LAST_UTC_HOUR=21;
 
 /** How many agency emails one hourly run may send: the daily cap spread over the send window, and none outside it.
  *  Replaces the old cap/24 spread, which sent most of the day's emails overnight US time (Rebecca, 2026-10-23). */
-export function outreachSlice(cap:number,utcHour:number){
+export function outreachSlice(cap:number,utcHour:number,left=0){
   if(cap<=0||utcHour<OUTREACH_FIRST_UTC_HOUR||utcHour>OUTREACH_LAST_UTC_HOUR)return 0;
-  return Math.ceil(cap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1));
+  // When the cap goes up mid-day, or a run was missed, the rest of the day's emails share the runs still to come.
+  return Math.max(Math.ceil(cap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1)),Math.ceil(left/(OUTREACH_LAST_UTC_HOUR-utcHour+1)));
+}
+
+/** A one-day addition to the agency email cap: AGENCY_OUTREACH_EXTRA as "YYYY-MM-DD:N" (UTC date). Any other day adds
+ *  nothing, so it ends on its own. Rebecca asked for 50 more on 2026-10-24. */
+export function outreachExtraToday(value:unknown,now:Date){
+  const m=String(value||'').trim().match(/^(\d{4}-\d{2}-\d{2}):(\d{1,3})$/);
+  return m&&m[1]===now.toISOString().slice(0,10)?Number(m[2]):0;
 }

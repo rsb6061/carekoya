@@ -83,6 +83,7 @@
     "AGENCY_HIRING_INVITES_ENABLED": "true",
     // Raised from 20 to 60 a day (Rebecca approved 2026-10-19).
     "AGENCY_HIRING_INVITE_DAILY_CAP": "60",
+    "AGENCY_OUTREACH_EXTRA": "2026-10-24:50",
     // "openers" or "all": re-send the new invite (PR #154 copy) to agencies that only saw the old one. Blank is off.
     // Off 2026-10-23: the reply-yes note is the only agency email now.
     "AGENCY_HIRING_REINVITE": "",
