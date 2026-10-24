@@ -1006,6 +1006,12 @@ describe('apply links', ()=>{
     expect(applyUrlProblem('https://x.wd1.myworkdayjobs.com/en-US/External/job/Town/CNA_R-1')).toBe('');
     expect(applyUrlProblem('https://careers-acme.icims.com/jobs/123/cna/job')).toBe('');
   });
+  it('makes JSON-LD job links absolute', async ()=>{
+    const {parseJsonLdJobs}=await import('../src/jobDiscovery');
+    const html='<script type="application/ld+json">'+JSON.stringify({'@type':'JobPosting',title:'Caregiver/Home Health Aide',description:'Caregiver home health aide role',url:'/jobs/caregiver-okc-197373'})+'</script>';
+    const jobs=parseJsonLdJobs(html,'https://careers.allwayscaring.com/jobs/assessment-rn');
+    expect(jobs[0]?.sourceUrl).toBe('https://careers.allwayscaring.com/jobs/caregiver-okc-197373');
+  });
   it('checks Workday postings through the job API', async ()=>{
     const {workdayPostingApi}=await import('../src/applyLinkCheck');
     expect(workdayPostingApi('https://erickson.wd108.myworkdayjobs.com/en-US/External/job/Catonsville/CNA_R-9'))

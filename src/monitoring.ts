@@ -295,7 +295,9 @@ export async function checkJobSupply(env:MonitorEnv){
 export async function applyLinkFindings(db:NonNullable<MonitorEnv['DB']>){
   const r=await db.prepare(`SELECT
     (SELECT COUNT(*) FROM caregiver_jobs WHERE is_published=1 AND status='current' AND (source_url LIKE 'https://%.myworkdayjobs.com/job/%' OR source_url LIKE '%/invalid-url%')) AS broken_live,
-    (SELECT COUNT(*) FROM caregiver_jobs WHERE status='current' AND publication_reason='dead_apply_link' AND updated_at>=datetime('now','-1 day')) AS taken_down`).first<Row>();
+    -- link_checked_at is stamped only when a live page comes down (rescans bump updated_at on hidden rows too, which
+    -- re-counted the same old takedowns every day).
+    (SELECT COUNT(*) FROM caregiver_jobs WHERE publication_reason='dead_apply_link' AND is_published=0 AND link_checked_at>=datetime('now','-1 day')) AS taken_down`).first<Row>();
   const out:string[]=[];
   const broken=Number(r?.broken_live||0),down=Number(r?.taken_down||0);
   if(broken>0)out.push(`${broken} live job pages have an apply link that can't work (Workday link without its board name, or an invalid-url page).`);
