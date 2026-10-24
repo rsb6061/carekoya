@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { TOP_CITIES, isCnaJobsPath, isNationalJobsPath, jobsHubPath, parseJobsHubPath, stateForZipPrefix, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
+import { JobAlertSignup } from './JobAlertSignup';
 import { HOURS_FILTERS, freshnessLine, hoursFilter, payLabel, pillLabel, type HoursFilter } from './jobFormat';
 import './styles.css';
 
@@ -185,6 +186,7 @@ function NationalJobsPage(){
       </div></section>
 
       {q&&<section className="section caregiver-jobs-section" id="search-results"><div className="wrap">
+        {zip&&params.get('alert')==='on'&&<div className="job-alert job-alert-done" role="status"><strong>You’re set.</strong><span> We’ll email you when new {noun} are posted near {zip}, at most once a week.</span></div>}
         {zip
           ?<>
             <div className="section-heading"><div>
@@ -196,6 +198,7 @@ function NationalJobsPage(){
               :near.length===0
                 ?<div className="empty"><strong>No current {noun} within {NEAR_MILES} miles of {zip} yet.</strong><div>{zipState?<>Try <a className="text-link" href={jobsHubPath(zipState,'',cna)}>all {noun} in {zipState.name}</a>, or upload</>:'Upload'} your resume above and we’ll match you as openings are confirmed.</div></div>
                 :<JobList jobs={near}/>}
+            {near!==null&&params.get('alert')!=='on'&&<JobAlertSignup role={cna?'CNA':'Caregiver'} zip={zip}/>}
           </>
           :<div className="empty"><strong>We couldn’t find {noun} for “{q}”.</strong><div>Try a city and state like “Baltimore, MD”, a ZIP code, or pick a state below.</div></div>}
       </div></section>}
@@ -212,6 +215,7 @@ function NationalJobsPage(){
         {loading&&!data
           ?<div className="empty"><strong>Loading current openings…</strong></div>
           :data&&data.jobs.length>0?<JobList jobs={data.jobs}/>:<div className="empty"><strong>No current {noun}{filters.hours||filters.payShown?' match these filters':' yet'}.</strong></div>}
+        {!zip&&data&&<JobAlertSignup role={cna?'CNA':'Caregiver'}/>}
         {data&&<Pager page={data.page} pages={data.pages} onChange={setPage}/>}
       </div></section>
 
@@ -334,6 +338,8 @@ function StateJobsPage(){
             ?<div className="empty"><strong>CareJoys is adding verified caregiver jobs in {place} now.</strong><div>Create your free profile above and we’ll match you as openings are confirmed, or <a className="text-link" href="/caregiver-jobs">browse jobs in other states</a>.</div></div>
             :<JobList jobs={hub.jobs}/>}
 
+        {/* Not ready to apply? An email and ZIP brings them back when new jobs are posted nearby. */}
+        {hub&&<JobAlertSignup role={cna?'CNA':'Caregiver'}/>}
         {hub&&<Pager page={hub.page} pages={hub.pages} onChange={setPage}/>}
 
         {hub&&(cna?(hub.sibling||0)>0:hasCnaPage)&&<p className="hub-other-states"><a className="text-link" href={jobsHubPath(state,citySlug,!cna)}>{cna?'See all '+hub.sibling+' caregiver jobs in '+area:'See '+hub.sibling+' CNA'+(isMaryland?' and GNA':'')+' jobs in '+area} →</a></p>}

@@ -7,6 +7,7 @@ import { jobsHubPath, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { descriptionBlocks, payLabel, pillLabel } from './jobFormat';
 import './styles.css';
+import { JobAlertSignup } from './JobAlertSignup';
 
 type Job={
   id:string;title:string;role:string;roles?:string[];employerName:string;city?:string;state?:string;zip?:string;
@@ -137,6 +138,8 @@ export function JobDetail({id,embedded=false}:{id:string;embedded?:boolean}){
           {!applicationSent&&<p className="apply-where">{leaving?'Opened in a new tab. Finish your application there; this page stays here.':externalOnly?`Free CareJoys profile, then you finish on ${job.employerName||'the employer'}’s site`:'Applies through CareJoys'}</p>}
           <div className="job-detail-source">{job.postedOnCareJoys?`Posted on CareJoys by ${job.employerName}.`:<>CareJoys verified this opening from the employer’s public careers page. Last checked {job.lastCheckedAt?new Date(job.lastCheckedAt).toLocaleDateString():new Date(job.lastSeenAt||Date.now()).toLocaleDateString()}.</>}</div>
         </section>
+        {/* Caregivers with a profile already get the weekly job email; everyone else can leave just an email and ZIP. */}
+        {!me?.caregiver&&!applicationSent&&<JobAlertSignup role={/^(CNA|GNA)$/i.test(job.role||'')?'CNA':'Caregiver'} zip={(job.zip||'').slice(0,5)}/>}
 
         {description?.lead&&<section className="section job-description-section"><h2>About this job</h2><p>{description.lead}</p>{description.bullets.length>0&&<ul className="job-description-list">{description.bullets.map((b,i)=><li key={i}>{b}</li>)}</ul>}{!job.postedOnCareJoys&&<p className="job-summary-note">Summary written by CareJoys. See the full posting on <a className="text-link" href={job.sourceUrl} target="_blank" rel="noreferrer nofollow">{job.employerName}’s site</a>.</p>}</section>}
         {context?.payContext&&<section className="section job-description-section"><h2>Pay for {context.payContext.role} jobs in {context.payContext.state}</h2><p>The median advertised pay across {context.payContext.count} current {context.payContext.role} jobs in {context.payContext.state} is ${context.payContext.median.toFixed(2)}/hr{context.payContext.position?<>; this job is <strong>{context.payContext.position}</strong> that median.</>:'.'}</p></section>}

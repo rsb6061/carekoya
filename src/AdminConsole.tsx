@@ -21,6 +21,7 @@ type Overview={
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
+      jobAlerts?:{enabled:boolean;active:number;pending:number;sentLast7Days:number};
       schools:{mode:string;cap:number;today:number;contactable:number;intros:number;claimed:number;referrals:number;
         prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
     };
@@ -345,6 +346,7 @@ export function AdminConsole(){
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
     <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>
     <Stat label="Weekly job emails to caregivers" value={oc.weeklyDigest.enabled?'On':'Off'} sub={oc.weeklyDigest.verified+' of '+oc.weeklyDigest.subscribed+' opted-in caregivers verified · '+oc.weeklyDigest.sentLast7Days+' sent in the last 7 days'}/>
+    {oc.jobAlerts&&<Stat label="Job alerts from job pages (email + ZIP)" value={oc.jobAlerts.enabled?'On':'Off'} sub={oc.jobAlerts.active+' confirmed · '+oc.jobAlerts.pending+' waiting to confirm · '+oc.jobAlerts.sentLast7Days+' sent in the last 7 days'}/>}
     <Stat label="Training-school invitations" value={oc.schools.mode==='automatic'?'On':'Manual'} sub={oc.schools.today+' of '+oc.schools.cap+' sent today · '+oc.schools.intros+' recorded introductions'}/>
   </div>
   {oc.agencyHiring.replyYes?.on&&<ReplyYesTest/>}

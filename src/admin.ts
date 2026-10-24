@@ -9,7 +9,7 @@ import { replyYesCounts } from './replyYesOutreach';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string;JOB_ALERTS_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -117,6 +117,11 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     COALESCE(SUM(CASE WHEN p.email_enabled=1 AND c.auth0_email_verified=1 THEN 1 ELSE 0 END),0) AS verified,
     COALESCE(SUM(CASE WHEN p.last_sent_at IS NOT NULL AND datetime(p.last_sent_at)>datetime('now','-7 days') THEN 1 ELSE 0 END),0) AS sent_week
     FROM caregiver_job_alert_preferences p JOIN caregivers c ON c.id=p.caregiver_id`).first<Row>();
+  const alertSignups=await db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN status='active' THEN 1 ELSE 0 END),0) AS active,
+    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pending,
+    COALESCE(SUM(CASE WHEN last_sent_at IS NOT NULL AND datetime(last_sent_at)>datetime('now','-7 days') THEN 1 ELSE 0 END),0) AS sent_week
+    FROM job_alert_signups`).first<Row>();
   const reminders=await db.prepare("SELECT COALESCE(SUM(sent),0) AS sent FROM outreach_runs WHERE kind='reactivation_reminder'").first<Row>();
   const school=await db.prepare(`SELECT
     (SELECT COUNT(*) FROM training_programs WHERE is_active=1 AND upper(state)='MD' AND trim(COALESCE(email,''))!='') AS contactable,
@@ -155,6 +160,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
       agencyInboxAlerts:{claimedLast24h:num(inboxAlerts,'claimed'),unclaimedLast24h:num(inboxAlerts,'unclaimed'),
         unclaimedEnabled:on(env.OUTREACH_ENABLED),dailyLimit:AGENCY_EMAILS_PER_DAY},
       weeklyDigest:{enabled:on(env.WEEKLY_DIGEST_ENABLED),subscribed:num(digest,'subscribed'),verified:num(digest,'verified'),sentLast7Days:num(digest,'sent_week')},
+      jobAlerts:{enabled:on(env.JOB_ALERTS_ENABLED),active:num(alertSignups,'active'),pending:num(alertSignups,'pending'),sentLast7Days:num(alertSignups,'sent_week')},
       schools:{mode:String((env as AdminEnv & {SCHOOL_OUTREACH_ENABLED?:string}).SCHOOL_OUTREACH_ENABLED||'').toLowerCase()==='true'?'automatic':'manual',cap:Math.max(0,Math.min(100,Number((env as AdminEnv & {SCHOOL_OUTREACH_DAILY_CAP?:string}).SCHOOL_OUTREACH_DAILY_CAP||15)||0)),today:num(school,'today'),contactable:num(school,'contactable'),intros:num(school,'intros'),claimed:num(school,'claimed'),
         referrals:num(school,'referred'),prospects:(programRows.results||[]).map(p=>({
           id:p.id,name:p.program_name,city:p.city,type:p.provider_type,email:p.email,referralSlug:p.referral_slug

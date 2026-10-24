@@ -3,6 +3,7 @@ import { accountSession, accountStatus, closeAccountSide, signedInHome, employer
 import { setMailingAddress, talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
+import { handleJobAlertConfirm, handleJobAlertSignup, sendJobAlerts } from './jobAlertSignups';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
@@ -92,6 +93,7 @@ interface Env {
   REACTIVATION_DAILY_CAP?: string;
   REACTIVATION_REMINDER_ENABLED?: string;
   WEEKLY_DIGEST_ENABLED?: string;
+  JOB_ALERTS_ENABLED?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
   AGENCY_HIRING_INVITES_ENABLED?: string;
   FACILITY_PILOT_ENABLED?: string;
@@ -2213,6 +2215,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(url.pathname==="/api/health") return handlePublicHealth(env);
     if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
+    if(request.method==="POST"&&url.pathname==="/api/public/job-alerts") return rejectCrossSiteWrite(request)||handleJobAlertSignup(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/job-alerts/confirm") return handleJobAlertConfirm(url,env);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     // An agency's past applicant answering the "still looking?" email (src/applicantReactivation.ts).
     if(url.pathname==="/still-looking"&&request.method==="GET") return handleStillLooking(request,env);
@@ -2696,6 +2700,8 @@ export default {
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
+        // Email-and-ZIP job alerts from job and city pages: confirmed signups only, at most weekly, only when there are new jobs.
+        await sendJobAlerts(env,100).catch(error=>console.error("job alerts failed",error));
         // Saved Find caregivers searches: one email per search when new caregivers nearby match it.
         await sendTalentAlerts(env).catch(error=>console.error("talent alerts failed",error));
         // "Still looking?" to caregivers on the public directory, two weeks after they last confirmed.
