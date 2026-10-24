@@ -199,7 +199,7 @@ export async function agencyJobs(request:Request,env:FeatureEnv){
   const org=await env.DB.prepare("SELECT id FROM agency_organizations WHERE claimed_employer_id=? AND is_active=1 LIMIT 1").bind(employer.id).first<Row>();
   if(!org)return json({ok:true,jobs:[]});
   const rows=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.is_published,j.publication_reason,j.last_seen_at,
-      (SELECT COUNT(*) FROM caregiver_job_apply_events a WHERE a.caregiver_job_id=j.id) AS apply_clicks,
+      (SELECT COUNT(*) FROM caregiver_job_apply_events a WHERE a.caregiver_job_id=j.id AND a.event_type NOT IN ('apply_page_opened','apply_signed_in')) AS apply_clicks,
       (SELECT COUNT(*) FROM analytics_events v WHERE v.event_type='page_view' AND v.path='/jobs/'||j.id) AS views,
       (SELECT COUNT(*) FROM agency_interests ai WHERE ai.caregiver_job_id=j.id) AS applicants
     FROM caregiver_jobs j WHERE j.agency_organization_id=? AND j.status='current' AND j.source_provider!=? AND (j.is_published=1 OR j.publication_reason IN ('hidden_by_employer',?))

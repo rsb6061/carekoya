@@ -31,6 +31,7 @@ const CaregiverResumePage=named(()=>import('./CaregiverResumePage'),'CaregiverRe
 const GnaJobsPage=named(()=>import('./LocalLandingPages'),'GnaJobsPage');
 const CnaClassesPage=named(()=>import('./LocalLandingPages'),'CnaClassesPage');
 const CaregiverJobPage=named(()=>import('./CaregiverJobPage'),'CaregiverJobPage');
+const ApplyPage=named(()=>import('./CaregiverJobPage'),'ApplyPage');
 const ConfirmInterest=named(()=>import('./ConfirmInterest'),'ConfirmInterest');
 const ApplicantBookingPage=named(()=>import('./ApplicantBookingPage'),'ApplicantBookingPage');
 const AgentSetupPage=named(()=>import('./AgentSetupPage'),'AgentSetupPage');
@@ -48,6 +49,7 @@ function routePage(path:string){
   if (/^\/gna-jobs\/maryland(\/baltimore)?\/?$/.test(path)) return <GnaJobsPage />;
   if (/^\/cna-classes\/baltimore\/?$/.test(path)) return <CnaClassesPage />;
   if (path.startsWith('/jobs/')) return <CaregiverJobPage />;
+  if (path.startsWith('/apply/')) return <ApplyPage />;
   if (path.startsWith('/resources/how-to-become-a-caregiver-in-maryland')) return <HowToBecomeCaregiverMarylandPage />;
   if (path.startsWith('/resources/nurse-aide-registry-by-state')) return <NurseAideRegistryPage />;
   if (path === '/about' || path.startsWith('/about/')) return <AboutCareJoysPage />;
@@ -84,7 +86,7 @@ export function App() {
   const path=window.location.pathname;
   const page=routePage(path);
   // Caregiver pages that list jobs open each one in a side panel (JobDrawer); work tools and the job page itself don't.
-  const drawer=!/^\/(jobs|admin|app|agency|auth|school-dashboard)(\/|$)/.test(path)&&<JobDrawer/>;
+  const drawer=!/^\/(jobs|apply|admin|app|agency|auth|school-dashboard)(\/|$)/.test(path)&&<JobDrawer/>;
   if (page) return <Suspense fallback={<div className="page-loading" aria-busy="true" />}>{page}{drawer}</Suspense>;
   // The Worker answers unknown paths with a 404 status; match it instead of showing the homepage.
   if (path !== '/' && path !== '/index.html') return <NotFound />;

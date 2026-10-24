@@ -18,6 +18,7 @@ import { recordSmsConsent, twilioSignature } from '../src/sms';
 import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/settingsApi';
 import { runAutoApply } from '../src/applyAgent';
 import { sendReplyYesBatch } from '../src/replyYesOutreach';
+import { sendJobAlerts } from '../src/jobAlertSignups';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -1433,6 +1434,14 @@ describe('shared sign-in', ()=>{
     expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_id='dc' AND caregiver_job_id='job-open'").first()).toEqual({n:0});
     const me=await (await call('/api/me',{headers:{cookie}})).json() as any;
     expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys])).toEqual([['job-claimed',true,true]]);
+  });
+
+  it('counts each step on the apply page, and only the known ones', async()=>{
+    const step=(body:object)=>post('/api/public/caregiver-jobs/job-open/apply',body);
+    for(const body of [{step:'apply_page_opened'},{step:'apply_signed_in'},{step:'carejoys_applied'},{}])expect((await step(body)).status).toBe(200);
+    const rows=(await DB.prepare("SELECT event_type,COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_job_id='job-open' GROUP BY event_type ORDER BY event_type").all()).results;
+    // An unknown step is never stored as itself: it counts as the employer-site click it always was.
+    expect(rows).toEqual([{event_type:'apply_page_opened',n:1},{event_type:'apply_signed_in',n:1},{event_type:'external_redirect_clicked',n:2}]);
   });
 
   it('stores the resume file and only starts Apply for me where it can', async()=>{
@@ -3742,5 +3751,63 @@ describe('public caregiver directory', ()=>{
     expect(row.fresh).toBe(1);
     expect((await call(yes)).status).toBe(410);
     expect(await DB.prepare("SELECT source FROM availability_events WHERE caregiver_id='dir-ask' ORDER BY confirmed_at DESC LIMIT 1").first()).toEqual({source:'still_looking_email'});
+  });
+});
+
+describe('one-field job alerts', ()=>{
+  it('confirms by email with today’s jobs, then sends only new nearby jobs at most weekly', async()=>{
+    await DB.prepare("DELETE FROM job_alert_signups").run();
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,is_active) VALUES ('org-alerts','org-alerts','Valley Care',1)").run();
+    const addJob=(id:string,title:string,role:string,zip:string,city:string,state:string)=>DB.prepare(`INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published,first_seen_at)
+      VALUES (?,'org-alerts',?,'test','https://valley.test/apply',?,?,'Valley Care',?,?,?,'current',1,datetime('now','-2 days'))`).bind(id,id,title,role,city,state,zip).run();
+    await addJob('alert-cna','CNA Days Missoula','CNA','59801','Missoula','MT');
+    await addJob('alert-hha','HHA Weekends Missoula','HHA','59801','Missoula','MT');
+    await addJob('alert-far','CNA Nights Los Angeles','CNA','90001','Los Angeles','CA');
+
+    expect((await post('/api/public/job-alerts',{email:'nope',zip:'59801'})).status).toBe(400);
+    expect((await post('/api/public/job-alerts',{email:'alert@example.com',zip:'123'})).status).toBe(400);
+    sent.length=0;
+    const res=await post('/api/public/job-alerts',{email:'Alert@Example.com',zip:'59801',role:'CNA',source:'/jobs/alert-cna'});
+    expect(await res.json()).toEqual({ok:true,status:'pending'});
+    expect(sent.map(m=>[m.to,m.subject])).toEqual([['alert@example.com','Confirm your CNA jobs near 59801']]);
+    const confirm=sent[0].html!;
+    expect(confirm).toContain('CNA Days Missoula');
+    expect(confirm).not.toContain('HHA Weekends');
+    expect(confirm).not.toContain('Los Angeles');
+    expect((sent[0] as any).from).toBe('CareJoys <hello@carejoys.com>');
+    // Sending the form again the same day doesn't send a second confirm email.
+    sent.length=0;
+    expect(await (await post('/api/public/job-alerts',{email:'alert@example.com',zip:'59801',role:'CNA'})).json()).toEqual({ok:true,status:'pending'});
+    expect(sent).toEqual([]);
+
+    const link=(confirm.match(/href="(https:\/\/carejoys\.com\/api\/public\/job-alerts\/confirm\?token=[^"]+)"/)||[])[1]!;
+    const landed=await call(link.replace('https://carejoys.com','').replace(/&amp;/g,'&'),{redirect:'manual'});
+    expect(landed.status).toBe(302);
+    expect(landed.headers.get('location')).toBe('https://carejoys.com/cna-jobs?alert=on&q=59801#search-results');
+    expect(await (await post('/api/public/job-alerts',{email:'alert@example.com',zip:'59801',role:'CNA'})).json()).toEqual({ok:true,status:'active'});
+    // An unconfirmed signup never gets the weekly email.
+    await post('/api/public/job-alerts',{email:'pending@example.com',zip:'59801',role:'CNA'});
+
+    expect(await sendJobAlerts(env())).toEqual({sent:0,skipped:0,disabled:true});
+    sent.length=0;
+    // Nothing new since they confirmed: no email.
+    expect(await sendJobAlerts(env({JOB_ALERTS_ENABLED:'true'}))).toMatchObject({sent:0});
+    await DB.prepare("UPDATE job_alert_signups SET confirmed_at=datetime('now','-1 hour') WHERE email='alert@example.com'").run();
+    await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('alert-new','org-alerts','alert-new','test','https://valley.test/apply','CNA Evenings Missoula','CNA','Valley Care','Missoula','MT','59801','current',1)").run();
+    expect(await sendJobAlerts(env({JOB_ALERTS_ENABLED:'true'}))).toMatchObject({sent:1});
+    expect(sent.map(m=>[m.to,m.subject])).toEqual([['alert@example.com','1 new CNA job near 59801']]);
+    expect(sent[0].html).toContain('CNA Evenings Missoula');
+    expect(sent[0].html).not.toContain('CNA Days Missoula');
+    expect(sent[0].headers?.['List-Unsubscribe']).toContain('/api/unsubscribe?token=');
+    // At most once a week.
+    sent.length=0;
+    expect(await sendJobAlerts(env({JOB_ALERTS_ENABLED:'true'}))).toMatchObject({sent:0});
+    expect(sent).toEqual([]);
+  });
+
+  it('limits sign-ups from one connection', async()=>{
+    const statuses:number[]=[];
+    for(let i=0;i<6;i++)statuses.push((await call('/api/public/job-alerts',{method:'POST',headers:{'content-type':'application/json','CF-Connecting-IP':'203.0.113.9'},body:JSON.stringify({email:'many'+i+'@example.com',zip:'59801'})})).status);
+    expect(statuses).toEqual([200,200,200,200,200,429]);
   });
 });

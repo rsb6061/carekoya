@@ -593,3 +593,37 @@ export function agencyReactivationEmail(input:{firstName:string;senderName:strin
     text:`Hi ${input.firstName||'there'},\n\nThis is ${input.senderName} with ${input.agencyName}. You applied with us for a ${role} position a while back, and we have open shifts now${pay}.\n\nAre you still looking for caregiver work?\n\nYes, I'm still looking: ${input.yesLink}\nNo, not right now: ${input.noLink}\n\n${input.agencyName} works with CareJoys to get back to applicants. You're getting this because you applied to ${input.agencyName}.`
   };
 }
+
+type AlertJob={title:string;employerName:string;place:string;pay:string;url:string};
+const alertJobList=(jobs:AlertJob[])=>`<ul style="padding-left:20px;margin:0 0 8px">${jobs.map(j=>`<li style="margin:0 0 16px;font-size:16px;line-height:1.5"><a href="${esc(j.url)}" style="color:#b8368f;font-weight:700">${esc(j.title)}</a><div style="color:#5b5f7e">${esc([j.employerName,j.place,j.pay].filter(Boolean).join(' · '))}</div></li>`).join('')}</ul>`;
+const alertJobText=(jobs:AlertJob[])=>jobs.map(j=>`${j.title} · ${[j.employerName,j.place,j.pay].filter(Boolean).join(' · ')}\n${j.url}`).join('\n\n');
+
+/** Sent once when someone leaves an email and ZIP on a job page: today's jobs, and a button to keep them coming. */
+export function jobAlertConfirmEmail(input:{noun:string;zip:string;jobs:AlertJob[];confirmLink:string;moreLink:string}) {
+  const intro=input.jobs.length
+    ?`Here are ${input.noun} near ${input.zip} right now. Confirm below and we'll email you when new ones are posted, at most once a week.`
+    :`There are no ${input.noun} near ${input.zip} right now. Confirm below and we'll email you when new ones are posted, at most once a week.`;
+  return {
+    subject:`Confirm your ${input.noun} near ${input.zip}`,
+    html:shell(`${input.noun[0].toUpperCase()+input.noun.slice(1)} near ${input.zip}`,
+      p(esc(intro))+(input.jobs.length?alertJobList(input.jobs):'')+
+      cta(input.confirmLink,'Yes, email me new jobs')+
+      p(`<a href="${esc(input.moreLink)}" style="color:#b8368f">See every job near ${esc(input.zip)}</a>`)+
+      p('Didn’t ask for this? Ignore this email and we won’t send another.')),
+    text:`${intro}\n\n${input.jobs.length?alertJobText(input.jobs)+'\n\n':''}Yes, email me new jobs: ${input.confirmLink}\n\nSee every job near ${input.zip}: ${input.moreLink}\n\nDidn’t ask for this? Ignore this email and we won’t send another.`
+  };
+}
+
+/** The weekly alert: only jobs first seen since the last one. */
+export function jobAlertEmail(input:{noun:string;zip:string;jobs:AlertJob[];total:number;moreLink:string;profileLink:string}) {
+  const count=input.total===1?`1 new ${input.noun.replace(/s$/,'')}`:`${input.total} new ${input.noun}`;
+  return {
+    subject:`${count} near ${input.zip}`,
+    html:shell(`${count[0].toUpperCase()+count.slice(1)} near ${input.zip}`,
+      alertJobList(input.jobs)+
+      (input.total>input.jobs.length?p(`<a href="${esc(input.moreLink)}" style="color:#b8368f">See all ${input.total} new jobs near ${esc(input.zip)}</a>`):'')+
+      p('Apply faster next time: one free CareJoys profile sends your details to employers for you.')+
+      cta(input.profileLink,'Create my free profile')),
+    text:`${count} near ${input.zip}:\n\n${alertJobText(input.jobs)}\n\nSee every job near ${input.zip}: ${input.moreLink}\n\nCreate your free CareJoys profile: ${input.profileLink}`
+  };
+}

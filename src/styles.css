@@ -261,7 +261,12 @@ a{color:inherit;text-decoration:none}
 .job-detail-source{font-size:12px;line-height:1.5;color:#8a8ca3;margin-top:16px}
 .job-description-section{padding:32px 0 0}
 .job-description-section p{white-space:pre-line;color:var(--muted);line-height:1.7}
-.caregiver-apply-modal{width:min(680px,calc(100vw - 32px))}
+.apply-page-wrap{max-width:720px}
+.apply-page-job{margin:0 0 20px}
+.apply-page-job h1{font-family:var(--display);font-size:clamp(30px,4vw,40px);line-height:1.1;font-weight:600;letter-spacing:-.03em;margin:4px 0 8px}
+.apply-page-job .job-detail-employer{margin-bottom:8px}
+.apply-page-card h2{font-family:var(--display);font-size:28px;line-height:1.15;font-weight:600;letter-spacing:-.02em;margin:0 0 8px}
+@media (max-width:640px){.apply-page-card{padding:20px}}
 .caregiver-public-job-list .job h3 a:hover{text-decoration:underline;text-underline-offset:3px}
 
 @media(max-width:760px){
@@ -275,6 +280,7 @@ a{color:inherit;text-decoration:none}
 .hub-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
 .hub-filter{border:1px solid var(--lavender);background:rgba(255,255,255,.82);border-radius:999px;padding:8px 14px;font-size:14px;cursor:pointer;color:var(--ink);text-decoration:none}
 .hub-filter.active{background:var(--blue);border-color:var(--blue);color:#fff}
+.hub-filter-more{border-style:dashed}
 .hub-pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:22px}
 .hub-pager .btn:disabled{opacity:.45;cursor:default}
 .hub-cities{margin-top:34px}
@@ -758,3 +764,17 @@ a.submit-button{display:block;text-align:center;text-decoration:none}
 .listing-preview summary{cursor:pointer;color:var(--blue);font-weight:600}
 .caregiver-card-own{margin-top:14px;font-size:14px}
 .campaign-form-title{margin:0 0 12px}
+
+/* One-field job alerts (JobAlertSignup.tsx) */
+.job-alert{background:var(--soft);border:1px solid var(--line);border-radius:24px;padding:18px 20px;margin:20px 0;display:grid;gap:10px}
+.job-alert-head{font-weight:600;font-size:18px;color:var(--ink)}
+.job-alert-row{display:flex;gap:8px;flex-wrap:wrap}
+.job-alert-row input{height:48px;border:1px solid var(--line);border-radius:999px;padding:0 18px;font-size:16px;background:#fff;color:var(--ink);min-width:0}
+.job-alert-row input[type=email]{flex:1 1 160px}
+.job-alert-zip{width:110px;flex:0 0 110px}
+.job-alert-row .btn{height:48px}
+.job-alert-note{margin:0;font-size:14px;color:var(--muted)}
+.job-alert-done{display:block;line-height:1.5}
+.job-alert-done strong{color:var(--ink)}
+.job-alert-done span{color:var(--muted)}
+@media (max-width:640px){.job-alert-row .btn{flex:1 1 100%}}

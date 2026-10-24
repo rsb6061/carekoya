@@ -21,6 +21,7 @@ type Overview={
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
+      jobAlerts?:{enabled:boolean;active:number;pending:number;sentLast7Days:number};
       schools:{mode:string;cap:number;today:number;contactable:number;intros:number;claimed:number;referrals:number;
         prospects:Array<{id:string;name:string;city:string;type:string;email:string;referralSlug?:string|null}>};
     };
@@ -51,6 +52,7 @@ const caregiverSourceLabel=(source:string)=>({
   legacy_carekoya:'Imported legacy caregivers',resume_upload:'Resume signups',organic:'Direct caregiver signups',school_referral:'School referrals'
 } as Record<string,string>)[source]||source.replace(/_/g,' ');
 const applicationEventLabel=(event:string)=>({
+  apply_page_opened:'Apply page opened',apply_signed_in:'Signed in on the apply page',profile_completed:'Profile saved while applying',
   external_redirect_clicked:'Clicked external application',carejoys_applied:'Applied through CareJoys',
   apply_started:'Application started',apply_completed:'Application submitted'
 } as Record<string,string>)[event]||event.replace(/_/g,' ');
@@ -321,7 +323,7 @@ export function AdminConsole(){
       </>}
       {section==='jobs'&&<>
         <section className="section-block">
-          <div className="section-heading"><h2>Caregiver applications</h2><p>Actions tracked on job listings during this reporting period. These are not confirmed hires.</p></div>
+          <div className="section-heading"><h2>Caregiver applications</h2><p>Each apply step during this reporting period, in order: apply page opened, signed in, profile saved, then sent through CareJoys or out to the employer’s site. These are not confirmed hires.</p></div>
           <div className="admin-stat-grid">
             {f.jobApplies.length?f.jobApplies.map(a=><Stat key={a.event_type} label={applicationEventLabel(a.event_type)} value={a.count}/>):<Stat label="Tracked job actions" value={0}/>}
           </div>
@@ -344,6 +346,7 @@ export function AdminConsole(){
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>
     <Stat label="Reactivation reminders" value={oc.reactivationReminders.enabled?'On':'Off'} sub={oc.reactivationReminders.sent+' sent · one reminder per legacy caregiver, once a day'}/>
     <Stat label="Weekly job emails to caregivers" value={oc.weeklyDigest.enabled?'On':'Off'} sub={oc.weeklyDigest.verified+' of '+oc.weeklyDigest.subscribed+' opted-in caregivers verified · '+oc.weeklyDigest.sentLast7Days+' sent in the last 7 days'}/>
+    {oc.jobAlerts&&<Stat label="Job alerts from job pages (email + ZIP)" value={oc.jobAlerts.enabled?'On':'Off'} sub={oc.jobAlerts.active+' confirmed · '+oc.jobAlerts.pending+' waiting to confirm · '+oc.jobAlerts.sentLast7Days+' sent in the last 7 days'}/>}
     <Stat label="Training-school invitations" value={oc.schools.mode==='automatic'?'On':'Manual'} sub={oc.schools.today+' of '+oc.schools.cap+' sent today · '+oc.schools.intros+' recorded introductions'}/>
   </div>
   {oc.agencyHiring.replyYes?.on&&<ReplyYesTest/>}

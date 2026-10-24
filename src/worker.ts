@@ -3,6 +3,7 @@ import { accountSession, accountStatus, closeAccountSide, signedInHome, employer
 import { setMailingAddress, talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
 import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sendWeeklyJobDigests } from './jobAlerts';
+import { handleJobAlertConfirm, handleJobAlertSignup, sendJobAlerts } from './jobAlertSignups';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
 import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
@@ -92,6 +93,7 @@ interface Env {
   REACTIVATION_DAILY_CAP?: string;
   REACTIVATION_REMINDER_ENABLED?: string;
   WEEKLY_DIGEST_ENABLED?: string;
+  JOB_ALERTS_ENABLED?: string;
   AGENCY_TEASER_DAILY_CAP?: string;
   AGENCY_HIRING_INVITES_ENABLED?: string;
   FACILITY_PILOT_ENABLED?: string;
@@ -729,7 +731,7 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
         description:trimAtWord(title+" at "+employer+(location?" in "+location:"")+(pay?", "+pay:"")+". Apply through CareJoys and reuse one caregiver profile for relevant jobs.",160),
         canonical:"/jobs/"+encodeURIComponent(id),
         ogImage:"/og/caregiver-jobs.png",
-        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/jobs/'+encodeURIComponent(id)+'#apply">Apply</a></p>'+(summary.lead?'<h2>About this job</h2><p>'+htmlEscape(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+htmlEscape(b)+'</li>').join('')+'</ul>':''):'')+payHtml+employerHtml+similarHtml+(job.source_provider==='carejoys'?'<p>Posted on CareJoys by '+htmlEscape(employer)+'.</p>':'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p>')+'</main>',
+        snapshot:'<main><p><a href="/">CareJoys</a> › '+hubLink+'</p><h1>'+htmlEscape(title)+'</h1><p>'+htmlEscape(employer)+(location?" · "+htmlEscape(location):"")+(pay?" · "+htmlEscape(pay):"")+'</p><p><a href="/apply/'+encodeURIComponent(id)+'">Apply</a></p>'+(summary.lead?'<h2>About this job</h2><p>'+htmlEscape(summary.lead)+'</p>'+(summary.bullets.length?'<ul>'+summary.bullets.map(b=>'<li>'+htmlEscape(b)+'</li>').join('')+'</ul>':''):'')+payHtml+employerHtml+similarHtml+(job.source_provider==='carejoys'?'<p>Posted on CareJoys by '+htmlEscape(employer)+'.</p>':'<p>Source: <a href="'+htmlEscape(job.source_url)+'" rel="nofollow">original employer listing</a></p>')+'</main>',
         jsonLd:[
           jobPostingJsonLd(job,context.employer?{primary_website:context.employer.website}:null),
           {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[
@@ -920,6 +922,8 @@ async function publicSeoPage(request:Request,url:URL,env:Env){
   if(url.pathname==="/login"||url.pathname==="/signup"){
     return seoAsset(request,env,{title:(url.pathname==="/login"?"Sign in":"Create your account")+" | CareJoys",description:"Sign in to CareJoys with an email link or Google.",canonical:url.pathname,robots:"noindex,follow"});
   }
+  // A job's apply page (opened in a new tab from Apply with CareJoys): an app page, not one to index.
+  if(url.pathname.startsWith("/apply/"))return seoAsset(request,env,{title:"Apply | CareJoys",description:"Apply to a caregiver job with your CareJoys profile.",canonical:url.pathname,robots:"noindex,nofollow"});
   // The agency workspace moved from /app to /hiring (2026-10-22); links in emails already sent keep working.
   if(url.pathname==="/app"||url.pathname.startsWith("/app/"))return Response.redirect(new URL("/hiring"+url.pathname.slice(4)+url.search,url).toString(),301);
   if(url.pathname==="/hiring"||url.pathname.startsWith("/hiring/")||url.pathname.startsWith("/auth")||url.pathname.startsWith("/activate")||url.pathname.startsWith("/respond")||url.pathname.startsWith("/agency")||url.pathname.startsWith("/school-auth")||url.pathname.startsWith("/school-dashboard")||url.pathname==="/dashboard"||url.pathname.startsWith("/dashboard/")||url.pathname==="/signin"||url.pathname==="/welcome"||url.pathname==="/add-training-program"||url.pathname.startsWith("/admin")||url.pathname.startsWith("/confirm-interest")||url.pathname.startsWith("/book/")){
@@ -1645,6 +1649,8 @@ async function getPublicJobContext(id:string,env:Env){
   return json({ok:true,...await jobPageContext(env,job)},{headers:{"cache-control":"public,max-age=300"}});
 }
 
+const APPLY_STEPS=['apply_page_opened','apply_signed_in'] as const;
+
 async function handlePublicJobApply(request:Request,env:Env,jobId:string){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
   const cross=rejectCrossSiteWrite(request);if(cross)return cross;
@@ -1659,8 +1665,10 @@ async function handlePublicJobApply(request:Request,env:Env,jobId:string){
       .bind(identity.sub,identity.email,identity.sub).first<{id:string}>();
     caregiverId=row?.id||caregiverId;
   }
-  await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,'external_redirect_clicked')")
-    .bind(crypto.randomUUID(),jobId,caregiverId||null).run();
+  // The apply page also counts its own steps here, so admin can see where caregivers drop off.
+  const step=APPLY_STEPS.find(x=>x===data?.step)||'external_redirect_clicked';
+  await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,?)")
+    .bind(crypto.randomUUID(),jobId,caregiverId||null,step).run();
   return json({ok:true,applicationUrl:clean(job.source_url,1000)});
 }
 
@@ -2208,6 +2216,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(url.pathname==="/api/health") return handlePublicHealth(env);
     if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
+    if(request.method==="POST"&&url.pathname==="/api/public/job-alerts") return rejectCrossSiteWrite(request)||handleJobAlertSignup(request,env);
+    if(request.method==="GET"&&url.pathname==="/api/public/job-alerts/confirm") return handleJobAlertConfirm(url,env);
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     // An agency's past applicant answering the "still looking?" email (src/applicantReactivation.ts).
     if(url.pathname==="/still-looking"&&request.method==="GET") return handleStillLooking(request,env);
@@ -2694,6 +2704,8 @@ export default {
         // One reminder to legacy caregivers who never confirmed (Rebecca approved 2026-10-08). Each person gets it once.
         await runReactivationReminders(env).catch(()=>null);
         await sendWeeklyJobDigests(env,50).catch(error=>console.error("job digest failed",error));
+        // Email-and-ZIP job alerts from job and city pages: confirmed signups only, at most weekly, only when there are new jobs.
+        await sendJobAlerts(env,100).catch(error=>console.error("job alerts failed",error));
         // Saved Find caregivers searches: one email per search when new caregivers nearby match it.
         await sendTalentAlerts(env).catch(error=>console.error("talent alerts failed",error));
         // "Still looking?" to caregivers on the public directory, two weeks after they last confirmed.

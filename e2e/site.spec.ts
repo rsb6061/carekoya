@@ -258,6 +258,18 @@ test('@phone job hub filters and ZIP search', async({page})=>{
   clean(w);
 });
 
+test('@phone a visitor leaves an email and ZIP for new jobs from a city page', async({page})=>{
+  const w=await watch(page);
+  await page.goto('/cna-jobs/maryland');
+  const form=page.getByRole('form',{name:'Job alerts'});
+  await expect(form.getByText('Email me new CNA jobs near')).toBeVisible();
+  await form.getByLabel('ZIP code').fill('21201');
+  await form.getByLabel('Email address').fill('e2e-alerts@example.test');
+  await form.getByRole('button',{name:'Email me'}).click();
+  await expect(page.getByText('Check your email.')).toBeVisible();
+  clean(w);
+});
+
 test('training program asks to be added', async({page})=>{
   const w=await watch(page);
   await page.goto('/add-training-program');

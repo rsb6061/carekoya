@@ -3,14 +3,15 @@ import { named } from './lazyPage';
 
 const JobDetail=named(()=>import('./CaregiverJobPage'),'JobDetail');
 
-type Open={id:string;apply:boolean};
+type Open={id:string};
 
 function jobFromHref(href:string):Open|null{
   try{
     const url=new URL(href,window.location.origin);
     if(url.origin!==window.location.origin)return null;
     const m=url.pathname.match(/^\/jobs\/([^/]+)\/?$/);
-    return m?{id:decodeURIComponent(m[1]),apply:url.hash==='#apply'}:null;
+    // An #apply link goes on to the apply page (CaregiverJobPage sends it there) instead of opening the panel.
+    return m&&url.hash!=='#apply'?{id:decodeURIComponent(m[1])}:null;
   }catch{return null}
 }
 
@@ -29,7 +30,7 @@ function withJob(id:string|null){
 export function JobDrawer(){
   const [open,setOpen]=useState<Open|null>(()=>{
     const id=new URLSearchParams(window.location.search).get('job');
-    return id?{id,apply:false}:null;
+    return id?{id}:null;
   });
   const pushed=useRef(false);
   const panelRef=useRef<HTMLDivElement>(null);
@@ -50,7 +51,7 @@ export function JobDrawer(){
     function onPop(){
       const id=new URLSearchParams(window.location.search).get('job');
       pushed.current=false;
-      setOpen(id?{id,apply:false}:null);
+      setOpen(id?{id}:null);
     }
     document.addEventListener('click',onClick);
     window.addEventListener('popstate',onPop);
@@ -69,8 +70,7 @@ export function JobDrawer(){
     document.body.style.overflow='hidden';
     panelRef.current?.scrollTo(0,0);
     panelRef.current?.focus();
-    // Escape closes the panel, unless the apply box is open on top of it (it closes first).
-    const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!document.querySelector('.caregiver-apply-modal'))close()};
+    const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')close()};
     window.addEventListener('keydown',onKey);
     return ()=>{document.body.style.overflow=before;window.removeEventListener('keydown',onKey)};
   },[open?.id]);
@@ -84,7 +84,7 @@ export function JobDrawer(){
         <a className="text-link" href={full} target="_blank" rel="noreferrer">Open full page ↗</a>
       </div>
       <Suspense fallback={<div className="empty">Loading job…</div>}>
-        <JobDetail key={open.id} id={open.id} startApply={open.apply} embedded/>
+        <JobDetail key={open.id} id={open.id} embedded/>
       </Suspense>
     </div>
   </div>;

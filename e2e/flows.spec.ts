@@ -69,16 +69,28 @@ test('@phone caregiver signup with a resume: check what was found, then preferen
   clean(w);
 });
 
-test('@phone a job opens in a side panel over the list, with Apply inside it', async({page})=>{
+test('@phone a job opens in a side panel over the list, and Apply opens its own page in a new tab', async({page,context})=>{
   const w=await watch(page);
   await page.goto('/caregiver-jobs/maryland');
   await page.getByRole('link',{name:'CNA - Day Shift'}).first().click();
   const panel=page.getByRole('dialog',{name:'Job details'});
   await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
   await expect(page).toHaveURL(/\/caregiver-jobs\/maryland\?job=/);
-  await panel.getByRole('button',{name:'Apply with CareJoys'}).click();
-  await expect(page.getByText('Apply on CareJoys')).toBeVisible();
-  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Close job'}).click();
+  await expect(panel).toHaveCount(0);
+  // The list's View job opens the panel too, not the apply page.
+  await page.locator('article.job',{has:page.getByRole('link',{name:'CNA - Day Shift'})}).first().getByRole('link',{name:'View job'}).click();
+  await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
+  await expect(page.getByText('Apply on CareJoys')).toHaveCount(0);
+  const apply=panel.getByRole('link',{name:'Apply with CareJoys'});
+  await expect(apply).toHaveAttribute('target','_blank');
+  const [tab]=await Promise.all([context.waitForEvent('page'),apply.click()]);
+  await tab.waitForURL(/\/apply\//);
+  await expect(tab.getByText('Apply on CareJoys')).toBeVisible();
+  await expect(tab.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
+  await tab.close();
+  // The list stays open behind it.
+  await expect(panel.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
   // Back closes the panel and leaves the list where it was.
   await page.goBack();
   await expect(panel).toHaveCount(0);
@@ -99,10 +111,9 @@ test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
 
 test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
   const w=await watch(page);
-  await page.goto('/jobs/'+JOBS.applyForMe);
-  await page.getByRole('button',{name:'Apply with CareJoys'}).click();
+  await page.goto('/apply/'+JOBS.applyForMe);
   await expect(page.getByText('Apply on CareJoys')).toBeVisible();
-  // The employer button stays off caregiver job pages.
+  // The employer button stays off the apply page.
   await expect(page.locator('.nav-cta')).toHaveCount(0);
   await expect(page.getByLabel('Email address')).toBeVisible();
   await expect(page.getByRole('link',{name:'Set up an employer account'})).toHaveAttribute('href','/hire-caregivers');
@@ -128,13 +139,13 @@ test('Apply with CareJoys on a job CareJoys can’t send says so, then opens the
   await context.route('https://harborhomecare.test/**',r=>r.fulfill({status:200,contentType:'text/html',body:'<h1>Harbor Home Care application</h1>'}));
   await page.goto('/jobs/'+JOBS.external);
   await expect(page.getByText(/then you finish on .*’s site/)).toBeVisible();
-  await page.getByRole('button',{name:'Apply with CareJoys'}).click();
+  await page.goto('/apply/'+JOBS.external);
   await expect(page.getByText(/can’t send this one for you yet/)).toBeVisible();
   const [tab]=await Promise.all([context.waitForEvent('page'),page.getByRole('link',{name:/^Finish on /}).click()]);
   await tab.waitForURL('https://harborhomecare.test/**');
   await expect(tab.getByText('Harbor Home Care application')).toBeVisible();
   // CareJoys stays open behind it, on the same job.
-  await expect(page).toHaveURL(new RegExp('/jobs/'+JOBS.external));
+  await expect(page).toHaveURL(new RegExp('/apply/'+JOBS.external));
   await expect(page.getByText('Opened in a new tab').first()).toBeVisible();
 });
 
@@ -143,8 +154,7 @@ test('Apply for me takes a resume and answers the click', async({page})=>{
   // the resume upload works and the button always leaves its "Filling in…" state with a message.
   const w=await watch(page,[/apply-agent.*503/]);
   await signIn(page,CAREGIVER);
-  await page.goto('/jobs/'+JOBS.applyForMe);
-  await page.getByRole('button',{name:'Apply with CareJoys'}).click();
+  await page.goto('/apply/'+JOBS.applyForMe);
   await page.locator('.apply-agent-start input[type=file]').setInputFiles({name:'resume.txt',mimeType:'text/plain',
     buffer:Buffer.from('Casey Tester\nCertified Nursing Assistant\nBaltimore, MD 21201\n5 years of home care experience.')});
   const start=page.locator('.apply-agent-start').getByRole('button',{name:'Apply',exact:true});
