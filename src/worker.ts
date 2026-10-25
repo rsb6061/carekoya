@@ -14,7 +14,7 @@ import { NURSE_AIDE_REGISTRIES, REGISTRIES_CHECKED, REGISTRY_PATH } from './nurs
 import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
-import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice } from './replyYesOutreach';
+import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice, outreachExtraToday } from './replyYesOutreach';
 import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch, lookupCareersPagesBoost } from './careersLookup';
@@ -98,6 +98,7 @@ interface Env {
   AGENCY_HIRING_INVITES_ENABLED?: string;
   FACILITY_PILOT_ENABLED?: string;
   AGENCY_HIRING_INVITE_DAILY_CAP?: string;
+  AGENCY_OUTREACH_EXTRA?: string;
   /** 'openers' or 'all': re-send the new invite to agencies that got the old copy (Rebecca's call, 2026-10-19). Blank is off. */
   AGENCY_HIRING_REINVITE?: string;
   // "reply_yes": the plain-text note from rebecca@ replaces the styled hiring invite and its re-sends (src/replyYesOutreach.ts).
@@ -2637,7 +2638,7 @@ export default {
         // The daily cap is spread across the hourly runs so outreach never bursts past the shared email limit.
         // A failure here must not stop the scans either.
         if(String(env.AGENCY_HIRING_INVITES_ENABLED||'').toLowerCase()==='true')try{
-          const cap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
+          const cap=Math.max(0,Math.min(500,(Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0)+outreachExtraToday(env.AGENCY_OUTREACH_EXTRA,hour)));
           const counts=await hiringInviteCounts(env);
           // The facility pilot goes first, as one daily batch; agency invites get what is left of this cap. Nothing sends until FACILITY_PILOT_ENABLED=true.
           let pilotToday=0;
@@ -2646,11 +2647,11 @@ export default {
             const sent=await sendFacilityPilotInvites(env,hour.getUTCHours()>=FACILITY_PILOT_UTC_HOUR?FACILITY_PILOT_DAILY_BATCH-pilot.today:0,pilot.total===0?'hello@carejoys.com':'').catch(()=>null);
             pilotToday=pilot.today+(sent?.sent||0);
           }
-          // US working hours only, so the day's cap lands while agencies read mail (src/replyYesOutreach.ts).
-          const slice=outreachSlice(cap,hour.getUTCHours());
           const resent=await hiringReinviteCounts(env);
           const replyYes=await replyYesCounts(env);
           const left=cap-counts.today-resent.today-replyYes.today-pilotToday;
+          // US working hours only, so the day's cap lands while agencies read mail (src/replyYesOutreach.ts).
+          const slice=outreachSlice(cap,hour.getUTCHours(),left);
           if(String(env.AGENCY_OUTREACH_EMAIL||'').toLowerCase()==='reply_yes'){
             // Rebecca's plain-text reply-yes note replaces the styled invite (2026-10-22). It waits for rebecca@'s routing rule.
             if(replyYes.routingLive&&slice>0)await sendReplyYesBatch(env,Math.min(slice,left)).catch(error=>console.error('reply-yes outreach failed',error));

@@ -5,11 +5,11 @@ import { accountSession } from './accountAuth';
 import { notAVisitor } from './monitoring';
 import { workerFunnelReport } from './workerFunnel';
 import { AGENCY_EMAILS_PER_DAY } from './agencyInbox';
-import { OUTREACH_FIRST_UTC_HOUR, OUTREACH_LAST_UTC_HOUR, replyYesCounts } from './replyYesOutreach';
+import { OUTREACH_FIRST_UTC_HOUR, OUTREACH_LAST_UTC_HOUR, outreachExtraToday, replyYesCounts } from './replyYesOutreach';
 import { outreachStatus, runOutreach, sendOutreachTest, type OutreachEnv, type OutreachKind } from './outreach';
 
 type Row=Record<string,unknown>;
-export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string;JOB_ALERTS_ENABLED?:string};
+export type AdminEnv=OutreachEnv&{ADMIN_EMAILS?:string;ADMIN_TOKEN?:string;AGENCY_HIRING_INVITES_ENABLED?:string;AGENCY_HIRING_INVITE_DAILY_CAP?:string;AGENCY_OUTREACH_EXTRA?:string;AGENCY_HIRING_REINVITE?:string;AGENCY_OUTREACH_EMAIL?:string;REACTIVATION_REMINDER_ENABLED?:string;WEEKLY_DIGEST_ENABLED?:string;JOB_ALERTS_ENABLED?:string};
 
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
 const asNum=(v:unknown)=>{const n=Number(v||0);return Number.isFinite(n)?n:0};
@@ -140,7 +140,7 @@ export async function adminFunnel(env:AdminEnv,windowKey:string){
     LIMIT 15`).all<Row>();
   const num=(row:Row|null,key:string)=>asNum(row?.[key]);
   const on=(v:unknown)=>String(v||'').toLowerCase()==='true';
-  const hiringCap=Math.max(0,Math.min(500,Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0));
+  const hiringCap=Math.max(0,Math.min(500,(Number(env.AGENCY_HIRING_INVITE_DAILY_CAP||60)||0)+outreachExtraToday(env.AGENCY_OUTREACH_EXTRA,new Date())));
   return {
     window:modifier?windowKey:'all',
     employerFunnel:['employers','openings','matched','contacted','interested','interviews','hired'].map(step=>({step,count:num(funnel,step)})),

@@ -1741,10 +1741,11 @@ describe('reply-yes outreach from rebecca@', ()=>{
     expect(first.replyTo).toBe('rebecca@carejoys.com');
     expect(first.html).toBeUndefined();
     expect(first.text).toContain('Hi Maria,');
-    expect(first.text).toContain('do caregiver applicants go quiet before Sunny Days Home Care can call them back?');
-    expect(first.text).toContain('reply "yes"');
+    // The note opens with the agency's own jobs on CareJoys (Rebecca's pick 2026-10-25).
+    expect(first.text).toMatch(/CareJoys lists (an open caregiver job at Sunny Days Home Care|\d+ of Sunny Days Home Care's open caregiver jobs)/);
+    expect(first.text).toContain('Reply "yes"');
     expect(first.headers?.['List-Unsubscribe']).toBeTruthy();
-    expect(['Quick question about Sunny Days Home Care','Your caregiver applicants']).toContain(first.subject);
+    expect(first.subject).toMatch(/^Your (\d+ )?caregiver jobs? on CareJoys$/);
     sent.length=0;
     await sendReplyYesBatch(env(),50);
     expect(sent.map(m=>m.to).filter(t=>t==='owner@sunnydays.test'||t==='info@kindhands.test')).toHaveLength(0);

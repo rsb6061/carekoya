@@ -30,9 +30,30 @@ export function replyYesVariant(orgId:string):'a'|'b'{
   return h%2?'b':'a';
 }
 
-export function replyYesEmail(input:{contactName:string;agencyName:string;variant:'a'|'b';unsubscribeLink:string}){
+export type ReplyYesVariant='a'|'b'|'jobs';
+
+/** The note. 'jobs' (Rebecca's pick 2026-10-25, after 0 yeses from 174) opens with the agency's own jobs on CareJoys;
+ *  'a' and 'b' are the first version, kept so the admin Inbox can show what earlier agencies were sent. */
+export function replyYesEmail(input:{contactName:string;agencyName:string;variant:ReplyYesVariant;unsubscribeLink:string;jobCount?:number;city?:string}){
   const first=clean(input.contactName,120).split(/\s+/)[0]||'';
   const agency=agencyNameForEmail(clean(input.agencyName,180))||'your agency';
+  const signature=`Rebecca Myers\nCareJoys · carejoys.com`+(mailingAddressLine()?'\n'+mailingAddressLine():'');
+  if(input.variant==='jobs'){
+    const n=Math.max(1,Math.round(asNum(input.jobCount)));
+    let city=clean(input.city,80);
+    if(city===city.toUpperCase())city=city.toLowerCase();
+    city=city.replace(/\b[a-z]/g,c=>c.toUpperCase());
+    return {
+      subject:n===1?'Your caregiver job on CareJoys':`Your ${n} caregiver jobs on CareJoys`,
+      text:[
+        `Hi ${first||'there'},`,
+        `CareJoys lists ${n===1?'an open caregiver job':`${n} of ${agency}'s open caregiver jobs`}${n===1?` at ${agency}`:''}${city?` in ${city}`:''}. Right now, caregivers who find ${n===1?'it':'them'} there are sent to your careers page.`,
+        `Reply "yes" and I'll send their applications straight to your inbox instead, with resume and availability. It's free.`,
+        signature,
+        `Not for you? Reply "stop", or unsubscribe: ${input.unsubscribeLink}`
+      ].join('\n\n')
+    };
+  }
   return {
     subject:input.variant==='a'?`Quick question about ${agency}`:'Your caregiver applicants',
     text:[
@@ -40,7 +61,7 @@ export function replyYesEmail(input:{contactName:string;agencyName:string;varian
       `Quick question: do caregiver applicants go quiet before ${agency} can call them back?`,
       `I run CareJoys. We answer every new applicant within 30 minutes, ask your screening questions, and book the ones who fit into your interview times. Every Monday you get a list of who applied and who showed up.`,
       `If that would help, reply "yes" and I'll set it up for you. The first month is free.`,
-      `Rebecca Myers\nCareJoys · carejoys.com`+(mailingAddressLine()?'\n'+mailingAddressLine():''),
+      signature,
       `Not for you? Reply "stop", or unsubscribe: ${input.unsubscribeLink}`
     ].join('\n\n')
   };
@@ -57,7 +78,7 @@ export async function rebeccaRoutingLive(db:DB){
 // Jobs are counted in one grouped pass: a count per agency runs past D1's CPU limit at this size.
 const JOB_COUNTS="SELECT agency_organization_id AS id,COUNT(*) AS jobs FROM caregiver_jobs WHERE status='current' AND is_published=1 AND agency_organization_id IS NOT NULL GROUP BY agency_organization_id";
 const CARE_NAME=['care','home','senior','nurs','health','angel','staff'].map(w=>`lower(o.canonical_name) LIKE '%${w}%'`).join(' OR ');
-const REPLY_YES_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.state,COALESCE(j.jobs,0) AS job_count
+const REPLY_YES_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.primary_contact_name,o.city,o.state,COALESCE(j.jobs,0) AS job_count
     FROM agency_organizations o
     LEFT JOIN (${JOB_COUNTS}) j ON j.id=o.id
     WHERE o.is_active=1 AND COALESCE(o.is_test,0)=0 AND o.claimed_employer_id IS NULL
@@ -82,13 +103,13 @@ export async function sendReplyYesBatch(env:ReplyYesEnv,limit:number){
     const email=clean(org.primary_email,320).toLowerCase();
     if(seen.has(email))continue;
     seen.add(email);
-    const variant=replyYesVariant(String(org.id));
+    const variant:ReplyYesVariant='jobs';
     const unsubscribe=await unsubscribeLink(env.DB,email,'agency_reply_yes');
-    const body=replyYesEmail({contactName:clean(org.primary_contact_name,120),agencyName:clean(org.canonical_name,180),variant,unsubscribeLink:unsubscribe.link});
+    const body=replyYesEmail({contactName:clean(org.primary_contact_name,120),agencyName:clean(org.canonical_name,180),variant,unsubscribeLink:unsubscribe.link,jobCount:asNum(org.job_count),city:clean(org.city,80)});
     try{
       const result=await env.EMAIL.send({from:REBECCA_FROM,replyTo:REBECCA_EMAIL,to:email,subject:body.subject,text:body.text,headers:unsubscribe.headers});
       await env.DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,provider_message_id,payload) VALUES (?,?,?,?,?,?)")
-        .bind(crypto.randomUUID(),org.id,REPLY_YES_EVENT,email,result.messageId||null,JSON.stringify({variant,subject:body.subject,jobCount:asNum(org.job_count),state:clean(org.state,4)})).run();
+        .bind(crypto.randomUUID(),org.id,REPLY_YES_EVENT,email,result.messageId||null,JSON.stringify({variant,subject:body.subject,jobCount:asNum(org.job_count),city:clean(org.city,80),state:clean(org.state,4)})).run();
       sent++;
     }catch(error){
       // A sending limit is the account's, not this agency's: stop and leave everyone queued for a later run.
@@ -116,7 +137,7 @@ export async function replyYesCounts(env:ReplyYesEnv){
 /** The note as an agency would get it, to `to`, marked [Test]. Replying to it is how rebecca@'s routing gets proven. */
 export async function sendReplyYesTest(env:ReplyYesEnv,to:string){
   if(!env.EMAIL)throw new Error('Email is not configured');
-  const body=replyYesEmail({contactName:'Dana',agencyName:'Brightway Home Care, LLC',variant:'a',unsubscribeLink:'https://carejoys.com/api/unsubscribe'});
+  const body=replyYesEmail({contactName:'Dana',agencyName:'Brightway Home Care, LLC',variant:'jobs',jobCount:6,city:'Towson',unsubscribeLink:'https://carejoys.com/api/unsubscribe'});
   await env.EMAIL.send({from:REBECCA_FROM,replyTo:REBECCA_EMAIL,to,subject:'[Test] '+body.subject,text:body.text});
   return {to,subject:'[Test] '+body.subject};
 }
@@ -127,7 +148,15 @@ export const OUTREACH_LAST_UTC_HOUR=21;
 
 /** How many agency emails one hourly run may send: the daily cap spread over the send window, and none outside it.
  *  Replaces the old cap/24 spread, which sent most of the day's emails overnight US time (Rebecca, 2026-10-23). */
-export function outreachSlice(cap:number,utcHour:number){
+export function outreachSlice(cap:number,utcHour:number,left=0){
   if(cap<=0||utcHour<OUTREACH_FIRST_UTC_HOUR||utcHour>OUTREACH_LAST_UTC_HOUR)return 0;
-  return Math.ceil(cap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1));
+  // When the cap goes up mid-day, or a run was missed, the rest of the day's emails share the runs still to come.
+  return Math.max(Math.ceil(cap/(OUTREACH_LAST_UTC_HOUR-OUTREACH_FIRST_UTC_HOUR+1)),Math.ceil(left/(OUTREACH_LAST_UTC_HOUR-utcHour+1)));
+}
+
+/** A one-day addition to the agency email cap: AGENCY_OUTREACH_EXTRA as "YYYY-MM-DD:N" (UTC date). Any other day adds
+ *  nothing, so it ends on its own. Rebecca asked for 50 more on 2026-10-24; it ran on 2026-10-25, when she said go. */
+export function outreachExtraToday(value:unknown,now:Date){
+  const m=String(value||'').trim().match(/^(\d{4}-\d{2}-\d{2}):(\d{1,3})$/);
+  return m&&m[1]===now.toISOString().slice(0,10)?Number(m[2]):0;
 }

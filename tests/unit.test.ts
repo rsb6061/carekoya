@@ -185,7 +185,10 @@ describe('email', ()=>{
       const msg=withUnsubscribe(caregiverActivationEmail('Ana','https://carejoys.com/activate?token=x'),'https://carejoys.com/api/unsubscribe?token=y');
       expect(msg.text).toContain('Unsubscribe: https://carejoys.com/api/unsubscribe?token=y\nCareJoys · 123 Main St, Baltimore, MD 21201');
       expect(msg.html).toContain('<br>CareJoys · 123 Main St, Baltimore, MD 21201</p>');
-      const note=replyYesEmail({contactName:'Dana',agencyName:'Brightway Home Care',variant:'a',unsubscribeLink:'https://carejoys.com/u'});
+      const note=replyYesEmail({contactName:'Dana',agencyName:'Brightway Home Care',variant:'jobs',jobCount:6,city:'TOWSON',unsubscribeLink:'https://carejoys.com/u'});
+      expect(note.subject).toBe('Your 6 caregiver jobs on CareJoys');
+      expect(note.text).toContain("CareJoys lists 6 of Brightway Home Care's open caregiver jobs in Towson. Right now, caregivers who find them there are sent to your careers page.");
+      expect(replyYesEmail({contactName:'',agencyName:'Brightway Home Care',variant:'jobs',jobCount:1,city:'',unsubscribeLink:'u'}).text).toContain('Hi there,\n\nCareJoys lists an open caregiver job at Brightway Home Care. Right now, caregivers who find it there');
       expect(note.text).toContain('Rebecca Myers\nCareJoys · carejoys.com\n123 Main St, Baltimore, MD 21201\n\nNot for you?');
     }finally{setMailingAddress('')}
   });
