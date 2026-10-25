@@ -3,7 +3,7 @@
 // recorded in email_messages as outbound and blind-copied to the owner's inbox, so Gmail still holds the whole thread.
 // Drafts are outbound rows with status 'draft' until they are sent.
 import { forwardTarget, matchLead, type InboundEnv } from './inboundEmail';
-import { REBECCA_EMAIL, REBECCA_FROM, REPLY_YES_EVENT, replyYesEmail } from './replyYesOutreach';
+import { REBECCA_EMAIL, REBECCA_FROM, REPLY_YES_EVENT, replyYesEmail, type ReplyYesVariant } from './replyYesOutreach';
 import type { EmailBinding } from './email';
 
 type Row=Record<string,unknown>;
@@ -65,9 +65,11 @@ export async function adminConversations(env:AdminMailEnv){
   for(const n of notes){
     const person=people.get(lower(n.recipient_email));
     if(!person)continue;
-    let variant:'a'|'b'='a';
-    try{if((JSON.parse(String(n.payload||'{}')) as Row).variant==='b')variant='b'}catch{/* older rows */}
-    const note=replyYesEmail({contactName:clean(n.primary_contact_name,120),agencyName:clean(n.canonical_name,180),variant,unsubscribeLink:'(their unsubscribe link)'});
+    let payload:Row={};
+    try{payload=JSON.parse(String(n.payload||'{}')) as Row}catch{/* older rows */}
+    const variant:ReplyYesVariant=payload.variant==='jobs'||payload.variant==='b'?payload.variant:'a';
+    const note=replyYesEmail({contactName:clean(n.primary_contact_name,120),agencyName:clean(n.canonical_name,180),variant,unsubscribeLink:'(their unsubscribe link)',
+      jobCount:Number(payload.jobCount||0),city:clean(payload.city,80)});
     person.messages.push({id:String(n.id),direction:'outbound',mailbox:REBECCA_EMAIL,subject:note.subject,text:note.text,status:'sent',createdAt:clean(n.created_at,40),outreach:true});
   }
   const conversations=[...people.values()].map(p=>{
