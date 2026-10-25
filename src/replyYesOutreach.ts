@@ -134,7 +134,7 @@ export function outreachSlice(cap:number,utcHour:number,left=0){
 }
 
 /** A one-day addition to the agency email cap: AGENCY_OUTREACH_EXTRA as "YYYY-MM-DD:N" (UTC date). Any other day adds
- *  nothing, so it ends on its own. Rebecca asked for 50 more on 2026-10-24. */
+ *  nothing, so it ends on its own. Rebecca asked for 50 more on 2026-10-24; it ran on 2026-10-25, when she said go. */
 export function outreachExtraToday(value:unknown,now:Date){
   const m=String(value||'').trim().match(/^(\d{4}-\d{2}-\d{2}):(\d{1,3})$/);
   return m&&m[1]===now.toISOString().slice(0,10)?Number(m[2]):0;
