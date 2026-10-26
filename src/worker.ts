@@ -15,7 +15,7 @@ import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice, outreachExtraToday } from './replyYesOutreach';
-import { adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
+import { adminAgencySetup, adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch, lookupCareersPagesBoost } from './careersLookup';
 import { sendFirstJobNudges } from './firstJobNudge';
@@ -2309,6 +2309,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
       if(request.method==="POST"&&url.pathname==="/api/admin/conversations/status") return adminConversationStatus(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/mail/drafts") return adminSaveDraft(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/mail/send") return adminSendMail(request,env);
+      if(request.method==="POST"&&url.pathname==="/api/admin/agency-setup") return adminAgencySetup(request,env);
       if(request.method==="POST"&&url.pathname==="/api/admin/reply-yes/test"){
         const to=(admin.email||"").toLowerCase();
         if(!to.includes("@"))return json({ok:false,error:"No admin email to send the test to"},{status:400});

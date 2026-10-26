@@ -86,3 +86,44 @@ export async function emailApplicationToAgency(env:FeatureEnv,input:{organizatio
     return 'failed';
   }
 }
+
+/**
+ * Sets up an agency that said yes: applications to its jobs are emailed to `email`, only from caregivers with one of
+ * `credentials` when any are given, and a CareJoys account on that address is linked to the agency (unless another
+ * account already has it), so a sign-in link at /login opens its workspace. Run on a plain "yes" reply and from /admin.
+ */
+export async function setUpYesAgency(env:FeatureEnv,input:{organizationId:string;email:string;credentials?:unknown;contactName?:string;source:string}){
+  const db=env.DB!;
+  const email=clean(input.email,320).toLowerCase();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))throw new Error('Enter a valid email for applications.');
+  const org=await db.prepare('SELECT id,canonical_name,zip,provider_kind,claimed_employer_id FROM agency_organizations WHERE id=? AND is_active=1').bind(input.organizationId).first<Row>();
+  if(!org)throw new Error('That agency is not on CareJoys.');
+  const credentials=parseRequiredCredentials(Array.isArray(input.credentials)?input.credentials.join(','):input.credentials).join(',');
+  await db.prepare('UPDATE agency_organizations SET application_email=?,required_credentials=NULLIF(?,\'\'),updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(email,credentials,org.id).run();
+  let employerId=clean(org.claimed_employer_id,120);
+  let linked=false;
+  if(!employerId){
+    const existing=await db.prepare("SELECT id FROM employer_leads WHERE lower(email)=? AND status!='disabled' ORDER BY created_at DESC LIMIT 1").bind(email).first<{id:string}>();
+    employerId=existing?.id||crypto.randomUUID();
+    // Rebecca's outreach found this agency and it answered her, so the account needs no approval.
+    if(!existing)await db.prepare(`INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,hiring_notes,status,employer_type,approved_at,approved_by)
+      VALUES (?,?,?,?,?,'Caregiver, CNA, HHA, PCA','Said yes to outreach','active',?,CURRENT_TIMESTAMP,'agency_yes')`)
+      .bind(employerId,clean(org.canonical_name,200),clean(input.contactName,120),email,clean(org.zip,10).slice(0,5),clean(org.provider_kind,40)==='facility'?'assisted_living':'home_care').run();
+    else await db.prepare('UPDATE employer_leads SET approved_at=COALESCE(approved_at,CURRENT_TIMESTAMP) WHERE id=?').bind(employerId).run();
+    const res=await db.prepare('UPDATE agency_organizations SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND claimed_employer_id IS NULL').bind(employerId,org.id).run();
+    linked=asNum((res as {meta?:{changes?:number}}).meta?.changes)===1;
+    if(linked)await db.prepare('UPDATE agencies SET claimed_employer_id=?,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND claimed_employer_id IS NULL').bind(employerId,org.id).run();
+  }
+  await db.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload) VALUES (?,?,'agency_yes_setup',?,?)")
+    .bind(crypto.randomUUID(),org.id,email,JSON.stringify({source:input.source,credentials,employerId,linked})).run();
+  return {applicationEmail:email,requiredCredentials:credentialListLabel(parseRequiredCredentials(credentials)),employerId,linked};
+}
+
+/** A reply that is just a yes ("Yes", "Sure, thanks!", "Yes please"): its first line and nothing else of substance. */
+export function isPlainYes(text:string){
+  const lines=clean(text,2000).split('\n').map(l=>l.trim()).filter(Boolean);
+  // "Yes, but only CNAs" or a condition on the next line needs Rebecca: anything conditional goes to /admin instead.
+  if(/\b(only|licen[cs]e|licensed|certif\w*|but|if|unless|require\w*|must|call me|question)\b/i.test(lines.join(' ')))return false;
+  const first=lines[0]||'';
+  return /^(yes|yes please|yes,? please|sure|ok|okay|yep|yeah|absolutely|definitely|sounds good|please do|interested|yes,? interested)[\s.!,]*(please|thanks|thank you|thx)?[\s.!]*$/i.test(first);
+}

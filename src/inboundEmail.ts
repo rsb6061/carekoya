@@ -9,6 +9,7 @@
 import { intakeKeyOf, receiveApplicantEmail } from './applicantEmailIntake';
 import type { ApplicantDb } from './applicants';
 import { isFreeMail } from './employerApproval';
+import { isPlainYes, setUpYesAgency } from './agencyApplications';
 
 type Row=Record<string,unknown>;
 type Statement={bind(...values:unknown[]):Statement;run():Promise<{success:boolean;meta?:Record<string,unknown>}>;first<T=Row>():Promise<T|null>;all<T=Row>():Promise<{results?:T[]}>};
@@ -252,6 +253,12 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
       for(const email of await sameDomainRecipients(env.DB,fromEmail))await suppress(env.DB,email,'unsubscribe');
     }
     if(kind==='bounce'&&hardBounce)await suppress(env.DB,bouncedEmail,'bounce');
+    // A plain "yes" to the outreach note sets the agency up on the spot: applications to the address that said yes.
+    // Anything with a condition stays for Rebecca's Set up button in /admin. She still sends the confirmation.
+    if(kind==='reply'&&lead?.type==='agency'&&isPlainYes(snippet)){
+      const fresh=await env.DB.prepare("SELECT 1 AS hit FROM agency_organizations o WHERE o.id=? AND COALESCE(o.application_email,'')='' AND EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND e.event_type='reply_yes_invite')").bind(lead.id).first();
+      if(fresh)await setUpYesAgency(env as never,{organizationId:lead.id,email:fromEmail,contactName:clean(parsed.fromName,120),source:'auto_yes'});
+    }
   }catch(error){console.error('inbound email record failed',error)}
 }
 

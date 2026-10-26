@@ -1464,6 +1464,15 @@ describe('shared sign-in', ()=>{
     expect(sent.map(m=>m.to).sort()).toEqual(['dc@example.com','ranelle@hope.test']);
     expect(await DB.prepare("SELECT agency_notified_at IS NOT NULL AS done FROM agency_interests WHERE organization_id='org-hope' AND caregiver_id='dc'").first()).toEqual({done:1});
     expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE organization_id='org-hope' AND event_type='application_emailed'").first()).toEqual({n:1});
+    // Linked to a workspace later, it still gets applications by email, not the Inbox digest.
+    await DB.prepare("INSERT OR REPLACE INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at) VALUES ('emp-hope','Hope Care','Ranelle','ranelle@hope.test','93401','CNA','active',CURRENT_TIMESTAMP)").run();
+    await DB.prepare("UPDATE agency_organizations SET claimed_employer_id='emp-hope' WHERE id='org-hope'").run();
+    await addCaregiver('hope2','93401',{role:'EMT',email:'hope2@example.com'});
+    const two=await signIn('hope2@example.com');
+    sent.length=0;
+    expect((await post('/api/me/apply/job-hope',{},{cookie:two.cookie})).status).toBe(201);
+    expect(sent.map(m=>m.to).sort()).toEqual(['hope2@example.com','ranelle@hope.test']);
+    expect(sent.find(m=>m.to==='ranelle@hope.test')!.subject).toBe('New application: hope2 Test for Licensed caregivers');
   });
 
   it('counts each step on the apply page, and only the known ones', async()=>{
@@ -3391,6 +3400,24 @@ describe('replies to hello@',()=>{
     const convos=await (await call('/api/admin/conversations',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
     const convo=convos.conversations.find((c:any)=>c.email==='ranelle@dignified.test');
     expect(convo.messages.map((m:any)=>[m.direction,!!m.outreach])).toEqual([['outbound',true],['inbound',false]]);
+  });
+
+  it('a plain "yes" sets the agency up on arrival; a conditional one waits for the Set up button',async()=>{
+    for(const [id,domain] of [['org-yes','yesagency.test'],['org-cond','condagency.test']]){
+      await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email,zip,is_active) VALUES (?,?,?,?,'93401',1)").bind(id,id,id==='org-yes'?'Yes Agency':'Cond Agency','info@'+domain).run();
+      await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload,created_at) VALUES (?,?,'reply_yes_invite',?,'{\"variant\":\"jobs\"}','2026-10-25 10:00:00')").bind('ev-'+id,id,'info@'+domain).run();
+    }
+    await worker.email(message(raw('Jo Lee <jo@yesagency.test>','Re: Your caregiver job on CareJoys','Yes please!\n\nJo Lee\nOwner','y1@yesagency.test'),'jo@yesagency.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    const yes=await DB.prepare("SELECT o.application_email,o.required_credentials,e.email,e.approved_at IS NOT NULL AS approved FROM agency_organizations o JOIN employer_leads e ON e.id=o.claimed_employer_id WHERE o.id='org-yes'").first();
+    expect(yes).toEqual({application_email:'jo@yesagency.test',required_credentials:null,email:'jo@yesagency.test',approved:1});
+    await worker.email(message(raw('ann@condagency.test','Re: Your caregiver job on CareJoys','Sure if they have a CNA license','c1@condagency.test'),'ann@condagency.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(await DB.prepare("SELECT application_email,claimed_employer_id FROM agency_organizations WHERE id='org-cond'").first()).toEqual({application_email:null,claimed_employer_id:null});
+    let convos=await (await call('/api/admin/conversations',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
+    expect(convos.conversations.find((c:any)=>c.email==='ann@condagency.test').agencySetup).toEqual({applicationEmail:'',requiredCredentials:'',credentialKeys:[],hasAccount:false});
+    const setUp=await call('/api/admin/agency-setup',{method:'POST',headers:{...admin,'content-type':'application/json',origin:'https://carejoys.com'},body:JSON.stringify({organizationId:'org-cond',email:'ann@condagency.test',credentials:['cna','emt','ma']})},{ADMIN_TOKEN:'ops'});
+    expect(await setUp.json()).toMatchObject({ok:true,applicationEmail:'ann@condagency.test',requiredCredentials:'CNA, EMT or MA',linked:true});
+    convos=await (await call('/api/admin/conversations',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
+    expect(convos.conversations.find((c:any)=>c.email==='ann@condagency.test').agencySetup).toMatchObject({applicationEmail:'ann@condagency.test',requiredCredentials:'CNA, EMT or MA',hasAccount:true});
   });
 
   it('still records the message when forwarding fails',async()=>{
