@@ -77,7 +77,7 @@ export async function overRateLimit(env:FeatureEnv,bucket:string,identity:string
 }
 
 // An agency can receive profiles once it has claimed its listing or has an address to send the activation email to.
-export const REACHABLE_AGENCY_SQL="(o.claimed_employer_id IS NOT NULL OR o.primary_email LIKE '%_@_%._%')";
+export const REACHABLE_AGENCY_SQL="(o.claimed_employer_id IS NOT NULL OR o.primary_email LIKE '%_@_%._%' OR COALESCE(o.application_email,'')<>'')";
 
 export type ResolvedTarget={organizationId:string;agencyName:string;city:string;state:string;jobId:string|null;jobTitle:string|null};
 
@@ -159,8 +159,10 @@ async function interestPreviews(env:FeatureEnv,orgId:string,identified:boolean){
 // becomes one email. Unclaimed agencies get the activation email at their listed address.
 export async function notifyAgency(env:OutreachEnv,orgId:string):Promise<'sent'|'skipped'|'failed'>{
   if(!env.DB||!env.EMAIL)return 'skipped';
-  const org=await env.DB.prepare('SELECT id,canonical_name,primary_email,primary_contact_name,claimed_employer_id FROM agency_organizations WHERE id=? AND is_active=1').bind(orgId).first<Row>();
+  const org=await env.DB.prepare('SELECT id,canonical_name,primary_email,primary_contact_name,claimed_employer_id,application_email FROM agency_organizations WHERE id=? AND is_active=1').bind(orgId).first<Row>();
   if(!org)return 'skipped';
+  // Applications by email go out one by one as they arrive (agencyApplications.ts), never as this digest or the activation email.
+  if(!clean(org.claimed_employer_id,120)&&clean(org.application_email,320))return 'skipped';
   const recent=await env.DB.prepare("SELECT 1 AS hit FROM agency_interests WHERE organization_id=? AND agency_notified_at IS NOT NULL AND datetime(agency_notified_at)>datetime('now','-1 day') LIMIT 1").bind(orgId).first();
   if(recent)return 'skipped';
   const sentToday=await env.DB.prepare("SELECT COUNT(*) AS count FROM agency_outreach_events WHERE event_type IN ('interest_activation','interest_notify') AND datetime(created_at)>datetime('now','-1 day')").first<{count:number}>();
@@ -208,7 +210,7 @@ export async function notifyAgenciesOfInterestsBatch(env:OutreachEnv,limit=20){
   if(!env.DB)return {attempted:0,sent:0};
   const rows=await env.DB.prepare(`SELECT ai.organization_id FROM agency_interests ai JOIN agency_organizations o ON o.id=ai.organization_id
     WHERE ai.agency_notified_at IS NULL AND o.is_active=1 AND ${REACHABLE_AGENCY_SQL}
-      AND (o.claimed_employer_id IS NOT NULL OR (?=1 AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))))
+      AND (o.claimed_employer_id IS NOT NULL OR (?=1 AND COALESCE(o.application_email,'')='' AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))))
       AND NOT EXISTS (SELECT 1 FROM agency_interests x WHERE x.organization_id=ai.organization_id AND x.agency_notified_at IS NOT NULL AND datetime(x.agency_notified_at)>datetime('now','-1 day'))
     GROUP BY ai.organization_id ORDER BY MIN(ai.created_at) LIMIT ?`).bind(outreachEnabled(env)?1:0,limit).all<{organization_id:string}>();
   let sent=0;

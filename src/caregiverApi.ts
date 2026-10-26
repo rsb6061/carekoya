@@ -4,6 +4,7 @@ import { type FeatureEnv, respondToInviteForCaregiver, bookInterviewForCaregiver
 import { freshnessLabel, commuteRadiusMiles } from './matching';
 import { boundingBox, haversineMiles, lookupZip, normalizeZip, rowGeo, stateForZip, zipGeoJoin } from './geo';
 import { REACHABLE_AGENCY_SQL, createAgencyInterests } from './agencyInbox';
+import { ON_CAREJOYS_SQL, credentialRequiredMessage, emailApplicationToAgency, meetsRequiredCredentials } from './agencyApplications';
 import { caregiverApplicationEmail } from './email';
 import { normalizeTitle } from './jobDiscovery';
 import { detectApplyProvider } from './applyAgentRules';
@@ -55,6 +56,7 @@ export function jobConflict(c:Row,j:Row):string|null{
     const advertised=[...requirements].filter(k=>['cna','gna','hha','pca','dsp','cmt','lpn','rn'].includes(k));
     if(!advertised.some(k=>mine.has(k)))return 'required credential missing';
   }
+  if(!meetsRequiredCredentials(c,j.required_credentials))return 'required credential missing';
   if(!jobMeetsPayFloor(c,j))return 'below minimum hourly pay';
   const wants=clean(c.employment_types).split(',').map(x=>x.trim()).filter(Boolean);
   const offered=clean(j.employment_type).toLowerCase().replace(/[^a-z,]+/g,'_');
@@ -105,7 +107,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   if(!env.DB)return [];
   const geo=rowGeo(c);
   const radius=commuteRadiusMiles(c);
-  let jobsSql=`SELECT j.id,j.title,j.role,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.employment_type,j.date_posted,j.last_seen_at,j.source_url,o.claimed_employer_id,zg.lat AS geo_lat,zg.lng AS geo_lng
+  let jobsSql=`SELECT j.id,j.title,j.role,j.employer_name,j.city,j.state,j.pay_min,j.pay_max,j.pay_period,j.employment_type,j.date_posted,j.last_seen_at,j.source_url,${ON_CAREJOYS_SQL} AS on_carejoys,o.required_credentials,zg.lat AS geo_lat,zg.lng AS geo_lng
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0 ${zipGeoJoin('j')} WHERE j.is_published=1 AND j.status='current'`;
   const jobArgs:unknown[]=[];
   if(geo){
@@ -117,7 +119,7 @@ export async function nearbyJobsFor(env:FeatureEnv,c:Row,limit:number){
   return (jobRows.results||[]).filter(j=>!jobConflict(c,j)).map((j,i)=>{const g=rowGeo(j);const d=geo&&g?haversineMiles(geo,g):null;return {j,d,i,fit:jobFit(c,j,d,radius)}})
     .filter(x=>!geo||(x.d!==null&&x.d<=radius))
     .sort((a,b)=>b.fit-a.fit||a.i-b.i).slice(0,limit)
-    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:!!clean(j.claimed_employer_id),applyForMe:!!detectApplyProvider(clean(j.source_url,1000)),distanceMiles:d===null?null:Math.round(d*10)/10}));
+    .map(({j,d})=>({id:j.id,title:normalizeTitle(j.title),employerName:j.employer_name,city:j.city,state:j.state,payMin:j.pay_min,payMax:j.pay_max,payPeriod:j.pay_period,datePosted:j.date_posted,employerOnCareJoys:asNum(j.on_carejoys)===1,applyForMe:!!detectApplyProvider(clean(j.source_url,1000)),distanceMiles:d===null?null:Math.round(d*10)/10}));
 }
 
 export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIdentity|null){
@@ -153,7 +155,7 @@ export async function getCaregiverDashboard(env:FeatureEnv,identity:CaregiverIde
       MAX(CASE WHEN a.event_type='carejoys_applied' THEN 1 ELSE 0 END) AS applied_on_carejoys,
       MAX(CASE WHEN a.event_type='external_redirect_clicked' THEN 1 ELSE 0 END) AS opened_employer_site,
       MAX(CASE WHEN a.event_type='agent_submitted' THEN 1 ELSE 0 END) AS submitted_on_employer_site,
-      MAX(CASE WHEN o.claimed_employer_id IS NOT NULL THEN 1 ELSE 0 END) AS employer_on_carejoys
+      MAX(CASE WHEN ${ON_CAREJOYS_SQL} THEN 1 ELSE 0 END) AS employer_on_carejoys
     FROM caregiver_job_apply_events a JOIN caregiver_jobs j ON j.id=a.caregiver_job_id
     LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id
     WHERE a.caregiver_id=? GROUP BY j.id
@@ -201,6 +203,7 @@ export async function applyWithProfile(env:FeatureEnv,identity:CaregiverIdentity
   if(!caregiverId)return json({ok:false,error:'Add your resume first.',needsProfile:true},{status:404});
   const result=await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
   if(!result)return json({ok:false,error:'This job is no longer open.'},{status:404});
+  if(result.status==='needs_credential')return json({ok:false,error:result.error,needsCredential:true},{status:403});
   return json({ok:true,...result},{status:result.status==='applied'?201:200});
 }
 
@@ -210,12 +213,18 @@ export async function applyWithProfile(env:FeatureEnv,identity:CaregiverIdentity
  */
 export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:string,jobId:string,opts:{submittedOnEmployerSite:boolean}){
   const job=await env.DB!.prepare(`SELECT j.id,j.title AS title,j.employer_name,j.source_url,j.agency_organization_id,
-      o.claimed_employer_id,${REACHABLE_AGENCY_SQL} AS reachable
+      o.claimed_employer_id,o.application_email,o.required_credentials,${ON_CAREJOYS_SQL} AS on_carejoys,${REACHABLE_AGENCY_SQL} AS reachable
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.id=? AND j.is_published=1 AND j.status='current' LIMIT 1`).bind(jobId).first<Row>();
   if(!job)return null;
-  const employerOnCareJoys=!!clean(job.claimed_employer_id,120);
+  const employerOnCareJoys=asNum(job.on_carejoys)===1;
   const applicationUrl=clean(job.source_url,1000);
+  // An agency that only hires licensed caregivers never gets an application without one of its credentials.
+  if(clean(job.required_credentials,200)&&!opts.submittedOnEmployerSite){
+    const me=await env.DB!.prepare('SELECT role,certifications FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();
+    if(!meetsRequiredCredentials(me||{},job.required_credentials))
+      return {status:'needs_credential' as const,error:credentialRequiredMessage(clean(job.employer_name,200),job.required_credentials),employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
+  }
   // No saving: an employer that isn't on CareJoys only gets an application through its own site, so nothing is
   // recorded or emailed until Apply for me actually submits there.
   if(!employerOnCareJoys&&!opts.submittedOnEmployerSite)
@@ -226,7 +235,7 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
   }
   const already=await env.DB!.prepare("SELECT 1 AS hit FROM caregiver_job_apply_events WHERE caregiver_id=? AND caregiver_job_id=? AND event_type='carejoys_applied' LIMIT 1")
     .bind(caregiverId,jobId).first();
-  const result={status:(already?'already_applied':'applied') as 'applied'|'already_applied'|'not_sent',employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
+  const result={status:(already?'already_applied':'applied') as 'applied'|'already_applied',employerOnCareJoys,employerName:clean(job.employer_name,200),applicationUrl};
   if(already&&!opts.submittedOnEmployerSite)return result;
 
   if(!already){
@@ -235,6 +244,13 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
     const orgId=clean(job.agency_organization_id,120);
     if(orgId&&asNum(job.reachable)){
       await createAgencyInterests(env,{caregiverId,source:'job_apply',targets:[{organizationId:orgId,agencyName:clean(job.employer_name,200),city:'',state:'',jobId,jobTitle:clean(job.title,200)}]});
+      // An agency that asked for applications by email gets this one now, resume attached.
+      if(!clean(job.claimed_employer_id,120)&&clean(job.application_email,320)){
+        const a=await env.DB!.prepare('SELECT availability_json,shift_preferences FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();
+        const grid=parseAvailability(a?.availability_json);
+        const availability=[availabilityByDay(grid),grid.liveIn?'Live-in':''].filter(Boolean).join(' · ')||clean(a?.shift_preferences,300);
+        await emailApplicationToAgency(env,{organizationId:orgId,caregiverId,jobId,jobTitle:clean(job.title,200),availability});
+      }
     }
   }
   const c=await env.DB!.prepare('SELECT first_name,email FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();

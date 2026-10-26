@@ -290,6 +290,25 @@ export function agencyInterestNotifyEmail(input:{recipientName:string;agencyName
   };
 }
 
+// To an agency that asked for applications by email: one caregiver's application, resume attached.
+export function agencyApplicationEmail(input:{agencyName:string;contactName:string;jobTitle:string;name:string;email:string;phone:string;location:string;
+  credentials:string;license:string;experience:string;availability:string;start:string;desiredPay:string;hasResume:boolean}) {
+  const rows:[string,string][]=([
+    ['Name',input.name],['Phone',input.phone],['Email',input.email],['Location',input.location],['Credentials',input.credentials],
+    ['License #',input.license],['Experience',input.experience],['Availability',input.availability],['Can start',input.start],['Desired pay',input.desiredPay]
+  ] as [string,string][]).filter(r=>r[1]);
+  const job=input.jobTitle||'your caregiver job';
+  const resumeLine=input.hasResume?'Their resume is attached.':'They haven’t uploaded a resume file yet.';
+  return {
+    subject:`New application: ${input.name||'Caregiver'} for ${job}`,
+    html:shell('New caregiver application',`
+      <p style="${P}">Hi ${esc(input.contactName||'there')},</p>
+      <p style="${P}">${esc(input.name||'A caregiver')} applied to ${esc(job)} at ${esc(input.agencyName)} through CareJoys. ${esc(resumeLine)} Reply to this email to reach them directly.</p>
+      <table style="width:100%;border-collapse:collapse;margin:18px 0">${rows.map(([k,v])=>`<tr><td style="padding:7px 10px 7px 0;color:#8a8ca3;font-size:14px;vertical-align:top;white-space:nowrap">${esc(k)}</td><td style="padding:7px 0;color:#191e49;font-size:15px">${esc(v)}</td></tr>`).join('')}</table>`),
+    text:`Hi ${input.contactName||'there'},\n\n${input.name||'A caregiver'} applied to ${job} at ${input.agencyName} through CareJoys. ${resumeLine} Reply to this email to reach them directly.\n\n${rows.map(([k,v])=>k+': '+v).join('\n')}\n\nCareJoys · carejoys.com`
+  };
+}
+
 // To the caregiver: nothing is sent to an agency until they press Send on this link.
 export function caregiverInterestConfirmEmail(input:{firstName:string;targets:InterestPreview[];link:string;viaAssistant:boolean}) {
   const one=input.targets.length===1;

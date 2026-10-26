@@ -15,6 +15,8 @@ type Job={
   /** The agency posted this job on CareJoys, so there's no employer site to send anyone to. */
   postedOnCareJoys?:boolean;
   datePosted?:string;lastSeenAt?:string;lastCheckedAt?:string;applyForMe?:boolean;employerOnCareJoys?:boolean;
+  /** "CNA, EMT or MA" when the employer only takes applications from caregivers with one of them. */
+  requiredCredentials?:string;
 };
 
 type JobContext={
@@ -273,6 +275,7 @@ function ApplyWithProfile({job,profile,hasResume,applicationSent,applying,error,
     <p className="apply-with-profile-sub">{employer}</p>
     <div className="apply-profile-head"><strong>Applying as</strong><a className="text-link" href="/dashboard/profile">Edit</a></div>
     <dl className="apply-profile-summary">{rows.map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+    {job.requiredCredentials&&!error&&<p className="apply-finish-note">{employer} only hires caregivers with {/^[AEFHILMNORSX]/.test(job.requiredCredentials)?'an':'a'} {job.requiredCredentials} license. Make sure yours is under Certifications on your profile.</p>}
     {error&&<div className="notice">{error}</div>}
     {!job.employerOnCareJoys&&!agent&&<p className="apply-finish-note">{employer} takes applications on their own site, and CareJoys can’t send this one for you yet. Your profile is saved; finish your application there.</p>}
     {agent}

@@ -1436,6 +1436,36 @@ describe('shared sign-in', ()=>{
     expect(me.applications.map((a:any)=>[a.jobId,a.appliedOnCareJoys,a.employerOnCareJoys])).toEqual([['job-claimed',true,true]]);
   });
 
+  it('an agency that said yes by email gets each application emailed, and only from caregivers with its required license', async()=>{
+    await DB.prepare("INSERT OR REPLACE INTO agency_organizations(id,organization_key,canonical_name,primary_domain,primary_email,city,state,zip,is_active,application_email,required_credentials) VALUES ('org-hope','org-hope','Hope Care','hope.test','info@hope.test','San Luis Obispo','CA','93401',1,'ranelle@hope.test','emt,ma')").run();
+    await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-hope','org-hope','job-hope','test','https://hope.test/careers','Licensed caregivers','CNA','Hope Care','San Luis Obispo','CA','93401','current',1)").run();
+    const job=await (await call('/api/public/caregiver-jobs/job-hope')).json() as any;
+    expect(job.job).toMatchObject({employerOnCareJoys:true,requiredCredentials:'EMT or MA'});
+    const {cookie}=await signIn('dc@example.com');
+    sent.length=0;
+    // dc is a CNA: not one of this agency's licenses, so nothing is sent or recorded.
+    const refused=await post('/api/me/apply/job-hope',{},{cookie});
+    expect(refused.status).toBe(403);
+    expect((await refused.json() as any).error).toBe('Hope Care only hires caregivers with an EMT or MA license. If you have one, add it under Certifications on your profile, then apply.');
+    expect(sent).toEqual([]);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_id='dc' AND caregiver_job_id='job-hope'").first()).toEqual({n:0});
+    await DB.prepare("UPDATE agency_organizations SET required_credentials='cna,emt,ma' WHERE id='org-hope'").run();
+    await DB.prepare("UPDATE caregivers SET phone='4105550101',availability_json=? WHERE id='dc'").bind(JSON.stringify({days:{mon:['morning'],tue:['morning']},liveIn:false})).run();
+    const ok=await post('/api/me/apply/job-hope',{},{cookie});
+    expect(ok.status).toBe(201);
+    expect(await ok.json()).toMatchObject({status:'applied',employerOnCareJoys:true});
+    const toAgency=sent.filter(m=>m.to==='ranelle@hope.test');
+    expect(toAgency).toHaveLength(1);
+    expect(toAgency[0].subject).toBe('New application: dc Test for Licensed caregivers');
+    expect((toAgency[0] as any).replyTo).toBe('dc@example.com');
+    expect((toAgency[0] as any).text).toContain('Availability: Mon–Tue: mornings');
+    expect((toAgency[0] as any).text).toContain('Phone: 4105550101');
+    // Never the info@ activation email or the daily digest on top.
+    expect(sent.map(m=>m.to).sort()).toEqual(['dc@example.com','ranelle@hope.test']);
+    expect(await DB.prepare("SELECT agency_notified_at IS NOT NULL AS done FROM agency_interests WHERE organization_id='org-hope' AND caregiver_id='dc'").first()).toEqual({done:1});
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM agency_outreach_events WHERE organization_id='org-hope' AND event_type='application_emailed'").first()).toEqual({n:1});
+  });
+
   it('counts each step on the apply page, and only the known ones', async()=>{
     const step=(body:object)=>post('/api/public/caregiver-jobs/job-open/apply',body);
     for(const body of [{step:'apply_page_opened'},{step:'apply_signed_in'},{step:'carejoys_applied'},{}])expect((await step(body)).status).toBe(200);
@@ -3348,6 +3378,19 @@ describe('replies to hello@',()=>{
     // Ordinary replies still forward.
     await worker.email(message(raw('aimee@stayhome.test','Re: hi','Actually, tell me more','s3@stayhome.test'),'aimee@stayhome.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
     expect(forwards).toEqual(['owner@gmail.test']);
+  });
+
+  it('matches a colleague\'s reply to the agency the note went to, and counts it for that note',async()=>{
+    await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email) VALUES ('org-dh','org-dh','Dignified Test Care','info@dignified.test')").run();
+    await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload,created_at) VALUES ('ev-dh','org-dh','reply_yes_invite','info@dignified.test',?,'2026-10-25 18:17:27')").bind(JSON.stringify({variant:'jobs',jobCount:1,city:'San Luis Obispo'})).run();
+    await worker.email(message(raw('Ranelle <ranelle@dignified.test>','Re: Your caregiver job on CareJoys','Sure if they have a CNA license','dh1@dignified.test'),'ranelle@dignified.test') as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
+    expect(await DB.prepare("SELECT lead_type,lead_id FROM email_messages WHERE message_id='<dh1@dignified.test>'").first()).toEqual({lead_type:'agency',lead_id:'org-dh'});
+    const {replyYesCounts}=await import('../src/replyYesOutreach');
+    const counts=await replyYesCounts(env());
+    expect(counts.jobs.replies).toBeGreaterThanOrEqual(1);
+    const convos=await (await call('/api/admin/conversations',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
+    const convo=convos.conversations.find((c:any)=>c.email==='ranelle@dignified.test');
+    expect(convo.messages.map((m:any)=>[m.direction,!!m.outreach])).toEqual([['outbound',true],['inbound',false]]);
   });
 
   it('still records the message when forwarding fails',async()=>{

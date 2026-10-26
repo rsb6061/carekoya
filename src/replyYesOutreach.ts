@@ -126,12 +126,18 @@ export async function sendReplyYesBatch(env:ReplyYesEnv,limit:number){
 
 /** Reply-yes notes sent today (UTC) and ever, the replies they got, and whether rebecca@ is routed yet. */
 export async function replyYesCounts(env:ReplyYesEnv){
-  if(!env.DB)return {today:0,total:0,replies:0,routingLive:false};
+  if(!env.DB)return {today:0,total:0,replies:0,jobs:{sent:0,replies:0},old:{sent:0,replies:0},routingLive:false};
   const row=await env.DB.prepare(`SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today
     FROM agency_outreach_events WHERE event_type='${REPLY_YES_EVENT}'`).first<Row>();
-  const replies=await env.DB.prepare(`SELECT COUNT(DISTINCT m.from_email) AS n FROM email_messages m
-    WHERE m.direction='inbound' AND m.kind IN ('reply','unsubscribe') AND EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.event_type='${REPLY_YES_EVENT}' AND e.recipient_email=m.from_email)`).first<Row>();
-  return {today:asNum(row?.today),total:asNum(row?.total),replies:asNum(replies?.n),routingLive:await rebeccaRoutingLive(env.DB)};
+  // A reply counts for the agency the note went to: from that address, or from a colleague the inbox matched to the
+  // agency (ranelle@ answering the note sent to info@). Split by the note's copy: 'jobs' (2026-10-25 on) vs the older ones.
+  const split=(await env.DB.prepare(`SELECT CASE WHEN json_extract(e.payload,'$.variant')='jobs' THEN 'jobs' ELSE 'old' END AS copy,COUNT(DISTINCT e.organization_id) AS sent,
+      COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM email_messages m WHERE m.direction='inbound' AND m.kind IN ('reply','unsubscribe')
+        AND (m.from_email=e.recipient_email OR (m.lead_type='agency' AND m.lead_id=e.organization_id))) THEN e.organization_id END) AS replies
+    FROM agency_outreach_events e WHERE e.event_type='${REPLY_YES_EVENT}' GROUP BY copy`).all<Row>()).results||[];
+  const byCopy=(copy:string)=>{const r=split.find(x=>x.copy===copy);return {sent:asNum(r?.sent),replies:asNum(r?.replies)}};
+  const jobs=byCopy('jobs'),old=byCopy('old');
+  return {today:asNum(row?.today),total:asNum(row?.total),replies:jobs.replies+old.replies,jobs,old,routingLive:await rebeccaRoutingLive(env.DB)};
 }
 
 /** The note as an agency would get it, to `to`, marked [Test]. Replying to it is how rebecca@'s routing gets proven. */

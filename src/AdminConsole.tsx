@@ -17,7 +17,7 @@ type Overview={
     workerFunnel:{previews:number;withJobs:number;emptyPreviews:number;signups:number;verified:number;eligibleReturn:number;returned:number;availableSince:string;conversionWindowDays:number};
     outreachChannels:{
       agencyHiring:{enabled:boolean;cap:number;perHour:number;today:number;total:number;schedule:string;reinvite?:{mode:string;today:number;total:number};
-        replyYes?:{on:boolean;today:number;total:number;replies:number;routingLive:boolean}};
+        replyYes?:{on:boolean;today:number;total:number;replies:number;jobs?:{sent:number;replies:number};old?:{sent:number;replies:number};routingLive:boolean}};
       generalBulk:{enabled:boolean};reactivationReminders:{enabled:boolean;sent:number};
       agencyInboxAlerts:{claimedLast24h:number;unclaimedLast24h:number;unclaimedEnabled:boolean;dailyLimit:number};
       weeklyDigest:{enabled:boolean;subscribed:number;verified:number;sentLast7Days:number};
@@ -340,7 +340,7 @@ export function AdminConsole(){
   <div className="admin-stat-grid">
     <Stat label="Agency hiring invites" value={oc.agencyHiring.replyYes?.on?'Replaced':oc.agencyHiring.enabled?'On':'Off'} sub={oc.agencyHiring.replyYes?.on?'The reply-yes email from rebecca@ goes out instead, inside this cap of '+oc.agencyHiring.cap+' a day · '+oc.agencyHiring.total+' styled invites sent before the switch':oc.agencyHiring.today+' of '+oc.agencyHiring.cap+' sent today, about '+oc.agencyHiring.perHour+' an hour · '+oc.agencyHiring.total+' sent in total'+(oc.agencyHiring.reinvite?.mode?' · re-sending the new copy to '+(oc.agencyHiring.reinvite.mode==='openers'?'agencies that opened the old one':'every agency that got the old one')+': '+oc.agencyHiring.reinvite.today+' today, '+oc.agencyHiring.reinvite.total+' so far':oc.agencyHiring.reinvite?.total?' · '+oc.agencyHiring.reinvite.total+' re-sent the new copy':'')}/>
     {oc.agencyHiring.replyYes?.on&&<Stat label="Reply-yes email from rebecca@" value={oc.agencyHiring.replyYes.routingLive?'Sending':'Waiting'} sub={oc.agencyHiring.replyYes.routingLive
-      ?oc.agencyHiring.replyYes.today+' sent today, '+oc.agencyHiring.replyYes.total+' in total, out of the hiring invite cap · '+oc.agencyHiring.replyYes.replies+' replied'
+      ?oc.agencyHiring.replyYes.today+' sent today, '+oc.agencyHiring.replyYes.total+' in total, out of the hiring invite cap · '+oc.agencyHiring.replyYes.replies+' replied'+(oc.agencyHiring.replyYes.jobs?' · new jobs note: '+oc.agencyHiring.replyYes.jobs.replies+' of '+oc.agencyHiring.replyYes.jobs.sent+' agencies replied, older notes: '+(oc.agencyHiring.replyYes.old?.replies||0)+' of '+(oc.agencyHiring.replyYes.old?.sent||0):'')
       :'Starts once mail to rebecca@ reaches CareJoys. Add the Email Routing rule, then send yourself a test below and reply to it.'}/>}
     <Stat label="Agency inbox alerts" value={oc.agencyInboxAlerts.unclaimedEnabled?'On':'Claimed only'} sub={oc.agencyInboxAlerts.claimedLast24h+' to claimed agencies, '+oc.agencyInboxAlerts.unclaimedLast24h+' to unclaimed in the last 24 hours · hourly, at most one per agency a day'}/>
     <Stat label="General bulk outreach" value={oc.generalBulk.enabled?'On':'Off'} sub="Legacy caregiver reactivation and agency teasers, once a day"/>

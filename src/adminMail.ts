@@ -59,11 +59,13 @@ export async function adminConversations(env:AdminMailEnv){
   }
   // The reply-yes note is sent by the hourly run, not from here, so it is rebuilt from its outreach record.
   const emails=[...people.keys()];
-  const notes=emails.length?(await env.DB.prepare(`SELECT e.id,e.recipient_email,e.payload,e.created_at,o.canonical_name,o.primary_contact_name FROM agency_outreach_events e
-    LEFT JOIN agency_organizations o ON o.id=e.organization_id WHERE e.event_type=? AND e.recipient_email IN (SELECT value FROM json_each(?))`)
-    .bind(REPLY_YES_EVENT,JSON.stringify(emails)).all<Row>()).results||[]:[];
+  // A colleague's reply (matched to the agency by domain) shows the note that went to the agency's listed address.
+  const byAgency=new Map([...people.values()].filter(p=>p.lead?.type==='agency').map(p=>[p.lead!.id,p]));
+  const notes=emails.length?(await env.DB.prepare(`SELECT e.id,e.organization_id,e.recipient_email,e.payload,e.created_at,o.canonical_name,o.primary_contact_name FROM agency_outreach_events e
+    LEFT JOIN agency_organizations o ON o.id=e.organization_id WHERE e.event_type=? AND (e.recipient_email IN (SELECT value FROM json_each(?)) OR e.organization_id IN (SELECT value FROM json_each(?)))`)
+    .bind(REPLY_YES_EVENT,JSON.stringify(emails),JSON.stringify([...byAgency.keys()])).all<Row>()).results||[]:[];
   for(const n of notes){
-    const person=people.get(lower(n.recipient_email));
+    const person=people.get(lower(n.recipient_email))||byAgency.get(clean(n.organization_id,100));
     if(!person)continue;
     let payload:Row={};
     try{payload=JSON.parse(String(n.payload||'{}')) as Row}catch{/* older rows */}
