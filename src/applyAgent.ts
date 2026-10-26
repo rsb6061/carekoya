@@ -314,8 +314,9 @@ export async function runAutoApply(env:ApplyEnv,maxBrowserRuns=3){
         .bind(crypto.randomUUID(),jobId,caregiverId).run();
       if(match.employerOnCareJoys){
         // The employer is on CareJoys: the application is their profile, sent straight to the employer.
+        const sent=await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
+        if(!sent||sent.status==='needs_credential')continue;
         await counted();
-        await recordCareJoysApplication(env,caregiverId,jobId,{submittedOnEmployerSite:false});
         left--;applied++;
         continue;
       }

@@ -7,7 +7,7 @@ import { AvailabilityGrid, emptyDays, type Availability } from './AvailabilityGr
 // The caregiver's full profile: what agencies match on beyond the resume. Shared by the dashboard checklist
 // (what's missing) and the editor at /dashboard/profile.
 
-const CERTIFICATIONS=['CNA','GNA','HHA','CMT / Med Tech','PCA','DSP','LPN','RN','CPR / First Aid','BLS'];
+const CERTIFICATIONS=['CNA','GNA','HHA','CMT / Med Tech','PCA','DSP','EMT','Medical Assistant (MA)','LPN','RN','CPR / First Aid','BLS'];
 const SKILLS=['Dementia / Alzheimer’s','Bathing & personal care','Transfers & mobility','Hoyer lift','Medication reminders','Meal prep','Light housekeeping','Companionship','Hospice / end of life','Diabetes care','Catheter / ostomy care','Developmental disabilities','Pediatric care'];
 const SETTINGS=['Home care','Assisted living','Nursing home','Hospital','Hospice','Group home'];
 const PREFERRED=['Private home care','Assisted living','Nursing home','Hospital','Hospice','Group home','Open to any'];

@@ -5,6 +5,7 @@ import { US_STATES, stateForZipPrefix, usState } from './usStates';
 import { detectApplyProvider } from './applyAgentRules';
 import { applyUrlProblem } from './applyLinkCheck';
 import { sourcingRankSql } from './sourcingPriorities';
+import { ON_CAREJOYS_SQL, credentialListLabel, parseRequiredCredentials } from './agencyApplications';
 
 type Row=Record<string,unknown>;
 const clean=(v:unknown,max=500)=>typeof v==='string'?v.trim().slice(0,max):'';
@@ -1619,7 +1620,7 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
   const stateParam=clean(url.searchParams.get('state'),20).toUpperCase()||'MD';
   const radius=Math.max(1,Math.min(MAX_SEARCH_MILES,asNum(url.searchParams.get('radius'))||25));
   const center=await lookupZip(env.DB,url.searchParams.get('zip'));
-  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng,o.claimed_employer_id
+  let sql=`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.source_url,j.date_posted,j.first_seen_at,j.last_seen_at,zg.lat AS geo_lat,zg.lng AS geo_lng,${ON_CAREJOYS_SQL} AS on_carejoys
     FROM caregiver_jobs j ${zipGeoJoin('j')}
     LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.is_published=1 AND j.status="current"`;
@@ -1646,13 +1647,13 @@ export async function getPublicCaregiverJobs(url:URL,env:FeatureEnv){
       employmentType:r.employment_type,payMin:r.pay_min,payMax:r.pay_max,payPeriod:r.pay_period,sourceUrl:r.source_url,
       datePosted:r.date_posted,firstSeenAt:r.first_seen_at,lastSeenAt:r.last_seen_at,
       distanceMiles:distanceMiles===null?null:Math.round(distanceMiles*10)/10,
-      applyForMe:!!detectApplyProvider(clean(r.source_url,1000)),employerOnCareJoys:!!clean(r.claimed_employer_id,120)
+      applyForMe:!!detectApplyProvider(clean(r.source_url,1000)),employerOnCareJoys:asNum(r.on_carejoys)===1
     };
   })});
 }
 export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
   if(!env.DB)return json({ok:false,error:'Database not configured'},{status:503});
-  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.source_provider,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,o.claimed_employer_id
+  const row=await env.DB.prepare(`SELECT j.id,j.title,j.role,j.roles_json,j.employer_name,j.city,j.state,j.zip,j.employment_type,j.pay_min,j.pay_max,j.pay_period,j.summary_text,j.source_url,j.source_listing_url,j.source_provider,j.date_posted,j.first_seen_at,j.last_seen_at,j.last_checked_at,${ON_CAREJOYS_SQL} AS on_carejoys,o.required_credentials
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
     WHERE j.id=? AND j.is_published=1 AND j.status="current" LIMIT 1`).bind(id).first<Row>();
   if(!row)return json({ok:false,error:'Job not found'},{status:404});
@@ -1665,7 +1666,9 @@ export async function getPublicCaregiverJob(id:string,env:FeatureEnv){
     sourceUrl:row.source_url,sourceListingUrl:row.source_listing_url,datePosted:row.date_posted,
     firstSeenAt:row.first_seen_at,lastSeenAt:row.last_seen_at,lastCheckedAt:row.last_checked_at,
     applyForMe:!!detectApplyProvider(clean(row.source_url,1000)),
-    employerOnCareJoys:!!clean(row.claimed_employer_id,120),
+    employerOnCareJoys:asNum(row.on_carejoys)===1,
+    // "CNA, EMT or MA" when the agency only hires caregivers with one of those.
+    requiredCredentials:credentialListLabel(parseRequiredCredentials(row.required_credentials)),
     // Posted by the agency on CareJoys: there's no employer site to send anyone to.
     postedOnCareJoys:row.source_provider==='carejoys'
   }});

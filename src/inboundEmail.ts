@@ -189,7 +189,14 @@ export async function matchLead(db:DB,email:string):Promise<LeadMatch|null>{
     const row=await db.prepare(sql).bind(email).first<Row>().catch(()=>null);
     if(row?.id)return {type,id:String(row.id),name:clean(row.name,200)};
   }
-  return null;
+  // A colleague answering for the agency: ranelle@agency.com replying to the note sent to info@agency.com.
+  const domain=email.split('@')[1]||'';
+  if(!domain||OWN_DOMAIN.test(email)||isFreeMail(email))return null;
+  const like='%@'+domain.replace(/[%_\\]/g,'\\$&');
+  const agency=await db.prepare(`SELECT o.id,o.canonical_name AS name FROM agency_outreach_events e JOIN agency_organizations o ON o.id=e.organization_id
+    WHERE lower(e.recipient_email) LIKE ? ESCAPE '\\' ORDER BY e.created_at DESC LIMIT 1`).bind(like).first<Row>().catch(()=>null)
+    ||await db.prepare("SELECT id,canonical_name AS name FROM agency_organizations WHERE lower(trim(primary_email)) LIKE ? ESCAPE '\\' LIMIT 1").bind(like).first<Row>().catch(()=>null);
+  return agency?.id?{type:'agency',id:String(agency.id),name:clean(agency.name,200)}:null;
 }
 
 async function suppress(db:DB,email:string,reason:'unsubscribe'|'bounce'){
