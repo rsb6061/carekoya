@@ -489,7 +489,8 @@ function JobSites(){
 }
 
 type ConversationMessage={id:string;direction:'inbound'|'outbound';mailbox:string;subject:string;text:string;status:string;createdAt:string;outreach?:boolean};
-type Conversation={email:string;name:string;lead:{type:string;id:string;name:string}|null;messages:ConversationMessage[];needsReply:boolean;replied:boolean;lastAt:string};
+type AgencySetup={applicationEmail:string;requiredCredentials:string;credentialKeys?:string[];hasAccount:boolean};
+type Conversation={email:string;name:string;lead:{type:string;id:string;name:string}|null;messages:ConversationMessage[];needsReply:boolean;replied:boolean;lastAt:string;agencySetup?:AgencySetup|null};
 type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string};
 type AutomaticMail={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:string;bouncedEmail:string;createdAt:string};
 const AUTOMATIC_KINDS:Record<string,string>={unsubscribe:'Unsubscribed',auto_reply:'Out of office',bounce:'Bounced',intake:'Applicant email'};
@@ -562,6 +563,7 @@ function InboxReplies(){
               {m.subject&&<div style={{fontWeight:600,overflowWrap:'anywhere'}}>{m.subject}</div>}
               <p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:'4px 0 0'}}>{m.text}</p>
             </div>)}
+            {c.lead?.type==='agency'&&c.agencySetup&&<AgencySetupBox orgId={c.lead.id} agencyName={c.lead.name} email={c.email} name={c.name} setup={c.agencySetup} onDone={()=>void load()}/>}
             {writing===c.email
               ?<MailComposer to={c.email} subject={reply?(/^re:/i.test(reply.subject)?reply.subject:'Re: '+reply.subject):''} inReplyToId={reply?.id||''}
                 quote={reply?.text||''} quoteFrom={(c.name||c.email)+' · '+(reply?mailTime(reply.createdAt):'')}
@@ -587,6 +589,44 @@ function InboxReplies(){
   </section>;
 }
 
+
+const SETUP_CREDENTIALS:[string,string][]=[['cna','CNA'],['emt','EMT'],['ma','MA'],['hha','HHA'],['cmt','CMT'],['lvn','LVN / LPN'],['rn','RN']];
+
+/** An agency that said yes: where its applications go and which licenses it requires. A plain "yes" sets this up on arrival. */
+function AgencySetupBox({orgId,agencyName,email:replyEmail,name,setup,onDone}:{orgId:string;agencyName:string;email:string;name:string;setup:AgencySetup;onDone:()=>void}){
+  const [editing,setEditing]=useState(false);
+  const [email,setEmail]=useState(setup.applicationEmail||replyEmail);
+  const [creds,setCreds]=useState<string[]>(setup.credentialKeys||[]);
+  const [busy,setBusy]=useState(false);
+  const [error,setError]=useState('');
+  async function save(){
+    setBusy(true);setError('');
+    try{
+      await api('/api/admin/agency-setup',{method:'POST',body:JSON.stringify({organizationId:orgId,email,credentials:creds,contactName:name})});
+      setEditing(false);onDone();
+    }catch(e){setError(e instanceof Error?e.message:'Could not set up')}
+    finally{setBusy(false)}
+  }
+  if(setup.applicationEmail&&!editing)return <div className="settings-card" style={{padding:'10px 16px'}}>
+    <strong>Set up ✓</strong> Applications to {agencyName}'s jobs go to {setup.applicationEmail}{setup.requiredCredentials?', '+setup.requiredCredentials+' license required':''}.{setup.hasAccount?' Their CareJoys account is linked; they sign in at carejoys.com/login.':''}
+    {' '}<button className="text-button" onClick={()=>setEditing(true)}>Change</button>
+  </div>;
+  if(!editing)return <div className="empty-actions" style={{justifyContent:'flex-start'}}>
+    <button className="button secondary" onClick={()=>setEditing(true)}>Set up {agencyName}: send applications by email</button>
+  </div>;
+  return <div className="settings-card" style={{padding:'12px 16px',display:'grid',gap:8}}>
+    <label>Send applications to<input value={email} onChange={e=>setEmail(e.target.value)}/></label>
+    <div>Only caregivers with one of these licenses (leave empty for anyone):
+      <div style={{display:'flex',flexWrap:'wrap',gap:10,marginTop:4}}>{SETUP_CREDENTIALS.map(([k,label])=><label key={k} style={{display:'flex',gap:4,alignItems:'center'}}>
+        <input type="checkbox" checked={creds.includes(k)} onChange={e=>setCreds(c=>e.target.checked?[...c,k]:c.filter(x=>x!==k))}/>{label}</label>)}</div>
+    </div>
+    {error&&<div className="notice">{error}</div>}
+    <div className="empty-actions" style={{justifyContent:'flex-start'}}>
+      <button className="button" disabled={busy} onClick={()=>void save()}>{busy?'Saving…':'Save'}</button>
+      <button className="button secondary" onClick={()=>setEditing(false)}>Cancel</button>
+    </div>
+  </div>;
+}
 
 /** One email from Rebecca: a reply (with the message it answers quoted under it) or a new note, sent by CareJoys from rebecca@. */
 function MailComposer({to:initialTo='',subject:initialSubject='',text:initialText='',draftId:initialDraft='',inReplyToId='',quote='',quoteFrom='',from='rebecca@carejoys.com',onDone}:

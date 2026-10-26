@@ -244,8 +244,8 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
     const orgId=clean(job.agency_organization_id,120);
     if(orgId&&asNum(job.reachable)){
       await createAgencyInterests(env,{caregiverId,source:'job_apply',targets:[{organizationId:orgId,agencyName:clean(job.employer_name,200),city:'',state:'',jobId,jobTitle:clean(job.title,200)}]});
-      // An agency that asked for applications by email gets this one now, resume attached.
-      if(!clean(job.claimed_employer_id,120)&&clean(job.application_email,320)){
+      // An agency that asked for applications by email gets this one now, resume attached, with or without a workspace.
+      if(clean(job.application_email,320)){
         const a=await env.DB!.prepare('SELECT availability_json,shift_preferences FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();
         const grid=parseAvailability(a?.availability_json);
         const availability=[availabilityByDay(grid),grid.liveIn?'Live-in':''].filter(Boolean).join(' · ')||clean(a?.shift_preferences,300);

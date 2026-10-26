@@ -2,6 +2,7 @@
 // rebecca@carejoys.com (or hello@ when answering mail sent there), never from a personal Gmail. Each sent message is
 // recorded in email_messages as outbound and blind-copied to the owner's inbox, so Gmail still holds the whole thread.
 // Drafts are outbound rows with status 'draft' until they are sent.
+import { credentialListLabel, parseRequiredCredentials, setUpYesAgency } from './agencyApplications';
 import { forwardTarget, matchLead, type InboundEnv } from './inboundEmail';
 import { REBECCA_EMAIL, REBECCA_FROM, REPLY_YES_EVENT, replyYesEmail, type ReplyYesVariant } from './replyYesOutreach';
 import type { EmailBinding } from './email';
@@ -80,6 +81,12 @@ export async function adminConversations(env:AdminMailEnv){
     return {...p,needsReply:p.messages.some(m=>m.direction==='inbound'&&m.status==='new'),
       replied:p.messages.some(m=>m.direction==='outbound'&&!m.outreach),lastAt:last?.createdAt||''};
   }).sort((a,b)=>b.lastAt.localeCompare(a.lastAt));
+  // Agencies in these conversations: whether they're set up to get applications by email yet (the Set up button).
+  const orgIds=[...new Set(conversations.filter(c=>c.lead?.type==='agency').map(c=>c.lead!.id))];
+  const orgs=orgIds.length?(await env.DB.prepare(`SELECT id,application_email,required_credentials,claimed_employer_id FROM agency_organizations WHERE id IN (SELECT value FROM json_each(?))`)
+    .bind(JSON.stringify(orgIds)).all<Row>()).results||[]:[];
+  const setupOf=new Map(orgs.map(o=>[String(o.id),{applicationEmail:clean(o.application_email,320),requiredCredentials:credentialListLabel(parseRequiredCredentials(o.required_credentials)),credentialKeys:parseRequiredCredentials(o.required_credentials),hasAccount:!!clean(o.claimed_employer_id,120)}]));
+  for(const c of conversations as Array<Record<string,unknown>&{lead:{type:string;id:string}|null}>)if(c.lead?.type==='agency')c.agencySetup=setupOf.get(c.lead.id)||null;
   const automatic=(await env.DB.prepare(`SELECT id,from_email,from_name,subject,snippet,kind,bounced_email,created_at FROM email_messages
     WHERE direction='inbound' AND kind!='reply' ORDER BY created_at DESC LIMIT 50`).all<Row>()).results||[];
   const drafts=(await env.DB.prepare(`SELECT id,to_email,subject,snippet,reply_to_id,created_at FROM email_messages WHERE direction='outbound' AND status='draft' ORDER BY created_at DESC LIMIT 50`).all<Row>()).results||[];
@@ -156,3 +163,13 @@ export async function adminSendMail(request:Request,env:AdminMailEnv){
   return json({ok:true});
 }
 
+
+/** POST /api/admin/agency-setup {organizationId,email,credentials:['cna',…]}: the Set up button on an agency's reply. */
+export async function adminAgencySetup(request:Request,env:AdminMailEnv){
+  if(!env.DB)return json({ok:false,error:'Database unavailable'},{status:503});
+  const body=await request.json().catch(()=>null) as Row|null;
+  try{
+    const result=await setUpYesAgency(env as never,{organizationId:clean(body?.organizationId,100),email:clean(body?.email,320),credentials:body?.credentials,contactName:clean(body?.contactName,120),source:'admin'});
+    return json({ok:true,...result});
+  }catch(error){return json({ok:false,error:error instanceof Error?error.message:'Could not set up this agency'},{status:400})}
+}
