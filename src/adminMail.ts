@@ -18,13 +18,14 @@ const validEmail=(v:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const HELLO='hello@carejoys.com';
 const BODY_MAX=10000;
 
-type Draft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string};
-const draftOf=(r:Row):Draft=>({id:String(r.id),to:clean(r.to_email,320),subject:clean(r.subject,300),text:clean(r.snippet,BODY_MAX),inReplyToId:clean(r.reply_to_id,100),updatedAt:clean(r.created_at,40)});
+type Draft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string;draftedBy:string};
+// draftedBy: 'claude' or 'workers_ai' for a suggested answer (src/replyDrafter.ts), '' for one Rebecca started.
+const draftOf=(r:Row):Draft=>({id:String(r.id),to:clean(r.to_email,320),subject:clean(r.subject,300),text:clean(r.snippet,BODY_MAX),inReplyToId:clean(r.reply_to_id,100),updatedAt:clean(r.created_at,40),draftedBy:clean(r.drafted_by,20)});
 
 /** GET /api/admin/mail: drafts waiting to be sent, and the last 50 sent. */
 export async function adminMail(env:AdminMailEnv){
   if(!env.DB)return json({ok:false,error:'Database unavailable'},{status:503});
-  const rows=(await env.DB.prepare(`SELECT id,to_email,subject,snippet,status,reply_to_id,lead_name,created_at FROM email_messages
+  const rows=(await env.DB.prepare(`SELECT id,to_email,subject,snippet,status,reply_to_id,lead_name,drafted_by,created_at FROM email_messages
     WHERE direction='outbound' AND status IN ('draft','sent') ORDER BY created_at DESC LIMIT 80`).all<Row>()).results||[];
   return json({ok:true,
     drafts:rows.filter(r=>r.status==='draft').map(draftOf),
@@ -89,7 +90,7 @@ export async function adminConversations(env:AdminMailEnv){
   for(const c of conversations as Array<Record<string,unknown>&{lead:{type:string;id:string}|null}>)if(c.lead?.type==='agency')c.agencySetup=setupOf.get(c.lead.id)||null;
   const automatic=(await env.DB.prepare(`SELECT id,from_email,from_name,subject,snippet,kind,bounced_email,created_at FROM email_messages
     WHERE direction='inbound' AND kind!='reply' ORDER BY created_at DESC LIMIT 50`).all<Row>()).results||[];
-  const drafts=(await env.DB.prepare(`SELECT id,to_email,subject,snippet,reply_to_id,created_at FROM email_messages WHERE direction='outbound' AND status='draft' ORDER BY created_at DESC LIMIT 50`).all<Row>()).results||[];
+  const drafts=(await env.DB.prepare(`SELECT id,to_email,subject,snippet,reply_to_id,drafted_by,created_at FROM email_messages WHERE direction='outbound' AND status='draft' ORDER BY created_at DESC LIMIT 50`).all<Row>()).results||[];
   return json({ok:true,conversations,drafts:drafts.map(draftOf),
     automatic:automatic.map(r=>({id:String(r.id),fromEmail:clean(r.from_email,320),fromName:clean(r.from_name,200),subject:clean(r.subject,300),
       snippet:clean(r.snippet,600),kind:clean(r.kind,20),bouncedEmail:clean(r.bounced_email,320),createdAt:clean(r.created_at,40)}))});

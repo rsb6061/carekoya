@@ -491,7 +491,7 @@ function JobSites(){
 type ConversationMessage={id:string;direction:'inbound'|'outbound';mailbox:string;subject:string;text:string;status:string;createdAt:string;outreach?:boolean};
 type AgencySetup={applicationEmail:string;requiredCredentials:string;credentialKeys?:string[];hasAccount:boolean};
 type Conversation={email:string;name:string;lead:{type:string;id:string;name:string}|null;messages:ConversationMessage[];needsReply:boolean;replied:boolean;lastAt:string;agencySetup?:AgencySetup|null};
-type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string};
+type MailDraft={id:string;to:string;subject:string;text:string;inReplyToId:string;updatedAt:string;draftedBy?:string};
 type AutomaticMail={id:string;fromEmail:string;fromName:string;subject:string;snippet:string;kind:string;bouncedEmail:string;createdAt:string};
 const AUTOMATIC_KINDS:Record<string,string>={unsubscribe:'Unsubscribed',auto_reply:'Out of office',bounce:'Bounced',intake:'Applicant email'};
 const LEAD_LABELS:Record<string,string>={employer:'Employer',agency:'Agency or facility',school:'School',training_program:'Training program',applicant:'Agency applicant',caregiver:'Caregiver'};
@@ -538,7 +538,7 @@ function InboxReplies(){
       {data?.drafts.map(d=>writing===d.id
         ?<MailComposer key={d.id} to={d.to} subject={d.subject} text={d.text} draftId={d.id} inReplyToId={d.inReplyToId} onDone={done}/>
         :<button className="settings-card" key={d.id} style={{textAlign:'left',cursor:'pointer',font:'inherit',color:'inherit'}} onClick={()=>setWriting(d.id)}>
-          <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to||'(no recipient)'}</div>
+          <div style={{fontWeight:600,overflowWrap:'anywhere'}}>{d.to||'(no recipient)'}{d.draftedBy?<span className="job-meta"> · suggested answer, edit before sending</span>:null}</div>
           <div className="job-meta" style={{overflowWrap:'anywhere'}}>{d.subject||'(no subject)'} · {d.text.slice(0,140)}</div>
         </button>)}
     </div>:<div style={{display:'grid',gap:8,marginTop:12}}>
@@ -548,10 +548,12 @@ function InboxReplies(){
         const last=c.messages[c.messages.length-1];
         const expanded=open===c.email;
         const reply=latestInbound(c);
+        // A suggested answer written when their email arrived (or one Rebecca saved) opens in Reply, ready to edit.
+        const draft=data?.drafts.find(d=>d.to.toLowerCase()===c.email);
         return <div className="settings-card" key={c.email} style={{padding:0,overflow:'hidden'}}>
           <button onClick={()=>setOpen(expanded?'':c.email)} style={{display:'grid',gridTemplateColumns:'1fr auto',gap:'2px 12px',width:'100%',textAlign:'left',padding:'14px 18px',background:'none',border:0,cursor:'pointer',font:'inherit',color:'inherit'}}>
             <span style={{fontWeight:c.needsReply?700:500,overflowWrap:'anywhere'}}>{c.needsReply&&<span aria-label="Needs reply" style={{display:'inline-block',width:8,height:8,borderRadius:4,background:'var(--accent, #d6246e)',marginRight:8,verticalAlign:'middle'}}/>}
-              {c.lead?.name||c.name||c.email}{c.messages.length>1?<span className="job-meta"> · {c.messages.length}</span>:null}</span>
+              {c.lead?.name||c.name||c.email}{c.messages.length>1?<span className="job-meta"> · {c.messages.length}</span>:null}{c.needsReply&&draft?<span className="job-meta"> · draft ready</span>:null}</span>
             <span className="job-meta" style={{whiteSpace:'nowrap'}}>{mailTime(c.lastAt)}</span>
             <span className="job-meta" style={{gridColumn:'1 / -1',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
               {last.direction==='outbound'?'You: ':''}{last.subject?last.subject+' · ':''}{last.text.replace(/\s+/g,' ').slice(0,160)}</span>
@@ -565,11 +567,12 @@ function InboxReplies(){
             </div>)}
             {c.lead?.type==='agency'&&c.agencySetup&&<AgencySetupBox orgId={c.lead.id} agencyName={c.lead.name} email={c.email} name={c.name} setup={c.agencySetup} onDone={()=>void load()}/>}
             {writing===c.email
-              ?<MailComposer to={c.email} subject={reply?(/^re:/i.test(reply.subject)?reply.subject:'Re: '+reply.subject):''} inReplyToId={reply?.id||''}
+              ?<MailComposer to={c.email} subject={draft?.subject||(reply?(/^re:/i.test(reply.subject)?reply.subject:'Re: '+reply.subject):'')} inReplyToId={reply?.id||''}
+                text={draft?.text||''} draftId={draft?.id||''}
                 quote={reply?.text||''} quoteFrom={(c.name||c.email)+' · '+(reply?mailTime(reply.createdAt):'')}
                 from={reply?.mailbox==='hello@carejoys.com'?'hello@carejoys.com':'rebecca@carejoys.com'} onDone={done}/>
               :<div className="empty-actions" style={{justifyContent:'flex-start',alignItems:'center'}}>
-                <button className="button" onClick={()=>setWriting(c.email)}>Reply</button>
+                <button className="button" onClick={()=>setWriting(c.email)}>{draft?'Reply (draft ready)':'Reply'}</button>
                 {reply&&<button className="button secondary" onClick={()=>void mark(c)}>{c.needsReply?'Done, no reply needed':'Mark as needing a reply'}</button>}
               </div>}
           </div>}
