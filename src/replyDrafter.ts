@@ -127,17 +127,17 @@ export async function draftReply(env:ReplyDraftEnv,inboundId:string){
 
 /**
  * Drafts answers for recent replies that still need one: still 'new', the latest from that person, and with no
- * draft or sent answer to them since. Runs when mail arrives and hourly, so a failed draft is retried.
+ * draft or sent answer to them since. Runs for each message as it arrives (onlyId) and hourly, so a failed draft is retried.
  */
-export async function draftWaitingReplies(env:ReplyDraftEnv,limit=3){
+export async function draftWaitingReplies(env:ReplyDraftEnv,limit=3,onlyId=''){
   if(!env.DB||!replyDraftsEnabled(env))return {drafted:0};
   const rows=(await env.DB.prepare(`SELECT m.id FROM email_messages m
-    WHERE m.direction='inbound' AND m.kind='reply' AND m.status='new' AND datetime(m.created_at)>=datetime('now',?)
+    WHERE m.direction='inbound' AND m.kind='reply' AND m.status='new' AND datetime(m.created_at)>=datetime('now',?) AND (?='' OR m.id=?)
       AND NOT EXISTS (SELECT 1 FROM email_messages later WHERE later.direction='inbound' AND later.kind='reply'
         AND lower(later.from_email)=lower(m.from_email) AND later.created_at>m.created_at)
       AND NOT EXISTS (SELECT 1 FROM email_messages o WHERE o.direction='outbound' AND lower(o.to_email)=lower(m.from_email)
         AND (o.reply_to_id=m.id OR (o.status IN ('draft','sent') AND o.created_at>=m.created_at)))
-    ORDER BY m.created_at LIMIT ?`).bind(DRAFT_WINDOW,limit).all<Row>()).results||[];
+    ORDER BY m.created_at LIMIT ?`).bind(DRAFT_WINDOW,onlyId,onlyId,limit).all<Row>()).results||[];
   let drafted=0;
   for(const r of rows){
     try{if(await draftReply(env,String(r.id)))drafted++}

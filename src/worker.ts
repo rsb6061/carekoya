@@ -2609,9 +2609,9 @@ export default {
   // Mail to hello@carejoys.com, once its Email Routing rule says "Send to a Worker": forwarded on, then recorded.
   async email(message:InboundEmailMessage,env:Env){
     setMailingAddress(env.MAILING_ADDRESS);
-    await handleInboundEmail(message,env);
+    const replyId=await handleInboundEmail(message,env);
     // A suggested answer for Rebecca in /admin Inbox; it never sends. The hourly run retries any that fail here.
-    await draftWaitingReplies(env).catch(error=>console.error('reply drafts failed',error));
+    if(replyId)await draftWaitingReplies(env,1,replyId).catch(error=>console.error('reply drafts failed',error));
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     setMailingAddress(env.MAILING_ADDRESS);
