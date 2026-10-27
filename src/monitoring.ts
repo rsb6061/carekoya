@@ -291,20 +291,32 @@ export async function checkJobSupply(env:MonitorEnv){
   return {today,findings:supplyFindings(today,before)};
 }
 
-/** Apply links that can't work: any live one with a known-broken shape (should be none), or a day with many taken down. */
+/**
+ * Apply links that can't work: any live one with a known-broken shape (should be none), or a day where one job site
+ * lost many links at once (a link-format change, as with Workday and All Ways Caring). Ordinary closures run about
+ * 20-120 pages a day spread over many sites, so a plain total alone is not a signal.
+ */
 export async function applyLinkFindings(db:NonNullable<MonitorEnv['DB']>){
   const r=await db.prepare(`SELECT
     (SELECT COUNT(*) FROM caregiver_jobs WHERE is_published=1 AND status='current' AND (source_url LIKE 'https://%.myworkdayjobs.com/job/%' OR source_url LIKE '%/invalid-url%')) AS broken_live,
     -- link_checked_at is stamped only when a live page comes down (rescans bump updated_at on hidden rows too, which
     -- re-counted the same old takedowns every day).
     (SELECT COUNT(*) FROM caregiver_jobs WHERE publication_reason='dead_apply_link' AND is_published=0 AND link_checked_at>=datetime('now','-1 day')) AS taken_down`).first<Row>();
+  const sites=(await db.prepare(`SELECT substr(source_url,9,instr(substr(source_url,9),'/')-1) AS host,COUNT(DISTINCT source_url) AS links,COUNT(*) AS pages
+    FROM caregiver_jobs WHERE publication_reason='dead_apply_link' AND is_published=0 AND link_checked_at>=datetime('now','-1 day')
+    GROUP BY host HAVING pages>=? ORDER BY pages DESC LIMIT 5`).bind(DEAD_LINK_SITE_ALERT).all<Row>()).results||[];
   const out:string[]=[];
   const broken=Number(r?.broken_live||0),down=Number(r?.taken_down||0);
   if(broken>0)out.push(`${broken} live job pages have an apply link that can't work (Workday link without its board name, or an invalid-url page).`);
-  if(down>=DEAD_LINK_ALERT)out.push(`${down} job pages were taken down for dead apply links in the last day; a job site may have changed its links.`);
+  for(const s of sites)out.push(`${s.links} apply links on ${s.host} (${s.pages} job pages) were taken down as dead in the last day; that site may have changed its links.`);
+  if(!sites.length&&down>=DEAD_LINK_ALERT)out.push(`${down} job pages were taken down for dead apply links in the last day, more than usual, spread across many job sites.`);
   return out;
 }
-const DEAD_LINK_ALERT=50;
+/** One site losing this many pages in a day looks like a link change, not closures (busiest site on a normal day: 16;
+ * All Ways Caring's relative links took 325 pages through only 3 links, so pages, not links, is the measure). */
+const DEAD_LINK_SITE_ALERT=30;
+/** Across all sites; normal closures have run up to about 120 pages a day. */
+const DEAD_LINK_ALERT=200;
 
 /** 15:41 UTC daily: one email if any funnel step dropped to zero Clarity saw broken clicks or job supply dropped; nothing otherwise. */
 export async function runDailyMonitor(env:MonitorEnv){
