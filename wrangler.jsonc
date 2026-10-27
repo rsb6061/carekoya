@@ -78,6 +78,10 @@
     "REACTIVATION_REMINDER_ENABLED": "true",
     "WEEKLY_DIGEST_ENABLED": "true",
     "JOB_ALERTS_ENABLED": "true",
+    // Suggested answers to email replies in /admin Inbox (src/replyDrafter.ts). Drafts only: Rebecca presses Send. Rebecca asked 2026-10-27.
+    "REPLY_DRAFTS_ENABLED": "true",
+    // Morning note to Rebecca's inbox when replies are waiting, at most once a day.
+    "INBOX_DIGEST_ENABLED": "true",
     "AGENCY_TEASER_DAILY_CAP": "10",
     // "Verify your agency needs" invites to agencies whose jobs CareJoys lists; separate from OUTREACH_ENABLED.
     "AGENCY_HIRING_INVITES_ENABLED": "true",

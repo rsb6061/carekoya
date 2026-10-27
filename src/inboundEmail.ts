@@ -219,9 +219,10 @@ export async function sameDomainRecipients(db:DB,email:string){
 }
 
 /** The Worker's email() handler. A message that can't be read is still forwarded; only a read unsubscribe is held back. */
-export async function handleInboundEmail(message:InboundEmailMessage,env:InboundEnv){
+/** Returns the recorded row's id when the message is a reply someone wrote (the drafter answers those), else null. */
+export async function handleInboundEmail(message:InboundEmailMessage,env:InboundEnv):Promise<string|null>{
   const intakeKey=intakeKeyOf(message.to);
-  if(intakeKey)return handleApplicantEmail(message,env,intakeKey);
+  if(intakeKey){await handleApplicantEmail(message,env,intakeKey);return null}
   let parsed:ParsedEmail|null=null;
   try{parsed=parseEmail(await readRaw(message.raw))}
   catch(error){console.error('inbound email parse failed',error)}
@@ -237,7 +238,8 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
     catch(error){console.error('inbound forward failed',error)}
   }else if(!skipForward)console.error('inbound email: no INBOUND_FORWARD_TO or admin address to forward to');
   // CareJoys' own mail (copies of outreach, alerts) is already on record where it was sent.
-  if(!env.DB||!parsed||!classified)return;
+  if(!env.DB||!parsed||!classified)return null;
+  const id=crypto.randomUUID();
   try{
     const {kind,bouncedEmail,hardBounce}=classified;
     const leadEmail=kind==='bounce'?bouncedEmail:fromEmail;
@@ -245,9 +247,9 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
     const snippet=(kind==='bounce'?parsed.report||parsed.text:replyText(parsed.text)||parsed.text).trim().slice(0,2000);
     const res=await env.DB.prepare(`INSERT OR IGNORE INTO email_messages(id,direction,mailbox,from_email,from_name,subject,snippet,message_id,in_reply_to,kind,bounced_email,lead_type,lead_id,lead_name,status,forwarded)
       VALUES (?,'inbound',?,?,?,?,?,NULLIF(?,''),NULLIF(?,''),?,NULLIF(?,''),?,?,?,?,?)`)
-      .bind(crypto.randomUUID(),clean(message.to,320).toLowerCase(),fromEmail,clean(parsed.fromName,200),clean(parsed.subject,300),snippet,clean(parsed.messageId,500),clean(parsed.inReplyTo,500),
+      .bind(id,clean(message.to,320).toLowerCase(),fromEmail,clean(parsed.fromName,200),clean(parsed.subject,300),snippet,clean(parsed.messageId,500),clean(parsed.inReplyTo,500),
         kind,bouncedEmail,lead?.type??null,lead?.id??null,lead?.name??null,kind==='reply'?'new':'handled',forwarded?1:0).run();
-    if(!res.meta?.changes)return;
+    if(!res.meta?.changes)return null;
     if(kind==='unsubscribe'){
       await suppress(env.DB,fromEmail,'unsubscribe');
       for(const email of await sameDomainRecipients(env.DB,fromEmail))await suppress(env.DB,email,'unsubscribe');
@@ -259,7 +261,8 @@ export async function handleInboundEmail(message:InboundEmailMessage,env:Inbound
       const fresh=await env.DB.prepare("SELECT 1 AS hit FROM agency_organizations o WHERE o.id=? AND COALESCE(o.application_email,'')='' AND EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND e.event_type='reply_yes_invite')").bind(lead.id).first();
       if(fresh)await setUpYesAgency(env as never,{organizationId:lead.id,email:fromEmail,contactName:clean(parsed.fromName,120),source:'auto_yes'});
     }
-  }catch(error){console.error('inbound email record failed',error)}
+    return kind==='reply'?id:null;
+  }catch(error){console.error('inbound email record failed',error);return null}
 }
 
 /**

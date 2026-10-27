@@ -15,6 +15,7 @@ import { refreshPostedJobs, syncPostedJob } from './postedJobs';
 import { agencyJobs, agencyJobsFeed, agencySuggestions, searchAgencies, startAgencyClaim, updateAgencyJob } from './agencySelfServe';
 import { publicFormGuard, sendEmployerMagicLink, requestEmployerMagicLink, verifyEmployerMagicLink, startEmployerSession, employerSessionCookie, employerSession, employerOwnsWorkspace, publicConfig, contactMatches, interviewSlots, getCandidateResponse, submitCandidateResponse, bookCandidateInterview } from './serverFeatures';
 import { replyYesCounts, sendReplyYesBatch, sendReplyYesTest, outreachSlice, outreachExtraToday } from './replyYesOutreach';
+import { draftWaitingReplies, sendInboxDigest } from './replyDrafter';
 import { adminAgencySetup, adminConversationStatus, adminConversations, adminMail, adminSaveDraft, adminSendMail } from './adminMail';
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch, lookupCareersPagesBoost } from './careersLookup';
@@ -133,6 +134,12 @@ interface Env {
   AUTO_APPLY_ENABLED?: string;
   // Where mail to hello@ is forwarded once the Worker has recorded it (src/inboundEmail.ts). Unset: the first ADMIN_EMAILS address.
   INBOUND_FORWARD_TO?: string;
+  // Suggested answers to email replies (src/replyDrafter.ts): drafts only, never sent. Claude writes them when the
+  // ANTHROPIC_API_KEY secret exists, Workers AI otherwise.
+  REPLY_DRAFTS_ENABLED?: string;
+  REPLY_DRAFT_MODEL?: string;
+  ANTHROPIC_API_KEY?: string;
+  INBOX_DIGEST_ENABLED?: string;
 }
 
 /** The booking link for the /hire-caregivers confirmation, or "" when unset or not https. */
@@ -2602,7 +2609,9 @@ export default {
   // Mail to hello@carejoys.com, once its Email Routing rule says "Send to a Worker": forwarded on, then recorded.
   async email(message:InboundEmailMessage,env:Env){
     setMailingAddress(env.MAILING_ADDRESS);
-    await handleInboundEmail(message,env);
+    const replyId=await handleInboundEmail(message,env);
+    // A suggested answer for Rebecca in /admin Inbox; it never sends. The hourly run retries any that fail here.
+    if(replyId)await draftWaitingReplies(env,1,replyId).catch(error=>console.error('reply drafts failed',error));
   },
   async scheduled(event:{cron?:string;scheduledTime?:number},env:Env,ctx:{waitUntil(promise:Promise<unknown>):void}){
     setMailingAddress(env.MAILING_ADDRESS);
@@ -2633,6 +2642,9 @@ export default {
       }
       if(event.cron==="17 * * * *"){
         const hour=new Date(event.scheduledTime??Date.now());
+        // Reply drafts missed when the mail arrived, then the morning "emails waiting" note (13:17 UTC, 9am Eastern in summer).
+        await draftWaitingReplies(env).catch(error=>console.error('reply drafts failed',error));
+        if(hour.getUTCHours()===13)await sendInboxDigest(env,hour).catch(error=>console.error('inbox digest failed',error));
         // Agency outreach goes first: the job scans below often run out the cron's time (or throw) before reaching it,
         // which skipped about half the hourly batches.
         // "Verify your agency needs" email to agencies whose jobs CareJoys lists (Rebecca approved 2026-10-06).

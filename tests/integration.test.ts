@@ -3420,6 +3420,54 @@ describe('replies to hello@',()=>{
     expect(convos.conversations.find((c:any)=>c.email==='ann@condagency.test').agencySetup).toMatchObject({applicationEmail:'ann@condagency.test',requiredCredentials:'CNA, EMT or MA',hasAccount:true});
   });
 
+  it('drafts a suggested answer for Rebecca when a reply arrives, never sending it, and keeps the first version',async()=>{
+    const prompts:string[]=[];
+    const AI={run:async(_model:string,input:any)=>{prompts.push(input.messages[1].content);return {response:'Subject: Re: x\n\nHi Max,\n\nDone. Applications now come straight to this address.\n\nRebecca Myers\nCareJoys · carejoys.com'}}};
+    const on=env({ADMIN_EMAILS:'owner@gmail.test',REPLY_DRAFTS_ENABLED:'true',AI,INBOX_DIGEST_ENABLED:'true'});
+    await DB.prepare("INSERT OR IGNORE INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,is_active) VALUES ('org-draft','org-draft','Draft Home Care','max@drafthome.test','Towson','MD',1)").run();
+    await DB.prepare("INSERT INTO agency_outreach_events(id,organization_id,event_type,recipient_email,payload,created_at) VALUES ('ev-draft','org-draft','reply_yes_invite','max@drafthome.test','{\"variant\":\"jobs\",\"jobCount\":3,\"city\":\"Towson\"}','2026-10-25 10:00:00')").run();
+    sent.length=0;
+    await worker.email(message(raw('Max Ruiz <max@drafthome.test>','Re: Your 3 caregiver jobs on CareJoys','Yes','d1@drafthome.test'),'max@drafthome.test') as any,on);
+    const draft=await DB.prepare("SELECT to_email,subject,snippet,status,drafted_by,draft_original,reply_to_id,lead_id FROM email_messages WHERE direction='outbound' AND to_email='max@drafthome.test'").first() as any;
+    expect(draft).toMatchObject({to_email:'max@drafthome.test',subject:'Re: Your 3 caregiver jobs on CareJoys',status:'draft',drafted_by:'workers_ai',lead_id:'org-draft'});
+    expect(draft.snippet).toBe('Hi Max,\n\nDone. Applications now come straight to this address.\n\nRebecca Myers\nCareJoys · carejoys.com');
+    expect(draft.draft_original).toBe(draft.snippet);
+    // The drafter saw the agency's setup (done on arrival by the plain yes) and the note it was sent.
+    // Earlier tests' replies get drafted too; this one's prompt is the one from max@.
+    const maxPrompts=()=>prompts.filter(p=>p.includes('<max@drafthome.test>'));
+    expect(maxPrompts()[0]).toContain('applications already go to max@drafthome.test');
+    expect(maxPrompts()[0]).toContain('Your 3 caregiver jobs on CareJoys');
+    expect(sent.filter(m=>m.to==='max@drafthome.test')).toEqual([]);
+    // Another run (the hourly retry) leaves an answered-by-draft reply alone.
+    await worker.email(message(raw('Max Ruiz <max@drafthome.test>','Re: Your 3 caregiver jobs on CareJoys','Yes','d1@drafthome.test'),'max@drafthome.test') as any,on);
+    expect((await DB.prepare("SELECT COUNT(*) AS n FROM email_messages WHERE direction='outbound' AND to_email='max@drafthome.test'").first() as any).n).toBe(1);
+    expect(maxPrompts().length).toBe(1);
+    // Reply in /admin opens the draft; Rebecca's edits change the text but not the first version.
+    const convos=await (await call('/api/admin/conversations',{headers:admin},{ADMIN_TOKEN:'ops'})).json() as any;
+    const mine=convos.drafts.find((d:any)=>d.to==='max@drafthome.test');
+    expect(mine).toMatchObject({draftedBy:'workers_ai'});
+    const edited=await call('/api/admin/mail/send',{method:'POST',headers:{...admin,'content-type':'application/json',origin:'https://carejoys.com'},
+      body:JSON.stringify({to:'max@drafthome.test',subject:mine.subject,text:'Hi Max,\n\nAll set.\n\nRebecca',draftId:mine.id,inReplyToId:mine.inReplyToId})},{ADMIN_TOKEN:'ops'});
+    expect(edited.status).toBe(200);
+    const after=await DB.prepare("SELECT status,snippet,draft_original FROM email_messages WHERE id=?").bind(mine.id).first() as any;
+    expect(after).toMatchObject({status:'sent',snippet:'Hi Max,\n\nAll set.\n\nRebecca'});
+    expect(after.draft_original).toContain('Done. Applications now come straight');
+  });
+
+  it('sends the morning "emails waiting" note once a day, only when something waits',async()=>{
+    const on=env({ADMIN_EMAILS:'owner@gmail.test',INBOX_DIGEST_ENABLED:'true'});
+    const { sendInboxDigest }=await import('../src/replyDrafter');
+    await DB.prepare("INSERT INTO email_messages(id,direction,mailbox,from_email,from_name,subject,snippet,kind,status) VALUES ('em-digest','inbound','rebecca@carejoys.com','kim@waiting.test','Kim','Re: hi','Can you call me?','reply','new')").run();
+    sent.length=0;
+    const first=await sendInboxDigest(on,new Date('2026-11-02T13:17:00Z'));
+    expect(first.sent).toBe(true);
+    const note=sent.find(m=>/waiting for you/.test(m.subject)) as any;
+    expect(note.to).toBe('owner@gmail.test');
+    expect(note.text).toContain('kim@waiting.test');
+    expect(await sendInboxDigest(on,new Date('2026-11-02T13:40:00Z'))).toMatchObject({sent:false,reason:'already sent today'});
+    expect(await sendInboxDigest(env({ADMIN_EMAILS:'owner@gmail.test'}),new Date('2026-11-03T13:17:00Z'))).toMatchObject({sent:false,reason:'off'});
+  });
+
   it('still records the message when forwarding fails',async()=>{
     const failing={...message(raw('x@facility.test','Hi','Hello','f1@facility.test'),'x@facility.test'),forward:async()=>{throw new Error('unverified')}};
     await worker.email(failing as any,env({ADMIN_EMAILS:'owner@gmail.test'}));
