@@ -1,5 +1,6 @@
 import { employerSession, type FeatureEnv } from './serverFeatures';
 import { inviteAllowance } from './caregiverProtection';
+import { HIRING_PRICE, HIRING_YEARLY_PRICE, OPERATED_PRICE, renewalTerms } from './plans';
 
 type Row=Record<string,unknown>;
 export type BillingEnv=FeatureEnv&{
@@ -138,6 +139,8 @@ export async function createCheckout(request:Request,env:BillingEnv){
     cancel_url:ORIGIN+'/hiring?billing=cancelled'
   };
   if(customer)params.customer=customer;else params.customer_email=clean(employer.email,320);
+  // The renewal terms sit right above Stripe's pay button, as well as beside the button that opened checkout.
+  params['custom_text[submit][message]']=renewalTerms(operated?OPERATED_PRICE:yearly?HIRING_YEARLY_PRICE:HIRING_PRICE,yearly&&!operated?'year':'month');
   if(['1','true'].includes(clean(env.STRIPE_AUTOMATIC_TAX).toLowerCase())){
     params['automatic_tax[enabled]']='true';
     params.billing_address_collection='required';

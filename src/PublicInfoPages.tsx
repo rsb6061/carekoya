@@ -1,4 +1,4 @@
-import { OPERATED_APPLICANT_LIMIT, OPERATED_PRICE } from './plans';
+import { OPERATED_APPLICANT_LIMIT, OPERATED_PRICE, renewalTerms } from './plans';
 import { useEffect, useState } from 'react';
 import { AgencyFinder } from './AgencyFinder';
 import { jobsHubPath, usState } from './usStates';
@@ -124,6 +124,7 @@ export function PricingPage(){
             </div>
             <a className="btn plan-cta" href="/hire-caregivers">Get started →</a>
             <div className="plan-terms">One location, up to {OPERATED_APPLICANT_LIMIT} applicants a month. Those are applicants we work, not leads we supply. We’ll tell you before you hit it.</div>
+            <div className="plan-terms renewal-terms">Getting started is free; nothing is charged until you start Pro from your dashboard. {renewalTerms(OPERATED_PRICE,'month')}</div>
             <ul className="plan-list">
               <li>Every applicant texted right away and screened with your questions: certification, transportation, shifts and pay.</li>
               <li>Candidates who pass and want an interview are booked straight onto your calendar.</li>

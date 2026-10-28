@@ -370,9 +370,24 @@ function siteOwnerTags(env:Env,meta:SeoMeta){
   const google=token(env.GOOGLE_SITE_VERIFICATION),bing=token(env.BING_SITE_VERIFICATION),clarity=token(env.CLARITY_PROJECT_ID);
   if(google)tags.push('<meta name="google-site-verification" content="'+google+'" />');
   if(bing)tags.push('<meta name="msvalidate.01" content="'+bing+'" />');
-  if(clarity&&!/nofollow/i.test(meta.robots||""))
-    tags.push('<script>(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","'+clarity+'");</script>');
+  if(clarity&&!/nofollow/i.test(meta.robots||""))tags.push(clarityConsentTag(clarity));
   return tags.join("");
+}
+
+// Clarity records sessions, so it loads only after the visitor taps Allow on a small banner (remembered
+// in localStorage as cj-analytics). "No thanks" or a Global Privacy Control signal means it never loads.
+function clarityConsentTag(id:string){
+  const css='.cj-consent{position:fixed;left:16px;right:16px;bottom:16px;z-index:1000;max-width:560px;margin:0 auto;background:#fff;color:#191e49;border:1px solid #e8e6f0;border-radius:14px;box-shadow:0 8px 30px rgba(25,30,73,.16);padding:14px 16px;font:14px/1.45 Figtree,"Helvetica Neue",Arial,sans-serif;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'
+    +'.cj-consent p{margin:0;flex:1 1 260px}.cj-consent a{color:#9a2a77}.cj-consent div{display:flex;gap:8px}'
+    +'.cj-consent button{font:inherit;font-weight:600;border-radius:999px;padding:8px 16px;cursor:pointer;border:1px solid #191e49;background:#fff;color:#191e49}.cj-consent button[data-v=yes]{background:#191e49;color:#fff}';
+  const text='May CareJoys use Microsoft Clarity to see how this page is used (clicks, scrolling and pages visited)? Anything you type is hidden. <a href="/privacy-policy#analytics">Privacy Policy</a>';
+  return '<style>'+css+'</style><script>(function(){var k="cj-analytics",v;try{v=localStorage.getItem(k)}catch(e){}'
+    +'function load(){(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","'+id+'");window.clarity("consent")}'
+    +'if(v==="yes")return load();if(v==="no"||navigator.globalPrivacyControl)return;'
+    +'function show(){var b=document.createElement("div");b.className="cj-consent";b.setAttribute("role","region");b.setAttribute("aria-label","Analytics choice");'
+    +'b.innerHTML=\'<p>'+text+'</p><div><button type="button" data-v="no">No thanks</button><button type="button" data-v="yes">Allow</button></div>\';'
+    +'b.onclick=function(e){var x=e.target&&e.target.getAttribute&&e.target.getAttribute("data-v");if(!x)return;try{localStorage.setItem(k,x)}catch(_){}b.remove();if(x==="yes")load()};document.body.appendChild(b)}'
+    +'document.readyState==="loading"?document.addEventListener("DOMContentLoaded",show):show()})();</script>';
 }
 
 type SeoMeta={title:string;description:string;canonical:string;robots?:string;snapshot?:string;jsonLd?:unknown;status?:number;ogImage?:string};
@@ -2223,6 +2238,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(seoResponse)return seoResponse;
     if(url.pathname==="/api/health") return handlePublicHealth(env);
     if(request.method==="GET"&&url.pathname==="/api/public/home-stats") return homeStatsResponse(env);
+    // The business postal address (already printed in every outreach email) for the copyright-agent notice on /terms-of-service.
+    if(request.method==="GET"&&url.pathname==="/api/public/legal-contact") return json({mailingAddress:(env.MAILING_ADDRESS||"").replace(/\s+/g," ").trim().slice(0,200)},{headers:{"cache-control":"public,max-age=3600"}});
     if(request.method==="GET"&&url.pathname==="/api/public/job-preview") return previewPublicJobs(url,env,request);
     if(request.method==="POST"&&url.pathname==="/api/public/job-alerts") return rejectCrossSiteWrite(request)||handleJobAlertSignup(request,env);
     if(request.method==="GET"&&url.pathname==="/api/public/job-alerts/confirm") return handleJobAlertConfirm(url,env);

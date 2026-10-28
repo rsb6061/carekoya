@@ -624,6 +624,13 @@ describe('site-owner tags', ()=>{
     expect(html).toContain('<meta name="google-site-verification" content="g-token_1" />');
     expect(html).toContain('<meta name="msvalidate.01" content="B1NG" />');
     expect(html).toContain('"clarity","script","abc123xyz"');
+    // Session recording waits for the visitor's Allow, and a Global Privacy Control signal skips it.
+    expect(html).toContain('cj-consent');
+    expect(html).toContain('if(v==="yes")return load();if(v==="no"||navigator.globalPrivacyControl)return;');
+  });
+  it('serves the business postal address for the copyright-agent notice', async()=>{
+    const body=await (await call('/api/public/legal-contact',{},{MAILING_ADDRESS:'  1 Main St,\n Baltimore, MD 21201 '})).json() as any;
+    expect(body).toEqual({mailingAddress:'1 Main St, Baltimore, MD 21201'});
   });
   it('never loads Clarity on signed-in pages', async()=>{
     for(const path of ['/dashboard','/admin','/hiring']){

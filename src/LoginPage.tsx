@@ -63,7 +63,7 @@ export function LoginForm({next='',kicker='',title,subtitle='Sign in or create a
         {status==='error'&&<div className="notice">{message}</div>}
         <button className="button login-continue" disabled={status==='sending'}>{status==='sending'?'Sending…':'Continue'}</button>
       </form>
-      <p className="login-terms">We’ll email you a secure sign-in link, no password needed. By continuing you agree to the <a href="/terms-of-service">Terms</a> and <a href="/privacy-policy">Privacy Policy</a>.</p>
+      <p className="login-terms">We’ll email you a secure sign-in link, no password needed. CareJoys is for adults: by continuing you confirm you’re 18 or older and agree to the <a href="/terms-of-service">Terms</a> and <a href="/privacy-policy">Privacy Policy</a>.</p>
     </>}
   </div>;
 }

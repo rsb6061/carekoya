@@ -60,7 +60,7 @@ export function ApplySignIn({jobTitle,next,onGuest,finishOn=''}:{jobTitle:string
       <button className="btn apply-continue" disabled={status==='sending'||checking}>{status==='sending'?'Sending…':checking?'One moment…':'Continue'}</button>
     </form>
     <button type="button" className="text-button apply-guest" onClick={onGuest}>Apply without signing in</button>
-    <p className="apply-signin-terms">No password needed. By continuing you agree to the <a href="/terms-of-service">Terms</a> and <a href="/privacy-policy">Privacy Policy</a>.</p>
+    <p className="apply-signin-terms">No password needed. CareJoys is for adults: by continuing you confirm you’re 18 or older and agree to the <a href="/terms-of-service">Terms</a> and <a href="/privacy-policy">Privacy Policy</a>.</p>
     <p className="apply-signin-employer">Hiring caregivers? <a href="/hire-caregivers">Set up an employer account</a></p>
   </div>;
 }

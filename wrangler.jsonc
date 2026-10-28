@@ -25,6 +25,7 @@
       "/*",
       "!/assets/*",
       "!/og/*",
+      "!/fonts/*",
       "!/favicon.png"
     ]
   },

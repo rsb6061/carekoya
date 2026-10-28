@@ -19,7 +19,7 @@ import { mergeTemplates, type EmailTemplate } from './emailTemplateFill';
 import { parseOpeningSchedule } from './schedule';
 import { WorkspaceSettings } from './WorkspaceSettings';
 import { ApplicantIntake } from './ApplicantIntake';
-import { HIRING_PRICE, HIRING_YEARLY_PRICE, OPERATED_APPLICANT_LIMIT, OPERATED_PRICE, type Plan } from './plans';
+import { HIRING_PRICE, HIRING_YEARLY_PRICE, OPERATED_APPLICANT_LIMIT, OPERATED_PRICE, renewalTerms, type Plan } from './plans';
 import './workspace.css';
 
 type Opening={
@@ -656,6 +656,7 @@ export function EmployerWorkspace(){
             <h3>CareJoys Hiring · {HIRING_PRICE}/month per location</h3>
             <p className="job-meta">Unlimited caregiver introductions. You have <strong>{billing.freeContactsRemaining??0} of {billing.freeContacts}</strong> free introductions left.</p>
             <div className="plan-actions"><button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout')}>Upgrade · {HIRING_PRICE}/month</button>{billing.yearly&&<button className="text-button" disabled={billingBusy} onClick={()=>void openBilling('checkout','yearly')}>or {HIRING_YEARLY_PRICE}/year</button>}</div>
+            <p className="renewal-terms">{renewalTerms(HIRING_PRICE,'month')}{billing.yearly?` The yearly plan renews the same way every year at ${HIRING_YEARLY_PRICE} per location.`:''}</p>
           </div>}
         {billing.operated?.available&&billing.plan!=='operated'&&<div className="settings-card plan-card-option">
           <h3>CareJoys Pro · {OPERATED_PRICE}/month per location</h3>
@@ -663,6 +664,7 @@ export function EmployerWorkspace(){
           <div className="plan-actions">{billing.subscribed
             ?<button className="button secondary" disabled={billingBusy} onClick={()=>void openBilling('portal')}>Switch plans in billing</button>
             :<button className="button" disabled={billingBusy} onClick={()=>void openBilling('checkout','operated')}>Start Pro · {OPERATED_PRICE}/month</button>}</div>
+          {!billing.subscribed&&<p className="renewal-terms">{renewalTerms(OPERATED_PRICE,'month')}</p>}
         </div>}
       </section>}
 
