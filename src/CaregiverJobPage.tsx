@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CaregiverOnboarding } from './CaregiverOnboarding';
 import { useCaregiverAuth } from './caregiverAuth';
+import { automatedBrowser } from './errorReporter';
 import { ApplyForMe } from './ApplyForMe';
 import { ApplySignIn } from './ApplySignIn';
 import { jobsHubPath, usState } from './usStates';
@@ -75,6 +76,7 @@ function recordEmployerSiteClick(jobId:string){recordApplyStep(jobId,'')}
 
 /** One step of applying, counted for the admin Jobs tab: '' is the click out to the employer's own site. */
 function recordApplyStep(jobId:string,step:''|'apply_page_opened'|'apply_signed_in'){
+  if(step&&automatedBrowser())return;
   void fetch('/api/public/caregiver-jobs/'+encodeURIComponent(jobId)+'/apply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(step?{step}:{}),keepalive:true}).catch(()=>{});
 }
 

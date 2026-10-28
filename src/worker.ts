@@ -6,7 +6,7 @@ import { previewPublicJobs, caregiverAlertSettings, setInitialJobAlertOptIn, sen
 import { handleJobAlertConfirm, handleJobAlertSignup, sendJobAlerts } from './jobAlertSignups';
 import { sendSchoolPlacementInvites } from './schoolOutreach';
 import { linkWorkerSignup, recordWorkerJobActivity } from './workerFunnel';
-import { adminRecipients, alertNewClientErrors, monitoringReport, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
+import { adminRecipients, alertNewClientErrors, monitoringReport, notAVisitor, recordClientError, recordServerError, runDailyMonitor } from './monitoring';
 import { adminInbox, adminInboxUpdate, handleInboundEmail, type InboundEmailMessage } from './inboundEmail';
 import { cnaClasses, gnaJobs, localArea, CITY_PAGE_MIN_JOBS, CNA_PAGE_MIN_JOBS, JOBS_PER_PAGE, STATE_PAGE_MIN_JOBS, SUPPLY_MIN_SHOWN, localCaregiverSupply, fitTitle, metroJobStats, metroJobStatsHtml, metroOfPlace, metroTotals, jobsNearTrainingProgram, stateHiringHtml, stateHiringStats, hubLocations, jobPageContext, jobPageTitle, jobPostingJsonLd, jobsHub, nationalJobsHub, payText, resolveJobsSearch, trimAtWord } from './seo';
 import { directoryPath, isNationalJobsPath, jobsHubPath, parseDirectoryPath, parseJobsHubPath, slugify, usState, type UsState } from './usStates';
@@ -1678,6 +1678,8 @@ async function handlePublicJobApply(request:Request,env:Env,jobId:string){
   if(!env.DB)return json({ok:false,error:"Database not configured"},{status:503});
   const cross=rejectCrossSiteWrite(request);if(cross)return cross;
   const data=await readJson(request);
+  // Scrapers open apply pages by the hundred (269 on 2026-10-26 against one real page view), so their steps aren't counted.
+  const counted=!notAVisitor(request.headers.get("user-agent")||"");
   const job=await env.DB.prepare("SELECT id,source_url FROM caregiver_jobs WHERE id=? AND is_published=1 AND status='current' LIMIT 1")
     .bind(jobId).first<Record<string,unknown>>();
   if(!job)return json({ok:false,error:"Job not found"},{status:404});
@@ -1690,7 +1692,7 @@ async function handlePublicJobApply(request:Request,env:Env,jobId:string){
   }
   // The apply page also counts its own steps here, so admin can see where caregivers drop off.
   const step=APPLY_STEPS.find(x=>x===data?.step)||'external_redirect_clicked';
-  await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,?)")
+  if(counted)await env.DB.prepare("INSERT INTO caregiver_job_apply_events(id,caregiver_job_id,caregiver_id,event_type) VALUES (?,?,?,?)")
     .bind(crypto.randomUUID(),jobId,caregiverId||null,step).run();
   return json({ok:true,applicationUrl:clean(job.source_url,1000)});
 }
