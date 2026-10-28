@@ -8,3 +8,8 @@ export const OPERATED_APPLICANT_LIMIT=75;
 export const HIRING_PRICE='$99';
 export const HIRING_YEARLY_PRICE='$990';
 export type Plan='hiring'|'operated';
+
+/** The automatic-renewal terms shown right beside every subscribe button and on Stripe's pay button. */
+export function renewalTerms(price:string,period:'month'|'year'){
+  return `Renews automatically every ${period} at ${price} per location (plus any tax) until you cancel. Cancel anytime in Manage billing on your CareJoys Plan tab, and you won’t be charged again.`;
+}
