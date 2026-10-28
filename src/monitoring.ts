@@ -192,6 +192,15 @@ async function stepCounts(db:DB,step:Step){
   return {today:Number(row?.today||0),baseline:Number(row?.baseline||0)};
 }
 
+/** The middle day of the baseline (days with none count as 0), so a day of our own testing doesn't set what's "due". */
+async function typicalDay(db:DB,step:Step){
+  const t=`datetime(${step.time})`;
+  const rows=(await db.prepare(`SELECT CAST((julianday('now')-julianday(${t})) AS INTEGER) AS ago,COUNT(*) AS n
+    FROM ${step.table} WHERE ${step.where} AND ${t}<datetime('now','-1 day') AND ${t}>=datetime('now','-${BASELINE_DAYS+1} days') GROUP BY ago`).all<{n:number}>()).results||[];
+  const days=[...rows.map(r=>Number(r.n||0)),...Array(Math.max(0,BASELINE_DAYS-rows.length)).fill(0)].sort((a,b)=>a-b).slice(0,BASELINE_DAYS);
+  return (days[(BASELINE_DAYS-1)>>1]+days[BASELINE_DAYS>>1])/2;
+}
+
 /** The steps that dropped to zero in the last 24 hours although the traffic before them says some were due. */
 export async function evaluateFunnel(env:MonitorEnv){
   const counts:Record<string,{today:number;baseline:number}>={};
@@ -201,9 +210,9 @@ export async function evaluateFunnel(env:MonitorEnv){
     const c=counts[step.key];
     if(c.today>0||c.baseline<MIN_BASELINE)continue;
     if(!step.after){
-      const expected=c.baseline/BASELINE_DAYS;
+      const expected=await typicalDay(env.DB!,step).catch(()=>c.baseline/BASELINE_DAYS);
       if(expected>=MIN_EXPECTED)findings.push({key:step.key,label:step.label,today:0,baseline:c.baseline,expected:Math.round(expected*10)/10,
-        because:`about ${Math.round(expected)} a day over the last ${BASELINE_DAYS} days`});
+        because:`a typical day over the last ${BASELINE_DAYS} days had about ${Math.round(expected)}`});
       continue;
     }
     const up=counts[step.after],upLabel=FUNNEL_STEPS.find(s=>s.key===step.after)!.label.toLowerCase();

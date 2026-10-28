@@ -1490,6 +1490,12 @@ describe('shared sign-in', ()=>{
     expect(rows).toEqual([{event_type:'apply_page_opened',n:1},{event_type:'apply_signed_in',n:1},{event_type:'external_redirect_clicked',n:2}]);
   });
 
+  it('leaves scrapers out of the apply step counts', async()=>{
+    const res=await post('/api/public/caregiver-jobs/job-open/apply',{step:'apply_page_opened'},{'user-agent':'Mozilla/5.0 (compatible; Googlebot/2.1)'});
+    expect(res.status).toBe(200);
+    expect(await DB.prepare("SELECT COUNT(*) AS n FROM caregiver_job_apply_events WHERE caregiver_job_id='job-open' AND event_type='apply_page_opened'").first()).toEqual({n:1});
+  });
+
   it('stores the resume file and only starts Apply for me where it can', async()=>{
     await DB.prepare("INSERT OR REPLACE INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,status,is_published) VALUES ('job-paylocity','org-open','job-paylocity','test','https://recruiting.paylocity.com/Recruiting/Jobs/Details/1','HHA Days','HHA','Bay Home Care','Baltimore','MD','21201','current',1)").run();
     expect(((await (await call('/api/public/caregiver-jobs/job-paylocity')).json()) as any).job.applyForMe).toBe(true);
