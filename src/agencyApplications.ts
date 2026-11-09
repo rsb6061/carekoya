@@ -124,6 +124,7 @@ export function isPlainYes(text:string){
   const lines=clean(text,2000).split('\n').map(l=>l.trim()).filter(Boolean);
   // "Yes, but only CNAs" or a condition on the next line needs Rebecca: anything conditional goes to /admin instead.
   if(/\b(only|licen[cs]e|licensed|certif\w*|but|if|unless|require\w*|must|call me|question)\b/i.test(lines.join(' ')))return false;
-  const first=lines[0]||'';
+  // "Good morning," or "Hi Rebecca," before the yes is still a plain yes.
+  const first=lines.find(l=>!/^(hi|hello|hey|dear|good (morning|afternoon|evening))\b[^.!?]{0,40}[,.!]?$/i.test(l))||'';
   return /^(yes|yes please|yes,? please|sure|ok|okay|yep|yeah|absolutely|definitely|sounds good|please do|interested|yes,? interested)[\s.!,]*(please|thanks|thank you|thx)?[\s.!]*$/i.test(first);
 }
