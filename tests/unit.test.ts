@@ -1030,3 +1030,15 @@ describe('apply links', ()=>{
     expect(publicationDecision({...job,sourceUrl:'https://x.wd1.myworkdayjobs.com/Careers/job/Naples/CNA_R-1'} as any).publish).toBe(true);
   });
 });
+
+describe('isPlainYes',()=>{
+  it('reads a yes after a greeting line as plain, and still holds back conditions',async()=>{
+    const { isPlainYes }=await import('../src/agencyApplications');
+    expect(isPlainYes("Good morning,\nYES.\n \nThank you,\nERON'S")).toBe(true);
+    expect(isPlainYes('Hi Rebecca,\n\nYes please')).toBe(true);
+    expect(isPlainYes('yes')).toBe(true);
+    expect(isPlainYes('Hi Rebecca,\n\nYes, please send their applications straight to my inbox.\n\nCould you let me know if there is any catch')).toBe(false);
+    expect(isPlainYes('Good morning,\nYes but only CNAs')).toBe(false);
+    expect(isPlainYes('Good morning,\nWho is this?')).toBe(false);
+  });
+});
