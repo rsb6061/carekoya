@@ -85,7 +85,8 @@
     "INBOX_DIGEST_ENABLED": "true",
     "AGENCY_TEASER_DAILY_CAP": "10",
     // "Verify your agency needs" invites to agencies whose jobs CareJoys lists; separate from OUTREACH_ENABLED.
-    "AGENCY_HIRING_INVITES_ENABLED": "true",
+    // Paused 2026-11-13 (Rebecca): no new agency notes until caregivers are flowing to the agencies that already said yes.
+    "AGENCY_HIRING_INVITES_ENABLED": "false",
     // Raised from 20 to 60 a day (Rebecca approved 2026-10-19).
     "AGENCY_HIRING_INVITE_DAILY_CAP": "60",
     "AGENCY_OUTREACH_EXTRA": "2026-10-25:50",
