@@ -85,6 +85,9 @@ const REPLY_YES_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.pri
       AND COALESCE(o.provider_kind,'home_care')='home_care' AND COALESCE(o.is_chain,0)=0
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND (o.sources LIKE '%license%' OR o.npi IS NOT NULL OR j.jobs>0 OR (o.provider_types LIKE '%Home health care service%' AND (${CARE_NAME})))
+      -- The note opens with the agency's own live jobs on CareJoys, so it only goes to agencies that have one (Rebecca, 2026-11-12:
+      -- from Nov 6 most sends went to agencies with none and still said "CareJoys lists an open caregiver job").
+      AND j.jobs>0
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       -- Once per agency and per address, and never within two weeks of any other CareJoys email to the agency.
       AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND (e.event_type IN ('${REPLY_YES_EVENT}','${REPLY_YES_EVENT}_failed') OR e.created_at>datetime('now','-14 days')))
