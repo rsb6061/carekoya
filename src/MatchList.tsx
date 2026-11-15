@@ -19,6 +19,8 @@ export type MatchRow={
   source_label?:string;caregiver_note?:string|null;
   /** Applications: the inbox item id the stage and notes are saved on. */
   application_id?:string;
+  /** Three-step applications: qualified | review with why, answers to the agency's questions, and when a call suits them. */
+  grade?:string|null;grade_reason?:string|null;screening?:{label:string;answer:string}[];interview_pref?:string|null;
 };
 
 export const day=(v?:string|null)=>v?new Date(v.includes('T')?v:v.replace(' ','T')+'Z').toLocaleDateString(undefined,{month:'short',day:'numeric'}):'';
@@ -100,6 +102,9 @@ export function MatchList({rows,showOpening,disabled,onInvite,onDecide,onNotes,o
             </div>
             {r.stage!=='matched'&&<span className={'match-status '+status.tone}>{status.label}</span>}
           </div>
+          {r.grade&&<div className={'match-grade '+r.grade}><strong>{r.grade==='qualified'?'Qualified':'Review'}</strong>{r.grade_reason?<span>{r.grade_reason}</span>:null}</div>}
+          {!!r.screening?.length&&<ul className="match-answers">{r.screening.map(a=><li key={a.label}><span>{a.label}</span><strong>{a.answer==='yes'?'Yes':a.answer==='no'?'No':a.answer}</strong></li>)}</ul>}
+          {r.interview_pref&&!r.interview_at&&<p className="match-note-preview"><strong>Best times to call:</strong> {r.interview_pref}</p>}
           <div className="match-reasons">
             {profileTags({matchScore:r.match_score,reasons:r.match_reasons,freshness:r.profile?.freshness,employmentTypes:r.profile?.employmentTypes,shifts:r.profile?.shifts,desiredWage:r.profile?.desiredWage}).map(t=><span className={'badge'+(t.tone?' '+t.tone:'')} key={t.label}>{t.label}</span>)}
           </div>

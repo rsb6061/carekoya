@@ -456,6 +456,9 @@ export function inboxItem(r:Row,locked=false){
     resumeUrl:!locked&&Number(r.has_resume)===1?'/api/agency/inbox/'+encodeURIComponent(id)+'/resume':null,
     id:clean(r.id,120),caregiverId:clean(r.caregiver_id,120),stage:interestStage(r),createdAt:clean(r.created_at,40),viewed:!!r.agency_viewed_at,
     source:clean(r.source,40)==='mcp'?'AI assistant':'CareJoys job page',
+    grade:clean(r.grade,20)||null,gradeReason:clean(r.grade_reason,300)||null,
+    screening:(()=>{try{const a=JSON.parse(clean(r.screening_json,4000)||'[]');return Array.isArray(a)?a.slice(0,20).map((x:Row)=>({label:clean(x.label,200),answer:clean(x.answer,300)})):[]}catch{return []}})(),
+    interviewAt:clean(r.interview_at,40)||null,interviewFormat:clean(r.interview_format,20)||null,interviewPref:clean(r.interview_pref,200)||null,
     note:clean(r.caregiver_note,1000)||null,notes:clean(r.agency_notes,4000),
     job:r.caregiver_job_id?{id:clean(r.caregiver_job_id,120),title:clean(r.job_title,200),url:ORIGIN+'/jobs/'+encodeURIComponent(clean(r.caregiver_job_id,120))}:null,
     caregiver:{

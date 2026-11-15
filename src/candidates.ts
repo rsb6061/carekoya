@@ -7,6 +7,8 @@ export type InboxStage='new'|'contacted'|'interview'|'hired'|'not_fit';
 /** An application as /api/agency/inbox returns it. */
 export type InboxItem={
   id:string;caregiverId:string;stage:InboxStage;createdAt:string;viewed:boolean;source:string;note:string|null;notes:string;contactLocked?:boolean;resumeUrl?:string|null;
+  /** Three-step applications: qualified | review, why, the answers to the agency's questions, and the interview. */
+  grade?:string|null;gradeReason?:string|null;screening?:{label:string;answer:string}[];interviewAt?:string|null;interviewFormat?:string|null;interviewPref?:string|null;
   job:{id:string;title:string;url:string}|null;profile?:TalentCandidate|null;
   caregiver:{name:string;email:string;phone:string;city:string;state:string;zip:string;role:string;certifications:string;photoUrl:string|null};
 };
@@ -25,7 +27,8 @@ export function applicationRow(item:InboxItem):MatchRow{
     rejected_reason:item.stage==='not_fit'?'employer_not_a_fit':null,response_value:'interested',responded_at:item.createdAt,
     title:item.job?.title||'',name:c.name,city:c.city,state:c.state,role:c.role,profilePhotoUrl:c.photoUrl||undefined,
     contact_email:c.email||null,contact_phone:c.phone||null,contact_locked:!!item.contactLocked,resume_url:item.resumeUrl||null,
-    employer_notes:item.notes||'',source_label:item.source,caregiver_note:item.note,profile:item.profile||null,match_reasons:[]
+    employer_notes:item.notes||'',source_label:item.source,caregiver_note:item.note,profile:item.profile||null,match_reasons:[],
+    interview_at:item.interviewAt||null,grade:item.grade||null,grade_reason:item.gradeReason||null,screening:item.screening||[],interview_pref:item.interviewPref||null
   };
 }
 
@@ -36,7 +39,22 @@ export function applicationRow(item:InboxItem):MatchRow{
 export function mergeCandidates(pipeline:MatchRow[],applications:InboxItem[]):MatchRow[]{
   const applied=new Set(applications.map(a=>a.caregiverId).filter(Boolean));
   const matches=pipeline.map(r=>({...r,kind:'match' as const})).filter(r=>!(r.stage==='matched'&&applied.has(r.caregiver_id)));
-  return [...applications.map(applicationRow),...matches];
+  // Qualified applicants first, then the rest, each newest first (the inbox already comes newest first).
+  const rank=(a:InboxItem)=>a.grade==='qualified'?0:1;
+  const ordered=applications.map((a,i)=>({a,i})).sort((x,y)=>rank(x.a)-rank(y.a)||x.i-y.i).map(x=>x.a);
+  return [...ordered.map(applicationRow),...matches];
+}
+
+/** Applications in the last `days`: applied, graded qualified, with an interview, hired. For the funnel strip. */
+export function applicationFunnel(rows:MatchRow[],now=Date.now(),days=30){
+  const since=now-days*86400000;
+  const apps=rows.filter(r=>r.kind==='application'&&(!r.responded_at||Date.parse(r.responded_at.includes('T')?r.responded_at:r.responded_at.replace(' ','T')+'Z')>=since));
+  return {
+    applied:apps.length,
+    qualified:apps.filter(r=>r.grade==='qualified').length,
+    interview:apps.filter(r=>!!r.interview_at||r.stage==='interview'||r.stage==='hired').length,
+    hired:apps.filter(r=>r.stage==='hired').length
+  };
 }
 
 /** Stage counts across both sources, for the summary chips. */

@@ -211,7 +211,10 @@ export async function applyWithProfile(env:FeatureEnv,identity:CaregiverIdentity
  * Records a caregiver's application once per job: the dashboard row, the employer's CareJoys Inbox when the
  * employer can receive it, and an email receipt. Also used after "Apply for me" submits on the employer's site.
  */
-export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:string,jobId:string,opts:{submittedOnEmployerSite:boolean}){
+export type ApplicationExtras={screeningJson:string;grade:string;gradeReason:string;
+  /** Rows added to the agency's application email: fit, answers to its questions. */
+  details:[string,string][]};
+export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:string,jobId:string,opts:{submittedOnEmployerSite:boolean;application?:ApplicationExtras}){
   const job=await env.DB!.prepare(`SELECT j.id,j.title AS title,j.employer_name,j.source_url,j.agency_organization_id,
       o.claimed_employer_id,o.application_email,o.required_credentials,${ON_CAREJOYS_SQL} AS on_carejoys,${REACHABLE_AGENCY_SQL} AS reachable
     FROM caregiver_jobs j LEFT JOIN agency_organizations o ON o.id=j.agency_organization_id AND o.is_active=1 AND COALESCE(o.is_test,0)=0
@@ -243,13 +246,16 @@ export async function recordCareJoysApplication(env:FeatureEnv,caregiverId:strin
       .bind(crypto.randomUUID(),jobId,caregiverId).run();
     const orgId=clean(job.agency_organization_id,120);
     if(orgId&&asNum(job.reachable)){
-      await createAgencyInterests(env,{caregiverId,source:'job_apply',targets:[{organizationId:orgId,agencyName:clean(job.employer_name,200),city:'',state:'',jobId,jobTitle:clean(job.title,200)}]});
+      await createAgencyInterests(env,{caregiverId,source:opts.application?'quick_apply':'job_apply',targets:[{organizationId:orgId,agencyName:clean(job.employer_name,200),city:'',state:'',jobId,jobTitle:clean(job.title,200)}]});
+      // The three-step form's answers and grade go on the application before the agency is emailed.
+      if(opts.application)await env.DB!.prepare('UPDATE agency_interests SET screening_json=?,grade=?,grade_reason=?,updated_at=CURRENT_TIMESTAMP WHERE organization_id=? AND caregiver_id=? AND job_key=?')
+        .bind(opts.application.screeningJson,opts.application.grade,opts.application.gradeReason,orgId,caregiverId,jobId).run();
       // An agency that asked for applications by email gets this one now, resume attached, with or without a workspace.
       if(clean(job.application_email,320)){
         const a=await env.DB!.prepare('SELECT availability_json,shift_preferences FROM caregivers WHERE id=? LIMIT 1').bind(caregiverId).first<Row>();
         const grid=parseAvailability(a?.availability_json);
         const availability=[availabilityByDay(grid),grid.liveIn?'Live-in':''].filter(Boolean).join(' · ')||clean(a?.shift_preferences,300);
-        await emailApplicationToAgency(env,{organizationId:orgId,caregiverId,jobId,jobTitle:clean(job.title,200),availability});
+        await emailApplicationToAgency(env,{organizationId:orgId,caregiverId,jobId,jobTitle:clean(job.title,200),availability,details:opts.application?.details});
       }
     }
   }

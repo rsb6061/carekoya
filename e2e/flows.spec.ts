@@ -86,7 +86,7 @@ test('@phone a job opens in a side panel over the list, and Apply opens its own 
   await expect(apply).toHaveAttribute('target','_blank');
   const [tab]=await Promise.all([context.waitForEvent('page'),apply.click()]);
   await tab.waitForURL(/\/apply\//);
-  await expect(tab.getByText('Apply on CareJoys')).toBeVisible();
+  await expect(tab.getByRole('heading',{name:'Apply in about 2 minutes'})).toBeVisible();
   await expect(tab.getByRole('heading',{name:'CNA - Day Shift',level:1})).toBeVisible();
   await tab.close();
   // The list stays open behind it.
@@ -109,27 +109,20 @@ test('signed-in caregivers browse all jobs in their dashboard', async({page})=>{
   clean(w);
 });
 
-test('@phone Apply starts with sign-in, and the profile form flags what is missing', async({page})=>{
+test('@phone Apply starts with the short form, and sign-in is one tap away', async({page})=>{
   const w=await watch(page);
   await page.goto('/apply/'+JOBS.applyForMe);
-  await expect(page.getByText('Apply on CareJoys')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Apply in about 2 minutes'})).toBeVisible();
   // The employer button stays off the apply page.
   await expect(page.locator('.nav-cta')).toHaveCount(0);
+  await page.getByRole('button',{name:'Continue'}).click();
+  await expect(page.getByText('Fill in the highlighted fields.')).toBeVisible();
+  await expect(page.getByLabel('First name')).toHaveAttribute('aria-invalid','true');
+  await page.getByRole('button',{name:'Sign in to apply with your profile'}).click();
   await expect(page.getByLabel('Email address')).toBeVisible();
   await expect(page.getByRole('link',{name:'Set up an employer account'})).toHaveAttribute('href','/hire-caregivers');
   await page.getByRole('button',{name:'Apply without signing in'}).click();
-  await expect(page.getByText('Upload resume')).toBeVisible();
-  await page.getByRole('button',{name:'No resume? Continue without one'}).click();
-  // Job preferences are optional while applying, so they start folded away.
-  await expect(page.getByRole('group',{name:'Weekly availability'})).toHaveCount(0);
-  await page.getByRole('button',{name:'Add job preferences (optional)'}).click();
-  await expect(page.getByRole('group',{name:'Weekly availability'})).toBeVisible();
-  await page.getByRole('button',{name:'Apply',exact:true}).last().click();
-  await expect(page.getByText('Fill in the highlighted fields to continue.')).toBeVisible();
-  await expect(page.getByLabel('First name')).toHaveAttribute('aria-invalid','true');
-  // Typing a last name keeps the row on screen.
-  await page.getByLabel('Last name').fill('Applicant');
-  await expect(page.getByLabel('Last name')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Apply in about 2 minutes'})).toBeVisible();
   clean(w);
 });
 

@@ -52,7 +52,7 @@ export function credentialRequiredMessage(employerName:string,required:unknown){
  * Emails one application to an agency's application_email: the caregiver's details, availability and resume.
  * Marks the agency_interests row notified so the daily Inbox digest doesn't repeat it.
  */
-export async function emailApplicationToAgency(env:FeatureEnv,input:{organizationId:string;caregiverId:string;jobId:string;jobTitle:string;availability:string}){
+export async function emailApplicationToAgency(env:FeatureEnv,input:{organizationId:string;caregiverId:string;jobId:string;jobTitle:string;availability:string;details?:[string,string][]}){
   if(!env.DB||!env.EMAIL)return 'skipped';
   const org=await env.DB.prepare('SELECT id,canonical_name,application_email,primary_contact_name FROM agency_organizations WHERE id=? AND is_active=1').bind(input.organizationId).first<Row>();
   const to=clean(org?.application_email,320).toLowerCase();
@@ -69,7 +69,7 @@ export async function emailApplicationToAgency(env:FeatureEnv,input:{organizatio
     credentials:[clean(c.role,80),clean(c.certifications,300)].filter(Boolean).join(' · '),
     license:[clean(c.license_number,60),clean(c.license_state,4)].filter(Boolean).join(' · '),
     experience:asNum(c.years_experience)>0?asNum(c.years_experience)+' years':'',availability:input.availability,
-    start:clean(c.start_availability,40).replace(/_/g,' '),desiredPay:clean(c.desired_wage,80),hasResume:!!resume
+    start:clean(c.start_availability,40).replace(/_/g,' '),desiredPay:clean(c.desired_wage,80),hasResume:!!resume,details:input.details
   });
   try{
     const result=await env.EMAIL.send({from:'CareJoys <hello@carejoys.com>',to,subject:body.subject,html:body.html,text:body.text,

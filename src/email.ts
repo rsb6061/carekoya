@@ -292,10 +292,11 @@ export function agencyInterestNotifyEmail(input:{recipientName:string;agencyName
 
 // To an agency that asked for applications by email: one caregiver's application, resume attached.
 export function agencyApplicationEmail(input:{agencyName:string;contactName:string;jobTitle:string;name:string;email:string;phone:string;location:string;
-  credentials:string;license:string;experience:string;availability:string;start:string;desiredPay:string;hasResume:boolean}) {
+  credentials:string;license:string;experience:string;availability:string;start:string;desiredPay:string;hasResume:boolean;details?:[string,string][]}) {
   const rows:[string,string][]=([
     ['Name',input.name],['Phone',input.phone],['Email',input.email],['Location',input.location],['Credentials',input.credentials],
-    ['License #',input.license],['Experience',input.experience],['Availability',input.availability],['Can start',input.start],['Desired pay',input.desiredPay]
+    ['License #',input.license],['Experience',input.experience],['Availability',input.availability],['Can start',input.start],['Desired pay',input.desiredPay],
+    ...(input.details||[])
   ] as [string,string][]).filter(r=>r[1]);
   const job=input.jobTitle||'your caregiver job';
   const resumeLine=input.hasResume?'Their resume is attached.':'They haven’t uploaded a resume file yet.';

@@ -54,6 +54,7 @@ import { handleUnsubscribe } from './emailPreferences';
 import { HAS_INTRO_VIDEO_SQL, adminIntroVideos, employerIntroVideo, handleMyVideo, reviewIntroVideo, type StreamBinding } from './introVideo';
 import { adminApplyTest, adminJobSites, continueApplyAgent, handleMyResume, runAutoApply, saveResumeFile, startApplyAgent, updateAutoApply } from './applyAgent';
 import { resumeDownload } from './resumeFile';
+import { bookApplyInterview, getApplyForm, handleInterviewHours, quickApply } from './quickApplyApi';
 import { CHECKLIST, parseChecklist } from './checklist';
 import { handleEmailTemplates } from './emailTemplates';
 import { SMS_INBOUND_PATH, SMS_STATUS_PATH, adminSmsReport, adminSmsTest, handleCareJoysSmsInbound, handleCareJoysSmsStatus, responseLinkRedirect, runCareJoysSmsJobs, saveCaregiverSmsConsent } from './carejoysSms';
@@ -2375,6 +2376,18 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="POST"&&url.pathname==="/api/employers") return handleEmployer(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregivers") return handleCaregiver(request,env);
     if(request.method==="POST"&&url.pathname==="/api/caregiver-resume") return handleCaregiverResume(request,env,ctx);
+    const quickApplyMatch=url.pathname.match(/^\/api\/apply\/([^/]+)$/);
+    if(request.method==="POST"&&quickApplyMatch){
+      const cross=rejectCrossSiteWrite(request);if(cross)return cross;
+      return quickApply(request,env,decodeURIComponent(quickApplyMatch[1]),await caregiverAuthIdentity(request,env),{
+        newProfile:async(id,data)=>{
+          await linkWorkerSignup(env,id,data.funnelVisitorId);
+          await runAfterResponse(ctx,scoreCaregiverAgainstAgencies(env,id).then(()=>matchCaregiverToOpenings(env,id,"quick_apply")));
+        },
+        issueTokens:async id=>({profilePhotoToken:await issueCaregiverProfilePhotoToken(env,id),resumeUploadToken:await issueCaregiverProfilePhotoToken(env,id,'resume_upload')})
+      });
+    }
+    if(request.method==="POST"&&url.pathname==="/api/apply-interview"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return bookApplyInterview(request,env); }
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-jobs") return getPublicCaregiverJobs(url,env);
     if(request.method==="GET"&&url.pathname==="/api/public/jobs-hub") return getJobsHub(url,env);
     if(request.method==="GET"&&url.pathname==="/api/public/jobs-national") return getNationalJobs(url,env);
@@ -2386,6 +2399,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/still-looking") return answerStillLooking(url,env);
     let publicJobContext=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/context$/);
     if(request.method==="GET"&&publicJobContext) return getPublicJobContext(decodeURIComponent(publicJobContext[1]),env);
+    const applyFormMatch=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/apply-form$/);
+    if(request.method==="GET"&&applyFormMatch) return getApplyForm(url,env,decodeURIComponent(applyFormMatch[1]));
     let publicJob=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)$/);
     if(request.method==="GET"&&publicJob) return getPublicCaregiverJob(decodeURIComponent(publicJob[1]),env);
     let publicJobApply=url.pathname.match(/^\/api\/public\/caregiver-jobs\/([^/]+)\/apply$/);
@@ -2470,6 +2485,10 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(request.method==="GET"&&url.pathname==="/api/public/caregiver-supply") return getCaregiverSupply(url,env);
     if(request.method==="POST"&&url.pathname==="/api/agency/claim/request"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return requestAgencyClaim(request,env,(id)=>employerAccountCookie(env,id)); }
     if(request.method==="GET"&&url.pathname==="/api/agency/network") return getAgencyNetwork(request,env);
+    if((request.method==="GET"||request.method==="PUT")&&url.pathname==="/api/agency/interview-hours"){
+      if(request.method==="PUT"){const cross=rejectCrossSiteWrite(request);if(cross)return cross;}
+      return handleInterviewHours(request,env);
+    }
     if(request.method==="GET"&&url.pathname==="/api/agency/inbox") return getAgencyInbox(request,env,ids=>caregiverProfiles(env,ids));
     const inboxResume=url.pathname.match(/^\/api\/agency\/inbox\/([^/]+)\/resume$/);
     if(request.method==="GET"&&inboxResume) return agencyInterestResume(request,env,decodeURIComponent(inboxResume[1]));

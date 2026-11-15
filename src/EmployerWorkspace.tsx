@@ -9,7 +9,8 @@ import { JobsWidgetCard } from './JobsWidgetCard';
 import { TalentCard, type TalentCandidate } from './TalentCard';
 import { ScheduleEditor } from './ScheduleEditor';
 import { MatchList, needsReply, when, type DecideStage, type MatchRow } from './MatchList';
-import { APPLICATION_PREFIX, INBOX_STAGE_FOR, mergeCandidates, resultsOf, type InboxItem } from './candidates';
+import { APPLICATION_PREFIX, INBOX_STAGE_FOR, applicationFunnel, mergeCandidates, resultsOf, type InboxItem } from './candidates';
+import { CandidateFunnel } from './CandidateFunnel';
 import { CandidatePage, CandidatePanel, type CandidateActions, type LicenseCheck } from './CandidatePanel';
 import { TalentPage, TalentPanel, reachableOpenings, type TalentActions } from './TalentPanel';
 import { shiftsLabel } from './profileTags';
@@ -336,6 +337,7 @@ export function EmployerWorkspace(){
   function openTab(next:'home'|'openings'|'plan'|'settings'){leavePage();setSettingsFocus('');setTab(next);showUrl({tab:next==='home'?'':next})}
   /** Settings, scrolled to the applicant forwarding, upload and screening cards. */
   function openApplicantSettings(){openTab('settings');setSettingsFocus('applicants')}
+  function openInterviewSettings(){openTab('settings');setSettingsFocus('interviews')}
   /** Candidates from one source; the URL keeps the source so a reload lands on the same list. */
   function pickCandidateSource(source:'carejoys'|'posts'){setCandidateSource(source);showUrl({tab:'candidates',job:candidateJobId,source:source==='posts'?'posts':''})}
 
@@ -684,7 +686,8 @@ export function EmployerWorkspace(){
         </div>}
         {!candidateJob&&candidateSource==='posts'&&(agencyNetwork.agency||hasApplicants)?<ApplicantIntake base="/api/workspace/applicants" section="list" onSetup={openApplicantSettings} onCount={setApplicantCount}/>:
         openingPipeline.length===0?<div className="empty"><strong>No candidates yet.</strong><div>Caregivers who apply{agencyNetwork.agency?' to your jobs':''} or say yes to an invitation show here.</div><div className="empty-actions"><button className="button secondary" onClick={()=>openFind(candidateJob?.status==='open'?candidateJob.id:'')} disabled={pendingApproval}>Find caregivers</button></div></div>:
-        <><div className="candidate-views">
+        <>{!candidateJob&&agencyNetwork.agency&&<CandidateFunnel counts={applicationFunnel(openingPipeline)} onInterviewTimes={openInterviewSettings}/>}
+        <div className="candidate-views">
           <div className="inbox-filters" role="group" aria-label="Show">
             <button type="button" className={'chip'+(candidateView==='active'&&!stageFilter?' on':'')} aria-pressed={candidateView==='active'&&!stageFilter} onClick={()=>{setCandidateView('active');setStageFilter('')}}>All <strong>{viewCounts.active}</strong></button>
             {STAGE_FILTERS.map(([key,label,test])=>{const n=openingPipeline.filter(p=>p.stage!=='rejected'&&test(p)).length;const on=candidateView==='active'&&stageFilter===key;
