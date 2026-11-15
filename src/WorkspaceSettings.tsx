@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useCaregiverAuth } from './caregiverAuth';
 import { AGENCY_SMS_CONSENT_TEXT } from './smsConsent';
+import { InterviewHoursCard } from './InterviewHoursCard';
 
 type Settings={digest:boolean;atsEmail:string;about:string;benefits:string;smsAlerts:boolean;smsAlertPhone:string};
 type TalentAlert={id:string;label:string;query:string};
@@ -52,7 +53,7 @@ export function WorkspaceSettings({agency,applicants,widget,focus='',homeAlertQu
   }
   const otherAlerts=(alerts||[]).filter(a=>a.id!==homeAlert?.id);
   useEffect(()=>{
-    const id={applicants:'applicant-forwarding',widget:'jobs-widget'}[focus];
+    const id={applicants:'applicant-forwarding',widget:'jobs-widget',interviews:'interview-times'}[focus];
     if(!settings||!id)return;
     const t=setTimeout(()=>document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'}),50);
     return()=>clearTimeout(t);
@@ -93,6 +94,8 @@ export function WorkspaceSettings({agency,applicants,widget,focus='',homeAlertQu
         <button className="button" disabled={busy}>Save</button>
       </form>
     </div>
+
+    {agency&&<InterviewHoursCard/>}
 
     {applicants}
 

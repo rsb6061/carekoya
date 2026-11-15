@@ -4,6 +4,7 @@ import { useCaregiverAuth } from './caregiverAuth';
 import { automatedBrowser } from './errorReporter';
 import { ApplyForMe } from './ApplyForMe';
 import { ApplySignIn } from './ApplySignIn';
+import { QuickApply } from './QuickApply';
 import { jobsHubPath, usState } from './usStates';
 import { SiteFooter, SiteHeader } from './SiteChrome';
 import { descriptionBlocks, payLabel, pillLabel } from './jobFormat';
@@ -179,8 +180,8 @@ export function ApplyPage(){
   const [applying,setApplying]=useState(false);
   const [applyError,setApplyError]=useState('');
   const [applied,setApplied]=useState<ApplyResult|null>(null);
-  // Apply starts with sign-in; "Apply without signing in" skips it for this visit.
-  const [guest,setGuest]=useState(false);
+  // Apply starts with the three-step form; "Sign in to apply with your profile" switches to sign-in for this visit.
+  const [signIn,setSignIn]=useState(false);
   const profile=me?.caregiver||null;
   const applicationSent=(!!applied&&applied.status!=='not_sent')||!!me?.applications?.some(a=>a.jobId===id);
   // Counted once per visit: the page opened, then (now or after sign-in) a signed-in caregiver on it.
@@ -211,6 +212,7 @@ export function ApplyPage(){
   const state=usState(job.state||'');
   const where=[job.city,job.state].filter(Boolean).join(', ');
   const payText=payLabel(job);
+  const quickJob={id:job.id,title:job.title,employerName:job.employerName||'the employer',employerOnCareJoys:!!job.employerOnCareJoys};
 
   return <div>
     <SiteHeader jobsHref={state?jobsHubPath(state):'/caregiver-jobs'} hireButton={false}/>
@@ -224,16 +226,10 @@ export function ApplyPage(){
         </div>
         <section className="job-detail-card apply-page-card">
           {auth.loading?<div className="caregiver-onboarding compact"><div className="onboarding-file-note">Loading…</div></div>
-          :!auth.isAuthenticated&&!guest?<ApplySignIn jobTitle={job.title} finishOn={externalOnly?job.employerName||'the employer':''} next={applyPath(job.id)} onGuest={()=>setGuest(true)}/>
+          :!auth.isAuthenticated&&signIn?<ApplySignIn jobTitle={job.title} finishOn={externalOnly?job.employerName||'the employer':''} next={applyPath(job.id)} onGuest={()=>setSignIn(false)}/>
+          :!auth.isAuthenticated?<QuickApply job={quickJob} onSignIn={()=>setSignIn(true)}/>
           :profile?<ApplyWithProfile job={job} profile={profile} hasResume={!!me?.resume} applicationSent={applicationSent} applying={applying} error={applyError} onApply={()=>void applyWithProfile()} onEmployerSite={applyOnEmployerSite} leaving={leaving}/>
-          :<CaregiverOnboarding
-            compact
-            targetJobId={job.id}
-            heading="Upload your resume to apply"
-            subheading={job.employerOnCareJoys
-              ?'We’ll read it, ask only for anything missing, then send your application to '+job.employerName+'.'
-              :'We’ll read it, ask only for anything missing, then send you to '+job.employerName+' to finish the application.'}
-          />}
+          :<QuickApply job={quickJob} signedInEmail={auth.email||undefined} onSignIn={()=>{}}/>}
         </section>
       </div>
     </main>

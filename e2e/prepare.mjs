@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
-import { ADMIN, CAREGIVER, NEW_CAREGIVER, EMPLOYER, JOBS, LINKS, TRAINING } from './fixtures.mjs';
+import { ADMIN, AGENCY, CAREGIVER, NEW_CAREGIVER, EMPLOYER, JOBS, LINKS, TRAINING } from './fixtures.mjs';
 
 if(!existsSync('dist/index.html')){console.error('Build the site first: npm run build');process.exit(1);}
 const PERSIST='.wrangler/e2e';
@@ -41,6 +41,19 @@ INSERT INTO training_programs(id,source,source_key,organization_id,program_name,
 INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at)
   VALUES (${q(EMPLOYER.id)},'Harbor Home Care','Pat Tester',${q(EMPLOYER.email)},'21201','CNA','active',CURRENT_TIMESTAMP);
 INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('e2e-es1',${q(EMPLOYER.id)},${q(hash(EMPLOYER.session))},${later});
+-- A claimed agency for the three-step apply: one job, one knockout question, interview times every day 8am-8pm.
+INSERT INTO employer_leads(id,company_name,contact_name,email,zip,roles_needed,status,approved_at)
+  VALUES (${q(AGENCY.id)},'Bayview Caregivers','Riley Agency',${q(AGENCY.email)},'21224','CNA','active',CURRENT_TIMESTAMP);
+INSERT INTO employer_sessions(id,employer_id,session_hash,expires_at) VALUES ('e2e-es2',${q(AGENCY.id)},${q(hash(AGENCY.session))},${later});
+INSERT INTO account_sessions(id,email,session_hash,expires_at) VALUES ('e2e-s5',${q(AGENCY.email)},${q(hash(AGENCY.session))},${later});
+INSERT INTO agency_organizations(id,organization_key,canonical_name,primary_email,city,state,zip,is_active,claimed_employer_id)
+  VALUES ('e2e-claimed-org','e2e-claimed-org','Bayview Caregivers',${q(AGENCY.email)},'Baltimore','MD','21224',1,${q(AGENCY.id)});
+INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,zip,pay_min,pay_max,pay_period,status,is_published,summary_text)
+  VALUES (${q(JOBS.onCareJoys)},'e2e-claimed-org',${q(JOBS.onCareJoys)},'test','https://bayview.test/careers/cna','Companion Caregiver','Caregiver','Bayview Caregivers','Baltimore','MD','21224',17,21,'hour','current',1,'Companion care visits in east Baltimore.');
+INSERT INTO agency_screening_questions(employer_id,questions_json,updated_by)
+  VALUES (${q(AGENCY.id)},${q(JSON.stringify([{id:'smoke_free',label:'Can you work in a home with pets?',type:'yes_no',knockout:'no'},{id:'start',label:'When can you start?',type:'text'}]))},'e2e');
+INSERT INTO agency_interview_hours(employer_id,hours_json)
+  VALUES (${q(AGENCY.id)},${q(JSON.stringify({days:['mon','tue','wed','thu','fri','sat','sun'],start:'08:00',end:'20:00',duration:30,format:'phone',location:'',timezone:'America/New_York'}))});
 `;
 mkdirSync(PERSIST,{recursive:true});
 writeFileSync(PERSIST+'/seed.sql',sql);
