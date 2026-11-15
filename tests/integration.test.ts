@@ -1775,7 +1775,7 @@ describe('reply-yes outreach from rebecca@', ()=>{
     await org('org-ry-license','Kind Hands Care','info@kindhands.test',{sources:'maryland_license'});
     await org('org-ry-same-email','Kind Hands Care East','info@kindhands.test',{sources:'maryland_license'});
     for(const id of ['org-ry-license','org-ry-same-email'])await DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES (?,?,?,'test','https://kindhands.test/jobs','CNA','CNA','Kind Hands','Towson','MD','current',1)").bind('job-'+id,id,'job-'+id).run();
-    // Licensed, but no job on CareJoys: the note would claim one, so it isn't sent.
+    // Licensed, but no job on CareJoys: gets the no-jobs note, which claims no job, after every agency with one.
     await org('org-ry-nojobs','Quiet Care','info@quietcare.test',{sources:'maryland_license'});
     await org('org-ry-roofer','Perma-Tech Roofing Supply','info@roofer.test',{sources:'google_business',provider_types:'Google listing: Home health care service'});
     await org('org-ry-recent','Recent Care','office@recent.test',{sources:'maryland_license'});
@@ -1790,7 +1790,11 @@ describe('reply-yes outreach from rebecca@', ()=>{
     expect(to[0]).toBe('owner@sunnydays.test');
     expect(to.filter(t=>t==='info@kindhands.test')).toHaveLength(1);
     expect(to).not.toContain('info@roofer.test');
-    expect(to).not.toContain('info@quietcare.test');
+    expect(to[to.length-1]).toBe('info@quietcare.test');
+    const quiet=sent.find(m=>m.to==='info@quietcare.test') as any;
+    expect(quiet.subject).toBe('Caregiver applicants for Quiet Care');
+    expect(quiet.text).toContain("Quiet Care doesn't have a job listed with us yet.");
+    expect(quiet.text).not.toContain('CareJoys lists');
     expect(to).not.toContain('office@recent.test');
     const first=sent[0] as any;
     expect(first.from).toBe('Rebecca Myers <rebecca@carejoys.com>');
