@@ -42,7 +42,7 @@ export async function draftContext(env:ReplyDraftEnv,inboundId:string){
     if(sent&&agency){
       let payload:Row={};
       try{payload=JSON.parse(String(sent.payload||'{}')) as Row}catch{/* older rows */}
-      const variant:ReplyYesVariant=payload.variant==='jobs'||payload.variant==='b'?payload.variant:'a';
+      const variant:ReplyYesVariant=payload.variant==='jobs'||payload.variant==='nojobs'||payload.variant==='b'?payload.variant:'a';
       note=replyYesEmail({contactName:clean(agency.primary_contact_name,120),agencyName:clean(agency.canonical_name,180),variant,unsubscribeLink:'(unsubscribe link)',
         jobCount:Number(payload.jobCount||0),city:clean(payload.city,80)});
     }

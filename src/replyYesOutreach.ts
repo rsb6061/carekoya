@@ -30,7 +30,7 @@ export function replyYesVariant(orgId:string):'a'|'b'{
   return h%2?'b':'a';
 }
 
-export type ReplyYesVariant='a'|'b'|'jobs';
+export type ReplyYesVariant='a'|'b'|'jobs'|'nojobs';
 
 /** The note. 'jobs' (Rebecca's pick 2026-10-25, after 0 yeses from 174) opens with the agency's own jobs on CareJoys;
  *  'a' and 'b' are the first version, kept so the admin Inbox can show what earlier agencies were sent. */
@@ -38,6 +38,17 @@ export function replyYesEmail(input:{contactName:string;agencyName:string;varian
   const first=clean(input.contactName,120).split(/\s+/)[0]||'';
   const agency=agencyNameForEmail(clean(input.agencyName,180))||'your agency';
   const signature=`Rebecca Myers\nCareJoys · carejoys.com`+(mailingAddressLine()?'\n'+mailingAddressLine():'');
+  // 'nojobs' (Rebecca approved the wording 2026-11-15): agencies with no job on CareJoys, so it makes no claim about one.
+  if(input.variant==='nojobs')return {
+    subject:`Caregiver applicants for ${agency}`,
+    text:[
+      `Hi ${first||'there'},`,
+      `I run CareJoys, a job site just for caregivers. ${agency} doesn't have a job listed with us yet.`,
+      `If you're hiring, reply "yes" and I'll set up a free listing for you. Applications come straight to your inbox with resume and availability.`,
+      signature,
+      `Not for you? Reply "stop", or unsubscribe: ${input.unsubscribeLink}`
+    ].join('\n\n')
+  };
   if(input.variant==='jobs'){
     const n=Math.max(1,Math.round(asNum(input.jobCount)));
     let city=clean(input.city,80);
@@ -85,9 +96,6 @@ const REPLY_YES_ELIGIBLE_SQL=`SELECT o.id,o.canonical_name,o.primary_email,o.pri
       AND COALESCE(o.provider_kind,'home_care')='home_care' AND COALESCE(o.is_chain,0)=0
       AND o.primary_email IS NOT NULL AND o.primary_email!=''
       AND (o.sources LIKE '%license%' OR o.npi IS NOT NULL OR j.jobs>0 OR (o.provider_types LIKE '%Home health care service%' AND (${CARE_NAME})))
-      -- The note opens with the agency's own live jobs on CareJoys, so it only goes to agencies that have one (Rebecca, 2026-11-12:
-      -- from Nov 6 most sends went to agencies with none and still said "CareJoys lists an open caregiver job").
-      AND j.jobs>0
       AND NOT EXISTS (SELECT 1 FROM email_suppressions es WHERE es.email=lower(trim(o.primary_email)))
       -- Once per agency and per address, and never within two weeks of any other CareJoys email to the agency.
       AND NOT EXISTS (SELECT 1 FROM agency_outreach_events e WHERE e.organization_id=o.id AND (e.event_type IN ('${REPLY_YES_EVENT}','${REPLY_YES_EVENT}_failed') OR e.created_at>datetime('now','-14 days')))
@@ -106,7 +114,9 @@ export async function sendReplyYesBatch(env:ReplyYesEnv,limit:number){
     const email=clean(org.primary_email,320).toLowerCase();
     if(seen.has(email))continue;
     seen.add(email);
-    const variant:ReplyYesVariant='jobs';
+    // The 'jobs' note names the agency's live jobs on CareJoys, so only agencies with one get it (Rebecca, 2026-11-12:
+    // from Nov 6 most sends went to agencies with none and still said "CareJoys lists an open caregiver job").
+    const variant:ReplyYesVariant=asNum(org.job_count)>0?'jobs':'nojobs';
     const unsubscribe=await unsubscribeLink(env.DB,email,'agency_reply_yes');
     const body=replyYesEmail({contactName:clean(org.primary_contact_name,120),agencyName:clean(org.canonical_name,180),variant,unsubscribeLink:unsubscribe.link,jobCount:asNum(org.job_count),city:clean(org.city,80)});
     try{
@@ -129,18 +139,18 @@ export async function sendReplyYesBatch(env:ReplyYesEnv,limit:number){
 
 /** Reply-yes notes sent today (UTC) and ever, the replies they got, and whether rebecca@ is routed yet. */
 export async function replyYesCounts(env:ReplyYesEnv){
-  if(!env.DB)return {today:0,total:0,replies:0,jobs:{sent:0,replies:0},old:{sent:0,replies:0},routingLive:false};
+  if(!env.DB)return {today:0,total:0,replies:0,jobs:{sent:0,replies:0},nojobs:{sent:0,replies:0},old:{sent:0,replies:0},routingLive:false};
   const row=await env.DB.prepare(`SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN datetime(created_at)>=datetime('now','start of day') THEN 1 ELSE 0 END),0) AS today
     FROM agency_outreach_events WHERE event_type='${REPLY_YES_EVENT}'`).first<Row>();
   // A reply counts for the agency the note went to: from that address, or from a colleague the inbox matched to the
   // agency (ranelle@ answering the note sent to info@). Split by the note's copy: 'jobs' (2026-10-25 on) vs the older ones.
-  const split=(await env.DB.prepare(`SELECT CASE WHEN json_extract(e.payload,'$.variant')='jobs' THEN 'jobs' ELSE 'old' END AS copy,COUNT(DISTINCT e.organization_id) AS sent,
+  const split=(await env.DB.prepare(`SELECT CASE WHEN json_extract(e.payload,'$.variant') IN ('jobs','nojobs') THEN json_extract(e.payload,'$.variant') ELSE 'old' END AS copy,COUNT(DISTINCT e.organization_id) AS sent,
       COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM email_messages m WHERE m.direction='inbound' AND m.kind IN ('reply','unsubscribe')
         AND (m.from_email=e.recipient_email OR (m.lead_type='agency' AND m.lead_id=e.organization_id))) THEN e.organization_id END) AS replies
     FROM agency_outreach_events e WHERE e.event_type='${REPLY_YES_EVENT}' GROUP BY copy`).all<Row>()).results||[];
   const byCopy=(copy:string)=>{const r=split.find(x=>x.copy===copy);return {sent:asNum(r?.sent),replies:asNum(r?.replies)}};
-  const jobs=byCopy('jobs'),old=byCopy('old');
-  return {today:asNum(row?.today),total:asNum(row?.total),replies:jobs.replies+old.replies,jobs,old,routingLive:await rebeccaRoutingLive(env.DB)};
+  const jobs=byCopy('jobs'),nojobs=byCopy('nojobs'),old=byCopy('old');
+  return {today:asNum(row?.today),total:asNum(row?.total),replies:jobs.replies+nojobs.replies+old.replies,jobs,nojobs,old,routingLive:await rebeccaRoutingLive(env.DB)};
 }
 
 /** The note as an agency would get it, to `to`, marked [Test]. Replying to it is how rebecca@'s routing gets proven. */

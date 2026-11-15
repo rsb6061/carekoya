@@ -71,7 +71,7 @@ export async function adminConversations(env:AdminMailEnv){
     if(!person)continue;
     let payload:Row={};
     try{payload=JSON.parse(String(n.payload||'{}')) as Row}catch{/* older rows */}
-    const variant:ReplyYesVariant=payload.variant==='jobs'||payload.variant==='b'?payload.variant:'a';
+    const variant:ReplyYesVariant=payload.variant==='jobs'||payload.variant==='nojobs'||payload.variant==='b'?payload.variant:'a';
     const note=replyYesEmail({contactName:clean(n.primary_contact_name,120),agencyName:clean(n.canonical_name,180),variant,unsubscribeLink:'(their unsubscribe link)',
       jobCount:Number(payload.jobCount||0),city:clean(payload.city,80)});
     person.messages.push({id:String(n.id),direction:'outbound',mailbox:REBECCA_EMAIL,subject:note.subject,text:note.text,status:'sent',createdAt:clean(n.created_at,40),outreach:true});
