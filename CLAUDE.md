@@ -13,7 +13,7 @@ Before any task, read:
 
 Each line has the date she decided it. Do not reopen these; if one blocks the work, ask her.
 
-- **No SMS.** Do not build or turn on text messages (2026-10-01). `src/sms.ts` exists but is off and stays off.
+- **No SMS.** Do not build on or turn on text messages (2026-10-01). A Twilio module exists (`src/sms.ts`, added 2026-10-18) and has never sent a text; do not add Twilio secrets. See "Text messages" in `README.md`.
 - **Ask before any new outreach.** No new campaign, audience, or re-send without her yes in the thread. `OUTREACH_ENABLED` and the per-campaign switches in `wrangler.jsonc` are hers to flip (2026-10-01).
 - **New agency outreach is paused** (2026-11-13, `AGENCY_HIRING_INVITES_ENABLED=false`). Replies, yes set-ups and application emails keep running.
 - **School outreach is on hold** (2026-10-23). Do not send or automate it.

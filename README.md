@@ -39,7 +39,7 @@ The Worker config is committed as `wrangler.jsonc`.
 
 ## Text messages
 
-CareJoys does not send text messages. Rebecca decided against SMS on 2026-10-01. `src/sms.ts` and `src/carejoysSms.ts` remain in the code but are switched off (no Twilio secrets, `SMS_ENABLED` unset); do not turn them on.
+No text message has ever been sent or received (the `sms_messages` log was empty on 2026-11-15). Rebecca decided against SMS on 2026-10-01; a Twilio module was added later (`src/sms.ts`, `src/carejoysSms.ts`, `migrations/0062_sms.sql`, 2026-10-18) and `SMS_ENABLED` is `"true"` in `wrangler.jsonc`, so texts would start if the three Twilio secrets (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`) were added. Do not add them or build on this module without Rebecca's yes. Logs, if it is ever used: `/api/admin/sms`.
 
 ## Monitoring
 

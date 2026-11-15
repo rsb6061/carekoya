@@ -40,7 +40,7 @@ If the number is small or zero, do not round it up or word around it. Leave the 
 - A number of applicants an agency will get, or how fast.
 - That CareJoys provides staffing, temp or per-diem workers, shift coverage, payroll or scheduling.
 - That CareJoys connects to an agency's software (ATS, HHAeXchange, WellSky and so on).
-- That CareJoys sends text messages.
+- That CareJoys sends text messages. It has never sent one.
 - That something was done (a job removed, a setting changed) unless it already was. Say what will be done.
 - Anything about a named agency's hiring that did not come from their own careers page or their own reply.
 - Testimonials, hire counts or success stories. There are none recorded yet; when there is a real one, add it here with the date and the person's permission.
