@@ -39,7 +39,7 @@ The Worker config is committed as `wrangler.jsonc`.
 
 ## Text messages
 
-No text message has ever been sent or received (the `sms_messages` log was empty on 2026-11-15). Rebecca decided against SMS on 2026-10-01; a Twilio module was added later (`src/sms.ts`, `src/carejoysSms.ts`, `migrations/0062_sms.sql`, 2026-10-18) and `SMS_ENABLED` is `"true"` in `wrangler.jsonc`, so texts would start if the three Twilio secrets (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`) were added. Do not add them or build on this module without Rebecca's yes. Logs, if it is ever used: `/api/admin/sms`.
+No text message has ever been sent or received (the `sms_messages` log was empty on 2026-11-15). Rebecca decided against SMS on 2026-10-01; a Twilio module was added later (`src/sms.ts`, `src/carejoysSms.ts`, `migrations/0062_sms.sql`, 2026-10-18) and Rebecca had `SMS_ENABLED` switched to `"false"` in `wrangler.jsonc` on 2026-11-16. Do not turn it on, add Twilio secrets or build on this module without her yes. Logs, if it is ever used: `/api/admin/sms`.
 
 ## Monitoring
 
