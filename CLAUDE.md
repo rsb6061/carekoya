@@ -20,6 +20,7 @@ Each line has the date she decided it. Do not reopen these; if one blocks the wo
 - **The focus is caregivers in Maryland**, measured by applications delivered to agencies per week; the target is 10 (2026-11-13).
 - **Email comes from rebecca@carejoys.com or hello@carejoys.com only**, never her Gmail. Reply drafts never send themselves; she presses Send.
 - **Spending is small and capped.** Paid data runs at cents to a few dollars a day (careers lookup is $0.25 a day). Ask before any spend above the cap already set.
+- **No paid ads right now** (2026-11-18). She turned down the roughly $150 Maryland caregiver ad test. Do not propose ad spend again unless she raises it.
 - **API keys live in Cloudflare Worker settings**, never in the repository. `keep_vars` is on so deploys do not wipe them.
 - **Agency email is the "reply yes" note**: plain text from rebecca@, one campaign only, capped at 60 a day when it runs (2026-10-23).
 - **Apply with CareJoys means profile first for every job**, opened in a new tab (2026-10-24). Be upfront when the caregiver finishes on the employer's site.
