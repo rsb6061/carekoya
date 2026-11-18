@@ -1,4 +1,5 @@
 import { hourlyPayFloor } from './payPreferences';
+import { indexNowKeyResponse, runSearchPings } from './searchPings';
 import { accountSession, accountStatus, closeAccountSide, signedInHome, employerAccountCookie, finishGoogleSignIn, googleSignInConfigured, hiringSession, logoutEverywhere, requestLogin, saveLastDashboard, sendLoginLink, startGoogleSignIn, verifyLogin, verifyTestCode, isTestLogin } from './accountAuth';
 import { setMailingAddress, talentAlertEmail, type EmailBinding } from './email';
 import { homeStats, homeStatsResponse } from './homeStats';
@@ -119,6 +120,11 @@ interface Env {
   FIRST_JOB_NUDGE_ENABLED?: string;
   // One-week "what happened?" question to agency and caregiver after an emailed application (src/applicationFollowup.ts).
   APPLICATION_FOLLOWUP_ENABLED?: string;
+  // Job pages announced to Google (Indexing API) and IndexNow (src/searchPings.ts). GOOGLE_INDEXING_KEY is a secret in Worker settings.
+  GOOGLE_INDEXING_KEY?: string;
+  GOOGLE_INDEXING_DAILY_CAP?: string;
+  INDEXNOW_KEY?: string;
+  SEARCH_PING_STATES?: string;
   FIRST_JOB_NUDGE_SINCE?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
@@ -2231,6 +2237,7 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     const childSitemap=request.method==="GET"?url.pathname.match(/^\/sitemaps\/([a-z0-9-]+)\.xml$/):null;
     if(childSitemap){const res=await careJoysChildSitemap(env,childSitemap[1]);if(res)return res;}
     if(request.method==="GET"&&url.pathname==="/robots.txt") return careJoysRobots();
+    if(request.method==="GET"&&url.pathname.endsWith(".txt")){const keyFile=indexNowKeyResponse(env,url.pathname);if(keyFile)return keyFile;}
     if(request.method==="GET"&&url.pathname==="/llms.txt") return careJoysLlms();
     // Short links in texts: carejoys.com/r/<code> opens the invitation.
     const textLink=request.method==="GET"?url.pathname.match(/^\/r\/([^/]+)$/):null;
@@ -2738,6 +2745,8 @@ export default {
         await pullClarityInsights(env).catch(()=>null);
         // Funnel alarm: emails only when a step dropped to zero though its traffic said some were due, or Clarity saw broken clicks.
         await runDailyMonitor(env).catch(error=>console.error('daily monitor failed',error));
+        // New and closed job pages in SEARCH_PING_STATES, announced to Google (once GOOGLE_INDEXING_KEY is set) and IndexNow.
+        await runSearchPings(env).catch(error=>console.error('search pings failed',error));
         // Caregiver reactivation + agency teasers, capped per day. No-op unless OUTREACH_ENABLED=true.
         // School introductions have a separate enabled flag and cap on the hourly cron.
         await runScheduledOutreach(env);

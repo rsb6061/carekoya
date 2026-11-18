@@ -77,6 +77,12 @@
     // One question to the agency and one to the caregiver a week after an application is emailed: what happened?
     // (src/applicationFollowup.ts). Built 2026-11-18; off until Rebecca reviews the two emails and says to turn it on.
     "APPLICATION_FOLLOWUP_ENABLED": "false",
+    // Job pages announced to Google's Indexing API and IndexNow (src/searchPings.ts), daily, once per job going live or coming down.
+    // Rebecca asked 2026-11-18 to get Maryland jobs onto Google Jobs. Google needs the GOOGLE_INDEXING_KEY secret in Worker settings;
+    // until it is there only IndexNow (Bing and others) runs. The IndexNow key is public by design and served at /{key}.txt.
+    "SEARCH_PING_STATES": "MD",
+    "GOOGLE_INDEXING_DAILY_CAP": "180",
+    "INDEXNOW_KEY": "ed1608698e4eb886bb89c6a100f70577",
     "REACTIVATION_DAILY_CAP": "50",
     // One reminder (15:41 UTC cron) to legacy caregivers who got the first email and never confirmed; each gets it once. Rebecca approved 2026-10-08.
     "REACTIVATION_REMINDER_ENABLED": "true",
