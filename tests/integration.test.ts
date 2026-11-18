@@ -10,6 +10,7 @@ import { adminRecipients, alertNewClientErrors, alertRecipients, runDailyMonitor
 import { sendHiringFollowups } from '../src/employerFollowups';
 import { refreshPostedJobs } from '../src/postedJobs';
 import { sendFirstJobNudges } from '../src/firstJobNudge';
+import { handleApplicationFollowup, sendApplicationFollowups } from '../src/applicationFollowup';
 import { lookupCareersPagesBatch, lookupCareersPagesBoost } from '../src/careersLookup';
 import { sendStillLookingEmails } from '../src/publicDirectory';
 import { inviteText, runCareJoysSmsJobs, saveCaregiverSmsConsent, sendCareJoysSms, sendInterviewReminders, textJobInvite, timeZoneFor } from '../src/carejoysSms';
@@ -3715,6 +3716,43 @@ describe('agency email recheck', ()=>{
     }finally{globalThis.fetch=original}
     expect(seen).toContain('https://mailcare.test/contact');
     expect(await DB.prepare("SELECT primary_email FROM agency_organizations WHERE id='org-mail'").first()).toEqual({primary_email:'office@mailcare.test'});
+  });
+});
+
+describe('application follow-up', ()=>{
+  it('asks agency and caregiver once, a week after an emailed application, and records a confirmed answer', async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active,application_email,primary_contact_name) VALUES ('org-fu','org-fu','Birch Home Care LLC','Towson','MD',1,'hiring@birchcare.test','Dana Poe')").run();
+    await DB.prepare("INSERT INTO caregivers(id,first_name,last_name,email,zip,state,role) VALUES ('cg-fu','Sam','Rivers','sam@rivers.test','21204','MD','CNA')").run();
+    await DB.prepare("INSERT INTO agency_interests(id,organization_id,caregiver_id,job_key,source,agency_notified_at) VALUES ('ai-fu','org-fu','cg-fu','','job_apply',datetime('now','-8 days'))").run();
+    const on={APPLICATION_FOLLOWUP_ENABLED:'true'};
+    // Off by default.
+    expect(await sendApplicationFollowups(env())).toEqual({sent:0,failed:0});
+    // Too early at three days.
+    await DB.prepare("UPDATE agency_interests SET agency_notified_at=datetime('now','-3 days') WHERE id='ai-fu'").run();
+    expect(await sendApplicationFollowups(env(on))).toEqual({sent:0,failed:0});
+    await DB.prepare("UPDATE agency_interests SET agency_notified_at=datetime('now','-8 days') WHERE id='ai-fu'").run();
+    const before=sent.length;
+    expect(await sendApplicationFollowups(env(on))).toEqual({sent:2,failed:0});
+    const toAgency=sent.slice(before).find(m=>m.to==='hiring@birchcare.test')!;
+    const toCaregiver=sent.slice(before).find(m=>m.to==='sam@rivers.test')!;
+    expect(toAgency.subject).toBe('How did it go with Sam Rivers?');
+    expect(toAgency.html).toContain('Hi Dana,');
+    expect(toAgency.html).toContain('We hired them');
+    expect(toAgency.html).toContain('Unsubscribe');
+    expect(toCaregiver.subject).toBe('Did Birch Home Care get back to you?');
+    expect(toCaregiver.html).toContain('No reply yet');
+    // Never twice.
+    expect(await sendApplicationFollowups(env(on))).toEqual({sent:0,failed:0});
+    const link=toAgency.html!.match(/https:\/\/carejoys\.com\/application-followup\?token=[^"&]+&amp;answer=interviewed/)![0].replace(/&amp;/g,'&');
+    // Opening the link (as a mail scanner would) records nothing.
+    const shown=await handleApplicationFollowup(new Request(link),env());
+    expect(await shown.text()).toContain('We interviewed them?');
+    expect(await DB.prepare("SELECT answer FROM application_followups WHERE interest_id='ai-fu' AND audience='agency'").first()).toEqual({answer:null});
+    const body=new FormData();body.set('answer','interviewed');
+    const saved=await handleApplicationFollowup(new Request(link.split('&answer=')[0],{method:'POST',body}),env());
+    expect(saved.status).toBe(200);
+    expect(await DB.prepare("SELECT answer FROM application_followups WHERE interest_id='ai-fu' AND audience='agency'").first()).toEqual({answer:'interviewed'});
+    expect((await handleApplicationFollowup(new Request('https://carejoys.com/application-followup?token=nope&answer=hired'),env())).status).toBe(404);
   });
 });
 

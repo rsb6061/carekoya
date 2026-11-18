@@ -20,6 +20,7 @@ import { adminAgencySetup, adminConversationStatus, adminConversations, adminMai
 import { enrichAgencyBatch, recheckAgencyEmailBatch, scoreAgencyMatches, scoreCaregiverAgainstAgencies, getAgencyTeaser, requestAgencyClaim, getAgencyNetwork, updateAgencyHiringProfile, sendAgencyTeaserBatch, sendAgencyHiringInvites, hiringInviteCounts, sendAgencyHiringReinvites, hiringReinviteCounts, sendFacilityPilotInvites, facilityPilotCounts } from './agencyFeatures';
 import { lookupCareersPagesBatch, lookupCareersPagesBoost } from './careersLookup';
 import { sendFirstJobNudges } from './firstJobNudge';
+import { handleApplicationFollowup, sendApplicationFollowups } from './applicationFollowup';
 import { checkApplyLinksBatch } from './applyLinkCheck';
 import { DIRECTORY_MIN_LISTED, LISTING_MAX_AGE_DAYS, directoryHub, directoryLocations, answerStillLooking, myPublicListing, publicCaregiverPhoto, publicCaregiverProfile, saveListingChoice, sendStillLookingEmails, wasListed, type PublicCaregiverCard } from './publicDirectory';
 import { discoverAgencyJobsBatch, discoverDueAgencyJobsBatch, getPublicCaregiverJobs, getPublicCaregiverJob, normalizeTitle, normalizeExistingJobsBatch, repairJobCityBatch, repairJobPayBatch, unpublishNonJobsBatch, SUSPECT_PAY_SQL, recoverRejectedJobsBatch, retryFailedAgencyJobSourcesBatch, reconcileSharedPostingsBatch } from './jobDiscovery';
@@ -116,6 +117,8 @@ interface Env {
   CAREERS_LOOKUP_DAILY_USD?: string;
   CAREERS_LOOKUP_BOOST_USD?: string;
   FIRST_JOB_NUDGE_ENABLED?: string;
+  // One-week "what happened?" question to agency and caregiver after an emailed application (src/applicationFollowup.ts).
+  APPLICATION_FOLLOWUP_ENABLED?: string;
   FIRST_JOB_NUDGE_SINCE?: string;
   CLARITY_PROJECT_ID?: string;
   CLARITY_API_TOKEN?: string;
@@ -2248,6 +2251,8 @@ async function handleRequest(request:Request,env:Env,ctx?:WorkerCtx):Promise<Res
     if(url.pathname==="/api/unsubscribe"&&(request.method==="GET"||request.method==="POST")) return handleUnsubscribe(request,env.DB);
     // An agency's past applicant answering the "still looking?" email (src/applicantReactivation.ts).
     if(url.pathname==="/still-looking"&&request.method==="GET") return handleStillLooking(request,env);
+    if(url.pathname==="/application-followup"&&request.method==="GET") return handleApplicationFollowup(request,env);
+    if(url.pathname==="/application-followup"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleApplicationFollowup(request,env); }
     if(url.pathname==="/still-looking"&&request.method==="POST"){ const cross=rejectCrossSiteWrite(request);if(cross)return cross;return handleStillLooking(request,env); }
     // Someone applying to an agency through a referrer's link (src/applicantReferrals.ts).
     const referralLink=url.pathname.match(/^\/refer\/([a-z0-9]{6,40})\/?$/i);
@@ -2714,6 +2719,8 @@ export default {
         await sendSchoolPlacementInvites(env).catch(error=>console.error('school outreach failed',error));
         // One "post your first job" email to agencies that claimed two days ago without posting. Only claims since FIRST_JOB_NUDGE_SINCE.
         await sendFirstJobNudges(env).catch(error=>console.error('first job nudge failed',error));
+        // "What happened?" to agency and caregiver a week after an emailed application. No-op while APPLICATION_FOLLOWUP_ENABLED is off.
+        await sendApplicationFollowups(env).catch(error=>console.error('application follow-ups failed',error));
         // Candidates to agencies' ATS inboxes, then the morning digest, (on the 1st) last month's results and (Mondays) the applicant report.
         await forwardToAts(env).catch(error=>console.error('ats forward failed',error));
         // Auto-apply for caregivers who switched it on. No-op while AUTO_APPLY_ENABLED is off.

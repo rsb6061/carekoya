@@ -74,6 +74,9 @@
     // claims from then on; the 3 agencies that claimed earlier were already pitched, so FIRST_JOB_NUDGE_SINCE leaves them out.
     "FIRST_JOB_NUDGE_ENABLED": "true",
     "FIRST_JOB_NUDGE_SINCE": "2026-10-23 15:40:00",
+    // One question to the agency and one to the caregiver a week after an application is emailed: what happened?
+    // (src/applicationFollowup.ts). Built 2026-11-18; off until Rebecca reviews the two emails and says to turn it on.
+    "APPLICATION_FOLLOWUP_ENABLED": "false",
     "REACTIVATION_DAILY_CAP": "50",
     // One reminder (15:41 UTC cron) to legacy caregivers who got the first email and never confirmed; each gets it once. Rebecca approved 2026-10-08.
     "REACTIVATION_REMINDER_ENABLED": "true",
