@@ -6,6 +6,8 @@ CareJoys is a caregiver workforce network for home-care and senior-care employer
 
 Canonical product domain: **https://carejoys.com**
 
+Working in this repository? Read `CLAUDE.md` first, and `docs/FACTS.md` before writing anything public.
+
 This repository is the canonical source for the post-Floot rebuild. The repository slug and current Cloudflare Worker service may still use the legacy internal name `carekoya`; that is intentional for now so existing Git integration and domain routing are not disrupted.
 
 ## Product thesis
@@ -35,14 +37,9 @@ The deploy script builds the Vite app, applies D1 migrations, then runs Wrangler
 
 The Worker config is committed as `wrangler.jsonc`.
 
-## Text messages (Twilio)
+## Text messages
 
-Candidates get texts, agencies get email. `src/sms.ts` is a brand-agnostic module (no CareJoys imports; copy it with `migrations/0062_sms.sql` to reuse it for another brand on the same Twilio account with its own Messaging Service). `src/carejoysSms.ts` is CareJoys' binding.
-
-- **Dormant until configured.** Needs the secrets `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`; sending also needs the var `SMS_ENABLED="true"`. Nothing sends texts automatically yet.
-- **Consent.** `recordSmsConsent` logs every opt-in with the exact wording shown (`sms_consent_events`); sends go only to numbers whose latest state is opted in. STOP/START/HELP (and Twilio's error 21610) update consent; STOP also clears `caregivers.sms_consent`.
-- **Webhooks** (Twilio-signed, others get 403): Messaging Service "incoming messages" → `https://carejoys.com/api/sms/inbound`; status callbacks are set per message to `https://carejoys.com/api/sms/status`.
-- **Logs.** `sms_messages` holds every text in and out with Twilio's delivery status and error code, and links each reply to the text it answers. `/api/admin/sms` shows delivered / not delivered / replied per template; `POST /api/admin/sms/test {"to":"..."}` texts your own phone.
+No text message has ever been sent or received (the `sms_messages` log was empty on 2026-11-15). Rebecca decided against SMS on 2026-10-01; a Twilio module was added later (`src/sms.ts`, `src/carejoysSms.ts`, `migrations/0062_sms.sql`, 2026-10-18) and Rebecca had `SMS_ENABLED` switched to `"false"` in `wrangler.jsonc` on 2026-11-16. Do not turn it on, add Twilio secrets or build on this module without her yes. Logs, if it is ever used: `/api/admin/sms`.
 
 ## Monitoring
 

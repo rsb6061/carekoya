@@ -105,7 +105,8 @@
     "SCHOOL_OUTREACH_DAILY_CAP": "15",
     // Twilio SMS to candidates (src/sms.ts). Credentials are secrets (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN,
     // TWILIO_MESSAGING_SERVICE_SID); nothing is texted until this is "true" and the toll-free number is verified.
-    "SMS_ENABLED": "true",
+    // Off 2026-11-16 (Rebecca): no SMS. No text was ever sent. Leave off.
+    "SMS_ENABLED": "false",
     // Auto-apply to opted-in caregivers' best new matches (up to 3 a day each). Off until Rebecca approves.
     "AUTO_APPLY_ENABLED": "false",
     // Microsoft Clarity tag on public pages (public ID; the Data Export token is the CLARITY_API_TOKEN secret).
