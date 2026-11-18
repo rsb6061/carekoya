@@ -419,6 +419,28 @@ export function firstJobNudgeEmail(input:{contactName:string;agencyName:string;c
   };
 }
 
+/** One question a week after an application was emailed to an agency: what happened? One link per answer. */
+export function applicationFollowupEmail(input:{audience:'agency'|'caregiver';greeting:string;agencyName:string;caregiverName:string;jobTitle:string;answers:{label:string;link:string}[]}) {
+  const P='font-size:16px;line-height:1.6;color:#5b5f7e';
+  const forJob=input.jobTitle?` for ${input.jobTitle}`:'';
+  const agency=input.audience==='agency';
+  const subject=agency?`How did it go with ${input.caregiverName||'your applicant'}?`:`Did ${input.agencyName||'the employer'} get back to you?`;
+  const intro=agency
+    ?`About a week ago CareJoys sent you an application from ${input.caregiverName||'a caregiver'}${forJob}. How did it go? One tap answers:`
+    :`About a week ago you applied to ${input.agencyName||'an employer'}${forJob} through CareJoys. What happened? One tap answers:`;
+  const close=agency?'Your answer stays with CareJoys. It is not shown to the caregiver.':'Your answer stays with CareJoys. It is not shown to the employer.';
+  return {
+    subject,
+    html:shell(agency?'How did it go?':'Did they get back to you?',`
+      <p style="${P}">Hi ${esc(input.greeting||'there')},</p>
+      <p style="${P}">${esc(intro)}</p>
+      ${input.answers.map(a=>`<p style="margin:10px 0"><a href="${esc(a.link)}" style="display:inline-block;background:#ffffff;color:#b8368f;border:1px solid #b8368f;text-decoration:none;border-radius:999px;padding:11px 20px;font-weight:700">${esc(a.label)}</a></p>`).join('\n      ')}
+      <p style="${P}">${esc(close)}</p>
+      <p style="${P}">Rebecca<br>CareJoys</p>`),
+    text:`Hi ${input.greeting||'there'},\n\n${intro}\n\n${input.answers.map(a=>`${a.label}: ${a.link}`).join('\n\n')}\n\n${close}\n\nRebecca\nCareJoys`.replace(/’/g,"'")
+  };
+}
+
 /** "Still looking?" to a caregiver on the public directory, two weeks after they last confirmed. Two one-tap links. */
 export function stillLookingEmail(firstName:string,yesLink:string,noLink:string){
   const P='font-size:16px;line-height:1.6;color:#5b5f7e';
