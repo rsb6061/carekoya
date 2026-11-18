@@ -20,6 +20,7 @@ import { forwardToAts, sendDailyDigests, sendMonthlyResults } from '../src/setti
 import { runAutoApply } from '../src/applyAgent';
 import { sendReplyYesBatch } from '../src/replyYesOutreach';
 import { sendJobAlerts } from '../src/jobAlertSignups';
+import { pingGoogle, pingIndexNow, serviceAccountJwt } from '../src/searchPings';
 
 // Runs the Worker against a local D1 with every migration applied (see `pretest` in package.json).
 type DB=any;
@@ -3987,5 +3988,81 @@ describe('one-field job alerts', ()=>{
     const statuses:number[]=[];
     for(let i=0;i<6;i++)statuses.push((await call('/api/public/job-alerts',{method:'POST',headers:{'content-type':'application/json','CF-Connecting-IP':'203.0.113.9'},body:JSON.stringify({email:'many'+i+'@example.com',zip:'59801'})})).status);
     expect(statuses).toEqual([200,200,200,200,200,429]);
+  });
+});
+
+describe('search engine pings for job pages', ()=>{
+  const jobs=['ping-a','ping-b','ping-c'];
+  const SA='indexer@example-project.iam.gserviceaccount.test';
+  const insertJob=(id:string,state='WY')=>DB.prepare("INSERT INTO caregiver_jobs(id,agency_organization_id,dedupe_key,source_provider,source_url,title,role,employer_name,city,state,status,is_published) VALUES (?,'org-ping',?,'test',?,'Caregiver','Caregiver','Ping Care','Casper',?,'current',1)")
+    .bind(id,id,'https://ping.test/jobs/'+id,state).run();
+  beforeAll(async()=>{
+    await DB.prepare("INSERT INTO agency_organizations(id,organization_key,canonical_name,city,state,is_active) VALUES ('org-ping','org-ping','Ping Care','Casper','WY',1)").run();
+    for(const id of jobs)await insertJob(id);
+    // Another state's job is never announced.
+    await insertJob('ping-mt','MT');
+  });
+  const keyPair=async()=>{
+    const pair=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']) as CryptoKeyPair;
+    const der=new Uint8Array(await crypto.subtle.exportKey('pkcs8',pair.privateKey) as ArrayBuffer);
+    let bin='';for(const b of der)bin+=String.fromCharCode(b);
+    return {pair,pem:'-----BEGIN PRIVATE KEY-----\n'+btoa(bin).replace(/(.{64})/g,'$1\n')+'\n-----END PRIVATE KEY-----\n'};
+  };
+  const okFetcher=(calls:Array<{url:string;body:any}>)=>(async(url:string,init:any)=>{
+    const token=String(url).includes('oauth2');
+    calls.push({url:String(url),body:token?null:JSON.parse(init.body)});
+    return token?new Response(JSON.stringify({access_token:'tok'}),{status:200}):new Response('{}',{status:200});
+  }) as any;
+
+  it('signs a service account token request Google can verify', async()=>{
+    const {pair,pem}=await keyPair();
+    const jwt=await serviceAccountJwt({client_email:SA,private_key:pem},1_700_000_000);
+    const [h,c,sig]=jwt.split('.');
+    const dec=(v:string)=>Uint8Array.from(atob(v.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((v.length+3)%4)),ch=>ch.charCodeAt(0));
+    expect(JSON.parse(new TextDecoder().decode(dec(c)))).toMatchObject({iss:SA,scope:'https://www.googleapis.com/auth/indexing',aud:'https://oauth2.googleapis.com/token',exp:1_700_003_600});
+    expect(await crypto.subtle.verify('RSASSA-PKCS1-v1_5',pair.publicKey,dec(sig),new TextEncoder().encode(h+'.'+c))).toBe(true);
+  });
+
+  it('announces each live job in the chosen states once, then again when it comes down', async()=>{
+    const {pem}=await keyPair();
+    const calls:Array<{url:string;body:any}>=[];
+    const fetcher=okFetcher(calls);
+    const e=env({GOOGLE_INDEXING_KEY:JSON.stringify({client_email:SA,private_key:pem}),SEARCH_PING_STATES:'WY',GOOGLE_INDEXING_DAILY_CAP:'2',INDEXNOW_KEY:'abcdef1234567890'});
+    const wide={...e,GOOGLE_INDEXING_DAILY_CAP:'10'};
+    // A cap of 2 a day: two jobs today, the third waits.
+    expect(await pingGoogle(e,fetcher)).toEqual({sent:2,failed:0});
+    expect(calls.filter(c=>c.body).map(c=>c.body.type)).toEqual(['URL_UPDATED','URL_UPDATED']);
+    expect(await pingGoogle(e,fetcher)).toEqual({sent:0,failed:0});
+    expect(await pingGoogle(wide,fetcher)).toEqual({sent:1,failed:0});
+    expect(calls.filter(c=>c.body).map(c=>c.body.url).sort()).toEqual(jobs.map(id=>'https://carejoys.com/jobs/'+id).sort());
+    // A job comes down: Google is told once.
+    await DB.prepare("UPDATE caregiver_jobs SET is_published=0,status='closed' WHERE id='ping-b'").run();
+    calls.length=0;
+    expect(await pingGoogle(wide,fetcher)).toEqual({sent:1,failed:0});
+    expect(calls.filter(c=>c.body).map(c=>[c.body.url,c.body.type])).toEqual([['https://carejoys.com/jobs/ping-b','URL_DELETED']]);
+    expect(await pingGoogle(wide,fetcher)).toEqual({sent:0,failed:0});
+    // IndexNow gets the live jobs in one request, pointing at the key file the site serves.
+    calls.length=0;
+    expect(await pingIndexNow(e,fetcher)).toEqual({sent:2,failed:0});
+    expect(calls[0].url).toBe('https://api.indexnow.org/indexnow');
+    expect(calls[0].body).toMatchObject({host:'carejoys.com',key:'abcdef1234567890',keyLocation:'https://carejoys.com/abcdef1234567890.txt'});
+    expect(calls[0].body.urlList.sort()).toEqual(['https://carejoys.com/jobs/ping-a','https://carejoys.com/jobs/ping-c']);
+    const file=await call('/abcdef1234567890.txt',{},{INDEXNOW_KEY:'abcdef1234567890'});
+    expect(file.status).toBe(200);expect(await file.text()).toBe('abcdef1234567890');
+  });
+
+  it('stops at a permission error, and does nothing without a key or for other states', async()=>{
+    await insertJob('ping-d');await insertJob('ping-e');
+    const {pem}=await keyPair();
+    let publishes=0;
+    const denied=(async(url:string)=>{
+      if(String(url).includes('oauth2'))return new Response(JSON.stringify({access_token:'tok'}),{status:200});
+      publishes++;return new Response('Permission denied. Failed to verify the URL ownership.',{status:403});
+    }) as any;
+    const res=await pingGoogle(env({GOOGLE_INDEXING_KEY:JSON.stringify({client_email:SA,private_key:pem}),SEARCH_PING_STATES:'WY',GOOGLE_INDEXING_DAILY_CAP:'50'}),denied);
+    expect(res.sent).toBe(0);expect(res.failed).toBe(1);expect(res.stopped).toContain('403');
+    expect(publishes).toBe(1);
+    expect(await pingGoogle(env({SEARCH_PING_STATES:'WY'}),denied)).toEqual({sent:0,failed:0});
+    expect(await pingIndexNow(env({INDEXNOW_KEY:'abcdef1234567890',SEARCH_PING_STATES:'NV'}),denied)).toEqual({sent:0,failed:0});
   });
 });
